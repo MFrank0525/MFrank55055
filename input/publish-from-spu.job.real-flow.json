@@ -1,0 +1,18 @@
+{
+  "runtimeDir": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\publish-from-spu\\real-product-flow",
+  "resultFile": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\publish-from-spu\\real-product-flow\\result.json",
+  "input": {
+    "shopFolder": "C:\\Users\\ffc\\Desktop\\20260330自动上架\\02延草纲目健康护理专营店",
+    "productFolder": "C:\\Users\\ffc\\Desktop\\20260330自动上架\\02延草纲目健康护理专营店\\001宝元堂医用疼痛凝胶-红盒",
+    "mode": "run_publish_flow",
+    "metadata": {
+      "brand": "延草纲目",
+      "spu": "晋械注准20232090177",
+      "title": "官方正品宝元堂医用疼痛凝胶筋骨康凝胶颈椎部位型远红外陶瓷粉远红外凝胶肩周腰椎膝盖部位型医用凝胶延草纲目医用疼痛凝胶",
+      "shortTitle": "byt医用疼痛凝胶-红盒",
+      "modelSpec": "盒装"
+    },
+    "headless": false,
+    "retryOnSystemError": true
+  }
+}

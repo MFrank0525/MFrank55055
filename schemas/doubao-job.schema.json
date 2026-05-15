@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "doubao-job.schema.json",
+  "title": "DoubaoJobInput",
+  "type": "object",
+  "required": ["outputDir"],
+  "properties": {
+    "promptFile": { "type": "string" },
+    "promptText": { "type": "string" },
+    "outputDir": { "type": "string" },
+    "imagePaths": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "imageDir": { "type": "string" },
+    "imageExtensions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "titleCount": { "type": "number" },
+    "resultFile": { "type": "string" },
+    "runtimeDir": { "type": "string" },
+    "cleanupOutputDir": { "type": "boolean" }
+  }
+}

@@ -1,0 +1,132 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { launchPersistentBrowser } from "../browser/launch.js";
+import type { SubmitPromptOptions, SubmitPromptResult } from "./types.js";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function rand(min: number, max: number): number {
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
+function setClipboardText(text: string): void {
+  const tempFile = path.join(os.tmpdir(), `doubao-prompt-${Date.now()}.txt`);
+  fs.writeFileSync(tempFile, text, "utf8");
+  try {
+    execFileSync(
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Content -Raw -Encoding UTF8 '${tempFile}' | Set-Clipboard`
+      ],
+      { stdio: "ignore" }
+    );
+  } finally {
+    fs.unlinkSync(tempFile);
+  }
+}
+
+function resolvePrompt(options: SubmitPromptOptions): { prompt: string; promptFile: string } {
+  if (options.promptText?.trim()) {
+    return {
+      prompt: options.promptText.trim(),
+      promptFile: "[inline]"
+    };
+  }
+
+  if (!options.promptFile) {
+    throw new Error("Either promptFile or promptText is required.");
+  }
+  if (!fs.existsSync(options.promptFile)) {
+    throw new Error(`Prompt file not found: ${options.promptFile}`);
+  }
+
+  const prompt = fs.readFileSync(options.promptFile, "utf8").trim();
+  if (!prompt) {
+    throw new Error(`Prompt file is empty: ${options.promptFile}`);
+  }
+
+  return {
+    prompt,
+    promptFile: path.resolve(options.promptFile)
+  };
+}
+
+export async function submitPrompt(options: SubmitPromptOptions): Promise<SubmitPromptResult> {
+  if (!fs.existsSync(options.imagePath)) {
+    throw new Error(`Image not found: ${options.imagePath}`);
+  }
+
+  const { prompt, promptFile } = resolvePrompt(options);
+  const context = await launchPersistentBrowser();
+  const existingPages = context.pages().filter((item) => !item.isClosed());
+  const targetConversationUrl = options.conversationUrl?.trim() || "";
+  const matchedPage = targetConversationUrl
+    ? existingPages.find((item) => item.url().startsWith(targetConversationUrl))
+    : undefined;
+  const fallbackPage =
+    existingPages.find((item) => /https:\/\/www\.doubao\.com\/chat\/\d+/.test(item.url())) ||
+    existingPages.find((item) => /https:\/\/www\.doubao\.com\/chat\//.test(item.url())) ||
+    existingPages[0];
+  const page = options.freshConversation ? await context.newPage() : matchedPage || fallbackPage || (await context.newPage());
+
+  await page.bringToFront();
+  if (targetConversationUrl) {
+    if (!page.url().startsWith(targetConversationUrl)) {
+      await page.goto(targetConversationUrl, { waitUntil: "domcontentloaded" });
+      await sleep(2500);
+    } else {
+      await page.waitForLoadState("domcontentloaded");
+      await sleep(1200);
+    }
+  } else if (options.freshConversation || !/https:\/\/www\.doubao\.com\/chat\//.test(page.url())) {
+    await page.goto("https://www.doubao.com/chat/", { waitUntil: "domcontentloaded" });
+    await sleep(2500);
+  } else {
+    await page.waitForLoadState("domcontentloaded");
+    await sleep(1200);
+  }
+
+  const bodyText = await page.locator("body").innerText();
+  if (bodyText.includes("登录") && !bodyText.includes("北非无战事")) {
+    throw new Error("Doubao appears logged out; manual login required.");
+  }
+
+  const input = page.locator('textarea[placeholder="发消息..."]').first();
+  await input.waitFor({ state: "visible", timeout: 20000 });
+
+  const fileInput = page.locator('input[type="file"]').first();
+  await fileInput.setInputFiles([path.resolve(options.imagePath)]);
+  await sleep(rand(1800, 2600));
+
+  await input.click({ delay: rand(70, 150) });
+  await sleep(rand(180, 320));
+  setClipboardText(prompt);
+  await page.keyboard.press("Control+V");
+  await sleep(rand(600, 1100));
+
+  const container = page.locator('div[class*="input-content-container"]').first();
+  const buttons = container.locator("button");
+  const buttonCount = await buttons.count();
+  if (buttonCount > 0) {
+    const sendButton = buttons.nth(buttonCount - 1);
+    await sendButton.hover();
+    await sleep(rand(250, 450));
+    await sendButton.click({ delay: rand(70, 150) });
+  } else {
+    await input.press("Enter");
+  }
+
+  return {
+    activeUrl: page.url(),
+    imagePath: path.resolve(options.imagePath),
+    promptFile,
+    promptLength: prompt.length,
+    submittedAt: new Date().toISOString()
+  };
+}

@@ -1,0 +1,13 @@
+{
+  "productName": "上臂式电子血压计",
+  "category": "血压计",
+  "brand": "示例品牌",
+  "coreFeatures": ["大屏显示", "语音播报", "一键测量", "精准监测"],
+  "targetPeople": ["老人", "中老年", "家庭日常监测"],
+  "usageScenarios": ["居家", "日常监测", "家庭常备"],
+  "specs": ["上臂式", "家用款"],
+  "preferredTerms": ["家用", "电子", "便携", "全自动"],
+  "bannedTerms": ["根治", "治愈", "药到病除", "疗效", "治疗", "医用级"],
+  "imageSearchHotTerms": ["家庭常备", "中老年监测", "一键测量", "语音播报", "大屏读数"],
+  "styleTone": "search"
+}

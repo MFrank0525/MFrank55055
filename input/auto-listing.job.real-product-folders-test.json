@@ -1,0 +1,26 @@
+{
+  "runtimeDir": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\runs\\real-product-folders-test",
+  "resultFile": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\runs\\real-product-folders-test\\result.json",
+  "input": {
+    "feishuImageDir": "C:\\Users\\ffc\\Desktop\\20260402飞书白底图",
+    "jimengImageDir": "C:\\Users\\ffc\\Desktop\\20260403即梦图片",
+    "titleDir": "C:\\Users\\ffc\\Desktop\\20260331豆包标题",
+    "qualificationDir": "C:\\Users\\ffc\\Desktop\\20260401产品资质图片",
+    "productInfoXlsx": "C:\\Users\\ffc\\Desktop\\2026商品信息表.xlsx",
+    "shopRootDir": "C:\\Users\\ffc\\Desktop\\20260330自动上架",
+    "deepseekConversationUrl": "https://chat.deepseek.com/a/chat/s/4c5434b3-f81e-4b22-a53d-32cfcf5fb24d",
+    "dreaminaBin": "C:\\Users\\ffc\\bin\\dreamina.exe",
+    "dreaminaPollSeconds": 120,
+    "runtimeRootDir": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\runs",
+    "processedImageManifest": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\processed-images.real.json",
+    "serialOnly": true,
+    "stopOnError": true,
+    "cleanupAfterPublish": false,
+    "titleCount": 20,
+    "maxImagesPerRun": 1,
+    "simulateOnly": false,
+    "clearTestOutputsBeforeRun": true,
+    "startStep": "jimeng_generated",
+    "endStep": "product_folders_built"
+  }
+}

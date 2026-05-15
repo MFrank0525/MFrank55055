@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "publish-from-spu.job.schema.json",
+  "title": "PublishFromSpuJobFile",
+  "type": "object",
+  "required": ["input"],
+  "properties": {
+    "runtimeDir": { "type": "string" },
+    "resultFile": { "type": "string" },
+    "input": {
+      "type": "object",
+      "required": ["shopFolder", "productFolder"],
+      "properties": {
+        "shopFolder": { "type": "string" },
+        "productFolder": { "type": "string" },
+        "mode": {
+          "type": "string",
+          "enum": ["prepare", "open_platform_spu", "query_platform_spu", "inspect_publish_page", "run_publish_flow"]
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "brand": { "type": "string" },
+            "spu": { "type": "string" },
+            "title": { "type": "string" },
+            "shortTitle": { "type": "string" },
+            "modelSpec": { "type": "string" }
+          }
+        },
+        "publishPageUrl": { "type": "string" },
+        "headless": { "type": "boolean" },
+        "retryOnSystemError": { "type": "boolean" }
+      }
+    }
+  }
+}

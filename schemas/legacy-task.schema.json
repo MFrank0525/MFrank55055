@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "legacy-task.schema.json",
+  "title": "LegacyTaskRequest",
+  "description": "Legacy compatibility schema. Prefer business-specific job files instead of the unified task entrypoint.",
+  "type": "object",
+  "required": ["taskType", "input"],
+  "properties": {
+    "taskType": {
+      "type": "string",
+      "enum": ["doubao.run", "publish_from_spu"]
+    },
+    "taskId": {
+      "type": "string"
+    },
+    "runtimeDir": {
+      "type": "string"
+    },
+    "resultFile": {
+      "type": "string"
+    },
+    "input": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "taskType": {
+            "const": "doubao.run"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": ["outputDir"],
+            "properties": {
+              "promptFile": { "type": "string" },
+              "promptText": { "type": "string" },
+              "outputDir": { "type": "string" },
+              "imagePaths": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "imageDir": { "type": "string" },
+              "imageExtensions": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "titleCount": { "type": "number" },
+              "cleanupOutputDir": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "taskType": {
+            "const": "publish_from_spu"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": ["shopFolder", "productFolder"],
+            "properties": {
+              "shopFolder": { "type": "string" },
+              "productFolder": { "type": "string" },
+              "mode": {
+                "type": "string",
+                "enum": ["prepare", "open_platform_spu", "query_platform_spu", "inspect_publish_page", "run_publish_flow"]
+              },
+              "metadata": {
+                "type": "object",
+                "properties": {
+                  "brand": { "type": "string" },
+                  "spu": { "type": "string" },
+                  "title": { "type": "string" },
+                  "shortTitle": { "type": "string" },
+                  "modelSpec": { "type": "string" }
+                }
+              },
+              "publishPageUrl": { "type": "string" },
+              "headless": { "type": "boolean" },
+              "retryOnSystemError": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

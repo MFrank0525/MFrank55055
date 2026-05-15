@@ -1,0 +1,9 @@
+{
+  "input": {
+    "shopFolder": "C:\\Users\\ffc\\Desktop\\20260330自动上架\\02延草纲目健康护理专营店",
+    "productFolder": "C:\\Users\\ffc\\Desktop\\20260330自动上架\\02延草纲目健康护理专营店\\宝元堂膝盖部位医用疼痛凝胶水印05",
+    "mode": "open_platform_spu",
+    "headless": false,
+    "retryOnSystemError": true
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "douyin-title-generator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Douyin mall title generation assistant with browser collection, analysis, generation and risk filtering.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "task": "npm run build && node dist/src/cli/task-runner.js",
+    "task:legacy": "npm run build && node dist/src/cli/task-runner.js --legacy",
+    "publish:spu": "npm run build && node dist/src/cli/publish-from-spu.js",
+    "search": "npm run build && node dist/src/cli/search.js",
+    "analyze": "npm run build && node dist/src/cli/analyze.js",
+    "generate": "npm run build && node dist/src/cli/generate.js",
+    "inspect": "npm run build && node dist/src/cli/inspect.js",
+    "doubao:inspect": "npm run build && node dist/src/cli/doubao-inspect.js",
+    "doubao:submit": "npm run build && node dist/src/cli/doubao-submit-prompt.js",
+    "doubao:save": "npm run build && node dist/src/cli/doubao-save-result.js",
+    "doubao:capture": "npm run build && node dist/src/cli/doubao-capture-result.js",
+    "doubao:run": "npm run build && node dist/src/cli/doubao-run.js",
+    "auto-listing": "npm run build && node dist/src/cli/auto-listing.js",
+    "rules:check": "npm run build && node dist/src/cli/check-rule-integrity.js",
+    "business:doubao": "npm run doubao:run --",
+    "business:publish": "npm run publish:spu --",
+    "business:auto-listing": "npm run auto-listing --"
+  },
+  "dependencies": {
+    "nodejieba": "^3.5.2",
+    "playwright": "^1.53.1",
+    "tsx": "^4.20.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "typescript": "^5.9.3"
+  }
+}

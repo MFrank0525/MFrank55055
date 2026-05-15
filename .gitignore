@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Runtime data and generated artifacts
+data/
+output/
+logs/
+*.log
+*.ndjson
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*auth*.json
+*token*.json
+*secret*.json
+
+# Browser/test artifacts
+playwright-report/
+test-results/
+screenshots/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# Local debug screenshots in repo root
+/freight-dropdown.png
+/main-image-section*.png
+/price-*.png
+/publish-*.png
+/service-fulfill.png
+/tuwen-*.png
+/white-hover.png

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "result.schema.json",
+  "title": "TaskResult",
+  "type": "object",
+  "required": [
+    "ok",
+    "taskType",
+    "taskId",
+    "status",
+    "message",
+    "startedAt",
+    "finishedAt",
+    "runtimeDir",
+    "artifacts"
+  ],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "taskType": { "type": "string" },
+    "taskId": { "type": "string" },
+    "status": { "type": "string" },
+    "message": { "type": "string" },
+    "startedAt": { "type": "string" },
+    "finishedAt": { "type": "string" },
+    "runtimeDir": { "type": "string" },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "logFile": { "type": "string" },
+        "resultFile": { "type": "string" },
+        "screenshots": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "data": {},
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "stack": { "type": "string" }
+      }
+    }
+  }
+}
