@@ -19,6 +19,7 @@ logs/
 *auth*.json
 *token*.json
 *secret*.json
+input/feishu-bitable.config.json
 
 # Browser/test artifacts
 playwright-report/

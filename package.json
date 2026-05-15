@@ -26,7 +26,11 @@
     "doctor": "npm run build && node dist/src/cli/doctor.js",
     "doctor:publish": "npm run build && node dist/src/cli/doctor.js --publish",
     "doctor:auto-listing": "npm run build && node dist/src/cli/doctor.js --auto-listing",
-    "doctor:all": "npm run build && node dist/src/cli/doctor.js --all"
+    "doctor:all": "npm run build && node dist/src/cli/doctor.js --all",
+    "feishu:check": "npm run build && node dist/src/cli/feishu-bitable.js --mode check",
+    "feishu:fields": "npm run build && node dist/src/cli/feishu-bitable.js --mode fields",
+    "feishu:records": "npm run build && node dist/src/cli/feishu-bitable.js --mode records",
+    "feishu:dump": "npm run build && node dist/src/cli/feishu-bitable.js --mode dump"
   },
   "dependencies": {
     "nodejieba": "^3.5.2",

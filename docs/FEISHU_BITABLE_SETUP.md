@@ -1,0 +1,108 @@
+# Feishu Bitable Setup
+
+目标：从飞书多维表格读取产品数据，替代原先“豆包生成卖点 + 本地 Excel 回填”的数据来源。
+
+## 需要的授权信息
+
+不要把密钥写入 Git。运行前用环境变量提供：
+
+```bash
+export FEISHU_APP_ID="cli_xxx"
+export FEISHU_APP_SECRET="xxx"
+```
+
+也可以直接提供已有 token：
+
+```bash
+export FEISHU_TENANT_ACCESS_TOKEN="t-xxx"
+```
+
+飞书应用需要具备：
+
+- 多维表格记录读取权限
+- 多维表格字段读取权限
+- 对目标多维表格的访问权限
+
+如果运行时报 `Feishu authorization is required` 或权限错误，就需要在飞书开放平台给应用授权，并让应用能访问目标多维表格。
+
+## 配置多维表格
+
+复制配置模板：
+
+```bash
+cp input/feishu-bitable.config.example.json input/feishu-bitable.config.json
+```
+
+填写：
+
+- `bitableUrl`：可选，直接填飞书多维表格 URL，程序会尝试自动解析
+- `appToken`：多维表格 URL 里的 base/app token
+- `tableId`：数据表 ID，通常以 `tbl` 开头
+- `viewId`：可选，只读取指定视图时填写
+- `fieldMap`：项目字段和飞书字段名的映射
+
+也可以用环境变量覆盖：
+
+```bash
+export FEISHU_BITABLE_APP_TOKEN="base_or_app_token"
+export FEISHU_BITABLE_TABLE_ID="tbl_xxx"
+export FEISHU_BITABLE_VIEW_ID="vew_xxx"
+```
+
+也可以只配置：
+
+```bash
+export FEISHU_BITABLE_URL="https://..."
+```
+
+## 当前要求的飞书字段
+
+默认字段名：
+
+- `用户认知名`
+- `通用名称`
+- `品牌`
+- `SPU信息`
+- `产品卖点`
+- `导购短标题`
+- `资质图片`
+- `产品白底图`
+
+如果你的飞书字段名不同，只改 `input/feishu-bitable.config.json` 里的 `fieldMap`。
+
+## 检查命令
+
+校验授权和字段映射：
+
+```bash
+npm run feishu:check -- --config ./input/feishu-bitable.config.json
+```
+
+列出飞书字段：
+
+```bash
+npm run feishu:fields -- --config ./input/feishu-bitable.config.json
+```
+
+预览记录：
+
+```bash
+npm run feishu:records -- --config ./input/feishu-bitable.config.json --limit 3
+```
+
+导出规范化产品数据：
+
+```bash
+npm run feishu:dump -- --config ./input/feishu-bitable.config.json --out ./data/feishu/products.json
+```
+
+导出的结构会包含：
+
+- `userCognitionName`
+- `genericName`
+- `brand`
+- `spu`
+- `sellingPointText`
+- `shortTitle`
+- `qualificationImages`
+- `whiteBackgroundImages`

@@ -86,6 +86,10 @@ python3 -m pip install pillow
 
 示例 job 使用相对路径，默认从仓库根目录解析。
 
+飞书多维表格数据源配置见：
+
+- `docs/FEISHU_BITABLE_SETUP.md`
+
 豆包业务运行前：
 - 把要上传的图片放到 `input/images/`
 - 确认提示词文件是 `input/doubao-prompt.txt`

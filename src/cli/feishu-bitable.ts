@@ -1,0 +1,139 @@
+import fs from "node:fs";
+import path from "node:path";
+import { assertFeishuAuthConfigReady, getTenantAccessToken } from "../feishu/auth.js";
+import { listBitableFields, resolveWikiNode, searchBitableRecords } from "../feishu/client.js";
+import { assertFeishuBitableConfigReady, loadFeishuBitableConfig } from "../feishu/config.js";
+import { isEmptyFeishuProductRecord, normalizeFeishuProductRecord, validateFeishuProductRecord } from "../feishu/product-records.js";
+
+type Mode = "check" | "fields" | "records" | "dump";
+
+interface CliArgs {
+  mode: Mode;
+  configFile: string;
+  limit: number;
+  outFile: string;
+}
+
+function getArg(argv: string[], name: string, defaultValue = ""): string {
+  const index = argv.indexOf(`--${name}`);
+  return index >= 0 ? argv[index + 1] || defaultValue : defaultValue;
+}
+
+function parseMode(value: string): Mode {
+  if (value === "check" || value === "fields" || value === "records" || value === "dump") {
+    return value;
+  }
+  throw new Error("Usage: --mode <check|fields|records|dump> --config <feishu-bitable.config.json>");
+}
+
+function parseArgs(argv: string[]): CliArgs {
+  const mode = parseMode(getArg(argv, "mode", "check"));
+  const configFile = getArg(argv, "config", "input/feishu-bitable.config.example.json");
+  const limit = Number(getArg(argv, "limit", mode === "records" ? "5" : "0"));
+  const outFile = getArg(argv, "out", "data/feishu/products.json");
+  return {
+    mode,
+    configFile,
+    limit: Number.isFinite(limit) ? limit : 0,
+    outFile
+  };
+}
+
+function validateMappedFields(configFieldNames: string[], actualFieldNames: Set<string>): string[] {
+  return configFieldNames.filter((fieldName) => !actualFieldNames.has(fieldName));
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  const config = loadFeishuBitableConfig(args.configFile);
+  assertFeishuAuthConfigReady();
+
+  const token = await getTenantAccessToken();
+  if (!config.appToken && config.wikiNodeToken) {
+    const node = await resolveWikiNode(config.wikiNodeToken, token);
+    if (node.objType && node.objType !== "bitable") {
+      throw new Error(`Feishu wiki node is not a bitable. obj_type=${node.objType}`);
+    }
+    config.appToken = node.objToken;
+  }
+  assertFeishuBitableConfigReady(config);
+  const fields = await listBitableFields(config, token);
+  const actualFieldNames = new Set(fields.map((field) => field.fieldName).filter(Boolean));
+  const mappedFieldNames = [...new Set(Object.values(config.fieldMap).filter(Boolean))];
+  const missingMappedFields = validateMappedFields(mappedFieldNames, actualFieldNames);
+
+  if (args.mode === "fields") {
+    console.log(JSON.stringify(fields, null, 2));
+    return;
+  }
+
+  if (missingMappedFields.length && args.mode === "check") {
+    throw new Error(`Feishu field mapping has missing fields: ${missingMappedFields.join(", ")}`);
+  }
+
+  if (args.mode === "check") {
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          appToken: config.appToken,
+          tableId: config.tableId,
+          viewId: config.viewId || "",
+          mappedFields: mappedFieldNames,
+          fieldCount: fields.length
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  const queryConfig = {
+    ...config,
+    fieldMap: {
+      ...config.fieldMap,
+      ...Object.fromEntries(
+        Object.entries(config.fieldMap)
+          .filter(([, fieldName]) => missingMappedFields.includes(fieldName))
+          .map(([key]) => [key, ""])
+      )
+    }
+  };
+  const rawRecords = await searchBitableRecords(queryConfig, token, args.limit);
+  const allRecords = rawRecords.map((record) => normalizeFeishuProductRecord(record, config));
+  const records = allRecords.filter((record) => !isEmptyFeishuProductRecord(record));
+  const invalidRecords = records
+    .map((record) => ({ recordId: record.recordId, missing: validateFeishuProductRecord(record) }))
+    .filter((item) => item.missing.length > 0);
+
+  const payload = {
+    ok: missingMappedFields.length === 0 && invalidRecords.length === 0,
+    count: records.length,
+    skippedEmptyCount: allRecords.length - records.length,
+    missingMappedFields,
+    invalidRecords,
+    records
+  };
+
+  if (args.mode === "dump") {
+    const outFile = path.resolve(args.outFile);
+    fs.mkdirSync(path.dirname(outFile), { recursive: true });
+    fs.writeFileSync(outFile, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    console.log(JSON.stringify({ ok: payload.ok, count: payload.count, outFile, invalidRecords }, null, 2));
+    if (!payload.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  console.log(JSON.stringify(payload, null, 2));
+  if (!payload.ok) {
+    process.exitCode = 1;
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

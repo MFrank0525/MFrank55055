@@ -31,6 +31,21 @@
 - TypeScript 脚本只读取规则并执行动作。
 - 规则完整性校验标记放 `rule-contracts.ts`，不和读取逻辑混在一起。
 
+## 2.1 飞书数据源
+
+只允许放在：
+
+- `src/feishu/*`
+- `src/cli/feishu-bitable.ts`
+- `input/feishu-bitable.config.example.json`
+- `docs/FEISHU_BITABLE_SETUP.md`
+
+规则：
+
+- 飞书密钥只走环境变量，不写入仓库。
+- 飞书字段名只通过 `fieldMap` 映射，不在业务步骤里硬编码。
+- 先用 `npm run feishu:check` 和 `npm run feishu:records` 验证数据源，再接入自动上架主链路。
+
 ## 3. 自动上架动作脚本
 
 按步骤维护：

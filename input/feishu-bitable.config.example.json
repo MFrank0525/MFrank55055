@@ -1,0 +1,27 @@
+{
+  "bitableUrl": "",
+  "appToken": "",
+  "tableId": "",
+  "viewId": "",
+  "pageSize": 100,
+  "fieldMap": {
+    "userCognitionName": "用户认知名",
+    "genericName": "通用名称",
+    "brand": "品牌",
+    "spu": "SPU",
+    "sellingPointText": "产品卖点",
+    "shortTitle": "导购短标题",
+    "qualificationImages": "资质图片",
+    "whiteBackgroundImages": "白底图"
+  },
+  "requiredFields": [
+    "userCognitionName",
+    "genericName",
+    "brand",
+    "spu",
+    "sellingPointText",
+    "shortTitle",
+    "qualificationImages",
+    "whiteBackgroundImages"
+  ]
+}
