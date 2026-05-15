@@ -22,7 +22,11 @@
     "rules:check": "npm run build && node dist/src/cli/check-rule-integrity.js",
     "business:doubao": "npm run doubao:run --",
     "business:publish": "npm run publish:spu --",
-    "business:auto-listing": "npm run auto-listing --"
+    "business:auto-listing": "npm run auto-listing --",
+    "doctor": "npm run build && node dist/src/cli/doctor.js",
+    "doctor:publish": "npm run build && node dist/src/cli/doctor.js --publish",
+    "doctor:auto-listing": "npm run build && node dist/src/cli/doctor.js --auto-listing",
+    "doctor:all": "npm run build && node dist/src/cli/doctor.js --all"
   },
   "dependencies": {
     "nodejieba": "^3.5.2",

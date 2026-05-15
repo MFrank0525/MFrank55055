@@ -22,12 +22,27 @@ function getBrowserCandidates(): string[] {
   const programFiles = process.env.ProgramFiles || "";
   const programFilesX86 = process.env["ProgramFiles(x86)"] || "";
 
+  const platformCandidates =
+    process.platform === "darwin"
+      ? [
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+          "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+          path.join(process.env.HOME || "", "Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
+          path.join(process.env.HOME || "", "Applications", "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge")
+        ]
+      : process.platform === "linux"
+        ? ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium", "/usr/bin/chromium-browser"]
+        : [
+            path.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+            path.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+            path.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
+            path.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+            path.join(localAppData, "ms-playwright", "chromium-1208", "chrome-win64", "chrome.exe")
+          ];
+
   return [
-    path.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
-    path.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
-    path.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
-    path.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
-    path.join(localAppData, "ms-playwright", "chromium-1208", "chrome-win64", "chrome.exe")
+    ...platformCandidates,
+    chromium.executablePath()
   ];
 }
 

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { formatTimestamp } from "../doubao/paths.js";
+import { getDefaultDreaminaBin } from "../utils/platform.js";
 import { AUTO_LISTING_STEPS } from "./types.js";
 import type { AutoListingJobFile, AutoListingJobInput, AutoListingResolvedJob } from "./types.js";
 
@@ -35,7 +36,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
       : path.resolve(process.cwd(), "data", "auto-listing", "product-info-key-map.json"),
     shopRootDir: ensureDirExists(input.shopRootDir, "Shop root dir"),
     deepseekConversationUrl: input.deepseekConversationUrl || "",
-    dreaminaBin: path.resolve(input.dreaminaBin || "C:\\Users\\ffc\\bin\\dreamina.exe"),
+    dreaminaBin: path.resolve(input.dreaminaBin || getDefaultDreaminaBin()),
     dreaminaPollSeconds: input.dreaminaPollSeconds ?? 120,
     dreaminaModelVersion: input.dreaminaModelVersion || "5.0",
     dreaminaResolutionType: input.dreaminaResolutionType || "2k",

@@ -2,11 +2,21 @@ import fs from "node:fs";
 import path from "node:path";
 import { formatTimestamp, sanitizeFileName } from "../doubao/paths.js";
 import { runDoubaoJob } from "../doubao/run.js";
+import { readManualTextBlock } from "./operation-manual.js";
 import { writeSimpleWorkbook } from "./xlsx-lite.js";
 import type { TitleSheetArtifact, TitleSheetFile } from "./types.js";
 
-const TITLE_CONVERSATION_URL = "https://www.doubao.com/chat/38420067428736258";
-const TITLE_PROMPT_PREFIX = "请严格执行全套标题生成规范：";
+function getTitleConversationUrl(): string {
+  return readManualTextBlock("titles_generated", "固定标题对话");
+}
+
+function getTitlePromptPrefix(): string {
+  return readManualTextBlock("titles_generated", "标题指令前缀");
+}
+
+function getTitleGenerationRule(titleCount: number): string {
+  return readManualTextBlock("titles_generated", "标题生成规则").replaceAll("{{titleCount}}", String(titleCount));
+}
 
 function inferProductName(sellingPointText: string): string {
   const firstSegment = sellingPointText.split(",").map((item) => item.trim()).filter(Boolean)[0] || "未命名产品";
@@ -44,34 +54,7 @@ function buildWorkbookRows(title: string): string[][] {
 }
 
 function buildRealTitlePrompt(titleCount: number): string {
-  return [
-    TITLE_PROMPT_PREFIX,
-    "一、产品识别与命名规则（优先级固定）",
-    "基础信息提取：核心品牌提取包装最醒目品牌名；无品牌通用原名提取包装官方标注全称；包装凸显部位提取包装主视觉强调身体部位。",
-    "用户认知产品名推导规则不可更改优先级：通用名含部位时用“医用 + 部位 + 剂型”；通用名无部位时用“医用 + 包装部位 + 剂型”；剂型判定优先级为实物容器形态（喷瓶 = 喷剂）＞包装印刷剂型（凝胶）＞质地描述。",
-    "存档规则：单品独立建档，同品永久复用，新品绝不混用旧品信息。",
-    "二、专属热搜词库构建规则",
-    "双源采集：来源1为以图搜款 + 抖音实时检索原生热搜词；来源2为以用户认知产品名联想拓展品类词。",
-    "处理规则：去重合并，仅使用原生热搜词，严禁自造词。",
-    "管理规则：单品独立词库，动态更新累积，长期存档。",
-    "三、标题前缀规则",
-    "随机三选一：医用级 / 正品 / 官方正品。",
-    "四、标题结构与字数规则",
-    "强制包含：品牌 + 用户认知产品名。",
-    "关键词布局：高转化热搜大词前置。",
-    "成分补充：仅部分标题添加1种核心成分，不强制。",
-    "字数要求：每条标题严格填满60个中文字符，标题内容本身无空格。",
-    "统一后缀：无品牌通用原名 + 延草纲目。",
-    "五、内容侧重规则",
-    "每条标题只侧重单一场景 / 人群 / 用途，不重复堆砌。",
-    "贴合抖音电商搜索转化逻辑，关键词自然融入。",
-    "六、绝对禁用词清单",
-    "严禁出现：抖音、商城、热销、买送、炎症、草本、草药、治病、治疗及同类违规词汇。",
-    "七、格式输出规则",
-    `仅输出${titleCount}条标题，无任何解释、说明、备注。`,
-    "编号格式固定为：01 标题内容，依次顺延至指定数量。",
-    "除编号后的一个分隔空格外，标题内容无换行、无空格、无特殊符号。"
-  ].join("\n");
+  return [getTitlePromptPrefix(), getTitleGenerationRule(titleCount)].join("\n");
 }
 
 function readTitlesFromCsv(csvFile: string): string[] {
@@ -150,7 +133,7 @@ export async function generateTitleSheetsFromDoubao(options: {
     runtimeDir: path.join(options.runtimeDir, "doubao-title-run"),
     cleanupOutputDir: true,
     freshConversation: false,
-    conversationUrl: TITLE_CONVERSATION_URL
+    conversationUrl: getTitleConversationUrl()
   });
 
   if (result.status !== "success" || result.items.length === 0) {

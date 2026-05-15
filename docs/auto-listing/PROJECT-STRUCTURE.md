@@ -14,19 +14,19 @@
 
 ### 先看总览
 
-- [README.md](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/docs/auto-listing/README.md)
-- [PROJECT-STRUCTURE.md](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/docs/auto-listing/PROJECT-STRUCTURE.md)
+- [README.md](docs/auto-listing/README.md)
+- [PROJECT-STRUCTURE.md](docs/auto-listing/PROJECT-STRUCTURE.md)
 
 ### 再看步骤说明
 
-- [steps](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/docs/auto-listing/steps)
+- [steps](docs/auto-listing/steps)
 
 ### 最后看脚本
 
-- 总调度入口：[auto-listing.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/cli/auto-listing.ts)
-- 总调度核心：[orchestrator.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/orchestrator.ts)
-- 发布入口：[publish-from-spu.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/cli/publish-from-spu.ts)
-- 发布核心：[publish-from-spu.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/business/publish-from-spu.ts)
+- 总调度入口：[auto-listing.ts](src/cli/auto-listing.ts)
+- 总调度核心：[orchestrator.ts](src/autolist/orchestrator.ts)
+- 发布入口：[publish-from-spu.ts](src/cli/publish-from-spu.ts)
+- 发布核心：[publish-from-spu.ts](src/business/publish-from-spu.ts)
 
 ## 目录怎么理解
 
@@ -57,7 +57,7 @@
 
 先检查规则完整性：
 
-```powershell
+```bash
 npm run rules:check
 ```
 
@@ -65,15 +65,15 @@ npm run rules:check
 
 ### 豆包卖点
 
-[01-doubao-selling-points.md](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/docs/auto-listing/steps/01-doubao-selling-points.md)
+[01-doubao-selling-points.md](docs/auto-listing/steps/01-doubao-selling-points.md)
 
 ### DeepSeek 提示词
 
-[02-deepseek-prompts.md](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/docs/auto-listing/steps/02-deepseek-prompts.md)
+[02-deepseek-prompts.md](docs/auto-listing/steps/02-deepseek-prompts.md)
 
 ### Dreamina 指令1模板
 
-[03-dreamina-generation.md](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/docs/auto-listing/steps/03-dreamina-generation.md)
+[03-dreamina-generation.md](docs/auto-listing/steps/03-dreamina-generation.md)
 
 ## 不允许再发生的情况
 

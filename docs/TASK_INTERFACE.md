@@ -2,8 +2,8 @@
 
 这个文档只描述旧的统一任务入口兼容层：
 
-```powershell
-npm run task:legacy -- --taskFile C:\path\to\task.json
+```bash
+npm run task:legacy -- --taskFile ./input/legacy/task.json
 ```
 
 默认业务执行不要再使用它。默认请改用：
@@ -32,24 +32,24 @@ npm run task:legacy -- --taskFile C:\path\to\task.json
 
 旧：
 
-```powershell
-npm run task:legacy -- --taskFile .\input\legacy\task.doubao.example.json
+```bash
+npm run task:legacy -- --taskFile ./input/legacy/task.doubao.example.json
 ```
 
 新：
 
-```powershell
-npm run business:doubao -- --job .\input\doubao-job.example.json
+```bash
+npm run business:doubao -- --job ./input/doubao-job.example.json
 ```
 
 旧：
 
-```powershell
-npm run task:legacy -- --taskFile .\input\legacy\task.publish-from-spu.flow.inspect.json
+```bash
+npm run task:legacy -- --taskFile ./input/legacy/task.publish-from-spu.flow.inspect.json
 ```
 
 新：
 
-```powershell
-npm run business:publish -- --job .\input\publish-from-spu.job.example.json
+```bash
+npm run business:publish -- --job ./input/publish-from-spu.job.example.json
 ```

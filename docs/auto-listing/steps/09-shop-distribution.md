@@ -6,7 +6,7 @@
 
 ## 动作脚本
 
-- [shop-distribution.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/shop-distribution.ts)
+- [shop-distribution.ts](src/autolist/shop-distribution.ts)
 
 ## 输入
 

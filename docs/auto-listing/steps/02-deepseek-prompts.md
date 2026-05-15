@@ -6,9 +6,9 @@
 
 ## 动作脚本
 
-- [deepseek-prompts.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/deepseek-prompts.ts)
-- [deepseek-word-docs.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/deepseek-word-docs.ts)
-- [docx-lite.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/docx-lite.ts)
+- [deepseek-prompts.ts](src/autolist/deepseek-prompts.ts)
+- [deepseek-word-docs.ts](src/autolist/deepseek-word-docs.ts)
+- [docx-lite.ts](src/autolist/docx-lite.ts)
 
 ## 输入
 

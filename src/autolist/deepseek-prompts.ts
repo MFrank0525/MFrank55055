@@ -1,10 +1,10 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import type { Locator, Page } from "playwright";
 import { sanitizeFileName } from "../doubao/paths.js";
 import { launchPersistentBrowser } from "../browser/launch.js";
+import { setClipboardText } from "../utils/clipboard.js";
+import { getPasteShortcut, getSelectAllShortcut } from "../utils/platform.js";
 import type { DeepSeekArtifact } from "./types.js";
 import {
   buildDeepSeekInstruction2,
@@ -18,20 +18,6 @@ const CONVERSATION_CACHE_FILE = path.resolve(process.cwd(), "data", "auto-listin
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function setClipboardText(text: string): void {
-  const tempFile = path.join(os.tmpdir(), `deepseek-prompt-${Date.now()}.txt`);
-  fs.writeFileSync(tempFile, text, "utf8");
-  try {
-    execFileSync(
-      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-      ["-NoProfile", "-Command", `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Content -Raw -Encoding UTF8 '${tempFile}' | Set-Clipboard`],
-      { stdio: "ignore" }
-    );
-  } finally {
-    fs.unlinkSync(tempFile);
-  }
 }
 
 function ensureTaskDir(runtimeDir: string, taskId: string): string {
@@ -290,13 +276,13 @@ async function findPromptInput(page: Page): Promise<Locator> {
 
 async function writeWholePrompt(input: Locator, promptText: string, page: Page): Promise<void> {
   await input.click();
-  await page.keyboard.press("Control+A").catch(() => {});
+  await page.keyboard.press(getSelectAllShortcut()).catch(() => {});
   await page.keyboard.press("Backspace").catch(() => {});
   const tagName = await input.evaluate((node) => node.tagName.toLowerCase()).catch(() => "");
   if (tagName === "textarea") {
     await input.fill(promptText).catch(async () => {
       setClipboardText(promptText);
-      await page.keyboard.press("Control+V");
+      await page.keyboard.press(getPasteShortcut());
     });
   } else {
     await input
@@ -309,7 +295,7 @@ async function writeWholePrompt(input: Locator, promptText: string, page: Page):
       }, promptText)
       .catch(async () => {
         setClipboardText(promptText);
-        await page.keyboard.press("Control+V");
+        await page.keyboard.press(getPasteShortcut());
       });
   }
   await sleep(500);

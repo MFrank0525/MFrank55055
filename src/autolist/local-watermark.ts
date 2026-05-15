@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { getPythonCommand } from "../utils/platform.js";
 
 const execFileAsync = promisify(execFile);
 const WATERMARK_SCRIPT = path.join(process.cwd(), "src", "autolist", "local-watermark.py");
@@ -14,7 +15,7 @@ function outputPathFor(inputFile: string, outputDir: string): string {
 
 async function runWatermark(inputFile: string, outputFile: string, watermarkText: string): Promise<string> {
   const { stdout, stderr } = await execFileAsync(
-    "python",
+    getPythonCommand(),
     ["-X", "utf8", WATERMARK_SCRIPT, "--input", inputFile, "--output", outputFile, "--text", watermarkText],
     {
       windowsHide: true,

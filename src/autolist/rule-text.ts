@@ -1,4 +1,5 @@
 import { readManualTextBlock } from "./operation-manual.js";
+import { RULE_CONTRACT_MARKERS } from "./rule-contracts.js";
 
 export const DOUBAO_URL = "https://www.doubao.com/chat/";
 export const DEEPSEEK_URL = "https://chat.deepseek.com/";
@@ -96,25 +97,26 @@ export function assertRuleTextIntegrity(): void {
   const doubaoPrompt = buildDoubaoSellingPointPrompt();
   const deepseekInstruction2 = buildDeepSeekInstruction2();
   const dreaminaInstruction1 = buildDreaminaInstruction1("延草纲目", "医用膝盖喷剂", "延草纲目膝盖部位医用喷剂");
+  const titleConversationUrl = readManualTextBlock("titles_generated", "固定标题对话");
+  const titlePromptPrefix = readManualTextBlock("titles_generated", "标题指令前缀");
+  const titleGenerationRule = readManualTextBlock("titles_generated", "标题生成规则");
 
-  assertIncludes(doubaoConversationTitle, "产品卖点生成", "Doubao conversation title");
-  assertIncludes(deepseekConversationTitle, "日式医用贴膏海报设计", "DeepSeek conversation title");
-  assertIncludes(deepseekInstruction1, "主题海报视觉设计", "DeepSeek instruction1");
-  assertIncludes(deepseekRetryInstruction, "5段", "DeepSeek retry instruction");
-
-  assertIncludes(doubaoPrompt, "产品卖点生成规则（完整整理版严格执行版）", "Doubao prompt");
-  assertIncludes(doubaoPrompt, "注意：用户认知产品名不含品牌", "Doubao prompt");
-  assertIncludes(doubaoPrompt, "01 品牌 + 用户认知产品名", "Doubao prompt");
-  assertIncludes(doubaoPrompt, "02 带品牌的产品通用名称", "Doubao prompt");
-  assertIncludes(doubaoPrompt, "严格按照 8 个卖点顺序输出", "Doubao prompt");
-
-  assertIncludes(deepseekInstruction2, "海报视觉设计生成规则", "DeepSeek instruction2");
-  assertIncludes(deepseekInstruction2, "每次需设计5款不同的电商海报", "DeepSeek instruction2");
-  assertIncludes(deepseekInstruction2, "不展示医疗器械备案注册号", "DeepSeek instruction2");
-
-  assertIncludes(dreaminaInstruction1, "【产品海报设计】", "Dreamina instruction1");
-  assertIncludes(dreaminaInstruction1, "延草纲目医用膝盖喷剂", "Dreamina instruction1");
-  assertIncludes(dreaminaInstruction1, "延草纲目膝盖部位医用喷剂", "Dreamina instruction1");
+  for (const [label, text, includes] of [
+    ["Doubao conversation title", doubaoConversationTitle, RULE_CONTRACT_MARKERS.doubaoConversationTitle],
+    ["DeepSeek conversation title", deepseekConversationTitle, RULE_CONTRACT_MARKERS.deepseekConversationTitle],
+    ["DeepSeek instruction1", deepseekInstruction1, RULE_CONTRACT_MARKERS.deepseekInstruction1],
+    ["DeepSeek retry instruction", deepseekRetryInstruction, RULE_CONTRACT_MARKERS.deepseekRetryInstruction],
+    ["Doubao prompt", doubaoPrompt, RULE_CONTRACT_MARKERS.doubaoPrompt],
+    ["DeepSeek instruction2", deepseekInstruction2, RULE_CONTRACT_MARKERS.deepseekInstruction2],
+    ["Dreamina instruction1", dreaminaInstruction1, RULE_CONTRACT_MARKERS.dreaminaInstruction1],
+    ["Title conversation URL", titleConversationUrl, RULE_CONTRACT_MARKERS.titleConversationUrl],
+    ["Title prompt prefix", titlePromptPrefix, RULE_CONTRACT_MARKERS.titlePromptPrefix],
+    ["Title generation rule", titleGenerationRule, RULE_CONTRACT_MARKERS.titleGenerationRule]
+  ] as const) {
+    for (const expected of includes) {
+      assertIncludes(text, expected, label);
+    }
+  }
 
   for (const [label, value] of [
     ["Doubao conversation title", doubaoConversationTitle],
@@ -123,7 +125,10 @@ export function assertRuleTextIntegrity(): void {
     ["DeepSeek retry instruction", deepseekRetryInstruction],
     ["Doubao prompt", doubaoPrompt],
     ["DeepSeek instruction2", deepseekInstruction2],
-    ["Dreamina instruction1", dreaminaInstruction1]
+    ["Dreamina instruction1", dreaminaInstruction1],
+    ["Title conversation URL", titleConversationUrl],
+    ["Title prompt prefix", titlePromptPrefix],
+    ["Title generation rule", titleGenerationRule]
   ] as const) {
     assertNoReplacementChar(value, label);
   }

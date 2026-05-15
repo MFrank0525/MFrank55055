@@ -6,9 +6,9 @@
 
 ## 动作脚本
 
-- [jimeng-assets.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/jimeng-assets.ts)
-- [local-watermark.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/local-watermark.ts)
-- [local-watermark.py](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/local-watermark.py)
+- [jimeng-assets.ts](src/autolist/jimeng-assets.ts)
+- [local-watermark.ts](src/autolist/local-watermark.ts)
+- [local-watermark.py](src/autolist/local-watermark.py)
 
 ## 输入
 

@@ -6,11 +6,11 @@
 
 ## 动作脚本
 
-- [metadata.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/metadata.ts)
+- [metadata.ts](src/autolist/metadata.ts)
 
 ## 输入
 
-- `C:\Users\ffc\Desktop\2026商品信息表.xlsx`
+- `./input/auto-listing/product-info.xlsx`
 - 产品图片文件夹中的标题表格
 - 可选映射文件：`product-info-key-map.json`
 

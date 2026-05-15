@@ -1,9 +1,9 @@
 {
-  "runtimeDir": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\publish-from-spu\\shop-001-product-001-flow",
-  "resultFile": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\publish-from-spu\\shop-001-product-001-flow\\result.json",
+  "runtimeDir": "./data/publish-from-spu/shop-001-product-001-flow",
+  "resultFile": "./data/publish-from-spu/shop-001-product-001-flow/result.json",
   "input": {
-    "shopFolder": "C:\\path\\to\\shop-folder",
-    "productFolder": "C:\\path\\to\\shop-folder\\001-product-folder",
+    "shopFolder": "./input/shop-folder",
+    "productFolder": "./input/shop-folder/001-product-folder",
     "mode": "run_publish_flow",
     "metadata": {
       "brand": "品牌名",

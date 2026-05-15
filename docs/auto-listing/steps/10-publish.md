@@ -6,8 +6,8 @@
 
 ## 动作脚本
 
-- [publish.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/publish.ts)
-- [publish-from-spu.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/business/publish-from-spu.ts)
+- [publish.ts](src/autolist/publish.ts)
+- [publish-from-spu.ts](src/business/publish-from-spu.ts)
 
 ## 输入
 

@@ -2,7 +2,7 @@
 
 适用入口：
 
-```powershell
+```bash
 npm run business:publish -- --job <publish-from-spu.job.json>
 ```
 

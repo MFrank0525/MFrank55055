@@ -6,11 +6,11 @@
 
 ## 动作脚本
 
-- [qualifications.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/qualifications.ts)
+- [qualifications.ts](src/autolist/qualifications.ts)
 
 ## 输入
 
-- `C:\Users\ffc\Desktop\20260401产品资质图片`
+- `./input/auto-listing/qualifications`
 - 产品图片文件夹列表
 - 产品名称
 

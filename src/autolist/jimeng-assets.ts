@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { sanitizeFileName } from "../doubao/paths.js";
+import { extendPathEnv, getDreaminaWrapperPath, getPythonCommand } from "../utils/platform.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import type { DreaminaImageCountStrategy, JimengArtifact, JimengGeneratedFile } from "./types.js";
@@ -32,9 +33,9 @@ const SHOP_SPECS = [
   }
 ] as const;
 
-const DREAMINA_IMAGE2IMAGE_WRAPPER = "C:\\Users\\ffc\\.codex\\skills\\dreamina-cli\\scripts\\image2image.py";
-const DREAMINA_QUERY_WRAPPER = "C:\\Users\\ffc\\.codex\\skills\\dreamina-cli\\scripts\\query_result.py";
-const DREAMINA_USER_CREDIT_WRAPPER = "C:\\Users\\ffc\\.codex\\skills\\dreamina-cli\\scripts\\user_credit.py";
+const DREAMINA_IMAGE2IMAGE_WRAPPER = getDreaminaWrapperPath("image2image.py");
+const DREAMINA_QUERY_WRAPPER = getDreaminaWrapperPath("query_result.py");
+const DREAMINA_USER_CREDIT_WRAPPER = getDreaminaWrapperPath("user_credit.py");
 
 function ensureTaskDir(runtimeDir: string, taskId: string): string {
   const taskDir = path.join(runtimeDir, "tasks", sanitizeFileName(taskId));
@@ -143,13 +144,13 @@ function buildDreaminaPromptFromWord(paragraphs: string[], promptWordFile: strin
 async function runWrapperJson(args: string[]): Promise<any> {
   try {
     const commandArgs = ["-X", "utf8", ...args];
-    const { stdout, stderr } = await execFileAsync("python", commandArgs, {
+    const dreaminaBinDir = process.env.DREAMINA_BIN ? path.dirname(process.env.DREAMINA_BIN) : "";
+    const { stdout, stderr } = await execFileAsync(getPythonCommand(), commandArgs, {
       windowsHide: true,
       maxBuffer: 1024 * 1024 * 32,
       env: {
-        ...process.env,
+        ...extendPathEnv([dreaminaBinDir]),
         PYTHONIOENCODING: "utf-8",
-        Path: `C:\\Users\\ffc\\bin;${process.env.Path || ""}`
       }
     });
 

@@ -1,440 +1,35 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
-import zlib from "node:zlib";
 import type { Locator, Page } from "playwright";
 import { launchPersistentBrowser } from "../browser/launch.js";
+import { getSelectAllShortcut } from "../utils/platform.js";
 import { logInfo, logWarn } from "../utils/logger.js";
+import { classifyAssets, validateMainImageAspectRatio } from "./publish-from-spu/assets.js";
+import {
+  FIXED_FREIGHT_TEMPLATE_KEYWORD,
+  FIXED_PRICES,
+  FIXED_SPEC_NAME,
+  FIXED_SPEC_VALUES,
+  FIXED_STOCK,
+  FORBIDDEN_GRAPHIC_SECTION_LABELS,
+  GRAPHIC_SECTION_LABELS,
+  PLATFORM_SPU_QUERY_RULE,
+  PLATFORM_SPU_URL,
+  SPEC_TEMPLATE_KEYWORD_DEFAULT,
+  SPEC_TEMPLATE_KEYWORD_JIUGUANG
+} from "./publish-from-spu/constants.js";
+import type {
+  ProductAssets,
+  PublishFlowStage,
+  PublishFromSpuJobInput,
+  PublishFromSpuJobOptions,
+  PublishFromSpuJobResult,
+  QueryDiagnosticError,
+  QueryMatchCandidate
+} from "./publish-from-spu/types.js";
+import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
 
-export interface PublishFromSpuJobInput {
-  shopFolder: string;
-  productFolder: string;
-  mode?:
-    | "prepare"
-    | "open_platform_spu"
-    | "query_platform_spu"
-    | "inspect_publish_page"
-    | "run_publish_flow"
-    | "run_graphic_flow"
-    | "run_pre_publish_flow"
-    | "run_service_flow";
-  metadata?: {
-    brand?: string;
-    spu?: string;
-    title?: string;
-    shortTitle?: string;
-    modelSpec?: string;
-  };
-  publishPageUrl?: string;
-  headless?: boolean;
-  retryOnSystemError?: boolean;
-}
-
-export interface PublishFromSpuJobOptions {
-  runId?: string;
-  runtimeDir?: string;
-  resultFile?: string;
-}
-
-export interface PublishFromSpuJobResult {
-  ok: boolean;
-  status: string;
-  message: string;
-  startedAt: string;
-  finishedAt: string;
-  runtimeDir: string;
-  artifacts: {
-    resultFile: string;
-    screenshots: string[];
-  };
-  data?: unknown;
-  error?: {
-    code: string;
-    message: string;
-    stack?: string;
-  };
-}
-
-const FIXED_SPEC_NAME = "\u5E97\u94FA\u5468\u5E74\u5E86\u00B7\u5148\u5230\u5148\u5F97";
-const FIXED_SPEC_VALUES = [
-  "\u2764\u2764\u2764\u5468\u5E74\u5E86\u6D3B\u52A8\u3010\u4E702\u90011\u3011\u5230\u624B3\u76D2\u2764\u2764",
-  "\u3010\u65E5\u5E38\u517B\u62A4\u3011\u4E24\u76D2\u88C51.11_11.1",
-  "\u3010\u8D35\u5728\u8FD0\u8D39\u3011\u4E00\u76D2\u88C5\u3010\u592A\u4E0D\u5212\u7B97\u3011",
-  "\u2764\u2764\u2764\u5468\u5E74\u5E86\u6D3B\u52A8\u3010\u6B63\u88C5\u4E00\u76D2\u3011\u5148\u5230\u5148\u5F97"
-];
-const FIXED_PRICES = [89, 86, 69.9, 39.9];
-const FIXED_STOCK = 1000;
-const FIXED_FREIGHT_TEMPLATE_KEYWORD = "\u5ef6\u8349\u8fd0\u8d39";
-const SPEC_TEMPLATE_KEYWORD_DEFAULT = "\u4e702\u90011";
-const SPEC_TEMPLATE_KEYWORD_JIUGUANG = "\u4e45\u5149\u5c0f\u6cfd";
-const FIXED_MAIN_IMAGE_DIR = path.resolve(process.cwd(), "input", "fixed-main-images");
-const FIXED_MAIN_AUXILIARY_FILES = ["\u8f85\u52a9\u56fe02.png", "\u8f85\u52a9\u56fe03.png", "\u8f85\u52a9\u56fe04.png", "\u8f85\u52a9\u56fe05.png"];
-const REQUIRED_MAIN_IMAGE_RATIO = 1;
-const REQUIRED_MAIN_IMAGE_RATIO_TOLERANCE = 0.02;
-const GRAPHIC_SECTION_LABELS = ["\u4e3b\u56fe", "\u4e3b\u56fe3:4", "\u767d\u5e95\u56fe", "\u8be6\u60c5\u9875"];
-const FORBIDDEN_GRAPHIC_SECTION_LABELS = ["\u4e3b\u56fe3:4", "\u767d\u5e95\u56fe"];
-const PLATFORM_SPU_QUERY_RULE =
-  "\u6807\u54c1\u68c0\u7d22\u65f6\uff0c\u54c1\u724c\u5fc5\u987b\u4e25\u683c\u4f7f\u7528\u8868\u683c\u91cc\u83b7\u53d6\u7684\u54c1\u724c\u4fe1\u606f\uff0cSPU\u5fc5\u987b\u4e25\u683c\u4f7f\u7528\u8868\u683c\u91cc\u83b7\u53d6\u7684SPU\u4fe1\u606f\uff0c\u4e0d\u5141\u8bb8\u7a0b\u5e8f\u81ea\u521b\u6216\u63a8\u6d4b\u66ff\u6362\u67e5\u8be2\u503c";
-const PLATFORM_SPU_URL =
-  "https://fxg.jinritemai.com/ffa/g/spu-record?type=create&btm_ppre=a2427.b76571.c902327.d871297&btm_pre=a2427.b39372.c67909.d0&btm_show_id=1f4fb4cd-7a30-4c1d-8d9c-6250a9e7a466";
-
-interface ProductSheetSummary {
-  brand?: string;
-  spu?: string;
-  title?: string;
-  shortTitle?: string;
-  modelSpec?: string;
-  rows: string[][];
-  parseError?: string;
-}
-
-interface ProductAssets {
-  workbookFile?: string;
-  mainImages: string[];
-  detailImages: string[];
-  otherFiles: string[];
-}
-
-interface ImageDimensions {
-  width: number;
-  height: number;
-}
-
-interface QueryMatchCandidate {
-  rowText: string;
-  normalizedText: string;
-  clickX: number;
-  clickY: number;
-}
-
-interface QueryDiagnosticError extends Error {
-  screenshotFile?: string;
-  candidateRows?: string[];
-  candidateIds?: string[];
-}
-
-type PublishFlowStage = {
-  step: string;
-  status: "completed" | "failed";
-};
-
-function sortZh(items: string[]): string[] {
-  return [...items].sort((a, b) => a.localeCompare(b, "zh-CN"));
-}
-
-function extractTrailingOrder(name: string): number {
-  const match = name.match(/(\d+)(?=\.[^.]+$)/);
-  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
-}
-
-function sortByFileRule(paths: string[]): string[] {
-  return [...paths].sort((a, b) => {
-    const nameA = path.basename(a);
-    const nameB = path.basename(b);
-    const orderDiff = extractTrailingOrder(nameA) - extractTrailingOrder(nameB);
-    if (orderDiff !== 0) {
-      return orderDiff;
-    }
-    return nameA.localeCompare(nameB, "zh-CN");
-  });
-}
-
-function isExcludedMainImage(name: string): boolean {
-  return /\u767d\u5e95\u56fe|\u767d\u5e95|3[:\uff1a]4|\u4e3b\u56fe3[:\uff1a]4/i.test(name);
-}
-
-function isImageFile(name: string): boolean {
-  return /\.(png|jpg|jpeg|webp)$/i.test(name);
-}
-
-function isAuxiliaryImageFile(name: string): boolean {
-  return /^\u8f85\u52a9\u56fe.*\.(png|jpg|jpeg|webp)$/i.test(name);
-}
-
-function isNamedMainImageFile(name: string): boolean {
-  return /^\u4E3B\u56FE01.*\.(png|jpg|jpeg|webp)$/i.test(name);
-}
-
-function isDetailImageFile(name: string): boolean {
-  return (
-    /\u8BE6\u60C5\u9875.*\.(png|jpg|jpeg|webp)$/i.test(name) ||
-    /(\u8D44\u8D28|\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1|\u533b\u7597\u5668\u68b0\u5907\u6848|\u767d\u88c5\u5c55\u5f00\u56fe|\u5305\u88c5\u5c55\u5f00\u56fe).*\.(png|jpg|jpeg|webp)$/i.test(name)
-  );
-}
-
-function getFixedAuxiliaryImages(): string[] {
-  return FIXED_MAIN_AUXILIARY_FILES.map((name) => path.join(FIXED_MAIN_IMAGE_DIR, name)).filter((file) => fs.existsSync(file));
-}
-
-function findPrimaryMainImage(productFolder: string): string[] {
-  const names = fs.readdirSync(productFolder).sort((a, b) => a.localeCompare(b, "zh-CN"));
-  const explicitMainImages = names
-    .filter((name) => isNamedMainImageFile(name))
-    .map((name) => path.join(productFolder, name));
-  if (explicitMainImages.length) {
-    return sortByFileRule(explicitMainImages);
-  }
-
-  const generatedMainCandidates = names
-    .filter((name) => isImageFile(name))
-    .filter((name) => !isExcludedMainImage(name))
-    .filter((name) => !isAuxiliaryImageFile(name))
-    .filter((name) => !isDetailImageFile(name))
-    .map((name) => path.join(productFolder, name));
-
-  return sortByFileRule(generatedMainCandidates).slice(0, 1);
-}
-
-function findWorkbook(productFolder: string): string | undefined {
-  return fs
-    .readdirSync(productFolder)
-    .filter((name) => name.toLowerCase().endsWith(".xlsx"))
-    .sort((a, b) => a.localeCompare(b, "zh-CN"))[0];
-}
-
-function classifyAssets(productFolder: string): ProductAssets {
-  const names = fs.readdirSync(productFolder).sort((a, b) => a.localeCompare(b, "zh-CN"));
-  const detailImages: string[] = [];
-  const otherFiles: string[] = [];
-  let workbookFile: string | undefined;
-  const primaryMainImageSet = new Set(findPrimaryMainImage(productFolder).map((item) => path.resolve(item)));
-
-  for (const name of names) {
-    const fullPath = path.join(productFolder, name);
-    const lower = name.toLowerCase();
-    if (lower.endsWith(".xlsx")) {
-      workbookFile = fullPath;
-      continue;
-    }
-    if (!fs.statSync(fullPath).isFile()) {
-      continue;
-    }
-    if (isExcludedMainImage(name)) {
-      otherFiles.push(fullPath);
-      continue;
-    }
-    if (primaryMainImageSet.has(path.resolve(fullPath))) {
-      continue;
-    }
-    if (isAuxiliaryImageFile(name)) {
-      otherFiles.push(fullPath);
-      continue;
-    }
-    if (/^\u4E3B\u56FE.*\.(png|jpg|jpeg|webp)$/i.test(name)) {
-      if (!isNamedMainImageFile(name)) {
-        otherFiles.push(fullPath);
-      }
-      continue;
-    }
-    if (isDetailImageFile(name)) {
-      detailImages.push(fullPath);
-      continue;
-    }
-    otherFiles.push(fullPath);
-  }
-
-  const mainImages = [...primaryMainImageSet, ...getFixedAuxiliaryImages()];
-  if (primaryMainImageSet.size === 0) {
-    throw new Error(`No Dreamina watermarked main image was found in product folder: ${productFolder}`);
-  }
-  if (detailImages.length === 0) {
-    throw new Error(`No qualification detail images were found in product folder: ${productFolder}`);
-  }
-
-  return {
-    workbookFile,
-    mainImages,
-    detailImages: sortByFileRule(detailImages),
-    otherFiles: sortZh(otherFiles)
-  };
-}
-
-function readImageDimensions(filePath: string): ImageDimensions {
-  const buffer = fs.readFileSync(filePath);
-
-  if (
-    buffer.length >= 24 &&
-    buffer[0] === 0x89 &&
-    buffer[1] === 0x50 &&
-    buffer[2] === 0x4e &&
-    buffer[3] === 0x47
-  ) {
-    return {
-      width: buffer.readUInt32BE(16),
-      height: buffer.readUInt32BE(20)
-    };
-  }
-
-  if (buffer.length >= 10 && buffer[0] === 0xff && buffer[1] === 0xd8) {
-    let offset = 2;
-    while (offset + 9 < buffer.length) {
-      if (buffer[offset] !== 0xff) {
-        offset += 1;
-        continue;
-      }
-      const marker = buffer[offset + 1];
-      const size = buffer.readUInt16BE(offset + 2);
-      if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb)) {
-        return {
-          height: buffer.readUInt16BE(offset + 5),
-          width: buffer.readUInt16BE(offset + 7)
-        };
-      }
-      if (size < 2) {
-        break;
-      }
-      offset += 2 + size;
-    }
-  }
-
-  if (buffer.length >= 30 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") {
-    const chunk = buffer.toString("ascii", 12, 16);
-    if (chunk === "VP8X" && buffer.length >= 30) {
-      return {
-        width: 1 + buffer.readUIntLE(24, 3),
-        height: 1 + buffer.readUIntLE(27, 3)
-      };
-    }
-  }
-
-  throw new Error(`Unsupported main image format for dimension check: ${path.basename(filePath)}`);
-}
-
-function validateMainImageAspectRatio(mainImages: string[]): string {
-  const invalidImages = mainImages
-    .map((filePath) => {
-      const { width, height } = readImageDimensions(filePath);
-      const ratio = width / height;
-      const diff = Math.abs(ratio - REQUIRED_MAIN_IMAGE_RATIO);
-      return diff > REQUIRED_MAIN_IMAGE_RATIO_TOLERANCE
-        ? `${path.basename(filePath)}(${width}x${height}, ratio=${ratio.toFixed(4)})`
-        : "";
-    })
-    .filter(Boolean);
-
-  if (!invalidImages.length) {
-    return "";
-  }
-
-  return `Main images must already satisfy 1:1 ratio before upload. Invalid files: ${invalidImages.join(
-    ", "
-  )}`;
-}
-
-async function readWorksheetRows(xlsxPath: string): Promise<string[][]> {
-  const zip = fs.readFileSync(xlsxPath);
-
-  const readZipEntryText = (entryName: string): string | undefined => {
-    const eocdSignature = 0x06054b50;
-    let eocdOffset = -1;
-    for (let index = zip.length - 22; index >= Math.max(0, zip.length - 65557); index -= 1) {
-      if (zip.readUInt32LE(index) === eocdSignature) {
-        eocdOffset = index;
-        break;
-      }
-    }
-    if (eocdOffset < 0) {
-      throw new Error("Invalid xlsx zip: end of central directory not found.");
-    }
-
-    const totalEntries = zip.readUInt16LE(eocdOffset + 10);
-    const centralDirectoryOffset = zip.readUInt32LE(eocdOffset + 16);
-    let offset = centralDirectoryOffset;
-
-    for (let index = 0; index < totalEntries; index += 1) {
-      if (zip.readUInt32LE(offset) !== 0x02014b50) {
-        throw new Error("Invalid xlsx zip: central directory entry signature mismatch.");
-      }
-
-      const compressionMethod = zip.readUInt16LE(offset + 10);
-      const compressedSize = zip.readUInt32LE(offset + 20);
-      const fileNameLength = zip.readUInt16LE(offset + 28);
-      const extraLength = zip.readUInt16LE(offset + 30);
-      const commentLength = zip.readUInt16LE(offset + 32);
-      const localHeaderOffset = zip.readUInt32LE(offset + 42);
-      const fileName = zip.toString("utf8", offset + 46, offset + 46 + fileNameLength);
-
-      if (fileName === entryName) {
-        if (zip.readUInt32LE(localHeaderOffset) !== 0x04034b50) {
-          throw new Error(`Invalid xlsx zip: local header missing for ${entryName}.`);
-        }
-
-        const localFileNameLength = zip.readUInt16LE(localHeaderOffset + 26);
-        const localExtraLength = zip.readUInt16LE(localHeaderOffset + 28);
-        const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
-        const compressed = zip.subarray(dataStart, dataStart + compressedSize);
-
-        if (compressionMethod === 0) {
-          return Buffer.from(compressed).toString("utf8");
-        }
-        if (compressionMethod === 8) {
-          return zlib.inflateRawSync(compressed).toString("utf8");
-        }
-        throw new Error(`Unsupported zip compression method ${compressionMethod} for ${entryName}.`);
-      }
-
-      offset += 46 + fileNameLength + extraLength + commentLength;
-    }
-
-    return undefined;
-  };
-
-  const decodeXml = (value: string): string =>
-    value
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/&amp;/g, "&");
-
-  const stripTags = (value: string): string => decodeXml(value.replace(/<[^>]+>/g, ""));
-
-  const sharedXmlText = readZipEntryText("xl/sharedStrings.xml");
-  const shared: string[] = [];
-  if (sharedXmlText) {
-    for (const match of sharedXmlText.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) {
-      shared.push(stripTags(match[1]).trim());
-    }
-  }
-
-  const sheetXmlText = readZipEntryText("xl/worksheets/sheet1.xml");
-  if (!sheetXmlText) {
-    throw new Error("sheet1.xml not found in workbook");
-  }
-
-  const rows: string[][] = [];
-  for (const rowMatch of sheetXmlText.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
-    const values: string[] = [];
-    for (const cellMatch of rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
-      const attrs = cellMatch[1];
-      const body = cellMatch[2];
-      const type = attrs.match(/\bt="([^"]+)"/)?.[1] || "";
-      let value = "";
-
-      if (type === "s") {
-        const indexText = body.match(/<v>([\s\S]*?)<\/v>/)?.[1]?.trim() || "";
-        const sharedIndex = Number(indexText);
-        if (Number.isInteger(sharedIndex) && sharedIndex >= 0 && sharedIndex < shared.length) {
-          value = shared[sharedIndex];
-        }
-      } else if (type === "inlineStr") {
-        value = stripTags(body);
-      } else {
-        value = decodeXml(body.match(/<v>([\s\S]*?)<\/v>/)?.[1]?.trim() || "");
-      }
-
-      const normalized = value.trim();
-      if (normalized) {
-        values.push(normalized);
-      }
-    }
-
-    if (values.length) {
-      rows.push(values);
-    }
-  }
-
-  return rows;
-}
+export type { PublishFromSpuJobInput, PublishFromSpuJobOptions, PublishFromSpuJobResult } from "./publish-from-spu/types.js";
 
 function normalizeMatchText(value: string): string {
   return value.replace(/\s+/g, "").trim().toLowerCase();
@@ -483,29 +78,6 @@ async function closeExtraPages(
       continue;
     }
     await page.close().catch(() => {});
-  }
-}
-
-async function summarizeWorkbook(xlsxPath?: string): Promise<ProductSheetSummary> {
-  if (!xlsxPath) {
-    return { rows: [] };
-  }
-
-  try {
-    const rows = await readWorksheetRows(xlsxPath);
-    return {
-      rows,
-      title: rows[1]?.[1]?.trim() || "",
-      shortTitle: rows[2]?.[1]?.trim() || "",
-      brand: rows[3]?.[1]?.trim() || "",
-      spu: rows[4]?.[1]?.trim() || "",
-      modelSpec: rows[5]?.[1]?.trim() || ""
-    };
-  } catch (error) {
-    return {
-      rows: [],
-      parseError: error instanceof Error ? error.message : String(error)
-    };
   }
 }
 
@@ -1223,7 +795,7 @@ async function clearAndTypeAtPoint(
   value: string
 ): Promise<void> {
   await page.mouse.click(point.x, point.y, { delay: 80 });
-  await page.keyboard.press("Control+A").catch(() => {});
+  await page.keyboard.press(getSelectAllShortcut()).catch(() => {});
   await page.keyboard.press("Backspace").catch(() => {});
   await page.keyboard.type(value, { delay: 40 });
 }
@@ -2007,7 +1579,7 @@ async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: num
 
 async function clearAndTypeAtCenter(page: Page, center: { x: number; y: number }, value: string): Promise<void> {
   await page.mouse.click(center.x, center.y, { delay: 80 });
-  await page.keyboard.press("Control+A").catch(() => {});
+  await page.keyboard.press(getSelectAllShortcut()).catch(() => {});
   await page.keyboard.press("Backspace").catch(() => {});
   await page.keyboard.type(value, { delay: 35 });
   await page.keyboard.press("Tab").catch(() => {});

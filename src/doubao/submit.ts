@@ -1,8 +1,8 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import { launchPersistentBrowser } from "../browser/launch.js";
+import { setClipboardText } from "../utils/clipboard.js";
+import { getPasteShortcut } from "../utils/platform.js";
 import type { SubmitPromptOptions, SubmitPromptResult } from "./types.js";
 
 function sleep(ms: number): Promise<void> {
@@ -11,24 +11,6 @@ function sleep(ms: number): Promise<void> {
 
 function rand(min: number, max: number): number {
   return Math.floor(min + Math.random() * (max - min + 1));
-}
-
-function setClipboardText(text: string): void {
-  const tempFile = path.join(os.tmpdir(), `doubao-prompt-${Date.now()}.txt`);
-  fs.writeFileSync(tempFile, text, "utf8");
-  try {
-    execFileSync(
-      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-      [
-        "-NoProfile",
-        "-Command",
-        `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Content -Raw -Encoding UTF8 '${tempFile}' | Set-Clipboard`
-      ],
-      { stdio: "ignore" }
-    );
-  } finally {
-    fs.unlinkSync(tempFile);
-  }
 }
 
 function resolvePrompt(options: SubmitPromptOptions): { prompt: string; promptFile: string } {
@@ -106,8 +88,8 @@ export async function submitPrompt(options: SubmitPromptOptions): Promise<Submit
 
   await input.click({ delay: rand(70, 150) });
   await sleep(rand(180, 320));
-  setClipboardText(prompt);
-  await page.keyboard.press("Control+V");
+  setClipboardText(prompt, "doubao-prompt");
+  await page.keyboard.press(getPasteShortcut());
   await sleep(rand(600, 1100));
 
   const container = page.locator('div[class*="input-content-container"]').first();

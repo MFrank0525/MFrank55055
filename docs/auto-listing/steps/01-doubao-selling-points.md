@@ -11,9 +11,9 @@
 
 ## 动作脚本
 
-- [doubao-selling-points.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/doubao-selling-points.ts)
-- [submit.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/doubao/submit.ts)
-- [capture.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/doubao/capture.ts)
+- [doubao-selling-points.ts](src/autolist/doubao-selling-points.ts)
+- [submit.ts](src/doubao/submit.ts)
+- [capture.ts](src/doubao/capture.ts)
 
 ## 输入
 

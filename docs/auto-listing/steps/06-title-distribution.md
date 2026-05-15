@@ -6,7 +6,7 @@
 
 ## 动作脚本
 
-- [title-sheets.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/title-sheets.ts)
+- [title-sheets.ts](src/autolist/title-sheets.ts)
 
 ## 输入
 

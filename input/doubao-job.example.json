@@ -1,9 +1,9 @@
 {
-  "promptFile": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\input\\doubao-prompt.txt",
-  "imageDir": "C:\\Users\\ffc\\Desktop\\20260322图片\\20260329豆包上传图片",
-  "outputDir": "C:\\Users\\ffc\\Desktop\\20260322图片\\20260329豆包上传图片",
+  "promptFile": "./input/doubao-prompt.txt",
+  "imageDir": "./input/images",
+  "outputDir": "./output/doubao",
   "titleCount": 12,
-  "resultFile": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\output\\doubao-run-result.json",
-  "runtimeDir": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\doubao-runs\\latest",
+  "resultFile": "./output/doubao-run-result.json",
+  "runtimeDir": "./data/doubao-runs/latest",
   "cleanupOutputDir": true
 }

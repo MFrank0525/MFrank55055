@@ -42,22 +42,22 @@ Dreamina 等需要消耗积分生成的图片，失败后优先复用已成功�
 
 ### 总体结构
 
-- [PROJECT-STRUCTURE.md](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/docs/auto-listing/PROJECT-STRUCTURE.md)
+- [PROJECT-STRUCTURE.md](docs/auto-listing/PROJECT-STRUCTURE.md)
 
 ### 分步骤说明
 
-- [steps](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/docs/auto-listing/steps)
+- [steps](docs/auto-listing/steps)
 
 ### 稳定性问题
 
-- [stability-checklist.md](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/docs/auto-listing/stability-checklist.md)
+- [stability-checklist.md](docs/auto-listing/stability-checklist.md)
 
 ## 关键入口
 
-- 总调度入口：[auto-listing.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/cli/auto-listing.ts)
-- 总调度核心：[orchestrator.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/orchestrator.ts)
-- 发布入口：[publish-from-spu.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/cli/publish-from-spu.ts)
-- 发布核心：[publish-from-spu.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/business/publish-from-spu.ts)
+- 总调度入口：[auto-listing.ts](src/cli/auto-listing.ts)
+- 总调度核心：[orchestrator.ts](src/autolist/orchestrator.ts)
+- 发布入口：[publish-from-spu.ts](src/cli/publish-from-spu.ts)
+- 发布核心：[publish-from-spu.ts](src/business/publish-from-spu.ts)
 
 ## 修改规则的正确方式
 
@@ -67,7 +67,7 @@ Dreamina 等需要消耗积分生成的图片，失败后优先复用已成功�
 
 命令：
 
-```powershell
+```bash
 npm run rules:check
 ```
 

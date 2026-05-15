@@ -6,7 +6,7 @@
 
 ## 动作脚本
 
-- [jimeng-assets.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/jimeng-assets.ts)
+- [jimeng-assets.ts](src/autolist/jimeng-assets.ts)
 
 ## 输入
 

@@ -6,7 +6,7 @@
 
 ## 动作脚本
 
-- [cleanup.ts](C:/Users/ffc/.openclaw/workspace/douyin-title-generator/src/autolist/cleanup.ts)
+- [cleanup.ts](src/autolist/cleanup.ts)
 
 ## 输入
 
