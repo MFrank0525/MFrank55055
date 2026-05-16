@@ -11,7 +11,7 @@ interface CheckResult {
   required?: boolean;
 }
 
-type DoctorMode = "base" | "publish" | "auto-listing" | "all";
+type DoctorMode = "base" | "publish" | "auto-listing" | "feishu" | "all";
 
 function exists(targetPath: string): boolean {
   return fs.existsSync(path.resolve(targetPath));
@@ -53,6 +53,44 @@ function checkCommand(name: string, command: string, args: string[] = ["--versio
   }
 }
 
+function checkDreaminaAccountAccess(): CheckResult {
+  const wrapper = getDreaminaWrapperPath("user_credit.py");
+  const dreaminaBin = getDefaultDreaminaBin();
+  if (!fs.existsSync(wrapper) || !fs.existsSync(dreaminaBin)) {
+    return {
+      name: "Dreamina account access",
+      ok: false,
+      detail: "Dreamina executable or credit wrapper is missing"
+    };
+  }
+
+  try {
+    const output = execFileSync(getPythonCommand(), [wrapper, "--dreamina-bin", dreaminaBin], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    }).trim();
+    const payload = JSON.parse(output) as { ok?: boolean; data?: unknown; error?: string };
+    if (!payload.ok) {
+      return {
+        name: "Dreamina account access",
+        ok: false,
+        detail: payload.error || "Dreamina account check failed"
+      };
+    }
+    return {
+      name: "Dreamina account access",
+      ok: true,
+      detail: "logged in and CLI-accessible"
+    };
+  } catch (error) {
+    return {
+      name: "Dreamina account access",
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 function checkPath(name: string, targetPath: string, required = true): CheckResult {
   const ok = exists(targetPath);
   return {
@@ -73,6 +111,9 @@ function parseMode(argv: string[]): DoctorMode {
   if (argv.includes("--auto-listing")) {
     return "auto-listing";
   }
+  if (argv.includes("--feishu")) {
+    return "feishu";
+  }
   return "base";
 }
 
@@ -90,10 +131,59 @@ function baseChecks(): CheckResult[] {
 }
 
 function publishChecks(): CheckResult[] {
+  const legacyShopFolder = path.resolve("input/shop-folder");
+  const legacyProductFolder = path.resolve("input/shop-folder/001-product-folder");
+  if (!fs.existsSync(legacyShopFolder) || !fs.existsSync(legacyProductFolder)) {
+    const feishuJob = path.resolve("input/auto-listing.job.mac-feishu-flow.json");
+    const feishuData = path.resolve("data/feishu/products.json");
+    const shopRoot = path.resolve("input/auto-listing/shops");
+    if (fs.existsSync(feishuJob) && fs.existsSync(feishuData) && fs.existsSync(shopRoot)) {
+      return [
+        {
+          name: "publish source",
+          ok: true,
+          detail: `${feishuJob} (Feishu auto-listing mode)`
+        }
+      ];
+    }
+  }
+
   return [
     checkPath("publish shop folder", "input/shop-folder"),
     checkPath("publish product folder", "input/shop-folder/001-product-folder")
   ];
+}
+
+function checkAutoListingProductInfoSource(): CheckResult {
+  const workbook = path.resolve("input/auto-listing/product-info.xlsx");
+  if (fs.existsSync(workbook)) {
+    return { name: "auto-listing product info source", ok: true, detail: workbook };
+  }
+  const feishuData = path.resolve("data/feishu/products.json");
+  if (fs.existsSync(feishuData)) {
+    return { name: "auto-listing product info source", ok: true, detail: `${feishuData} (Feishu mode)` };
+  }
+  return {
+    name: "auto-listing product info source",
+    ok: false,
+    detail: `missing: ${workbook} or ${feishuData}`
+  };
+}
+
+function checkAutoListingShopFolders(): CheckResult {
+  const root = path.resolve("input/auto-listing/shops");
+  if (!fs.existsSync(root)) {
+    return { name: "auto-listing shop folders", ok: false, detail: `missing: ${root}` };
+  }
+  const existing = fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+  const missing = ["01", "02", "03", "04", "05"].filter((code) => !existing.some((name) => name.startsWith(code)));
+  if (missing.length > 0) {
+    return { name: "auto-listing shop folders", ok: false, detail: `missing shop code(s): ${missing.join(", ")}` };
+  }
+  return { name: "auto-listing shop folders", ok: true, detail: root };
 }
 
 function autoListingChecks(): CheckResult[] {
@@ -103,12 +193,51 @@ function autoListingChecks(): CheckResult[] {
   checkPath("Dreamina image wrapper", getDreaminaWrapperPath("image2image.py")),
   checkPath("Dreamina query wrapper", getDreaminaWrapperPath("query_result.py")),
   checkPath("Dreamina credit wrapper", getDreaminaWrapperPath("user_credit.py")),
+  checkDreaminaAccountAccess(),
   checkPath("auto-listing feishu images", "input/auto-listing/feishu-images"),
   checkPath("auto-listing jimeng images", "input/auto-listing/jimeng-images"),
   checkPath("auto-listing titles", "input/auto-listing/titles"),
   checkPath("auto-listing qualifications", "input/auto-listing/qualifications"),
-  checkPath("auto-listing shops", "input/auto-listing/shops"),
-  checkPath("auto-listing product info workbook", "input/auto-listing/product-info.xlsx")
+  checkAutoListingShopFolders(),
+  checkAutoListingProductInfoSource()
+  ];
+}
+
+function checkFeishuProductData(filePath: string): CheckResult {
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) {
+    return { name: "Feishu product data", ok: false, detail: `missing: ${resolved}` };
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as {
+      ok?: boolean;
+      count?: number;
+      invalidRecords?: Array<{ recordId: string; missing: string[] }>;
+    };
+    const invalidRecords = parsed.invalidRecords || [];
+    const count = parsed.count || 0;
+    if (invalidRecords.length > 0 || parsed.ok === false) {
+      return {
+        name: "Feishu product data",
+        ok: false,
+        detail: `${resolved}; count=${count}; invalidRecords=${invalidRecords.length}`
+      };
+    }
+    return { name: "Feishu product data", ok: true, detail: `${resolved}; count=${count}` };
+  } catch (error) {
+    return {
+      name: "Feishu product data",
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function feishuChecks(): CheckResult[] {
+  return [
+    checkPath("Feishu config", "input/feishu-bitable.config.json"),
+    checkJson("input/feishu-bitable.config.example.json"),
+    checkFeishuProductData("data/feishu/products.json")
   ];
 }
 
@@ -116,7 +245,8 @@ const mode = parseMode(process.argv.slice(2));
 const checks: CheckResult[] = [
   ...baseChecks(),
   ...(mode === "publish" || mode === "all" ? publishChecks() : []),
-  ...(mode === "auto-listing" || mode === "all" ? autoListingChecks() : [])
+  ...(mode === "auto-listing" || mode === "all" ? autoListingChecks() : []),
+  ...(mode === "feishu" || mode === "all" ? feishuChecks() : [])
 ];
 
 console.log(`Doctor mode: ${mode}`);

@@ -5,6 +5,7 @@ import { writeDeepSeekPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateSellingPointsWithDoubao } from "./doubao-selling-points.js";
 import { generateJimengAssets } from "./jimeng-assets.js";
 import { appendProcessedImages, discoverPendingImages } from "./file-batch.js";
+import { loadFeishuProductRuntimeRecord } from "./feishu-products.js";
 import { enrichDistributedTitleSheets } from "./metadata.js";
 import { cleanupAfterPublish } from "./cleanup.js";
 import { readOperationManual } from "./operation-manual.js";
@@ -91,6 +92,7 @@ async function executeTaskChain(
   qualificationDir: string,
   productInfoXlsx: string,
   productInfoKeyMapFile: string,
+  feishuProductDataFile: string,
   shopRootDir: string,
   deepseekConversationUrl: string,
   dreaminaBin: string,
@@ -101,6 +103,7 @@ async function executeTaskChain(
   dreaminaExpectedImageCount: number,
   dreaminaImageCountStrategy: "accept_all" | "require_exact" | "limit_to_count",
   cleanupAfterPublishEnabled: boolean,
+  cleanupSourceImageAfterPublish: boolean,
   startStep: string,
   endStep: string,
   eventFile: string,
@@ -178,6 +181,37 @@ async function executeTaskChain(
     }
 
     if (step === "doubao_generated") {
+      if (feishuProductDataFile) {
+        appendEvent(eventFile, createEvent("info", step, "Loading selling points from Feishu product data.", current.taskId));
+        const feishuRuntimeRecord = loadFeishuProductRuntimeRecord({
+          productDataFile: feishuProductDataFile,
+          sourceImagePath: current.sourceImagePath,
+          runtimeDir,
+          taskId: current.taskId
+        });
+        current = {
+          ...current,
+          status: step,
+          sellingPointArtifact: feishuRuntimeRecord.sellingPointArtifact,
+          feishuProductRecord: feishuRuntimeRecord.record,
+          lastUpdatedAt: new Date().toISOString(),
+          notes: [
+            ...current.notes,
+            `Feishu product data loaded: record=${feishuRuntimeRecord.record.recordId}; spu=${feishuRuntimeRecord.record.spu}.`
+          ]
+        };
+        appendEvent(
+          eventFile,
+          createEvent(
+            "info",
+            step,
+            `Feishu selling points loaded: ${feishuRuntimeRecord.sellingPointArtifact.sellingPointText}`,
+            current.taskId
+          )
+        );
+        continue;
+      }
+
       appendEvent(eventFile, createEvent("info", step, "Starting Doubao selling point generation.", current.taskId));
       const sellingPointArtifact = await generateSellingPointsWithDoubao({
         runtimeDir,
@@ -361,7 +395,14 @@ async function executeTaskChain(
         productInfoXlsx,
         productInfoKeyMapFile,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
-        productName: current.sellingPointArtifact.brandedGenericName,
+        productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact.brandedGenericName,
+        metadataOverride: current.feishuProductRecord
+          ? {
+              shortTitle: current.feishuProductRecord.shortTitle,
+              brand: current.feishuProductRecord.brand,
+              spu: current.feishuProductRecord.spu
+            }
+          : undefined,
         distributedWorkbookFiles,
         simulateOnly
       });
@@ -387,7 +428,7 @@ async function executeTaskChain(
         qualificationDir,
         productFolders: current.generatedProductFolders,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
-        productName: current.sellingPointArtifact.brandedGenericName,
+        productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact.brandedGenericName,
         simulateOnly
       });
       current = {
@@ -466,6 +507,7 @@ async function executeTaskChain(
         titleDir,
         jimengImageDir,
         cleanupAfterPublish: cleanupAfterPublishEnabled,
+        cleanupSourceImageAfterPublish,
         simulateOnly
       });
       current = {
@@ -631,6 +673,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.input.qualificationDir,
           resolved.input.productInfoXlsx,
           resolved.input.productInfoKeyMapFile,
+          resolved.input.feishuProductDataFile,
           resolved.input.shopRootDir,
           resolved.input.deepseekConversationUrl,
           resolved.input.dreaminaBin,
@@ -641,6 +684,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.input.dreaminaExpectedImageCount,
           resolved.input.dreaminaImageCountStrategy,
           resolved.input.cleanupAfterPublish,
+          resolved.input.cleanupSourceImageAfterPublish,
           resolved.input.startStep,
           resolved.input.endStep,
           resolved.eventFile,

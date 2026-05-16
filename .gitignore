@@ -20,6 +20,19 @@ logs/
 *token*.json
 *secret*.json
 input/feishu-bitable.config.json
+input/auto-listing/feishu-images/*
+!input/auto-listing/feishu-images/.gitkeep
+input/auto-listing/jimeng-images/*
+!input/auto-listing/jimeng-images/.gitkeep
+input/auto-listing/titles/*
+!input/auto-listing/titles/.gitkeep
+input/auto-listing/qualifications/*
+!input/auto-listing/qualifications/.gitkeep
+input/auto-listing/shops/*
+!input/auto-listing/shops/.gitkeep
+!input/auto-listing/shops/*/
+input/auto-listing/shops/*/*
+!input/auto-listing/shops/*/.gitkeep
 
 # Browser/test artifacts
 playwright-report/

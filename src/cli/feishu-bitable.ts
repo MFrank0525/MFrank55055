@@ -1,17 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { assertFeishuAuthConfigReady, getTenantAccessToken } from "../feishu/auth.js";
+import { downloadFeishuProductAssets } from "../feishu/assets.js";
 import { listBitableFields, resolveWikiNode, searchBitableRecords } from "../feishu/client.js";
 import { assertFeishuBitableConfigReady, loadFeishuBitableConfig } from "../feishu/config.js";
 import { isEmptyFeishuProductRecord, normalizeFeishuProductRecord, validateFeishuProductRecord } from "../feishu/product-records.js";
 
-type Mode = "check" | "fields" | "records" | "dump";
+type Mode = "check" | "fields" | "records" | "dump" | "assets";
 
 interface CliArgs {
   mode: Mode;
   configFile: string;
   limit: number;
   outFile: string;
+  whiteBackgroundDir: string;
+  qualificationDir: string;
 }
 
 function getArg(argv: string[], name: string, defaultValue = ""): string {
@@ -20,10 +23,10 @@ function getArg(argv: string[], name: string, defaultValue = ""): string {
 }
 
 function parseMode(value: string): Mode {
-  if (value === "check" || value === "fields" || value === "records" || value === "dump") {
+  if (value === "check" || value === "fields" || value === "records" || value === "dump" || value === "assets") {
     return value;
   }
-  throw new Error("Usage: --mode <check|fields|records|dump> --config <feishu-bitable.config.json>");
+  throw new Error("Usage: --mode <check|fields|records|dump|assets> --config <feishu-bitable.config.json>");
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -31,11 +34,15 @@ function parseArgs(argv: string[]): CliArgs {
   const configFile = getArg(argv, "config", "input/feishu-bitable.config.example.json");
   const limit = Number(getArg(argv, "limit", mode === "records" ? "5" : "0"));
   const outFile = getArg(argv, "out", "data/feishu/products.json");
+  const whiteBackgroundDir = getArg(argv, "white-background-dir", "input/auto-listing/feishu-images");
+  const qualificationDir = getArg(argv, "qualification-dir", "input/auto-listing/qualifications");
   return {
     mode,
     configFile,
     limit: Number.isFinite(limit) ? limit : 0,
-    outFile
+    outFile,
+    whiteBackgroundDir,
+    qualificationDir
   };
 }
 
@@ -115,6 +122,40 @@ async function main(): Promise<void> {
     invalidRecords,
     records
   };
+
+  if (args.mode === "assets") {
+    const downloadResult = await downloadFeishuProductAssets({
+      token,
+      records,
+      whiteBackgroundDir: args.whiteBackgroundDir,
+      qualificationDir: args.qualificationDir
+    });
+    const outFile = path.resolve(args.outFile);
+    fs.mkdirSync(path.dirname(outFile), { recursive: true });
+    const assetPayload = {
+      ...payload,
+      records: downloadResult.records,
+      downloadedFiles: downloadResult.downloadedFiles
+    };
+    fs.writeFileSync(outFile, `${JSON.stringify(assetPayload, null, 2)}\n`, "utf8");
+    console.log(
+      JSON.stringify(
+        {
+          ok: assetPayload.ok,
+          count: assetPayload.count,
+          downloadedFileCount: downloadResult.downloadedFiles.length,
+          outFile,
+          invalidRecords
+        },
+        null,
+        2
+      )
+    );
+    if (!assetPayload.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
 
   if (args.mode === "dump") {
     const outFile = path.resolve(args.outFile);

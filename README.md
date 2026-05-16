@@ -66,6 +66,7 @@ npm run doctor
 ```bash
 npm run doctor:publish
 npm run doctor:auto-listing
+npm run doctor:feishu
 npm run doctor:all
 ```
 
@@ -74,7 +75,7 @@ npm run doctor:all
 可选环境变量：
 - `PYTHON_BIN`：指定 Python 命令，默认 macOS/Linux 使用 `python3`
 - `DREAMINA_BIN`：指定 Dreamina CLI 路径，默认优先查 `/opt/homebrew/bin/dreamina`
-- `DREAMINA_SKILL_DIR`：指定 dreamina-cli skill 目录，目录下应包含 `scripts/image2image.py` 等 wrapper
+- `DREAMINA_SKILL_DIR`：指定 dreamina-cli skill 目录，目录下应包含 `scripts/image2image.py` 等 wrapper；项目也内置了 `scripts/dreamina-cli/` wrapper
 
 自动上架的本地水印依赖 Python Pillow。如 `npm run doctor:auto-listing` 提示缺失，可安装：
 
@@ -90,6 +91,14 @@ python3 -m pip install pillow
 
 - `docs/FEISHU_BITABLE_SETUP.md`
 
+飞书数据源主流程：
+
+```bash
+npm run feishu:assets -- --config ./input/feishu-bitable.config.json --out ./data/feishu/products.json
+npm run doctor:feishu
+npm run business:auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json
+```
+
 豆包业务运行前：
 - 把要上传的图片放到 `input/images/`
 - 确认提示词文件是 `input/doubao-prompt.txt`
@@ -101,8 +110,9 @@ SPU 发布业务运行前：
 
 自动上架业务运行前：
 - 把素材放到 `input/auto-listing/` 下对应目录
-- 把商品信息表保存为 `input/auto-listing/product-info.xlsx`
-- 如需调用 Dreamina，先配置 `DREAMINA_BIN` 和 `DREAMINA_SKILL_DIR`
+- 优先使用飞书数据源：先运行 `npm run feishu:assets`
+- 如不使用飞书数据源，再把商品信息表保存为 `input/auto-listing/product-info.xlsx`
+- 如需真实调用 Dreamina，先完成 `dreamina login`，并用 `npm run doctor:auto-listing` 确认账号可访问
 
 ## 目录
 

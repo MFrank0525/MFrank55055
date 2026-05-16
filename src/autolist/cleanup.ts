@@ -1,11 +1,17 @@
 import fs from "node:fs";
+import path from "node:path";
 import type { CleanupArtifact } from "./types.js";
+
+function isGeneratedRuntimeFile(name: string): boolean {
+  return name !== ".gitkeep";
+}
 
 export function cleanupAfterPublish(options: {
   distributedFolders: string[];
   titleWorkbookFiles: string[];
   wordFiles?: string[];
   sourceImagePath: string;
+  cleanupSourceImageAfterPublish?: boolean;
   taskRuntimeDir?: string;
   publishRuntimeDirs?: string[];
   titleDir?: string;
@@ -25,14 +31,16 @@ export function cleanupAfterPublish(options: {
     options.titleDir && fs.existsSync(options.titleDir)
       ? fs
           .readdirSync(options.titleDir)
-          .map((name) => `${options.titleDir}\\${name}`)
+          .filter(isGeneratedRuntimeFile)
+          .map((name) => path.join(options.titleDir as string, name))
           .filter((file) => fs.existsSync(file))
       : [];
   const jimengDirFiles =
     options.jimengImageDir && fs.existsSync(options.jimengImageDir)
       ? fs
           .readdirSync(options.jimengImageDir)
-          .map((name) => `${options.jimengImageDir}\\${name}`)
+          .filter(isGeneratedRuntimeFile)
+          .map((name) => path.join(options.jimengImageDir as string, name))
           .filter((file) => fs.existsSync(file))
       : [];
 
@@ -44,7 +52,7 @@ export function cleanupAfterPublish(options: {
     ...(options.taskRuntimeDir ? [options.taskRuntimeDir] : []),
     ...titleDirFiles,
     ...jimengDirFiles,
-    options.sourceImagePath
+    ...(options.cleanupSourceImageAfterPublish ? [options.sourceImagePath] : [])
   ];
   const uniqueTargets = Array.from(new Set(targets.filter(Boolean)));
   for (const target of uniqueTargets) {

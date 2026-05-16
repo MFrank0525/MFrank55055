@@ -18,6 +18,9 @@ function ensureDirExists(targetPath: string, label: string): string {
 function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput> {
   const startStep = input.startStep || "discovered";
   const endStep = input.endStep || "done";
+  const feishuProductDataFile = input.feishuProductDataFile
+    ? ensureDirExists(input.feishuProductDataFile, "Feishu product data file")
+    : "";
   if (!AUTO_LISTING_STEPS.includes(startStep) && startStep !== "discovered") {
     throw new Error(`Invalid startStep: ${startStep}`);
   }
@@ -30,10 +33,17 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     jimengImageDir: ensureDirExists(input.jimengImageDir, "Jimeng image dir"),
     titleDir: ensureDirExists(input.titleDir, "Title dir"),
     qualificationDir: ensureDirExists(input.qualificationDir, "Qualification dir"),
-    productInfoXlsx: ensureDirExists(input.productInfoXlsx, "Product info workbook"),
+    productInfoXlsx: input.productInfoXlsx
+      ? ensureDirExists(input.productInfoXlsx, "Product info workbook")
+      : feishuProductDataFile
+        ? ""
+        : (() => {
+            throw new Error("Product info workbook not configured. Set productInfoXlsx or feishuProductDataFile.");
+          })(),
     productInfoKeyMapFile: input.productInfoKeyMapFile
       ? path.resolve(input.productInfoKeyMapFile)
       : path.resolve(process.cwd(), "data", "auto-listing", "product-info-key-map.json"),
+    feishuProductDataFile,
     shopRootDir: ensureDirExists(input.shopRootDir, "Shop root dir"),
     deepseekConversationUrl: input.deepseekConversationUrl || "",
     dreaminaBin: path.resolve(input.dreaminaBin || getDefaultDreaminaBin()),
@@ -51,6 +61,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     serialOnly: input.serialOnly ?? true,
     stopOnError: input.stopOnError ?? true,
     cleanupAfterPublish: input.cleanupAfterPublish ?? true,
+    cleanupSourceImageAfterPublish: input.cleanupSourceImageAfterPublish ?? true,
     titleCount: input.titleCount ?? 20,
     maxImagesPerRun: input.maxImagesPerRun ?? 0,
     simulateOnly: input.simulateOnly ?? true,

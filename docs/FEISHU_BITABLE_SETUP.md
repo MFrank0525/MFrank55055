@@ -96,6 +96,17 @@ npm run feishu:records -- --config ./input/feishu-bitable.config.json --limit 3
 npm run feishu:dump -- --config ./input/feishu-bitable.config.json --out ./data/feishu/products.json
 ```
 
+导出产品数据并下载附件：
+
+```bash
+npm run feishu:assets -- --config ./input/feishu-bitable.config.json --out ./data/feishu/products.json
+```
+
+默认会把附件落到：
+
+- 白底图：`input/auto-listing/feishu-images`
+- 资质图片：`input/auto-listing/qualifications`
+
 导出的结构会包含：
 
 - `userCognitionName`
@@ -106,3 +117,24 @@ npm run feishu:dump -- --config ./input/feishu-bitable.config.json --out ./data/
 - `shortTitle`
 - `qualificationImages`
 - `whiteBackgroundImages`
+
+## 接入自动上架
+
+Mac 版本优先使用：
+
+```bash
+npm run business:auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json
+```
+
+这个 job 通过 `feishuProductDataFile` 读取 `data/feishu/products.json`。配置后，自动上架流程里的卖点上下文会来自飞书字段 `产品卖点`，不再调用豆包生成产品卖点。
+
+该 Mac Feishu job 默认设置 `cleanupSourceImageAfterPublish=false`，避免真实发布清理时删除从飞书下载的白底图源文件。
+
+运行全流程前先检查：
+
+```bash
+npm run doctor:feishu
+npm run doctor:auto-listing
+```
+
+如果 `doctor:feishu` 报 `invalidRecords`，需要先补齐飞书表格里的缺失字段或附件。

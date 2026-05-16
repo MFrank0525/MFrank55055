@@ -45,6 +45,8 @@
 - 飞书密钥只走环境变量，不写入仓库。
 - 飞书字段名只通过 `fieldMap` 映射，不在业务步骤里硬编码。
 - 先用 `npm run feishu:check` 和 `npm run feishu:records` 验证数据源，再接入自动上架主链路。
+- 自动上架主链路只读取 `data/feishu/products.json`，飞书 API 调用和附件下载必须留在 `src/feishu/*` 与 `src/cli/feishu-bitable.ts`。
+- 使用 `feishuProductDataFile` 后，产品卖点来源为飞书字段 `产品卖点`，不再调用豆包生成产品卖点。
 
 ## 3. 自动上架动作脚本
 
@@ -101,4 +103,10 @@ npm run doctor:publish
 
 ```bash
 npm run doctor:auto-listing
+```
+
+涉及飞书数据源时额外运行：
+
+```bash
+npm run doctor:feishu
 ```

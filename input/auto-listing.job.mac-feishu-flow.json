@@ -1,0 +1,30 @@
+{
+  "runtimeDir": "./data/auto-listing/runs/mac-feishu-latest",
+  "resultFile": "./data/auto-listing/runs/mac-feishu-latest/result.json",
+  "input": {
+    "feishuImageDir": "./input/auto-listing/feishu-images",
+    "jimengImageDir": "./input/auto-listing/jimeng-images",
+    "titleDir": "./input/auto-listing/titles",
+    "qualificationDir": "./input/auto-listing/qualifications",
+    "feishuProductDataFile": "./data/feishu/products.json",
+    "shopRootDir": "./input/auto-listing/shops",
+    "deepseekConversationUrl": "https://chat.deepseek.com/a/chat/s/4c5434b3-f81e-4b22-a53d-32cfcf5fb24d",
+    "dreaminaPollSeconds": 120,
+    "dreaminaModelVersion": "5.0",
+    "dreaminaResolutionType": "2k",
+    "dreaminaRatio": "1:1",
+    "dreaminaExpectedImageCount": 4,
+    "dreaminaImageCountStrategy": "require_exact",
+    "runtimeRootDir": "./data/auto-listing/runs",
+    "processedImageManifest": "./data/auto-listing/processed-images.json",
+    "serialOnly": true,
+    "stopOnError": true,
+    "cleanupAfterPublish": true,
+    "cleanupSourceImageAfterPublish": false,
+    "titleCount": 20,
+    "maxImagesPerRun": 1,
+    "simulateOnly": true,
+    "startStep": "discovered",
+    "endStep": "done"
+  }
+}

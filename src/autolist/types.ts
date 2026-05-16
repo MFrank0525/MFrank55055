@@ -1,3 +1,5 @@
+import type { FeishuProductRecord } from "../feishu/types.js";
+
 export const AUTO_LISTING_STEPS = [
   "discovered",
   "doubao_generated",
@@ -24,8 +26,9 @@ export interface AutoListingJobInput {
   jimengImageDir: string;
   titleDir: string;
   qualificationDir: string;
-  productInfoXlsx: string;
+  productInfoXlsx?: string;
   productInfoKeyMapFile?: string;
+  feishuProductDataFile?: string;
   shopRootDir: string;
   deepseekConversationUrl?: string;
   dreaminaBin?: string;
@@ -41,6 +44,7 @@ export interface AutoListingJobInput {
   serialOnly?: boolean;
   stopOnError?: boolean;
   cleanupAfterPublish?: boolean;
+  cleanupSourceImageAfterPublish?: boolean;
   titleCount?: number;
   maxImagesPerRun?: number;
   simulateOnly?: boolean;
@@ -175,6 +179,7 @@ export interface ImageTaskState {
   shopDistributionArtifact?: ShopDistributionArtifact;
   publishArtifact?: PublishArtifact;
   cleanupArtifact?: CleanupArtifact;
+  feishuProductRecord?: FeishuProductRecord;
   error?: AutoListingTaskError;
 }
 

@@ -60,6 +60,21 @@ async function requestFeishu<T>(token: string, path: string, init: RequestInit =
   return payload.data;
 }
 
+export async function downloadFeishuMedia(token: string, fileToken: string, downloadUrl = ""): Promise<Buffer> {
+  const url =
+    downloadUrl.trim() ||
+    `https://open.feishu.cn/open-apis/drive/v1/medias/${encodePath(fileToken)}/download`;
+  const response = await fetch(url.startsWith("http") ? url : `https://open.feishu.cn/open-apis${url}`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Feishu media download failed: ${fileToken}; status=${response.status} ${response.statusText}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
 export async function listBitableFields(config: FeishuBitableConfig, token: string): Promise<FeishuBitableField[]> {
   const fields: FeishuBitableField[] = [];
   let pageToken = "";

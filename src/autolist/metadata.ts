@@ -122,11 +122,18 @@ export function enrichDistributedTitleSheets(options: {
   productInfoKeyMapFile: string;
   sellingPointText: string;
   productName?: string;
+  metadataOverride?: {
+    shortTitle: string;
+    brand: string;
+    spu: string;
+  };
   distributedWorkbookFiles: string[];
   simulateOnly: boolean;
 }): MetadataArtifact {
   const matchedProductName = (options.productName || "").trim() || inferProductName(options.sellingPointText);
-  const metadata = options.simulateOnly
+  const metadata = options.metadataOverride
+    ? options.metadataOverride
+    : options.simulateOnly
     ? {
         shortTitle: `${matchedProductName}-short`,
         brand: matchedProductName,

@@ -41,6 +41,7 @@ function extractAttachments(value: unknown): FeishuBitableAttachment[] {
         size: typeof object.size === "number" ? object.size : undefined,
         mimeType: typeof object.mime_type === "string" ? object.mime_type : undefined,
         temporaryUrl: typeof object.tmp_url === "string" ? object.tmp_url : typeof object.url === "string" ? object.url : undefined,
+        downloadUrl: typeof object.url === "string" ? object.url : undefined,
         raw: item
       };
     })

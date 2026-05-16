@@ -59,6 +59,7 @@ export function getDreaminaWrapperPath(scriptName: string): string {
   const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
   const candidates = [
     configuredDir ? path.join(configuredDir, "scripts", scriptName) : "",
+    path.join(process.cwd(), "scripts", "dreamina-cli", scriptName),
     path.join(codexHome, "skills", "dreamina-cli", "scripts", scriptName),
     path.join(codexHome, "skills", ".system", "dreamina-cli", "scripts", scriptName),
     path.join(os.homedir(), ".codex", "skills", "dreamina-cli", "scripts", scriptName)

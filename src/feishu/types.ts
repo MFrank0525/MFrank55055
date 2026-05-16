@@ -33,6 +33,8 @@ export interface FeishuBitableAttachment {
   size?: number;
   mimeType?: string;
   temporaryUrl?: string;
+  downloadUrl?: string;
+  localFile?: string;
   raw: unknown;
 }
 
