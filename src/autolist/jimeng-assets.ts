@@ -254,6 +254,11 @@ async function assertDreaminaCredits(options: {
   ]);
   fs.writeFileSync(path.join(options.taskDir, "dreamina-user-credit.json"), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 
+  const vipLevel = String(payload?.data?.vip_level || "").trim();
+  if (!/maestro/i.test(vipLevel)) {
+    throw new Error(`Dreamina image2image requires maestro vip. Current vip_level=${vipLevel || "unknown"}.`);
+  }
+
   const availableCredits = extractAvailableCredits(payload);
   if (availableCredits === null) {
     return;

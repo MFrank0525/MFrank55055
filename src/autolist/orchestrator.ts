@@ -8,6 +8,7 @@ import { appendProcessedImages, discoverPendingImages } from "./file-batch.js";
 import { loadFeishuProductRuntimeRecord } from "./feishu-products.js";
 import { enrichDistributedTitleSheets } from "./metadata.js";
 import { cleanupAfterPublish } from "./cleanup.js";
+import { buildAutoListingPreflightSummary } from "./preflight.js";
 import { readOperationManual } from "./operation-manual.js";
 import { prepareTestRunOutputs } from "./prepare-test-run.js";
 import { publishDistributedProducts } from "./publish.js";
@@ -575,7 +576,8 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
       stateFile: resolved.stateFile,
       eventFile: resolved.eventFile,
       manualsReadFile: resolved.manualsReadFile,
-      processedImageManifest: resolved.processedImageManifest
+      processedImageManifest: resolved.processedImageManifest,
+      preflightFile: resolved.preflightFile
     },
     discoveredImages: effectiveImages,
     tasks: [],
@@ -589,6 +591,8 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   setLogFile(logFile);
 
   try {
+    writeJson(resolved.preflightFile, buildAutoListingPreflightSummary(resolved));
+
     const preRunRemoved = prepareTestRunOutputs({
       runtimeDir: resolved.runtimeDir,
       jimengImageDir: resolved.input.jimengImageDir,

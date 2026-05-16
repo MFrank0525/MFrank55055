@@ -13,6 +13,10 @@ interface CheckResult {
 
 type DoctorMode = "base" | "publish" | "auto-listing" | "feishu" | "all";
 
+interface DoctorOptions {
+  requireDreaminaGeneration: boolean;
+}
+
 function exists(targetPath: string): boolean {
   return fs.existsSync(path.resolve(targetPath));
 }
@@ -91,6 +95,53 @@ function checkDreaminaAccountAccess(): CheckResult {
   }
 }
 
+function checkDreaminaGenerationAccess(required: boolean): CheckResult {
+  const wrapper = getDreaminaWrapperPath("user_credit.py");
+  const dreaminaBin = getDefaultDreaminaBin();
+  if (!fs.existsSync(wrapper) || !fs.existsSync(dreaminaBin)) {
+    return {
+      name: "Dreamina generation access",
+      ok: !required,
+      required,
+      detail: "Dreamina executable or credit wrapper is missing"
+    };
+  }
+
+  try {
+    const output = execFileSync(getPythonCommand(), [wrapper, "--dreamina-bin", dreaminaBin], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    }).trim();
+    const payload = JSON.parse(output) as { ok?: boolean; data?: { vip_level?: unknown }; error?: string };
+    if (!payload.ok) {
+      return {
+        name: "Dreamina generation access",
+        ok: !required,
+        required,
+        detail: payload.error || "Dreamina account check failed"
+      };
+    }
+
+    const vipLevel = String(payload.data?.vip_level || "").trim();
+    const hasGenerationAccess = /maestro/i.test(vipLevel);
+    return {
+      name: "Dreamina generation access",
+      ok: hasGenerationAccess || !required,
+      required,
+      detail: hasGenerationAccess
+        ? `image2image allowed; vip_level=${vipLevel}`
+        : `image2image requires maestro vip; current vip_level=${vipLevel || "unknown"}`
+    };
+  } catch (error) {
+    return {
+      name: "Dreamina generation access",
+      ok: !required,
+      required,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 function checkPath(name: string, targetPath: string, required = true): CheckResult {
   const ok = exists(targetPath);
   return {
@@ -115,6 +166,12 @@ function parseMode(argv: string[]): DoctorMode {
     return "feishu";
   }
   return "base";
+}
+
+function parseOptions(argv: string[]): DoctorOptions {
+  return {
+    requireDreaminaGeneration: argv.includes("--require-dreamina-generation")
+  };
 }
 
 function baseChecks(): CheckResult[] {
@@ -186,7 +243,7 @@ function checkAutoListingShopFolders(): CheckResult {
   return { name: "auto-listing shop folders", ok: true, detail: root };
 }
 
-function autoListingChecks(): CheckResult[] {
+function autoListingChecks(options: DoctorOptions): CheckResult[] {
   return [
   checkCommand("Python Pillow", getPythonCommand(), ["-c", "import PIL; print(PIL.__version__)"]),
   checkPath("Dreamina executable", getDefaultDreaminaBin()),
@@ -194,6 +251,7 @@ function autoListingChecks(): CheckResult[] {
   checkPath("Dreamina query wrapper", getDreaminaWrapperPath("query_result.py")),
   checkPath("Dreamina credit wrapper", getDreaminaWrapperPath("user_credit.py")),
   checkDreaminaAccountAccess(),
+  ...(options.requireDreaminaGeneration ? [checkDreaminaGenerationAccess(true)] : []),
   checkPath("auto-listing feishu images", "input/auto-listing/feishu-images"),
   checkPath("auto-listing jimeng images", "input/auto-listing/jimeng-images"),
   checkPath("auto-listing titles", "input/auto-listing/titles"),
@@ -242,10 +300,11 @@ function feishuChecks(): CheckResult[] {
 }
 
 const mode = parseMode(process.argv.slice(2));
+const options = parseOptions(process.argv.slice(2));
 const checks: CheckResult[] = [
   ...baseChecks(),
   ...(mode === "publish" || mode === "all" ? publishChecks() : []),
-  ...(mode === "auto-listing" || mode === "all" ? autoListingChecks() : []),
+  ...(mode === "auto-listing" || mode === "all" ? autoListingChecks(options) : []),
   ...(mode === "feishu" || mode === "all" ? feishuChecks() : [])
 ];
 

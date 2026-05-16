@@ -28,7 +28,7 @@ export function cleanupAfterPublish(options: {
   }
 
   const titleDirFiles =
-    options.titleDir && fs.existsSync(options.titleDir)
+    options.titleDir && options.simulateOnly && fs.existsSync(options.titleDir)
       ? fs
           .readdirSync(options.titleDir)
           .filter(isGeneratedRuntimeFile)
@@ -36,7 +36,7 @@ export function cleanupAfterPublish(options: {
           .filter((file) => fs.existsSync(file))
       : [];
   const jimengDirFiles =
-    options.jimengImageDir && fs.existsSync(options.jimengImageDir)
+    options.jimengImageDir && options.simulateOnly && fs.existsSync(options.jimengImageDir)
       ? fs
           .readdirSync(options.jimengImageDir)
           .filter(isGeneratedRuntimeFile)

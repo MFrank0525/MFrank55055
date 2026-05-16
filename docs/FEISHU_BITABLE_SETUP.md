@@ -11,6 +11,19 @@ export FEISHU_APP_ID="cli_xxx"
 export FEISHU_APP_SECRET="xxx"
 ```
 
+本机也可以把密钥写到被 `.gitignore` 忽略的 `input/feishu-bitable.config.json`：
+
+```json
+{
+  "auth": {
+    "appId": "cli_xxx",
+    "appSecret": "xxx"
+  }
+}
+```
+
+不要把 `auth` 写进示例配置或提交到 Git。
+
 也可以直接提供已有 token：
 
 ```bash
@@ -126,9 +139,23 @@ Mac 版本优先使用：
 npm run business:auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json
 ```
 
+一键模拟流程：
+
+```bash
+npm run flow:mac-feishu
+```
+
+一键真实流程：
+
+```bash
+npm run flow:mac-feishu:real
+```
+
 这个 job 通过 `feishuProductDataFile` 读取 `data/feishu/products.json`。配置后，自动上架流程里的卖点上下文会来自飞书字段 `产品卖点`，不再调用豆包生成产品卖点。
 
 该 Mac Feishu job 默认设置 `cleanupSourceImageAfterPublish=false`，避免真实发布清理时删除从飞书下载的白底图源文件。
+
+真实流程仍然保留豆包生成电商标题，因为标题质量以抖音电商实战转化为优先。
 
 运行全流程前先检查：
 

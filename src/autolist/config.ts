@@ -77,12 +77,13 @@ export function resolveAutoListingJob(job: AutoListingJobFile): AutoListingResol
   }
 
   const input = withDefaults(job.input);
-  const runId = path.basename(path.resolve(job.runtimeDir || path.join(input.runtimeRootDir, formatTimestamp())));
+  const runId = job.runId || path.basename(path.resolve(job.runtimeDir || path.join(input.runtimeRootDir, formatTimestamp())));
   const runtimeDir = path.resolve(job.runtimeDir || path.join(input.runtimeRootDir, runId));
   const resultFile = path.resolve(job.resultFile || path.join(runtimeDir, "result.json"));
   const stateFile = path.join(runtimeDir, "state.json");
   const eventFile = path.join(runtimeDir, "events.ndjson");
   const manualsReadFile = path.join(runtimeDir, "manuals-read.json");
+  const preflightFile = path.join(runtimeDir, "preflight.json");
 
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.mkdirSync(path.dirname(input.processedImageManifest), { recursive: true });
@@ -93,6 +94,7 @@ export function resolveAutoListingJob(job: AutoListingJobFile): AutoListingResol
     stateFile,
     eventFile,
     manualsReadFile,
+    preflightFile,
     processedImageManifest: input.processedImageManifest,
     input
   };

@@ -236,6 +236,14 @@ async function ensureDeepSeekConversationWithUrl(page: Page, preferredUrl: strin
     await page.goto(cachedHref, { waitUntil: "domcontentloaded" }).catch(() => {});
     await sleep(1800);
     const titleAfterGoto = await page.title().catch(() => "");
+    const inputCount = await page.locator("textarea, div[contenteditable='true']").count().catch(() => 0);
+    if (preferredUrl && /\/a\/chat\/s\//.test(page.url()) && inputCount > 0) {
+      if (cache.deepseek !== preferredUrl) {
+        cache.deepseek = preferredUrl;
+        saveConversationCache(cache);
+      }
+      return;
+    }
     if (page.url().startsWith(cachedHref) && titleAfterGoto.includes(conversationTitle)) {
       if (preferredUrl && cache.deepseek !== preferredUrl) {
         cache.deepseek = preferredUrl;

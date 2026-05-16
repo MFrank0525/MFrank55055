@@ -21,7 +21,7 @@
     "cleanupSourceImageAfterPublish": false,
     "titleCount": 20,
     "maxImagesPerRun": 1,
-    "simulateOnly": true,
+    "simulateOnly": false,
     "startStep": "discovered",
     "endStep": "done"
   }

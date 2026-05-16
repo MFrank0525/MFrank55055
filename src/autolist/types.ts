@@ -56,6 +56,7 @@ export interface AutoListingJobInput {
 export interface AutoListingJobFile {
   runtimeDir?: string;
   resultFile?: string;
+  runId?: string;
   input: AutoListingJobInput;
 }
 
@@ -159,6 +160,24 @@ export interface CleanupArtifact {
   simulated: boolean;
 }
 
+export interface AutoListingPreflightSummary {
+  generatedAt: string;
+  runId: string;
+  simulateOnly: boolean;
+  source: {
+    feishuProductDataFile?: string;
+    productInfoXlsx?: string;
+    feishuImageDir: string;
+    qualificationDir: string;
+    shopRootDir: string;
+  };
+  counts: {
+    sourceImages: number;
+    shops: number;
+  };
+  warnings: string[];
+}
+
 export interface ImageTaskState {
   taskId: string;
   sequenceNo: number;
@@ -207,6 +226,7 @@ export interface AutoListingResolvedJob {
   stateFile: string;
   eventFile: string;
   manualsReadFile: string;
+  preflightFile: string;
   processedImageManifest: string;
   input: Required<AutoListingJobInput>;
 }
@@ -223,6 +243,7 @@ export interface AutoListingRunResult {
     eventFile: string;
     manualsReadFile: string;
     processedImageManifest: string;
+    preflightFile?: string;
   };
   discoveredImages: string[];
   tasks: ImageTaskState[];

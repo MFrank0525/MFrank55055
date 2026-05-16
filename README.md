@@ -99,6 +99,20 @@ npm run doctor:feishu
 npm run business:auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json
 ```
 
+也可以直接运行一键模拟流程：
+
+```bash
+npm run flow:mac-feishu
+```
+
+真实流程使用：
+
+```bash
+npm run flow:mac-feishu:real
+```
+
+真实流程会调用 Dreamina 和豆包标题生成，并可能消耗外部服务额度。
+
 豆包业务运行前：
 - 把要上传的图片放到 `input/images/`
 - 确认提示词文件是 `input/doubao-prompt.txt`

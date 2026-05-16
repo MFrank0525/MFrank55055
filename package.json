@@ -23,6 +23,8 @@
     "business:doubao": "npm run doubao:run --",
     "business:publish": "npm run publish:spu --",
     "business:auto-listing": "npm run auto-listing --",
+    "flow:mac-feishu": "npm run build && node dist/src/cli/flow-mac-feishu.js",
+    "flow:mac-feishu:real": "npm run flow:mac-feishu -- --real",
     "doctor": "npm run build && node dist/src/cli/doctor.js",
     "doctor:publish": "npm run build && node dist/src/cli/doctor.js --publish",
     "doctor:auto-listing": "npm run build && node dist/src/cli/doctor.js --auto-listing",

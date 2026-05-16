@@ -4,6 +4,11 @@
   "tableId": "",
   "viewId": "",
   "pageSize": 100,
+  "auth": {
+    "appId": "",
+    "appSecret": "",
+    "tenantAccessToken": ""
+  },
   "fieldMap": {
     "userCognitionName": "用户认知名",
     "genericName": "通用名称",
