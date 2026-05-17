@@ -18,6 +18,14 @@ function getTitleGenerationRule(titleCount: number): string {
   return readManualTextBlock("titles_generated", "标题生成规则").replaceAll("{{titleCount}}", String(titleCount));
 }
 
+function replaceProductPlaceholders(text: string, userCognitionName: string, genericName: string): string {
+  return text
+    .replaceAll("用户认知名", userCognitionName)
+    .replaceAll("产品通用名称", genericName)
+    .replaceAll("{{userCognitionName}}", userCognitionName)
+    .replaceAll("{{genericName}}", genericName);
+}
+
 function inferProductName(sellingPointText: string): string {
   const firstSegment = sellingPointText.split(",").map((item) => item.trim()).filter(Boolean)[0] || "未命名产品";
   return sanitizeFileName(firstSegment) || "未命名产品";
@@ -53,8 +61,12 @@ function buildWorkbookRows(title: string): string[][] {
   ];
 }
 
-function buildRealTitlePrompt(titleCount: number): string {
-  return [getTitlePromptPrefix(), getTitleGenerationRule(titleCount)].join("\n");
+function buildRealTitlePrompt(titleCount: number, userCognitionName: string, genericName: string): string {
+  return replaceProductPlaceholders(
+    [getTitlePromptPrefix(), getTitleGenerationRule(titleCount)].join("\n"),
+    userCognitionName,
+    genericName
+  );
 }
 
 function readTitlesFromCsv(csvFile: string): string[] {
@@ -76,6 +88,8 @@ export async function generateTitleSheets(options: {
   titleDir: string;
   sourceImagePath: string;
   sellingPointText: string;
+  userCognitionName?: string;
+  genericName?: string;
   titleCount: number;
   simulateOnly: boolean;
   runtimeDir: string;
@@ -85,6 +99,8 @@ export async function generateTitleSheets(options: {
       titleDir: options.titleDir,
       sourceImagePath: options.sourceImagePath,
       sellingPointText: options.sellingPointText,
+      userCognitionName: options.userCognitionName,
+      genericName: options.genericName,
       titleCount: options.titleCount,
       runtimeDir: options.runtimeDir
     });
@@ -116,36 +132,45 @@ export async function generateTitleSheetsFromDoubao(options: {
   titleDir: string;
   sourceImagePath: string;
   sellingPointText: string;
+  userCognitionName?: string;
+  genericName?: string;
   titleCount: number;
   runtimeDir: string;
 }): Promise<TitleSheetArtifact> {
   fs.mkdirSync(options.titleDir, { recursive: true });
   const productName = inferProductName(options.sellingPointText);
+  const userCognitionName = options.userCognitionName?.trim() || productName;
+  const genericName = options.genericName?.trim();
+  if (!genericName) {
+    throw new Error("Doubao title generation requires Feishu genericName.");
+  }
   const timestamp = formatTimestamp();
   const outputDir = path.join(options.runtimeDir, "doubao-title-output");
   fs.mkdirSync(outputDir, { recursive: true });
 
   const result = await runDoubaoJob({
-    promptText: buildRealTitlePrompt(options.titleCount),
+    promptText: buildRealTitlePrompt(options.titleCount, userCognitionName, genericName),
     imagePaths: [options.sourceImagePath],
     outputDir,
     titleCount: options.titleCount,
     runtimeDir: path.join(options.runtimeDir, "doubao-title-run"),
     cleanupOutputDir: true,
     freshConversation: false,
-    conversationUrl: getTitleConversationUrl()
+    conversationUrl: getTitleConversationUrl(),
+    attachImages: false,
+    captureWaitMs: 90000
   });
 
   if (result.status !== "success" || result.items.length === 0) {
     throw new Error(result.error?.message || "Doubao title generation returned no items.");
   }
 
-  const titles = readTitlesFromCsv(result.items[0].csvFile);
+  const titles = readTitlesFromCsv(result.items[0].csvFile).slice(0, options.titleCount);
   if (titles.length < options.titleCount) {
     throw new Error(`Doubao title generation returned ${titles.length} titles, expected ${options.titleCount}.`);
   }
 
-  const generatedFiles: TitleSheetFile[] = titles.slice(0, options.titleCount).map((title, index) => {
+  const generatedFiles: TitleSheetFile[] = titles.map((title, index) => {
     const workbookFile = path.join(
       options.titleDir,
       `${sanitizeFileName(`${productName}豆包${String(index + 1).padStart(2, "0")}${timestamp}`)}.xlsx`
@@ -169,6 +194,11 @@ export function distributeTitleSheets(productFolders: string[], generatedFiles: 
     const targetFolder = productFolders[index];
     const workbookFile = updatedFiles[index].workbookFile;
     const targetFile = path.join(targetFolder, path.basename(workbookFile));
+    for (const name of fs.readdirSync(targetFolder)) {
+      if (name.toLowerCase().endsWith(".xlsx")) {
+        fs.rmSync(path.join(targetFolder, name), { force: true });
+      }
+    }
     fs.copyFileSync(workbookFile, targetFile);
     updatedFiles[index].distributedTo = targetFolder;
   }

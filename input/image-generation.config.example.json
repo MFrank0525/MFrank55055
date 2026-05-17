@@ -1,9 +1,13 @@
 {
   "provider": "openai-compatible",
-  "apiUrl": "https://example.com/v1/images/generations",
+  "apiUrl": "https://example.com/v1/images/edits",
   "apiKey": "",
   "model": "gpt-image-2",
+  "mode": "edits",
   "size": "1024x1024",
   "responseFormat": "b64_json",
-  "requestExtra": {}
+  "timeoutMs": 180000,
+  "requestExtra": {
+    "input_fidelity": "high"
+  }
 }

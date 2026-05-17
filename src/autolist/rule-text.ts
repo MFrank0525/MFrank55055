@@ -74,7 +74,30 @@ export function buildDreaminaInstruction1(brand: string, userCognitionName: stri
   }
   return template
     .replaceAll("{{带有品牌的用户认知名}}", brandedUserCognitionName)
-    .replaceAll("{{带有品牌的产品通用名称}}", normalizedGenericName);
+    .replaceAll("{{带有品牌的产品通用名称}}", normalizedGenericName)
+    .replaceAll("{{用户认知名}}", brandedUserCognitionName)
+    .replaceAll("{{产品通用名称}}", normalizedGenericName)
+    .replaceAll("{{产品卖点}}", "");
+}
+
+export function buildDreaminaImageEditInstruction(
+  brand: string,
+  userCognitionName: string,
+  genericName: string,
+  sellingPointText: string
+): string {
+  const template = readManualTextBlock("jimeng_generated", "即梦指令1模板");
+  const brandedUserCognitionName = buildBrandedUserCognitionName(brand, userCognitionName);
+  const normalizedGenericName = genericName.trim();
+  if (!brandedUserCognitionName || !normalizedGenericName) {
+    throw new Error("Dreamina image edit instruction requires user cognition name and generic name.");
+  }
+  return template
+    .replaceAll("{{带有品牌的用户认知名}}", brandedUserCognitionName)
+    .replaceAll("{{带有品牌的产品通用名称}}", normalizedGenericName)
+    .replaceAll("{{用户认知名}}", brandedUserCognitionName)
+    .replaceAll("{{产品通用名称}}", normalizedGenericName)
+    .replaceAll("{{产品卖点}}", sellingPointText.trim());
 }
 
 function assertIncludes(text: string, expected: string, label: string): void {

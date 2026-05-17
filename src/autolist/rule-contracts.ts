@@ -17,8 +17,8 @@ export const RULE_CONTRACT_MARKERS = {
     "严格按照 8 个卖点顺序输出"
   ],
   deepseekInstruction2: ["海报视觉设计生成规则", "每次需设计5款不同的电商海报", "不展示医疗器械备案注册号"],
-  dreaminaInstruction1: ["【产品海报设计】", "延草纲目医用膝盖喷剂", "延草纲目膝盖部位医用喷剂"],
-  titleConversationUrl: ["https://www.doubao.com/chat/38420067428736258"],
-  titlePromptPrefix: ["请严格执行全套标题生成规范："],
-  titleGenerationRule: ["标题结构与字数规则", "仅输出{{titleCount}}条标题", "编号格式固定为：01 标题内容"]
+  dreaminaInstruction1: ["【产品海报设计】", "延草纲目医用膝盖喷剂", "延草纲目膝盖部位医用喷剂", "绿色对号"],
+  titleConversationUrl: ["https://www.doubao.com/chat/38417884669014786"],
+  titlePromptPrefix: ["完整版通用标题生成执行规则"],
+  titleGenerationRule: ["真实抖音商城热搜词", "标题硬性格式规则", "采集用户认知名和产品通用名称"]
 } as const;

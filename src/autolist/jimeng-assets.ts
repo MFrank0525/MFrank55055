@@ -6,6 +6,7 @@ import { sanitizeFileName } from "../doubao/paths.js";
 import { extendPathEnv, getDreaminaWrapperPath, getPythonCommand } from "../utils/platform.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import { applyLocalWatermark } from "./local-watermark.js";
+import { buildDreaminaImageEditInstruction } from "./rule-text.js";
 import type { DreaminaImageCountStrategy, ImageGenerationProvider, JimengArtifact, JimengGeneratedFile } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -42,10 +43,71 @@ interface OpenAiCompatibleImageConfig {
   apiUrl: string;
   apiKey?: string;
   model: string;
+  mode?: "generations" | "edits";
   size?: string;
   responseFormat?: "b64_json" | "url";
+  timeoutMs?: number;
   requestExtra?: Record<string, unknown>;
 }
+
+function parseSellingPointFields(sellingPointText: string): {
+  brand: string;
+  userCognitionName: string;
+  genericName: string;
+} {
+  const labeledUser = sellingPointText.match(/用户认知名[为是：:]\s*([^，,。]+)/)?.[1]?.trim() || "";
+  const labeledGeneric = sellingPointText.match(/产品通用名称[为是：:]\s*([^，,。]+)/)?.[1]?.trim() || "";
+  const labeledBrand = sellingPointText.match(/品牌[为是：:]\s*([^，,。]+)/)?.[1]?.trim() || "";
+  const segments = sellingPointText
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const brand = labeledBrand || segments[0] || "";
+  const userCognitionName = labeledUser || segments[1] || segments[0] || "";
+  const genericName = labeledGeneric || segments[2] || segments[1] || segments[0] || "";
+  return {
+    brand,
+    userCognitionName,
+    genericName
+  };
+}
+
+function sanitizeSellingPointsForImagePrompt(sellingPointText: string): string {
+  const segments = sellingPointText
+    .split(/[，,。；;]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const safeSegments = segments.filter((segment) => {
+    if (UNSAFE_SELLING_POINT_PATTERNS.some((pattern) => pattern.test(segment))) {
+      return false;
+    }
+    return SAFE_SELLING_POINT_PATTERNS.some((pattern) => pattern.test(segment));
+  });
+  return Array.from(new Set(safeSegments)).slice(0, 8).join("，");
+}
+
+const PRODUCT_REFERENCE_GUARDRAIL =
+  "产品主体必须来自输入参考图，不允许根据文字重新绘制产品；请把输入参考图里的产品当作锁定主体嵌入海报，不要重新设计包装，不要改写包装文字，不要改变盒子和管体的形状、数量、角度关系、颜色和标识。背景、光影、氛围、道具可以生成，但产品包装文字和产品细节必须尽量保持参考图一致。";
+const IMAGE_EDIT_COMPLIANCE_GUARDRAIL =
+  "合规要求：只生成电商海报背景、光影、材质、道具和信任感视觉元素；不要展示人体、骨骼、穴位、疼痛部位、治疗过程、功效渗透、能量进入身体、疾病对比或医疗效果示意。";
+const UNSAFE_IMAGE_PROMPT_PATTERNS = [
+  /颈椎|肩周|腰椎|膝盖|关节|骨骼|穴位|风池穴|督脉|人体|身体|疼痛|哪痛|痛点/,
+  /治疗|治愈|缓解|消炎|修复|康复|止痛|镇痛|疗效|药效/,
+  /渗透|吸收|进入身体|能量波纹|能量感|发光|热力沿|微粒.*身体|螺旋.*身体/,
+  /医疗器械认证|注册证|备案注册号|国药准字|保健食品注册/
+];
+const UNSAFE_SELLING_POINT_PATTERNS = [
+  /颈椎|肩周|腰椎|膝盖|关节|穴位|风池穴|督脉|疼痛|哪痛|痛点|不适|问题|部位/,
+  /治疗|治愈|缓解|改善|辅助改善|消炎|修复|康复|止痛|镇痛|疗效|药效/,
+  /持续发热|发热|热感|渗透|吸收|理疗技术|远红外理疗|进入身体/
+  ,/二类医疗器械|医疗器械|药监备案|备案|注册证|资质|认证/
+];
+const SAFE_SELLING_POINT_PATTERNS = [
+  /官方正品|正品保障|正品/,
+  /成分科学|科学简单|无科技狠活|核心成分|远红外陶瓷粉/,
+  /红色纸盒|红色管状|包装|20g|支/,
+  /品牌|出品|通用名称|用户认知名/
+];
 
 function ensureTaskDir(runtimeDir: string, taskId: string): string {
   const taskDir = path.join(runtimeDir, "tasks", sanitizeFileName(taskId));
@@ -106,6 +168,9 @@ function normalizeImageGenerationError(message: string): Error {
   if (isBillingError(message)) {
     return new Error(`Image generation balance appears insufficient. Please recharge the relay account. Raw error: ${message}`);
   }
+  if (/abort|timeout|timed out/i.test(message)) {
+    return new Error(`Image generation request timed out. The provider did not respond in time. Raw error: ${message}`);
+  }
   return new Error(message);
 }
 
@@ -155,11 +220,52 @@ function buildDreaminaPromptFromWord(paragraphs: string[], promptWordFile: strin
   if (!instruction || !sellingPoints || !deepseekPrompt) {
     throw new Error(`Prompt Word file had empty required paragraph: ${promptWordFile}`);
   }
-  const promptText = [instruction, deepseekPrompt].join("\n");
+  const safeDeepseekPrompt = deepseekPrompt
+    .split(/[，,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => !UNSAFE_IMAGE_PROMPT_PATTERNS.some((pattern) => pattern.test(item)))
+    .join(",");
+  const promptText = [
+    instruction,
+    PRODUCT_REFERENCE_GUARDRAIL,
+    IMAGE_EDIT_COMPLIANCE_GUARDRAIL,
+    safeDeepseekPrompt || "高质感电商海报背景,产品摄影棚光影,品牌信任感标签,高级材质纹理,干净构图,突出输入参考图产品主体"
+  ].join("\n");
   if (!promptText.trim()) {
     throw new Error(`Dreamina prompt could not be built from Word file: ${promptWordFile}`);
   }
   return promptText;
+}
+
+function buildImageEditPromptFromWord(options: {
+  paragraphs: string[];
+  promptWordFile: string;
+  brand: string;
+  userCognitionName: string;
+  genericName: string;
+}): string {
+  const cleaned = options.paragraphs.map((item) => item.trim()).filter(Boolean);
+  if (cleaned.length !== 3) {
+    throw new Error(`Prompt Word file must contain exactly 3 paragraphs (instruction1, selling points, deepseek prompt): ${options.promptWordFile}`);
+  }
+  const sellingPoints = cleaned[1] || "";
+  const deepseekPrompt = cleaned[cleaned.length - 1] || "";
+  if (!sellingPoints || !deepseekPrompt) {
+    throw new Error(`Prompt Word file had empty required paragraph: ${options.promptWordFile}`);
+  }
+  const safeSellingPoints = sanitizeSellingPointsForImagePrompt(sellingPoints);
+  const safeDeepseekPrompt = deepseekPrompt
+    .split(/[，,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => !UNSAFE_IMAGE_PROMPT_PATTERNS.some((pattern) => pattern.test(item)))
+    .join(",");
+  return [
+    buildDreaminaImageEditInstruction(options.brand, options.userCognitionName, options.genericName, safeSellingPoints || sellingPoints),
+    "卖点筛选规则：只展示产品事实、规格、成分、正品保障、备案资质、包装外观等合规卖点；不要展示适用身体部位、疼痛、缓解、治疗、改善、发热、渗透、理疗过程等功效表达。",
+    safeDeepseekPrompt || "高质感电商海报背景,产品摄影棚光影,品牌信任感标签,高级材质纹理,干净构图,突出输入参考图产品主体"
+  ].join("\n");
 }
 
 async function runWrapperJson(args: string[]): Promise<any> {
@@ -512,9 +618,7 @@ function getImageExtensionFromContentType(contentType: string): string {
 }
 
 async function downloadGeneratedImage(url: string, targetFile: string, apiKey: string): Promise<void> {
-  const response = await fetch(url, {
-    headers: url.includes("/v1/") ? { Authorization: `Bearer ${apiKey}` } : undefined
-  });
+  const response = await fetch(url, { headers: url.includes("/v1/") ? { Authorization: `Bearer ${apiKey}` } : undefined });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw normalizeImageGenerationError(`Image download failed with HTTP ${response.status}: ${text || response.statusText}`);
@@ -523,9 +627,39 @@ async function downloadGeneratedImage(url: string, targetFile: string, apiKey: s
   fs.writeFileSync(targetFile, buffer);
 }
 
+function extractGeneratedImageItems(payload: any, text: string): any[] {
+  const items = Array.isArray(payload?.data) ? payload.data : [];
+  if (items.length === 0) {
+    throw normalizeImageGenerationError(`Image generation returned no data items: ${text.slice(0, 500)}`);
+  }
+  return items;
+}
+
+async function saveGeneratedImageItem(options: {
+  item: any;
+  payload: any;
+  targetDir: string;
+  index: number;
+  apiKey: string;
+}): Promise<{ file: string; submitId: string } | null> {
+  const baseName = `generated-${String(options.index).padStart(2, "0")}`;
+  if (typeof options.item?.b64_json === "string" && options.item.b64_json.trim()) {
+    const file = path.join(options.targetDir, `${baseName}.png`);
+    fs.writeFileSync(file, Buffer.from(options.item.b64_json, "base64"));
+    return { file, submitId: String(options.payload?.created || "") };
+  }
+  if (typeof options.item?.url === "string" && options.item.url.trim()) {
+    const targetFile = path.join(options.targetDir, `${baseName}${getImageExtensionFromContentType(options.item.url)}`);
+    await downloadGeneratedImage(options.item.url, targetFile, options.apiKey);
+    return { file: targetFile, submitId: String(options.payload?.created || "") };
+  }
+  return null;
+}
+
 async function generateWithOpenAiCompatibleProvider(options: {
   configFile: string;
   promptText: string;
+  sourceImagePath: string;
   downloadDir: string;
   expectedImageCount: number;
 }): Promise<Array<{ file: string; submitId: string }>> {
@@ -535,79 +669,175 @@ async function generateWithOpenAiCompatibleProvider(options: {
   }
 
   const config = readOpenAiCompatibleImageConfig(options.configFile);
+  const mode = config.mode || (config.apiUrl.includes("/images/edits") ? "edits" : "generations");
   const count = Math.max(1, options.expectedImageCount || 1);
   const responseFormat = config.responseFormat || "b64_json";
-  const body = {
+  const timeoutMs = Math.max(30000, config.timeoutMs || 180000);
+  const sendRequest = async (requestBody: BodyInit, contentType?: string): Promise<{ response: Response; text: string }> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(config.apiUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          ...(contentType ? { "Content-Type": contentType } : {})
+        },
+        body: requestBody,
+        signal: controller.signal
+      });
+      const text = await response.text();
+      return { response, text };
+    } catch (error) {
+      throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const buildGenerationJsonBody = (): Record<string, unknown> => ({
     model: config.model,
     prompt: options.promptText,
-    n: count,
+    n: 1,
     size: config.size || "1024x1024",
     response_format: responseFormat,
     ...(config.requestExtra || {})
+  });
+
+  const buildEditFormData = (includeResponseFormat: boolean): FormData => {
+    if (!fs.existsSync(options.sourceImagePath)) {
+      throw new Error(`Source reference image not found for image edit: ${options.sourceImagePath}`);
+    }
+    const form = new FormData();
+    form.set("model", config.model);
+    form.set("prompt", options.promptText);
+    form.set("n", "1");
+    form.set("size", config.size || "1024x1024");
+    if (includeResponseFormat) {
+      form.set("response_format", responseFormat);
+    }
+    for (const [key, value] of Object.entries(config.requestExtra || {})) {
+      if (value === undefined || value === null) {
+        continue;
+      }
+      form.set(key, typeof value === "string" ? value : JSON.stringify(value));
+    }
+    const ext = path.extname(options.sourceImagePath).toLowerCase();
+    const mimeType = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "image/png";
+    const imageBlob = new Blob([fs.readFileSync(options.sourceImagePath)], { type: mimeType });
+    form.append("image", imageBlob, path.basename(options.sourceImagePath));
+    return form;
   };
-
-  fs.writeFileSync(path.join(options.downloadDir, "request.json"), `${JSON.stringify({ ...body, prompt: options.promptText }, null, 2)}\n`, "utf8");
-  const sendRequest = async (requestBody: Record<string, unknown>): Promise<{ response: Response; text: string }> => {
-    const response = await fetch(config.apiUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(requestBody)
-    });
-    const text = await response.text();
-    return { response, text };
-  };
-
-  let { response, text } = await sendRequest(body);
-  if (!response.ok && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(text)) {
-    const retryBody = { ...body };
-    delete (retryBody as Record<string, unknown>).response_format;
-    fs.writeFileSync(path.join(options.downloadDir, "request-retry.json"), `${JSON.stringify(retryBody, null, 2)}\n`, "utf8");
-    ({ response, text } = await sendRequest(retryBody));
-  }
-  fs.writeFileSync(path.join(options.downloadDir, "response.json"), `${text}\n`, "utf8");
-  if (!response.ok) {
-    throw normalizeImageGenerationError(`Image generation failed with HTTP ${response.status}: ${text || response.statusText}`);
-  }
-
-  let payload: any;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    throw new Error(`Image generation response was not JSON: ${text.slice(0, 500)}`);
-  }
-
-  const items = Array.isArray(payload?.data) ? payload.data : [];
-  if (items.length === 0) {
-    throw normalizeImageGenerationError(`Image generation returned no data items: ${text.slice(0, 500)}`);
-  }
 
   const generated: Array<{ file: string; submitId: string }> = [];
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
-    const baseName = `generated-${String(index + 1).padStart(2, "0")}`;
-    if (typeof item?.b64_json === "string" && item.b64_json.trim()) {
-      const file = path.join(options.downloadDir, `${baseName}.png`);
-      fs.writeFileSync(file, Buffer.from(item.b64_json, "base64"));
-      generated.push({ file, submitId: String(payload?.created || "") });
-      continue;
+  for (let imageIndex = 1; imageIndex <= count; imageIndex += 1) {
+    const requestFile = path.join(options.downloadDir, `request-${String(imageIndex).padStart(2, "0")}.json`);
+    const responseFile = path.join(options.downloadDir, `response-${String(imageIndex).padStart(2, "0")}.json`);
+    const requestSummary =
+      mode === "edits"
+        ? {
+            endpoint: config.apiUrl,
+            mode,
+            contentType: "multipart/form-data",
+            model: config.model,
+            prompt: options.promptText,
+            n: 1,
+            size: config.size || "1024x1024",
+            response_format: responseFormat,
+            image: path.basename(options.sourceImagePath),
+            imagePath: options.sourceImagePath,
+            requestExtra: config.requestExtra || {}
+          }
+        : buildGenerationJsonBody();
+    fs.writeFileSync(requestFile, `${JSON.stringify(requestSummary, null, 2)}\n`, "utf8");
+
+    let { response, text } =
+      mode === "edits"
+        ? await sendRequest(buildEditFormData(true))
+        : await sendRequest(JSON.stringify(buildGenerationJsonBody()), "application/json");
+    if (!response.ok && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(text)) {
+      if (mode === "edits") {
+        const retrySummary = { ...(requestSummary as Record<string, unknown>) };
+        delete retrySummary.response_format;
+        fs.writeFileSync(
+          path.join(options.downloadDir, `request-${String(imageIndex).padStart(2, "0")}-retry.json`),
+          `${JSON.stringify(retrySummary, null, 2)}\n`,
+          "utf8"
+        );
+        ({ response, text } = await sendRequest(buildEditFormData(false)));
+      } else {
+        const retryBody = buildGenerationJsonBody();
+        delete (retryBody as Record<string, unknown>).response_format;
+        fs.writeFileSync(
+          path.join(options.downloadDir, `request-${String(imageIndex).padStart(2, "0")}-retry.json`),
+          `${JSON.stringify(retryBody, null, 2)}\n`,
+          "utf8"
+        );
+        ({ response, text } = await sendRequest(JSON.stringify(retryBody), "application/json"));
+      }
     }
-    if (typeof item?.url === "string" && item.url.trim()) {
-      const targetFile = path.join(options.downloadDir, `${baseName}${getImageExtensionFromContentType(item.url)}`);
-      await downloadGeneratedImage(item.url, targetFile, config.apiKey || "");
-      generated.push({ file: targetFile, submitId: String(payload?.created || "") });
+    fs.writeFileSync(responseFile, `${text}\n`, "utf8");
+    if (!response.ok) {
+      throw normalizeImageGenerationError(`Image generation failed with HTTP ${response.status}: ${text || response.statusText}`);
     }
+
+    let payload: any;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      throw new Error(`Image generation response was not JSON: ${text.slice(0, 500)}`);
+    }
+
+    const items = extractGeneratedImageItems(payload, text);
+    const saved = await saveGeneratedImageItem({
+      item: items[0],
+      payload,
+      targetDir: options.downloadDir,
+      index: imageIndex,
+      apiKey: config.apiKey || ""
+    });
+    if (!saved) {
+      throw normalizeImageGenerationError(`Image generation returned no downloadable image payloads: ${text.slice(0, 500)}`);
+    }
+    generated.push(saved);
   }
 
-  if (generated.length === 0) {
-    throw normalizeImageGenerationError(`Image generation returned no downloadable image payloads: ${text.slice(0, 500)}`);
-  }
   if (generated.length < count) {
     throw new Error(`Image generation returned ${generated.length} image(s), expected ${count}.`);
   }
   return generated;
+}
+
+export async function generateOpenAiCompatibleImagePreview(options: {
+  configFile: string;
+  sourceImagePath: string;
+  promptWordFile: string;
+  outputDir: string;
+  sellingPointText?: string;
+}): Promise<{ file: string; requestFile: string; promptFile: string }> {
+  const paragraphs = readSimpleWordDocument(options.promptWordFile);
+  const promptText = options.sellingPointText
+    ? buildImageEditPromptFromWord({
+        paragraphs,
+        promptWordFile: options.promptWordFile,
+        ...parseSellingPointFields(options.sellingPointText)
+      })
+    : buildDreaminaPromptFromWord(paragraphs, options.promptWordFile);
+  fs.mkdirSync(options.outputDir, { recursive: true });
+  const promptFile = path.join(options.outputDir, "prompt.txt");
+  fs.writeFileSync(promptFile, `${promptText}\n`, "utf8");
+  const [generated] = await generateWithOpenAiCompatibleProvider({
+    configFile: options.configFile,
+    promptText,
+    sourceImagePath: options.sourceImagePath,
+    downloadDir: options.outputDir,
+    expectedImageCount: 1
+  });
+  return {
+    file: generated.file,
+    requestFile: path.join(options.outputDir, "request-01.json"),
+    promptFile
+  };
 }
 
 function moveFile(sourceFile: string, targetFile: string): void {
@@ -882,7 +1112,15 @@ export async function generateJimengAssets(options: {
 
   for (let promptIndex = 0; promptIndex < Math.min(5, options.wordFiles.length, shopFolders.length); promptIndex += 1) {
     const promptWordFile = options.wordFiles[promptIndex];
-    const promptText = buildDreaminaPromptFromWord(readSimpleWordDocument(promptWordFile), promptWordFile);
+    const wordParagraphs = readSimpleWordDocument(promptWordFile);
+    const promptText =
+      options.imageGenerationProvider === "openai-compatible"
+        ? buildImageEditPromptFromWord({
+            paragraphs: wordParagraphs,
+            promptWordFile,
+            ...parseSellingPointFields(options.sellingPointText)
+          })
+        : buildDreaminaPromptFromWord(wordParagraphs, promptWordFile);
 
     const { shopFolder, watermarkText } = shopFolders[promptIndex];
     const roundDir = path.join(taskDir, `dreamina-${String(promptIndex + 1).padStart(2, "0")}`);
@@ -928,6 +1166,7 @@ export async function generateJimengAssets(options: {
         ? await generateWithOpenAiCompatibleProvider({
             configFile: options.imageGenerationConfigFile,
             promptText,
+            sourceImagePath: options.sourceImagePath,
             downloadDir: path.join(roundDir, "openai-compatible", "raw"),
             expectedImageCount: remainingImageCount
           })

@@ -1,9 +1,10 @@
 export interface SubmitPromptOptions {
-  imagePath: string;
+  imagePath?: string;
   promptFile?: string;
   promptText?: string;
   freshConversation?: boolean;
   conversationUrl?: string;
+  attachImage?: boolean;
 }
 
 export interface SubmitPromptResult {
@@ -63,6 +64,8 @@ export interface DoubaoJobInput {
   cleanupOutputDir?: boolean;
   freshConversation?: boolean;
   conversationUrl?: string;
+  attachImages?: boolean;
+  captureWaitMs?: number;
 }
 
 export interface DoubaoJobResolved {
@@ -75,6 +78,8 @@ export interface DoubaoJobResolved {
   cleanupOutputDir: boolean;
   freshConversation: boolean;
   conversationUrl?: string;
+  attachImages: boolean;
+  captureWaitMs?: number;
 }
 
 export interface DoubaoItemResult {

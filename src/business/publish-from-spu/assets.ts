@@ -29,6 +29,42 @@ function sortByFileRule(paths: string[]): string[] {
   });
 }
 
+function extensionPriority(filePath: string): number {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".png") {
+    return 0;
+  }
+  if (ext === ".webp") {
+    return 1;
+  }
+  if (ext === ".jpg" || ext === ".jpeg") {
+    return 2;
+  }
+  return 3;
+}
+
+function stemKey(filePath: string): string {
+  return path.basename(filePath, path.extname(filePath)).toLowerCase();
+}
+
+function preferWatermarkedPrimaryCandidates(paths: string[]): string[] {
+  const byStem = new Map<string, string[]>();
+  for (const filePath of paths) {
+    const key = stemKey(filePath);
+    byStem.set(key, [...(byStem.get(key) || []), filePath]);
+  }
+
+  return Array.from(byStem.values()).map((items) =>
+    sortByFileRule(items).sort((a, b) => {
+      const extDiff = extensionPriority(a) - extensionPriority(b);
+      if (extDiff !== 0) {
+        return extDiff;
+      }
+      return 0;
+    })[0]
+  );
+}
+
 function isExcludedMainImage(name: string): boolean {
   return /\u767d\u5e95\u56fe|\u767d\u5e95|3[:\uff1a]4|\u4e3b\u56fe3[:\uff1a]4/i.test(name);
 }
@@ -62,7 +98,7 @@ function findPrimaryMainImage(productFolder: string): string[] {
     .filter((name) => isNamedMainImageFile(name))
     .map((name) => path.join(productFolder, name));
   if (explicitMainImages.length) {
-    return sortByFileRule(explicitMainImages);
+    return sortByFileRule(preferWatermarkedPrimaryCandidates(explicitMainImages));
   }
 
   const generatedMainCandidates = names
@@ -72,7 +108,7 @@ function findPrimaryMainImage(productFolder: string): string[] {
     .filter((name) => !isDetailImageFile(name))
     .map((name) => path.join(productFolder, name));
 
-  return sortByFileRule(generatedMainCandidates).slice(0, 1);
+  return sortByFileRule(preferWatermarkedPrimaryCandidates(generatedMainCandidates)).slice(0, 1);
 }
 
 export function classifyAssets(productFolder: string): ProductAssets {

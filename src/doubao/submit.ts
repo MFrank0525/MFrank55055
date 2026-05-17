@@ -40,7 +40,9 @@ function resolvePrompt(options: SubmitPromptOptions): { prompt: string; promptFi
 }
 
 export async function submitPrompt(options: SubmitPromptOptions): Promise<SubmitPromptResult> {
-  if (!fs.existsSync(options.imagePath)) {
+  const shouldAttachImage = options.attachImage !== false;
+  const resolvedImagePath = options.imagePath ? path.resolve(options.imagePath) : "";
+  if (shouldAttachImage && (!resolvedImagePath || !fs.existsSync(resolvedImagePath))) {
     throw new Error(`Image not found: ${options.imagePath}`);
   }
 
@@ -82,9 +84,11 @@ export async function submitPrompt(options: SubmitPromptOptions): Promise<Submit
   const input = page.locator('textarea[placeholder="发消息..."]').first();
   await input.waitFor({ state: "visible", timeout: 20000 });
 
-  const fileInput = page.locator('input[type="file"]').first();
-  await fileInput.setInputFiles([path.resolve(options.imagePath)]);
-  await sleep(rand(1800, 2600));
+  if (shouldAttachImage) {
+    const fileInput = page.locator('input[type="file"]').first();
+    await fileInput.setInputFiles([resolvedImagePath]);
+    await sleep(rand(1800, 2600));
+  }
 
   await input.click({ delay: rand(70, 150) });
   await sleep(rand(180, 320));
@@ -106,7 +110,7 @@ export async function submitPrompt(options: SubmitPromptOptions): Promise<Submit
 
   return {
     activeUrl: page.url(),
-    imagePath: path.resolve(options.imagePath),
+    imagePath: resolvedImagePath,
     promptFile,
     promptLength: prompt.length,
     submittedAt: new Date().toISOString()

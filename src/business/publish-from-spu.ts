@@ -35,6 +35,10 @@ function normalizeMatchText(value: string): string {
   return value.replace(/\s+/g, "").trim().toLowerCase();
 }
 
+function normalizeSpuMatchText(value: string): string {
+  return normalizeMatchText(value).replace(/械[住注]准/g, "械注准");
+}
+
 function attachSafeDialogHandler(page: Page): void {
   page.on("dialog", (dialog) => {
     dialog.dismiss().catch(() => {});
@@ -169,7 +173,8 @@ async function ensurePlatformSpuPage(runtimeDir: string, shopFolder?: string): P
       screenshotFile
     };
   } finally {
-    await context.browser()?.close().catch(() => {});
+    // Keep the shared persistent browser alive. Sequential publish flow may call
+    // this helper while another publish page is active in the same profile.
   }
 }
 
@@ -296,6 +301,17 @@ async function pageContainsExpectedShop(page: Page, expectedShopName: string): P
     const prefix = target.slice(0, Math.min(8, target.length));
     return Boolean(prefix) && bodyText.includes(prefix);
   }, normalizedExpected);
+}
+
+async function isDoudianLoginRequired(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const text = (document.body.innerText || "").replace(/\s+/g, "");
+    return (
+      (text.includes("扫码登录") && text.includes("抖店App")) ||
+      text.includes("切换为手机/邮箱登录") ||
+      text.includes("打开抖店App扫码登录")
+    );
+  });
 }
 
 async function clickTopRightShopMenu(page: Page): Promise<boolean> {
@@ -726,6 +742,12 @@ async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: str
   }
 
   const currentBefore = normalizeShopName(await detectCurrentShopName(page));
+  if (await isDoudianLoginRequired(page)) {
+    const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
+    throw new Error(
+      `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
+    );
+  }
   if (currentBefore && currentBefore.includes(expectedShopName)) {
     return currentBefore;
   }
@@ -734,6 +756,12 @@ async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: str
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const menuOpened = await clickTopRightShopMenu(page);
     if (!menuOpened) {
+      if (await isDoudianLoginRequired(page)) {
+        const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
+        throw new Error(
+          `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
+        );
+      }
       const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-menu-missing.png").catch(() => "");
       throw new Error(`Shop switch failed: could not open top-right shop menu for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
     }
@@ -1133,12 +1161,11 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
   const context = await launchPersistentBrowser();
   try {
     const normalizedBrand = normalizeMatchText(brand);
-    const normalizedSpu = normalizeMatchText(spu);
+    const normalizedSpu = normalizeSpuMatchText(spu);
     const page =
       context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/spu-record")) ||
       context.pages().find((item) => !item.isClosed() && !item.url().includes("/ffa/g/create")) ||
       (await context.newPage());
-    await closeExtraPages(context, [page]);
     attachSafeDialogHandler(page);
     await page.bringToFront();
     await gotoWithTolerance(page, PLATFORM_SPU_URL, 3000);
@@ -1206,19 +1233,19 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
     await clearAndTypeAtPoint(page, spuBox, spu);
     await page.waitForTimeout(300);
     let spuValueConfirmed = await readPlatformInputValueAtPoint(page, spuBox);
-    if (!normalizeMatchText(spuValueConfirmed).includes(normalizeMatchText(spu))) {
+    if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
       spuValueConfirmed = await setPlatformInputValueAtPoint(page, spuBox, spu);
     }
-    if (!normalizeMatchText(spuValueConfirmed).includes(normalizeMatchText(spu))) {
+    if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
       await setPlatformQueryInputValue(page, "spu", spu);
       await page.waitForTimeout(500);
       spuValueConfirmed = await readPlatformInputValueAtPoint(page, spuBox);
     }
     await page.waitForTimeout(800);
-    if (!normalizeMatchText(spuValueConfirmed).includes(normalizeMatchText(spu))) {
+    if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
       spuValueConfirmed = await readPlatformQueryInputValue(page, "spu");
     }
-    if (!normalizeMatchText(spuValueConfirmed).includes(normalizeMatchText(spu))) {
+    if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
       const error = new Error(
         `SPU input value mismatch after typing. expected=${spu}; actual=${spuValueConfirmed || "<empty>"}`
       ) as QueryDiagnosticError;
@@ -1230,7 +1257,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       normalizeMatchText(brandValueConfirmed).includes(normalizedBrand) ||
       brandOptionConfirmed ||
       !brandValueConfirmed;
-    const spuSelfCheckOk = normalizeMatchText(spuValueConfirmed).includes(normalizedSpu);
+    const spuSelfCheckOk = normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu);
     if (!brandSelfCheckOk || !spuSelfCheckOk) {
       const error = new Error(
         `Platform query self-check failed before clicking query. expectedBrand=${brand}; actualBrand=${brandValueConfirmed || "<empty>"}; expectedSpu=${spu}; actualSpu=${spuValueConfirmed || "<empty>"}`
@@ -1275,8 +1302,10 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
           const cellTexts = Array.from(row.querySelectorAll("td"))
             .map((cell) => (cell.textContent || "").replace(/\s+/g, " ").trim())
             .filter(Boolean);
-          const normalizedRowText = (rowEl.innerText || "").replace(/\s+/g, "").toLowerCase();
-          const exactSpuCell = cellTexts.some((cell) => cell.replace(/\s+/g, "").toLowerCase() === targetSpu);
+          const normalizeSpu = (value: string): string =>
+            value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
+          const normalizedRowText = normalizeSpu(rowEl.innerText || "");
+          const exactSpuCell = cellTexts.some((cell) => normalizeSpu(cell) === targetSpu);
           const exactBrandCell = cellTexts.some((cell) => cell.replace(/\s+/g, "").toLowerCase() === targetBrand);
           const rowHasSpu = normalizedRowText.includes(targetSpu);
           const rowHasBrand = normalizedRowText.includes(targetBrand);
@@ -1345,7 +1374,6 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       throw new Error("Publish page did not open after query click. No new create page was detected.");
     }
     attachSafeDialogHandler(targetPage);
-    await closeExtraPages(context, [targetPage]);
     await targetPage.waitForTimeout(4000).catch(() => {});
     const createPageUrl = targetPage.url();
     if (!createPageUrl.includes("/ffa/g/create")) {
@@ -1699,8 +1727,8 @@ async function assertCategoryRegistrationMatchesWorkbookSpu(
   screenshotFileName: string
 ): Promise<string> {
   const actualRegistration = await readCategoryRegistrationNumber(page);
-  const normalizedExpected = normalizeMatchText(expectedSpu);
-  const normalizedActual = normalizeMatchText(actualRegistration);
+  const normalizedExpected = normalizeSpuMatchText(expectedSpu);
+  const normalizedActual = normalizeSpuMatchText(actualRegistration);
   if (!normalizedExpected) {
     return actualRegistration;
   }
@@ -3922,12 +3950,116 @@ async function collectFileInputs(page: Page): Promise<
       index,
       accept: el.getAttribute("accept") || "",
       multiple: el.hasAttribute("multiple"),
-      parentText: ((el.parentElement?.textContent || el.closest("div")?.textContent || "") as string)
-        .trim()
-        .replace(/\s+/g, " ")
-        .slice(0, 200)
+      parentText: (() => {
+        const normalize = (value: string): string => value.trim().replace(/\s+/g, " ");
+        const sectionMarkers = [
+          "\u4e3b\u56fe",
+          "\u4e3b\u56fe3:4",
+          "\u767d\u5e95\u56fe",
+          "\u9891\u9053\u3001\u6d3b\u52a8",
+          "\u5546\u54c1\u8be6\u60c5",
+          "\u5546\u8be6\u56fe\u7247",
+          "\u8be6\u60c5\u9875",
+          "\u5bbd\u5ea6620",
+          "\u4e0a\u4f20\u56fe\u7247",
+          "\u4e0a\u4f20\u4e3b\u56fe"
+        ];
+        let node: HTMLElement | null = el.parentElement;
+        let best = "";
+        for (let depth = 0; node && depth < 10; depth += 1, node = node.parentElement) {
+          const text = normalize(node.textContent || "");
+          if (!text || text.length > 1800) {
+            continue;
+          }
+          const hasMarker = sectionMarkers.some((marker) => text.includes(marker));
+          if (hasMarker || text.length > best.length) {
+            best = text;
+          }
+        }
+        return best.slice(0, 1800);
+      })()
     }))
   );
+}
+
+function pickBestFileInput(
+  inputs: Array<{ index: number; accept: string; multiple: boolean; parentText: string }>,
+  scoreInput: (input: { index: number; accept: string; multiple: boolean; parentText: string }) => number
+): { index: number; accept: string; multiple: boolean; parentText: string } | null {
+  const scored = inputs
+    .map((input) => ({ input, score: scoreInput(input) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.input.index - b.input.index);
+  return scored[0]?.input || null;
+}
+
+function scoreMainGraphicInput(input: { parentText: string; multiple: boolean }): number {
+  const text = input.parentText;
+  let score = 0;
+  if (text.includes("\u767d\u5e95\u56fe")) score += 120;
+  if (text.includes("\u9891\u9053\u3001\u6d3b\u52a8")) score += 120;
+  if (text.includes("\u4e0a\u4f20\u4e3b\u56fe")) score += 110;
+  if (text.includes("\u4e3b\u56fe")) score += 80;
+  if (text.includes("600*600") || text.includes("600\u00d7600")) score += 40;
+  if (input.multiple) score += 10;
+  if (text.includes("\u5546\u54c1\u8be6\u60c5") || text.includes("\u5546\u8be6\u56fe\u7247")) score -= 160;
+  if (text.includes("\u5bbd\u5ea6620") || /\(\d+\/50\)/.test(text)) score -= 140;
+  if (text.includes("\u4e3b\u56fe3:4")) score -= 120;
+  return score;
+}
+
+function scoreDetailGraphicInput(input: { parentText: string; multiple: boolean }): number {
+  const text = input.parentText;
+  let score = 0;
+  if (text.includes("\u5546\u54c1\u8be6\u60c5")) score += 140;
+  if (text.includes("\u5546\u8be6\u56fe\u7247")) score += 140;
+  if (text.includes("\u5bbd\u5ea6620")) score += 100;
+  if (/\(\d+\/50\)/.test(text)) score += 100;
+  if (text.includes("\u4e0a\u4f20\u56fe\u7247")) score += 40;
+  if (input.multiple) score += 20;
+  if (text.includes("\u767d\u5e95\u56fe") || text.includes("\u9891\u9053\u3001\u6d3b\u52a8")) score -= 160;
+  if (text.includes("\u4e3b\u56fe3:4")) score -= 120;
+  return score;
+}
+
+async function uploadFilesToInput(
+  page: Page,
+  input: { index: number; multiple: boolean },
+  files: string[]
+): Promise<number> {
+  const selectedFiles = input.multiple ? files : files.slice(0, 1);
+  if (!selectedFiles.length) {
+    return 0;
+  }
+  await page.locator("input[type='file']").nth(input.index).setInputFiles(selectedFiles);
+  return selectedFiles.length;
+}
+
+async function uploadDetailImagesByInputCapability(
+  page: Page,
+  initialInput: { index: number; multiple: boolean },
+  files: string[]
+): Promise<number> {
+  if (!files.length) {
+    return 0;
+  }
+  if (initialInput.multiple) {
+    await page.locator("input[type='file']").nth(initialInput.index).setInputFiles(files);
+    return files.length;
+  }
+
+  let uploaded = 0;
+  for (const file of files) {
+    const inputs = await collectFileInputs(page);
+    const input = pickBestFileInput(inputs, scoreDetailGraphicInput);
+    if (!input) {
+      break;
+    }
+    await page.locator("input[type='file']").nth(input.index).setInputFiles(file);
+    uploaded += 1;
+    await page.waitForTimeout(1100);
+  }
+  return uploaded;
 }
 
 async function countGraphicSectionPreviews(page: Page, sectionName: string): Promise<number> {
@@ -4263,7 +4395,12 @@ async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string
         })
         .filter(Boolean) as Array<{ text: string; top: number; bottom: number; left: number }>;
 
-      const current = labels.find((item) => item.text === targetSection);
+      const current = labels.find(
+        (item) =>
+          item.text === targetSection ||
+          item.text.startsWith(targetSection) ||
+          (item.text.includes(targetSection) && item.text.length <= targetSection.length + 80)
+      );
       if (!current) {
         return 0;
       }
@@ -4295,6 +4432,14 @@ async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string
   );
 }
 
+async function countMainImagePreviews(page: Page): Promise<number> {
+  const counts = await Promise.all([
+    countGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe").catch(() => 0),
+    countGraphicSectionPreviewsStrict(page, "\u767d\u5e95\u56fe").catch(() => 0)
+  ]);
+  return Math.max(...counts);
+}
+
 async function getGraphicSectionPreviewRectsStrict(
   page: Page,
   sectionName: string
@@ -4313,7 +4458,12 @@ async function getGraphicSectionPreviewRectsStrict(
         })
         .filter(Boolean) as Array<{ text: string; top: number; bottom: number; left: number }>;
 
-      const current = labels.find((item) => item.text === targetSection);
+      const current = labels.find(
+        (item) =>
+          item.text === targetSection ||
+          item.text.startsWith(targetSection) ||
+          (item.text.includes(targetSection) && item.text.length <= targetSection.length + 80)
+      );
       if (!current) {
         return [];
       }
@@ -4619,25 +4769,25 @@ async function uploadProductImages(
     }
     const inputs = await collectFileInputs(page);
 
-    const mainInput = inputs.find((item) => item.parentText.includes("\u4E0A\u4F20\u4E3B\u56FE"));
+    const mainInput = pickBestFileInput(inputs, scoreMainGraphicInput);
     if (!uploadIssue && mainInput && assets.mainImages.length) {
-      await page.locator("input[type='file']").nth(mainInput.index).setInputFiles(assets.mainImages);
+      await uploadFilesToInput(page, mainInput, assets.mainImages);
       uploadedGroups.push("mainImages");
       await page.waitForTimeout(2600);
       const cropped = await clickSmartCropForMain34Section(page).catch(() => false);
       if (!cropped) {
-        uploadIssue = 'Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable after main image upload.';
+        logWarn('Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable after main image upload; continuing because main images were uploaded.');
       }
     } else if (!uploadIssue && !mainInput) {
-      const existingMainPreviewCount = await countGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe");
-      if (existingMainPreviewCount >= Math.min(assets.mainImages.length, 5)) {
+      const existingMainPreviewCount = await countMainImagePreviews(page);
+      if (existingMainPreviewCount >= Math.min(assets.mainImages.length, 1)) {
         uploadedGroups.push("mainImages");
         const cropped = await clickSmartCropForMain34Section(page).catch(() => false);
         if (!cropped) {
-          uploadIssue = 'Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable after main image upload.';
+          logWarn('Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable for existing main previews; continuing.');
         }
       } else {
-        uploadIssue = "Main image upload input was not found.";
+        logWarn("Main image upload input was not found; checking existing main/white-background previews before failing.");
       }
     } else if (!uploadIssue && !assets.mainImages.length) {
       uploadIssue = "Main image upload input was not found.";
@@ -4651,17 +4801,10 @@ async function uploadProductImages(
       await savePageScreenshot(page, runtimeDir, "publish-page-detail-fill-from-main-failed.png").catch(() => "");
     }
     const detailInputs = await collectFileInputs(page);
-    const detailInput =
-      detailInputs.find(
-        (item) =>
-          item.parentText === "\u4E0A\u4F20\u56FE\u7247" ||
-          item.parentText.includes("\u4E0A\u4F20\u56FE\u7247") ||
-          item.parentText.includes("1/20") ||
-          item.parentText.includes("0/20")
-      ) || null;
+    const detailInput = pickBestFileInput(detailInputs, scoreDetailGraphicInput);
 
     if (!uploadIssue && detailInput && assets.detailImages.length) {
-      await page.locator("input[type='file']").nth(detailInput.index).setInputFiles(assets.detailImages);
+      await uploadDetailImagesByInputCapability(page, detailInput, assets.detailImages);
       uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
       await page.waitForTimeout(2500);
     } else if (!uploadIssue && !detailInput) {
@@ -4671,9 +4814,24 @@ async function uploadProductImages(
       } else {
         uploadIssue = "Detail image upload input was not found.";
       }
-    }
+  }
 
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-images-uploaded.png");
+  const finalMainPreviewCount = await countMainImagePreviews(page).catch(() => 0);
+  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount >= Math.min(assets.mainImages.length, 1)) {
+    uploadedGroups.push("mainImages");
+  }
+  if (!uploadIssue && !uploadedGroups.includes("mainImages")) {
+    uploadIssue = "Main image upload input was not found and no existing main/white-background preview was detected.";
+  }
+  const finalDetailPreviewCount = await countGraphicSectionPreviewsStrict(page, "\u5546\u54C1\u8BE6\u60C5").catch(() => 0);
+  if (
+    !uploadedGroups.some((item) => item === "detailImages" || item === "detailImages:fillFromMainThenUpload") &&
+    finalDetailPreviewCount >= Math.min(assets.detailImages.length, 1)
+  ) {
+    uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
+  }
+
+  const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-images-uploaded.png");
     return {
       pageUrl: page.url(),
       pageTitle: await page.title(),
@@ -4712,25 +4870,25 @@ async function uploadProductImagesOnPage(
   }
   const inputs = await collectFileInputs(page);
 
-  const mainInput = inputs.find((item) => item.parentText.includes("\u4E0A\u4F20\u4E3B\u56FE"));
+  const mainInput = pickBestFileInput(inputs, scoreMainGraphicInput);
   if (!uploadIssue && mainInput && assets.mainImages.length) {
-    await page.locator("input[type='file']").nth(mainInput.index).setInputFiles(assets.mainImages);
+    await uploadFilesToInput(page, mainInput, assets.mainImages);
     uploadedGroups.push("mainImages");
-    await page.waitForTimeout(3000);
-    const cropped = await clickSmartCropForMain34Section(page).catch(() => false);
-    if (!cropped) {
-      uploadIssue = 'Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable after main image upload.';
-    }
+      await page.waitForTimeout(3000);
+      const cropped = await clickSmartCropForMain34Section(page).catch(() => false);
+      if (!cropped) {
+        logWarn('Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable after main image upload; continuing because main images were uploaded.');
+      }
   } else if (!uploadIssue && !mainInput) {
-    const existingMainPreviewCount = await countGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe");
-    if (existingMainPreviewCount >= Math.min(assets.mainImages.length, 5)) {
+    const existingMainPreviewCount = await countMainImagePreviews(page);
+    if (existingMainPreviewCount >= Math.min(assets.mainImages.length, 1)) {
       uploadedGroups.push("mainImages");
       const cropped = await clickSmartCropForMain34Section(page).catch(() => false);
       if (!cropped) {
-        uploadIssue = 'Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable after main image upload.';
+        logWarn('Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable for existing main previews; continuing.');
       }
     } else {
-      uploadIssue = "Main image upload input was not found.";
+      logWarn("Main image upload input was not found; checking existing main/white-background previews before failing.");
     }
   } else if (!uploadIssue && !assets.mainImages.length) {
     uploadIssue = "Main image upload input was not found.";
@@ -4744,17 +4902,10 @@ async function uploadProductImagesOnPage(
     await savePageScreenshot(page, runtimeDir, "publish-page-detail-fill-from-main-failed.png").catch(() => "");
   }
   const detailInputs = await collectFileInputs(page);
-  const detailInput =
-    detailInputs.find(
-      (item) =>
-        item.parentText === "\u4E0A\u4F20\u56FE\u7247" ||
-        item.parentText.includes("\u4E0A\u4F20\u56FE\u7247") ||
-        item.parentText.includes("1/20") ||
-        item.parentText.includes("0/20")
-    ) || null;
+  const detailInput = pickBestFileInput(detailInputs, scoreDetailGraphicInput);
 
   if (!uploadIssue && detailInput && assets.detailImages.length) {
-    await page.locator("input[type='file']").nth(detailInput.index).setInputFiles(assets.detailImages);
+    await uploadDetailImagesByInputCapability(page, detailInput, assets.detailImages);
     uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
     await page.waitForTimeout(3500);
   } else if (!uploadIssue && !detailInput) {
@@ -4767,6 +4918,21 @@ async function uploadProductImagesOnPage(
   }
 
   await dismissTransientOverlays(page);
+
+  const finalMainPreviewCount = await countMainImagePreviews(page).catch(() => 0);
+  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount >= Math.min(assets.mainImages.length, 1)) {
+    uploadedGroups.push("mainImages");
+  }
+  if (!uploadIssue && !uploadedGroups.includes("mainImages")) {
+    uploadIssue = "Main image upload input was not found and no existing main/white-background preview was detected.";
+  }
+  const finalDetailPreviewCount = await countGraphicSectionPreviewsStrict(page, "\u5546\u54C1\u8BE6\u60C5").catch(() => 0);
+  if (
+    !uploadedGroups.some((item) => item === "detailImages" || item === "detailImages:fillFromMainThenUpload") &&
+    finalDetailPreviewCount >= Math.min(assets.detailImages.length, 1)
+  ) {
+    uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
+  }
 
   const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
   return {
@@ -5599,7 +5765,8 @@ async function runPublishFlow(
   assets: ProductAssets,
   shopFolder: string,
   publishPageUrl?: string,
-  stopBeforePublish = false
+  stopBeforePublish = false,
+  graphicResetAttempt = 0
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -5657,10 +5824,10 @@ async function runPublishFlow(
 
   const context = await launchPersistentBrowser();
   try {
-    const existingCreatePage = context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/create"));
-    const page = existingCreatePage || context.pages().find((item) => !item.isClosed()) || (await context.newPage());
+    const page = await context.newPage();
     attachSafeDialogHandler(page);
     await page.bringToFront();
+    await gotoWithTolerance(page, createPageUrl, 3500);
     await ensureShopContext(page, runtimeDir, shopFolder);
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
@@ -5733,8 +5900,24 @@ async function runPublishFlow(
         !uploadedGroups.some((item) => item === "detailImages" || item === "detailImages:fillFromMainThenUpload")
       ) {
         stages.push({ step: "upload_product_images", status: "failed" });
+        if (graphicResetAttempt < 1) {
+          logWarn(
+            `Graphic module did not reach a clean completed state; reopening from platform SPU instead of repairing the current create page. issue=${uploadIssue || "Main/detail image groups were not both uploaded successfully."}`
+          );
+          await context.browser()?.close().catch(() => {});
+          const retryResult = await runPublishFlow(runtimeDir, metadata, assets, shopFolder, undefined, stopBeforePublish, graphicResetAttempt + 1);
+          return {
+            ...retryResult,
+            screenshotFiles: [...screenshotFiles, ...retryResult.screenshotFiles],
+            stages: [
+              ...stages,
+              { step: "reopen_publish_page_after_graphic_failure", status: "completed" },
+              ...retryResult.stages
+            ]
+          };
+        }
         throw new Error(
-          `Sequential publish flow stopped: 鍥炬枃淇℃伅妯″潡鏈畬鎴愩€?{uploadIssue || "Main/detail image groups were not both uploaded successfully."}`
+          `Sequential publish flow stopped: 图文信息模块未完成。${uploadIssue || "Main/detail image groups were not both uploaded successfully."}`
         );
       }
       if (specAttempt === 0) {
@@ -5918,7 +6101,8 @@ async function runGraphicFlow(
   metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string },
   assets: ProductAssets,
   shopFolder: string,
-  publishPageUrl?: string
+  publishPageUrl?: string,
+  graphicResetAttempt = 0
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -5952,10 +6136,10 @@ async function runGraphicFlow(
 
   const context = await launchPersistentBrowser();
   try {
-    const existingCreatePage = context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/create"));
-    const page = existingCreatePage || context.pages().find((item) => !item.isClosed()) || (await context.newPage());
+    const page = await context.newPage();
     attachSafeDialogHandler(page);
     await page.bringToFront();
+    await gotoWithTolerance(page, createPageUrl, 3500);
     await ensureShopContext(page, runtimeDir, shopFolder);
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
@@ -6026,6 +6210,22 @@ async function runGraphicFlow(
       !uploadedGroups.some((item) => item === "detailImages" || item === "detailImages:fillFromMainThenUpload")
     ) {
       stages.push({ step: "upload_product_images", status: "failed" });
+      if (graphicResetAttempt < 1) {
+        logWarn(
+          `Graphic module did not reach a clean completed state; reopening from platform SPU instead of repairing the current create page. issue=${uploadIssue || "Main/detail image groups were not both uploaded successfully."}`
+        );
+        await context.browser()?.close().catch(() => {});
+        const retryResult = await runGraphicFlow(runtimeDir, metadata, assets, shopFolder, undefined, graphicResetAttempt + 1);
+        return {
+          ...retryResult,
+          screenshotFiles: [...screenshotFiles, ...retryResult.screenshotFiles],
+          stages: [
+            ...stages,
+            { step: "reopen_publish_page_after_graphic_failure", status: "completed" },
+            ...retryResult.stages
+          ]
+        };
+      }
       throw new Error(`Graphic flow stopped: 图文信息模块未完成。${uploadIssue || "Main/detail image groups were not both uploaded successfully."}`);
     }
     stages.push({ step: "upload_product_images", status: "completed" });

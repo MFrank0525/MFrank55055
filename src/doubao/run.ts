@@ -57,7 +57,7 @@ function removeIfExists(targetPath: string): void {
 }
 
 function cleanupOutputDir(outputDir: string): void {
-  const patterns = [/^doubao-response-raw-.*\.txt$/i, /^doubao-result-.*\.png$/i, /\.md$/i];
+  const patterns = [/^doubao-response-raw-.*\.txt$/i, /^doubao-result-.*\.png$/i, /\.md$/i, /\.csv$/i];
   for (const name of fs.readdirSync(outputDir)) {
     if (patterns.some((pattern) => pattern.test(name))) {
       fs.rmSync(path.join(outputDir, name), { force: true });
@@ -87,7 +87,9 @@ function resolveJob(job: DoubaoJobInput): DoubaoJobResolved {
     runtimeDir,
     cleanupOutputDir: job.cleanupOutputDir ?? true,
     freshConversation: job.freshConversation ?? false,
-    conversationUrl: job.conversationUrl?.trim() || undefined
+    conversationUrl: job.conversationUrl?.trim() || undefined,
+    attachImages: job.attachImages ?? true,
+    captureWaitMs: job.captureWaitMs
   };
 }
 
@@ -132,13 +134,17 @@ export async function runDoubaoJob(jobInput: DoubaoJobInput): Promise<DoubaoRunR
         imagePath,
         promptFile: job.promptFile,
         freshConversation: job.freshConversation,
-        conversationUrl: job.conversationUrl
+        conversationUrl: job.conversationUrl,
+        attachImage: job.attachImages
       });
       logInfo(`submitted image ${index + 1} at ${submitResult.submittedAt}`);
 
       const captureResult = await captureConversation({
         outputDir: job.outputDir,
-        rawFileOut: rawFile
+        rawFileOut: rawFile,
+        waitMs: job.captureWaitMs,
+        conversationUrl: job.conversationUrl,
+        mode: "titles"
       });
       logInfo(`captured response for image ${index + 1}`);
 

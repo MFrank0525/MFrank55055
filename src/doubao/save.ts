@@ -345,7 +345,7 @@ export function saveTitlesFromRaw(options: SaveTitlesOptions): SaveTitlesResult 
   const isolatedText = isolateLatestReplyText(text, options.promptText);
   const strictRows = extractStrictNumberedLines(isolatedText, titleCount);
   const isolatedRows = strictRows.length === titleCount ? strictRows : extractRows(isolatedText, titleCount);
-  const rows = isolatedRows.length === titleCount ? isolatedRows : extractRows(text, titleCount);
+  const rows = isolatedRows.length === titleCount || options.promptText?.trim() ? isolatedRows : extractRows(text, titleCount);
   if (rows.length !== titleCount) {
     throw new Error(`Could not isolate exactly ${titleCount} generated titles, got ${rows.length}`);
   }

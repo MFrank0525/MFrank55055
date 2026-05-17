@@ -111,9 +111,13 @@ async function executeTaskChain(
   endStep: string,
   eventFile: string,
   simulateOnly: boolean,
-  manualReadMap: Map<string, ManualReadRecord>
+  manualReadMap: Map<string, ManualReadRecord>,
+  onProgress?: (task: ImageTaskState) => void
 ): Promise<ImageTaskState> {
   let current = task;
+  const markProgress = (): void => {
+    onProgress?.(current);
+  };
   const allSteps = getPlannedSteps();
   const startIndex = startStep === "discovered" ? 1 : Math.max(1, allSteps.indexOf(startStep as (typeof allSteps)[number]));
   const endIndex = Math.max(startIndex, allSteps.indexOf(endStep as (typeof allSteps)[number]));
@@ -125,12 +129,15 @@ async function executeTaskChain(
     const recovered = recoverArtifactsFromWordFiles({
       runtimeDir,
       taskId: current.taskId,
-      jimengImageDir
+      jimengImageDir,
+      feishuProductDataFile,
+      sourceImagePath: current.sourceImagePath
     });
     current = {
       ...current,
       sellingPointArtifact: current.sellingPointArtifact || recovered.sellingPointArtifact,
       deepseekArtifact: current.deepseekArtifact || recovered.deepseekArtifact,
+      feishuProductRecord: current.feishuProductRecord || recovered.feishuProductRecord,
       lastUpdatedAt: new Date().toISOString(),
       notes: [...current.notes, "Recovered selling points and DeepSeek prompts from saved Word files."]
     };
@@ -140,16 +147,21 @@ async function executeTaskChain(
     );
   }
 
-  if (startIndex >= allSteps.indexOf("published") && !current.shopDistributionArtifact?.distributedFolders?.length) {
+  if (startIndex >= allSteps.indexOf("titles_generated") && !current.generatedProductFolders.length) {
     const recovered = recoverDistributedFoldersFromShopRoot({
-      shopRootDir
+      shopRootDir,
+      requireWorkbook: startIndex >= allSteps.indexOf("published"),
+      expectedCount: titleCount
     });
     current = {
       ...current,
       generatedProductFolders: current.generatedProductFolders.length
         ? current.generatedProductFolders
         : recovered.generatedProductFolders,
-      shopDistributionArtifact: current.shopDistributionArtifact || recovered.shopDistributionArtifact,
+      shopDistributionArtifact:
+        startIndex >= allSteps.indexOf("published")
+          ? current.shopDistributionArtifact || recovered.shopDistributionArtifact
+          : current.shopDistributionArtifact,
       lastUpdatedAt: new Date().toISOString(),
       notes: [...current.notes, "Recovered distributed product folders from shop root directory."]
     };
@@ -212,6 +224,7 @@ async function executeTaskChain(
             current.taskId
           )
         );
+        markProgress();
         continue;
       }
 
@@ -234,6 +247,7 @@ async function executeTaskChain(
         eventFile,
         createEvent("info", step, `Doubao selling points captured: ${sellingPointArtifact.sellingPointText}`, current.taskId)
       );
+      markProgress();
       continue;
     }
 
@@ -277,6 +291,7 @@ async function executeTaskChain(
           current.taskId
         )
       );
+      markProgress();
       continue;
     }
 
@@ -315,6 +330,7 @@ async function executeTaskChain(
         eventFile,
         createEvent("info", step, `Jimeng assets ready: ${jimengArtifact.generatedFiles.length} file(s).`, current.taskId)
       );
+      markProgress();
       continue;
     }
 
@@ -333,6 +349,7 @@ async function executeTaskChain(
         eventFile,
         createEvent("info", step, `Product folders ready: ${current.generatedProductFolders.join(" | ")}`, current.taskId)
       );
+      markProgress();
       continue;
     }
 
@@ -344,6 +361,8 @@ async function executeTaskChain(
         titleDir,
         sourceImagePath: current.sourceImagePath,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
+        userCognitionName: current.feishuProductRecord?.userCognitionName,
+        genericName: current.feishuProductRecord?.genericName,
         titleCount,
         simulateOnly,
         runtimeDir
@@ -359,6 +378,7 @@ async function executeTaskChain(
         eventFile,
         createEvent("info", step, `Title workbooks generated: ${titleSheetArtifact.generatedFiles.length}`, current.taskId)
       );
+      markProgress();
       continue;
     }
 
@@ -386,6 +406,7 @@ async function executeTaskChain(
           current.taskId
         )
       );
+      markProgress();
       continue;
     }
 
@@ -422,6 +443,7 @@ async function executeTaskChain(
         eventFile,
         createEvent("info", step, `Metadata ready: brand=${metadataArtifact.brand}, spu=${metadataArtifact.spu}`, current.taskId)
       );
+      markProgress();
       continue;
     }
 
@@ -447,6 +469,7 @@ async function executeTaskChain(
         eventFile,
         createEvent("info", step, `Qualification files copied: ${qualificationArtifact.copiedFiles.length}`, current.taskId)
       );
+      markProgress();
       continue;
     }
 
@@ -470,6 +493,7 @@ async function executeTaskChain(
         eventFile,
         createEvent("info", step, `Shop folders ready: ${shopDistributionArtifact.distributedFolders.length}`, current.taskId)
       );
+      markProgress();
       continue;
     }
 
@@ -493,6 +517,7 @@ async function executeTaskChain(
         eventFile,
         createEvent("info", step, `Publish results ready: ${publishArtifact.results.length}`, current.taskId)
       );
+      markProgress();
       continue;
     }
 
@@ -526,6 +551,7 @@ async function executeTaskChain(
         eventFile,
         createEvent("info", step, `Cleanup complete: ${cleanupArtifact.removedPaths.length}`, current.taskId)
       );
+      markProgress();
       continue;
     }
 
@@ -541,6 +567,7 @@ async function executeTaskChain(
       finishedAt: step === "done" ? new Date().toISOString() : current.finishedAt,
       notes: [...current.notes, message]
     };
+    markProgress();
   }
   return current;
 }
@@ -699,7 +726,23 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.input.endStep,
           resolved.eventFile,
           resolved.input.simulateOnly,
-          manualReadMap
+          manualReadMap,
+          (updatedTask) => {
+            workingState = {
+              ...workingState,
+              tasks: workingState.tasks.map((item) => (item.taskId === updatedTask.taskId ? updatedTask : item)),
+              lastUpdatedAt: new Date().toISOString()
+            };
+            persistState(resolved.stateFile, workingState);
+            writeJson(
+              resolved.manualsReadFile,
+              {
+                runId,
+                updatedAt: new Date().toISOString(),
+                manuals: manualReadSummary(manualReadMap)
+              }
+            );
+          }
         );
         workingState = {
           ...workingState,
@@ -719,7 +762,8 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
         logInfo(`task completed: ${task.sourceImageName}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const failedTask = failTask(task, "task_execution", message);
+        const latestTaskState = workingState.tasks.find((item) => item.taskId === task.taskId) || task;
+        const failedTask = failTask(latestTaskState, "task_execution", message);
         const taskError: AutoListingTaskError = {
           step: "task_execution",
           message,
@@ -743,6 +787,8 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
         );
         appendEvent(resolved.eventFile, createEvent("error", "task_failed", message, task.taskId));
         logError(`task failed: ${task.sourceImageName} - ${message}`);
+        result.tasks = workingState.tasks;
+        result.manualsRead = manualReadSummary(manualReadMap);
         if (resolved.input.stopOnError) {
           throw error;
         }
