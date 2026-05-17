@@ -15,6 +15,9 @@ type DoctorMode = "base" | "publish" | "auto-listing" | "feishu" | "all";
 
 interface DoctorOptions {
   requireDreaminaGeneration: boolean;
+  requireImageGeneration: boolean;
+  imageGenerationProvider: "dreamina" | "openai-compatible";
+  imageGenerationConfigFile: string;
 }
 
 function exists(targetPath: string): boolean {
@@ -142,6 +145,51 @@ function checkDreaminaGenerationAccess(required: boolean): CheckResult {
   }
 }
 
+function checkOpenAiCompatibleImageGenerationConfig(configFile: string, required: boolean): CheckResult {
+  const resolved = path.resolve(configFile || "input/image-generation.config.json");
+  if (!fs.existsSync(resolved)) {
+    return {
+      name: "OpenAI-compatible image generation config",
+      ok: !required,
+      required,
+      detail: `missing: ${resolved}`
+    };
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as {
+      apiUrl?: string;
+      apiKey?: string;
+      model?: string;
+    };
+    const missing = [
+      parsed.apiUrl ? "" : "apiUrl",
+      process.env.IMAGE_GENERATION_API_KEY || parsed.apiKey ? "" : "apiKey",
+      parsed.model ? "" : "model"
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      return {
+        name: "OpenAI-compatible image generation config",
+        ok: !required,
+        required,
+        detail: `${resolved}; missing ${missing.join(", ")}`
+      };
+    }
+    return {
+      name: "OpenAI-compatible image generation config",
+      ok: true,
+      required,
+      detail: `${resolved}; model=${parsed.model}; apiKey=present`
+    };
+  } catch (error) {
+    return {
+      name: "OpenAI-compatible image generation config",
+      ok: !required,
+      required,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 function checkPath(name: string, targetPath: string, required = true): CheckResult {
   const ok = exists(targetPath);
   return {
@@ -169,8 +217,15 @@ function parseMode(argv: string[]): DoctorMode {
 }
 
 function parseOptions(argv: string[]): DoctorOptions {
+  const providerIndex = argv.indexOf("--image-generation-provider");
+  const configIndex = argv.indexOf("--image-generation-config");
+  const provider = providerIndex >= 0 ? argv[providerIndex + 1] : "";
   return {
-    requireDreaminaGeneration: argv.includes("--require-dreamina-generation")
+    requireDreaminaGeneration: argv.includes("--require-dreamina-generation"),
+    requireImageGeneration: argv.includes("--require-image-generation"),
+    imageGenerationProvider: provider === "openai-compatible" ? "openai-compatible" : "dreamina",
+    imageGenerationConfigFile:
+      configIndex >= 0 ? argv[configIndex + 1] || "input/image-generation.config.json" : "input/image-generation.config.json"
   };
 }
 
@@ -246,12 +301,19 @@ function checkAutoListingShopFolders(): CheckResult {
 function autoListingChecks(options: DoctorOptions): CheckResult[] {
   return [
   checkCommand("Python Pillow", getPythonCommand(), ["-c", "import PIL; print(PIL.__version__)"]),
-  checkPath("Dreamina executable", getDefaultDreaminaBin()),
-  checkPath("Dreamina image wrapper", getDreaminaWrapperPath("image2image.py")),
-  checkPath("Dreamina query wrapper", getDreaminaWrapperPath("query_result.py")),
-  checkPath("Dreamina credit wrapper", getDreaminaWrapperPath("user_credit.py")),
-  checkDreaminaAccountAccess(),
-  ...(options.requireDreaminaGeneration ? [checkDreaminaGenerationAccess(true)] : []),
+  ...(options.imageGenerationProvider === "dreamina"
+    ? [
+        checkPath("Dreamina executable", getDefaultDreaminaBin()),
+        checkPath("Dreamina image wrapper", getDreaminaWrapperPath("image2image.py")),
+        checkPath("Dreamina query wrapper", getDreaminaWrapperPath("query_result.py")),
+        checkPath("Dreamina credit wrapper", getDreaminaWrapperPath("user_credit.py")),
+        checkDreaminaAccountAccess(),
+        ...(options.requireDreaminaGeneration ? [checkDreaminaGenerationAccess(true)] : [])
+      ]
+    : []),
+  ...(options.requireImageGeneration && options.imageGenerationProvider === "openai-compatible"
+    ? [checkOpenAiCompatibleImageGenerationConfig(options.imageGenerationConfigFile, true)]
+    : []),
   checkPath("auto-listing feishu images", "input/auto-listing/feishu-images"),
   checkPath("auto-listing jimeng images", "input/auto-listing/jimeng-images"),
   checkPath("auto-listing titles", "input/auto-listing/titles"),

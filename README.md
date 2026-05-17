@@ -70,10 +70,11 @@ npm run doctor:feishu
 npm run doctor:all
 ```
 
-默认 `doctor` 只检查基础环境，不检查真实商品目录、Dreamina、Pillow、商品信息表等专项业务资料。
+默认 `doctor` 只检查基础环境，不检查真实商品目录、生图 provider、Pillow、商品信息表等专项业务资料。
 
 可选环境变量：
 - `PYTHON_BIN`：指定 Python 命令，默认 macOS/Linux 使用 `python3`
+- `IMAGE_GENERATION_API_KEY`：指定 OpenAI-compatible 中转站生图 API Key，优先级高于本地配置文件
 - `DREAMINA_BIN`：指定 Dreamina CLI 路径，默认优先查 `/opt/homebrew/bin/dreamina`
 - `DREAMINA_SKILL_DIR`：指定 dreamina-cli skill 目录，目录下应包含 `scripts/image2image.py` 等 wrapper；项目也内置了 `scripts/dreamina-cli/` wrapper
 
@@ -111,7 +112,7 @@ npm run flow:mac-feishu
 npm run flow:mac-feishu:real
 ```
 
-真实流程会调用 Dreamina 和豆包标题生成，并可能消耗外部服务额度。
+真实流程会调用中转站 `gpt-image-2` 生图和豆包标题生成，并可能消耗外部服务额度。如生图接口返回余额、额度或计费不足，流程会提示充值中转站账号。
 
 豆包业务运行前：
 - 把要上传的图片放到 `input/images/`
@@ -126,7 +127,7 @@ SPU 发布业务运行前：
 - 把素材放到 `input/auto-listing/` 下对应目录
 - 优先使用飞书数据源：先运行 `npm run feishu:assets`
 - 如不使用飞书数据源，再把商品信息表保存为 `input/auto-listing/product-info.xlsx`
-- 如需真实调用 Dreamina，先完成 `dreamina login`，并用 `npm run doctor:auto-listing` 确认账号可访问
+- 真实 Mac 飞书流程的生图配置在本地忽略文件 `input/image-generation.config.json`，提交仓库的是 `input/image-generation.config.example.json`
 
 ## 目录
 

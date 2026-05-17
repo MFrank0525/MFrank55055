@@ -6,7 +6,7 @@ import { sanitizeFileName } from "../doubao/paths.js";
 import { extendPathEnv, getDreaminaWrapperPath, getPythonCommand } from "../utils/platform.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import { applyLocalWatermark } from "./local-watermark.js";
-import type { DreaminaImageCountStrategy, JimengArtifact, JimengGeneratedFile } from "./types.js";
+import type { DreaminaImageCountStrategy, ImageGenerationProvider, JimengArtifact, JimengGeneratedFile } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +36,16 @@ const SHOP_SPECS = [
 const DREAMINA_IMAGE2IMAGE_WRAPPER = getDreaminaWrapperPath("image2image.py");
 const DREAMINA_QUERY_WRAPPER = getDreaminaWrapperPath("query_result.py");
 const DREAMINA_USER_CREDIT_WRAPPER = getDreaminaWrapperPath("user_credit.py");
+
+interface OpenAiCompatibleImageConfig {
+  provider?: "openai-compatible";
+  apiUrl: string;
+  apiKey?: string;
+  model: string;
+  size?: string;
+  responseFormat?: "b64_json" | "url";
+  requestExtra?: Record<string, unknown>;
+}
 
 function ensureTaskDir(runtimeDir: string, taskId: string): string {
   const taskDir = path.join(runtimeDir, "tasks", sanitizeFileName(taskId));
@@ -86,6 +96,17 @@ function listImageFilesRecursive(dir: string): string[] {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isBillingError(message: string): boolean {
+  return /余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(message);
+}
+
+function normalizeImageGenerationError(message: string): Error {
+  if (isBillingError(message)) {
+    return new Error(`Image generation balance appears insufficient. Please recharge the relay account. Raw error: ${message}`);
+  }
+  return new Error(message);
 }
 
 function resolveShopFolders(shopRootDir: string): Array<{ shopFolder: string; watermarkText: string }> {
@@ -455,6 +476,140 @@ async function generateDreaminaBatch(options: {
   return collected;
 }
 
+function readOpenAiCompatibleImageConfig(configFile: string): OpenAiCompatibleImageConfig {
+  if (!configFile) {
+    throw new Error("Image generation config file is required for openai-compatible provider.");
+  }
+  const resolved = path.resolve(configFile);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`Image generation config file not found: ${resolved}`);
+  }
+  const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as OpenAiCompatibleImageConfig;
+  const apiKey = process.env.IMAGE_GENERATION_API_KEY || parsed.apiKey || "";
+  if (!parsed.apiUrl) {
+    throw new Error(`Image generation config missing apiUrl: ${resolved}`);
+  }
+  if (!apiKey) {
+    throw new Error(`Image generation API key missing. Set IMAGE_GENERATION_API_KEY or apiKey in ${resolved}.`);
+  }
+  if (!parsed.model) {
+    throw new Error(`Image generation config missing model: ${resolved}`);
+  }
+  return {
+    ...parsed,
+    apiKey
+  };
+}
+
+function getImageExtensionFromContentType(contentType: string): string {
+  if (/webp/i.test(contentType)) {
+    return ".webp";
+  }
+  if (/jpe?g/i.test(contentType)) {
+    return ".jpg";
+  }
+  return ".png";
+}
+
+async function downloadGeneratedImage(url: string, targetFile: string, apiKey: string): Promise<void> {
+  const response = await fetch(url, {
+    headers: url.includes("/v1/") ? { Authorization: `Bearer ${apiKey}` } : undefined
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw normalizeImageGenerationError(`Image download failed with HTTP ${response.status}: ${text || response.statusText}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  fs.writeFileSync(targetFile, buffer);
+}
+
+async function generateWithOpenAiCompatibleProvider(options: {
+  configFile: string;
+  promptText: string;
+  downloadDir: string;
+  expectedImageCount: number;
+}): Promise<Array<{ file: string; submitId: string }>> {
+  fs.mkdirSync(options.downloadDir, { recursive: true });
+  for (const existing of listImageFiles(options.downloadDir)) {
+    fs.rmSync(existing, { force: true });
+  }
+
+  const config = readOpenAiCompatibleImageConfig(options.configFile);
+  const count = Math.max(1, options.expectedImageCount || 1);
+  const responseFormat = config.responseFormat || "b64_json";
+  const body = {
+    model: config.model,
+    prompt: options.promptText,
+    n: count,
+    size: config.size || "1024x1024",
+    response_format: responseFormat,
+    ...(config.requestExtra || {})
+  };
+
+  fs.writeFileSync(path.join(options.downloadDir, "request.json"), `${JSON.stringify({ ...body, prompt: options.promptText }, null, 2)}\n`, "utf8");
+  const sendRequest = async (requestBody: Record<string, unknown>): Promise<{ response: Response; text: string }> => {
+    const response = await fetch(config.apiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(requestBody)
+    });
+    const text = await response.text();
+    return { response, text };
+  };
+
+  let { response, text } = await sendRequest(body);
+  if (!response.ok && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(text)) {
+    const retryBody = { ...body };
+    delete (retryBody as Record<string, unknown>).response_format;
+    fs.writeFileSync(path.join(options.downloadDir, "request-retry.json"), `${JSON.stringify(retryBody, null, 2)}\n`, "utf8");
+    ({ response, text } = await sendRequest(retryBody));
+  }
+  fs.writeFileSync(path.join(options.downloadDir, "response.json"), `${text}\n`, "utf8");
+  if (!response.ok) {
+    throw normalizeImageGenerationError(`Image generation failed with HTTP ${response.status}: ${text || response.statusText}`);
+  }
+
+  let payload: any;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error(`Image generation response was not JSON: ${text.slice(0, 500)}`);
+  }
+
+  const items = Array.isArray(payload?.data) ? payload.data : [];
+  if (items.length === 0) {
+    throw normalizeImageGenerationError(`Image generation returned no data items: ${text.slice(0, 500)}`);
+  }
+
+  const generated: Array<{ file: string; submitId: string }> = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    const baseName = `generated-${String(index + 1).padStart(2, "0")}`;
+    if (typeof item?.b64_json === "string" && item.b64_json.trim()) {
+      const file = path.join(options.downloadDir, `${baseName}.png`);
+      fs.writeFileSync(file, Buffer.from(item.b64_json, "base64"));
+      generated.push({ file, submitId: String(payload?.created || "") });
+      continue;
+    }
+    if (typeof item?.url === "string" && item.url.trim()) {
+      const targetFile = path.join(options.downloadDir, `${baseName}${getImageExtensionFromContentType(item.url)}`);
+      await downloadGeneratedImage(item.url, targetFile, config.apiKey || "");
+      generated.push({ file: targetFile, submitId: String(payload?.created || "") });
+    }
+  }
+
+  if (generated.length === 0) {
+    throw normalizeImageGenerationError(`Image generation returned no downloadable image payloads: ${text.slice(0, 500)}`);
+  }
+  if (generated.length < count) {
+    throw new Error(`Image generation returned ${generated.length} image(s), expected ${count}.`);
+  }
+  return generated;
+}
+
 function moveFile(sourceFile: string, targetFile: string): void {
   fs.mkdirSync(path.dirname(targetFile), { recursive: true });
   try {
@@ -669,6 +824,8 @@ export async function generateJimengAssets(options: {
   sellingPointText: string;
   brandedGenericName: string;
   wordFiles: string[];
+  imageGenerationProvider: ImageGenerationProvider;
+  imageGenerationConfigFile: string;
   dreaminaBin: string;
   dreaminaPollSeconds: number;
   dreaminaModelVersion: string;
@@ -697,16 +854,20 @@ export async function generateJimengAssets(options: {
     };
   }
 
-  if (!fs.existsSync(options.dreaminaBin)) {
+  if (options.imageGenerationProvider === "dreamina" && !fs.existsSync(options.dreaminaBin)) {
     throw new Error(`Dreamina executable not found: ${options.dreaminaBin}`);
   }
 
-  await assertDreaminaCredits({
-    dreaminaBin: options.dreaminaBin,
-    taskDir,
-    expectedImageCount: options.dreaminaExpectedImageCount,
-    promptCount: Math.min(5, options.wordFiles.length, shopFolders.length)
-  });
+  if (options.imageGenerationProvider === "dreamina") {
+    await assertDreaminaCredits({
+      dreaminaBin: options.dreaminaBin,
+      taskDir,
+      expectedImageCount: options.dreaminaExpectedImageCount,
+      promptCount: Math.min(5, options.wordFiles.length, shopFolders.length)
+    });
+  } else {
+    readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
+  }
 
   const stagedFiles: Array<{
     stagedFile: string;
@@ -762,18 +923,26 @@ export async function generateJimengAssets(options: {
       continue;
     }
 
-    const dreaminaResults = await generateDreaminaBatch({
-      dreaminaBin: options.dreaminaBin,
-      sourceImagePath: options.sourceImagePath,
-      promptText,
-      batchWorkDir: roundDir,
-      pollSeconds: options.dreaminaPollSeconds,
-      modelVersion: options.dreaminaModelVersion,
-      resolutionType: options.dreaminaResolutionType,
-      ratio: options.dreaminaRatio,
-      expectedImageCount: remainingImageCount,
-      imageCountStrategy: options.dreaminaImageCountStrategy
-    });
+    const dreaminaResults =
+      options.imageGenerationProvider === "openai-compatible"
+        ? await generateWithOpenAiCompatibleProvider({
+            configFile: options.imageGenerationConfigFile,
+            promptText,
+            downloadDir: path.join(roundDir, "openai-compatible", "raw"),
+            expectedImageCount: remainingImageCount
+          })
+        : await generateDreaminaBatch({
+            dreaminaBin: options.dreaminaBin,
+            sourceImagePath: options.sourceImagePath,
+            promptText,
+            batchWorkDir: roundDir,
+            pollSeconds: options.dreaminaPollSeconds,
+            modelVersion: options.dreaminaModelVersion,
+            resolutionType: options.dreaminaResolutionType,
+            ratio: options.dreaminaRatio,
+            expectedImageCount: remainingImageCount,
+            imageCountStrategy: options.dreaminaImageCountStrategy
+          });
 
     const watermarkedFiles = await applyLocalWatermark({
       inputFiles: dreaminaResults.map((item) => item.file),

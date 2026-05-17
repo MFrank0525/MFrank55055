@@ -7,6 +7,8 @@
     "feishuProductDataFile": "./data/feishu/products.json",
     "shopRootDir": "./input/auto-listing/shops",
     "deepseekConversationUrl": "https://chat.deepseek.com/a/chat/s/4c5434b3-f81e-4b22-a53d-32cfcf5fb24d",
+    "imageGenerationProvider": "openai-compatible",
+    "imageGenerationConfigFile": "./input/image-generation.config.json",
     "dreaminaPollSeconds": 120,
     "dreaminaModelVersion": "5.0",
     "dreaminaResolutionType": "2k",

@@ -20,6 +20,7 @@ logs/
 *token*.json
 *secret*.json
 input/feishu-bitable.config.json
+input/image-generation.config.json
 input/auto-listing/feishu-images/*
 !input/auto-listing/feishu-images/.gitkeep
 input/auto-listing/jimeng-images/*

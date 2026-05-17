@@ -1,0 +1,9 @@
+{
+  "provider": "openai-compatible",
+  "apiUrl": "https://example.com/v1/images/generations",
+  "apiKey": "",
+  "model": "gpt-image-2",
+  "size": "1024x1024",
+  "responseFormat": "b64_json",
+  "requestExtra": {}
+}

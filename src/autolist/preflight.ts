@@ -22,7 +22,9 @@ export function buildAutoListingPreflightSummary(resolved: AutoListingResolvedJo
   const shops = countShopFolders(resolved.input.shopRootDir);
 
   if (!resolved.input.simulateOnly) {
-    warnings.push("Real mode is enabled. Dreamina generation and Doubao title generation may consume external service quota.");
+    warnings.push(
+      `Real mode is enabled. ${resolved.input.imageGenerationProvider} image generation and Doubao title generation may consume external service quota.`
+    );
   }
   if (sourceImages === 0) {
     warnings.push("No source white-background images were found.");
@@ -40,7 +42,9 @@ export function buildAutoListingPreflightSummary(resolved: AutoListingResolvedJo
       productInfoXlsx: resolved.input.productInfoXlsx || undefined,
       feishuImageDir: resolved.input.feishuImageDir,
       qualificationDir: resolved.input.qualificationDir,
-      shopRootDir: resolved.input.shopRootDir
+      shopRootDir: resolved.input.shopRootDir,
+      imageGenerationProvider: resolved.input.imageGenerationProvider,
+      imageGenerationConfigFile: resolved.input.imageGenerationConfigFile || undefined
     },
     counts: {
       sourceImages,

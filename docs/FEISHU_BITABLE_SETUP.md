@@ -157,11 +157,13 @@ npm run flow:mac-feishu:real
 
 真实流程仍然保留豆包生成电商标题，因为标题质量以抖音电商实战转化为优先。
 
+真实流程的生图 provider 已切换为 OpenAI-compatible 中转站 `gpt-image-2`。本地密钥和接口配置放在 `input/image-generation.config.json`，该文件被 `.gitignore` 忽略；仓库只提交 `input/image-generation.config.example.json`。如果运行时报余额、额度或计费不足，需要先给中转站账号充值。
+
 运行全流程前先检查：
 
 ```bash
 npm run doctor:feishu
-npm run doctor:auto-listing
+npm run doctor:auto-listing -- --require-image-generation --image-generation-provider openai-compatible --image-generation-config ./input/image-generation.config.json
 ```
 
 如果 `doctor:feishu` 报 `invalidRecords`，需要先补齐飞书表格里的缺失字段或附件。

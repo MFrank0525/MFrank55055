@@ -31,3 +31,9 @@ npm run flow:mac-feishu:real
 - 根因：原体检只校验 Dreamina CLI 可执行、可登录、可查询积分；没有校验当前账号是否具备 `image2image` 的 maestro 权限。
 - 处理：真实一键流程已改为在 `doctor:auto-listing` 阶段强制校验 Dreamina 出图权限；如果账号不是 maestro vip，会在进入自动上架前失败，不再先跑 DeepSeek 和浏览器链路。Dreamina 生图步骤自身也增加同样的权限硬校验。
 - 关联运行：`data/auto-listing/runs/20260516-181131/result.json`
+
+#### RF-004：Dreamina CLI 不再作为真实生图主链路
+
+- 现象：Dreamina CLI 权限不可用，真实流程不能继续依赖 Dreamina `image2image`。
+- 根因：当前账号与 CLI 权限体系不匹配，且后续真实生图要改为中转站计费模型。
+- 处理：真实 Mac 飞书 job 已切换到 OpenAI-compatible 中转站 `gpt-image-2`，本地配置文件为 `input/image-generation.config.json`。真实流程体检改为检查中转站生图配置；如接口返回余额、额度、计费不足，会明确提示充值中转站账号。

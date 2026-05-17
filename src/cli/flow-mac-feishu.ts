@@ -5,6 +5,7 @@ import path from "node:path";
 interface FlowArgs {
   real: boolean;
   configFile: string;
+  imageGenerationConfigFile: string;
 }
 
 interface LocalFeishuConfig {
@@ -19,7 +20,8 @@ function parseArgs(argv: string[]): FlowArgs {
   const configIndex = argv.indexOf("--config");
   return {
     real: argv.includes("--real"),
-    configFile: configIndex >= 0 ? argv[configIndex + 1] || "./input/feishu-bitable.config.json" : "./input/feishu-bitable.config.json"
+    configFile: configIndex >= 0 ? argv[configIndex + 1] || "./input/feishu-bitable.config.json" : "./input/feishu-bitable.config.json",
+    imageGenerationConfigFile: "./input/image-generation.config.json"
   };
 }
 
@@ -71,7 +73,18 @@ function main(): void {
   runStep(
     "Auto-listing doctor",
     "npm",
-    args.real ? ["run", "doctor:auto-listing", "--", "--require-dreamina-generation"] : ["run", "doctor:auto-listing"]
+    args.real
+      ? [
+          "run",
+          "doctor:auto-listing",
+          "--",
+          "--require-image-generation",
+          "--image-generation-provider",
+          "openai-compatible",
+          "--image-generation-config",
+          args.imageGenerationConfigFile
+        ]
+      : ["run", "doctor:auto-listing", "--", "--image-generation-provider", "openai-compatible"]
   );
   runStep("Auto-listing", "npm", ["run", "business:auto-listing", "--", "--job", jobFile]);
 }

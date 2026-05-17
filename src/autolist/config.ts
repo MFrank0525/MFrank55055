@@ -46,6 +46,10 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     feishuProductDataFile,
     shopRootDir: ensureDirExists(input.shopRootDir, "Shop root dir"),
     deepseekConversationUrl: input.deepseekConversationUrl || "",
+    imageGenerationProvider: input.imageGenerationProvider || "dreamina",
+    imageGenerationConfigFile: input.imageGenerationConfigFile
+      ? ensureDirExists(input.imageGenerationConfigFile, "Image generation config file")
+      : "",
     dreaminaBin: path.resolve(input.dreaminaBin || getDefaultDreaminaBin()),
     dreaminaPollSeconds: input.dreaminaPollSeconds ?? 120,
     dreaminaModelVersion: input.dreaminaModelVersion || "5.0",

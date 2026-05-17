@@ -20,6 +20,7 @@ export type AutoListingStep = (typeof AUTO_LISTING_STEPS)[number];
 
 export type AutoListingStatus = AutoListingStep | "failed";
 export type DreaminaImageCountStrategy = "accept_all" | "require_exact" | "limit_to_count";
+export type ImageGenerationProvider = "dreamina" | "openai-compatible";
 
 export interface AutoListingJobInput {
   feishuImageDir: string;
@@ -31,6 +32,8 @@ export interface AutoListingJobInput {
   feishuProductDataFile?: string;
   shopRootDir: string;
   deepseekConversationUrl?: string;
+  imageGenerationProvider?: ImageGenerationProvider;
+  imageGenerationConfigFile?: string;
   dreaminaBin?: string;
   dreaminaPollSeconds?: number;
   dreaminaModelVersion?: string;
@@ -170,6 +173,8 @@ export interface AutoListingPreflightSummary {
     feishuImageDir: string;
     qualificationDir: string;
     shopRootDir: string;
+    imageGenerationProvider: ImageGenerationProvider;
+    imageGenerationConfigFile?: string;
   };
   counts: {
     sourceImages: number;

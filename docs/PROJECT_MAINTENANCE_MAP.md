@@ -54,7 +54,7 @@
 
 - 豆包卖点：`src/autolist/doubao-selling-points.ts`
 - DeepSeek 提示词：`src/autolist/deepseek-prompts.ts`
-- Dreamina / 水印 / 产品文件夹：`src/autolist/jimeng-assets.ts`
+- 生图 provider / 水印 / 产品文件夹：`src/autolist/jimeng-assets.ts`
 - 标题表：`src/autolist/title-sheets.ts`
 - 商品信息回填：`src/autolist/metadata.ts`
 - 资质图：`src/autolist/qualifications.ts`
@@ -99,7 +99,7 @@ npm run rules:check
 npm run doctor:publish
 ```
 
-涉及自动上架和 Dreamina 时额外运行：
+涉及自动上架和生图 provider 时额外运行：
 
 ```bash
 npm run doctor:auto-listing
