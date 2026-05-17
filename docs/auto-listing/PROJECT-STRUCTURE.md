@@ -2,12 +2,18 @@
 
 ## 核心原则
 
-这个项目只分两层：
+这个项目只分三层：
 
-1. 动作脚本  
+1. 固定业务主流程  
+主流程只描述上架必须完成的业务节点，不绑定具体工具：产品数据、卖点上下文、图片提示词、主图生成、标题生成、商品信息回填、资质图、店铺分发、发布、清理。
+
+2. 可替换 provider  
+豆包、DeepSeek、Dreamina、中转站图片模型或其他模型都只是 provider。provider 可以按节点切换，但不能改变主流程节点顺序。
+
+3. 动作脚本  
 脚本只负责执行动作。
 
-2. 操作说明  
+4. 操作说明  
 凡是动作脚本以外的要求、规则、固定对话、固定提示词、失败条件、人工检查点，都写在步骤 `md` 里。
 
 ## 你应该先看哪里
@@ -63,21 +69,23 @@ npm run rules:check
 
 ## 当前三个核心规则源
 
-### 豆包卖点
+### 卖点上下文
 
 [01-doubao-selling-points.md](docs/auto-listing/steps/01-doubao-selling-points.md)
 
-### DeepSeek 提示词
+### 图片提示词
 
 [02-deepseek-prompts.md](docs/auto-listing/steps/02-deepseek-prompts.md)
 
-### Dreamina 指令1模板
+### 主图生成指令模板
 
 [03-dreamina-generation.md](docs/auto-listing/steps/03-dreamina-generation.md)
 
 ## 不允许再发生的情况
 
 1. 在多个脚本里各自保存一份中文规则正文。
-2. 只改脚本，不改对应步骤说明。
-3. 不读步骤 `md` 就直接执行。
-4. 新规则已经更新，但流程还在跑旧规则。
+2. 把 provider 名称当成主流程节点新增或改名。
+3. 为了切换工具而改变“上架前必须完成主图、标题、SPU、导购短标题、品牌名称”的业务顺序。
+4. 只改脚本，不改对应步骤说明。
+5. 不读步骤 `md` 就直接执行。
+6. 新规则已经更新，但流程还在跑旧规则。

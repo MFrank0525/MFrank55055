@@ -27,6 +27,9 @@
 
 规则：
 
+- 主流程按业务节点固定，不按工具命名固定。节点目标包括：产品数据就绪、卖点就绪、图片提示词就绪、主图生成完成、标题生成完成、商品信息回填完成、资质图就绪、店铺分发完成、发布完成、清理完成。
+- 豆包、DeepSeek、Dreamina、中转站模型、其他图片模型都只是实现节点目标的 provider。更换 provider 时不允许改变主流程顺序，不允许把 provider 名写成新的业务主节点。
+- 每个节点必须声明输入、输出、成功条件和失败条件；provider 只能替换节点内部实现。
 - 提示词、固定对话、固定命名、失败条件先写步骤文档。
 - TypeScript 脚本只读取规则并执行动作。
 - 规则完整性校验标记放 `rule-contracts.ts`，不和读取逻辑混在一起。
@@ -50,11 +53,11 @@
 
 ## 3. 自动上架动作脚本
 
-按步骤维护：
+按业务节点维护：
 
-- 豆包卖点：`src/autolist/doubao-selling-points.ts`
-- DeepSeek 提示词：`src/autolist/deepseek-prompts.ts`
-- 生图 provider / 水印 / 产品文件夹：`src/autolist/jimeng-assets.ts`
+- 卖点上下文：`src/autolist/doubao-selling-points.ts`
+- 图片提示词：`src/autolist/deepseek-prompts.ts`
+- 主图生成 provider / 水印 / 产品文件夹：`src/autolist/jimeng-assets.ts`
 - 标题表：`src/autolist/title-sheets.ts`
 - 商品信息回填：`src/autolist/metadata.ts`
 - 资质图：`src/autolist/qualifications.ts`
