@@ -48,6 +48,7 @@ export interface AutoListingJobInput {
   stopOnError?: boolean;
   cleanupAfterPublish?: boolean;
   cleanupSourceImageAfterPublish?: boolean;
+  archiveMainImageDir?: string;
   titleCount?: number;
   maxImagesPerRun?: number;
   simulateOnly?: boolean;
@@ -160,6 +161,7 @@ export interface PublishArtifact {
 
 export interface CleanupArtifact {
   removedPaths: string[];
+  archivedFiles?: string[];
   simulated: boolean;
 }
 

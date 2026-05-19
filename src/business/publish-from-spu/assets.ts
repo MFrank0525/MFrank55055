@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  FEISHU_WHITE_BACKGROUND_IMAGE_DIR,
   FIXED_MAIN_AUXILIARY_FILES,
   FIXED_MAIN_IMAGE_DIR,
   REQUIRED_MAIN_IMAGE_RATIO,
@@ -88,8 +89,88 @@ function isDetailImageFile(name: string): boolean {
   );
 }
 
+function isWhiteBackgroundImageFile(name: string): boolean {
+  return /\u767d\u5e95\u56fe|\u767d\u5e95/i.test(name) && isImageFile(name);
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\s+/g, "").replace(/[，,。、“”"'`·\-_/\\|:：;；()（）[\]【】]/g, "").toLowerCase();
+}
+
+function readFeishuProductsData(): any[] {
+  const dataFile = path.resolve(process.cwd(), "data", "feishu", "products.json");
+  if (!fs.existsSync(dataFile)) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(dataFile, "utf8"));
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    if (Array.isArray(parsed.records)) {
+      return parsed.records;
+    }
+    if (Array.isArray(parsed.products)) {
+      return parsed.products;
+    }
+    if (Array.isArray(parsed.data)) {
+      return parsed.data;
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
 function getFixedAuxiliaryImages(): string[] {
   return FIXED_MAIN_AUXILIARY_FILES.map((name) => path.join(FIXED_MAIN_IMAGE_DIR, name)).filter((file) => fs.existsSync(file));
+}
+
+function getFeishuWhiteBackgroundImages(productFolder: string): string[] {
+  const folderWhiteImages = fs
+    .readdirSync(productFolder)
+    .filter((name) => isWhiteBackgroundImageFile(name))
+    .map((name) => path.join(productFolder, name));
+  if (folderWhiteImages.length) {
+    return sortByFileRule(folderWhiteImages).slice(0, 1);
+  }
+
+  const folderSearchText = normalizeText(
+    [
+      path.basename(productFolder),
+      ...fs.readdirSync(productFolder).filter((name) => name.toLowerCase().endsWith(".xlsx"))
+    ].join(" ")
+  );
+  const matchedRecord = readFeishuProductsData()
+    .map((record) => {
+      const keys = [record?.spu, record?.userCognitionName, record?.genericName, `${record?.brand || ""}${record?.genericName || ""}`]
+        .map((item) => normalizeText(String(item || "")))
+        .filter(Boolean);
+      const score = keys.reduce((best, key) => (folderSearchText.includes(key) ? Math.max(best, key.length) : best), 0);
+      return { record, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)[0]?.record;
+  const recordWhiteImages = Array.isArray(matchedRecord?.whiteBackgroundImages)
+    ? matchedRecord.whiteBackgroundImages
+        .map((attachment: any) => String(attachment?.localFile || ""))
+        .filter(Boolean)
+        .map((filePath: string) => path.resolve(filePath))
+        .filter((filePath: string) => fs.existsSync(filePath))
+    : [];
+  if (recordWhiteImages.length) {
+    return sortByFileRule(recordWhiteImages).slice(0, 1);
+  }
+
+  if (!fs.existsSync(FEISHU_WHITE_BACKGROUND_IMAGE_DIR)) {
+    return [];
+  }
+
+  const sourceWhiteImages = fs
+    .readdirSync(FEISHU_WHITE_BACKGROUND_IMAGE_DIR)
+    .filter((name) => isWhiteBackgroundImageFile(name))
+    .map((name) => path.join(FEISHU_WHITE_BACKGROUND_IMAGE_DIR, name));
+  return sortByFileRule(sourceWhiteImages).slice(0, 1);
 }
 
 function findPrimaryMainImage(productFolder: string): string[] {
@@ -153,8 +234,12 @@ export function classifyAssets(productFolder: string): ProductAssets {
   }
 
   const mainImages = [...primaryMainImageSet, ...getFixedAuxiliaryImages()];
+  const whiteBackgroundImages = getFeishuWhiteBackgroundImages(productFolder);
   if (primaryMainImageSet.size === 0) {
     throw new Error(`No Dreamina watermarked main image was found in product folder: ${productFolder}`);
+  }
+  if (whiteBackgroundImages.length === 0) {
+    throw new Error(`No Feishu white-background image was found for product folder: ${productFolder}`);
   }
   if (detailImages.length === 0) {
     throw new Error(`No qualification detail images were found in product folder: ${productFolder}`);
@@ -163,6 +248,7 @@ export function classifyAssets(productFolder: string): ProductAssets {
   return {
     workbookFile,
     mainImages,
+    whiteBackgroundImages,
     detailImages: sortByFileRule(detailImages),
     otherFiles: sortZh(otherFiles)
   };

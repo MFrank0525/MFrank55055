@@ -60,6 +60,7 @@ export interface ProductSheetSummary {
 export interface ProductAssets {
   workbookFile?: string;
   mainImages: string[];
+  whiteBackgroundImages: string[];
   detailImages: string[];
   otherFiles: string[];
 }

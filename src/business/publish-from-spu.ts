@@ -85,6 +85,21 @@ async function closeExtraPages(
   }
 }
 
+async function closeCreatePagesExcept(
+  context: Awaited<ReturnType<typeof launchPersistentBrowser>>,
+  keepPages: Page[] = []
+): Promise<void> {
+  const keep = new Set(keepPages.filter((page) => !page.isClosed()));
+  for (const page of context.pages()) {
+    if (keep.has(page) || page.isClosed()) {
+      continue;
+    }
+    if (page.url().includes("/ffa/g/create")) {
+      await page.close().catch(() => {});
+    }
+  }
+}
+
 function assertResolvedMetadata(
   metadata: {
     brand: string;
@@ -287,22 +302,6 @@ async function readCurrentShopNameFromMenu(page: Page): Promise<string> {
   });
 }
 
-async function pageContainsExpectedShop(page: Page, expectedShopName: string): Promise<boolean> {
-  const normalizedExpected = normalizeShopName(expectedShopName);
-  if (!normalizedExpected) {
-    return false;
-  }
-  return page.evaluate((target) => {
-    const normalize = (value: string): string => value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
-    const bodyText = normalize(document.body.innerText || "");
-    if (bodyText.includes(target)) {
-      return true;
-    }
-    const prefix = target.slice(0, Math.min(8, target.length));
-    return Boolean(prefix) && bodyText.includes(prefix);
-  }, normalizedExpected);
-}
-
 async function isDoudianLoginRequired(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const text = (document.body.innerText || "").replace(/\s+/g, "");
@@ -362,11 +361,15 @@ async function clickTopRightShopMenu(page: Page): Promise<boolean> {
     });
 
     if (!point) {
-      const fallbackPoint = { x: 1444, y: 34 };
-      await page.mouse.click(fallbackPoint.x, fallbackPoint.y, { delay: 90 }).catch(() => {});
-      await page.waitForTimeout(700 + attempt * 250);
-      if (await menuVisible()) {
-        return true;
+      const fallbackPoints = await page.evaluate(() =>
+        [48, 96, 150, 210, 280, 360].map((offset) => ({ x: Math.max(40, window.innerWidth - offset), y: 34 }))
+      );
+      for (const fallbackPoint of fallbackPoints) {
+        await page.mouse.click(fallbackPoint.x, fallbackPoint.y, { delay: 90 }).catch(() => {});
+        await page.waitForTimeout(450 + attempt * 200);
+        if (await menuVisible()) {
+          return true;
+        }
       }
       continue;
     }
@@ -376,11 +379,15 @@ async function clickTopRightShopMenu(page: Page): Promise<boolean> {
       return true;
     }
 
-    const fallbackPoint = { x: 1444, y: 34 };
-    await page.mouse.click(fallbackPoint.x, fallbackPoint.y, { delay: 90 }).catch(() => {});
-    await page.waitForTimeout(700 + attempt * 250);
-    if (await menuVisible()) {
-      return true;
+    const fallbackPoints = await page.evaluate(() =>
+      [48, 96, 150, 210, 280, 360].map((offset) => ({ x: Math.max(40, window.innerWidth - offset), y: 34 }))
+    );
+    for (const fallbackPoint of fallbackPoints) {
+      await page.mouse.click(fallbackPoint.x, fallbackPoint.y, { delay: 90 }).catch(() => {});
+      await page.waitForTimeout(450 + attempt * 200);
+      if (await menuVisible()) {
+        return true;
+      }
     }
   }
   return false;
@@ -552,6 +559,50 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
       }
 
       await card.scrollIntoViewIfNeeded().catch(() => {});
+      await card
+        .evaluate((cardNode) => {
+          const list = cardNode.closest(".index_roleList__2YMEN") as HTMLElement | null;
+          if (list) {
+            list.scrollTop = Math.max(0, (cardNode as HTMLElement).offsetTop - list.offsetTop - 24);
+          }
+          (cardNode as HTMLElement).scrollIntoView({ block: "center", inline: "nearest" });
+        })
+        .catch(() => {});
+      await page.waitForTimeout(350);
+      const centeredBox = await card.boundingBox().catch(() => null);
+      if (centeredBox) {
+        await page.mouse.click(centeredBox.x + centeredBox.width / 2, centeredBox.y + centeredBox.height / 2, { delay: 100 }).catch(() => {});
+        await page.waitForTimeout(1800);
+        const dialogStillVisible = await waitForChooseShopDialog(page);
+        if (!dialogStillVisible) {
+          return true;
+        }
+      }
+      const domClicked = await card
+        .locator(".index_introName__fRtLx")
+        .first()
+        .evaluate((nameNode) => {
+          const cardNode = nameNode.closest(".index_roleItem__1-Hwe") as HTMLElement | null;
+          const target =
+            (cardNode?.querySelector(".index_rightArrowIcon__24nod") as HTMLElement | null) ||
+            (cardNode?.querySelector("svg, [role='button'], button") as HTMLElement | null) ||
+            cardNode;
+          if (!target) {
+            return false;
+          }
+          target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+          target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+          target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+          return true;
+        })
+        .catch(() => false);
+      if (domClicked) {
+        await page.waitForTimeout(1800);
+        const dialogStillVisible = await waitForChooseShopDialog(page);
+        if (!dialogStillVisible) {
+          return true;
+        }
+      }
       const arrow = card.locator(".index_rightArrowIcon__24nod").first();
       const arrowClicked = await arrow
         .click({ timeout: 2000 })
@@ -563,7 +614,7 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
           continue;
         }
 
-        const clickX = box.x + box.width / 2;
+        const clickX = box.x + Math.max(40, box.width - 24);
         const clickY = box.y + box.height / 2;
         await page.mouse.click(clickX, clickY).catch(() => {});
       }
@@ -603,6 +654,36 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
   if (exactMatched) {
     return true;
   }
+  await page
+    .evaluate(() => {
+      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+      const modal = Array.from(document.querySelectorAll("body *"))
+        .map((node) => node as HTMLElement)
+        .find((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const text = normalize(el.innerText || el.textContent || "");
+          return (
+            text.includes("\u8bf7\u9009\u62e9\u5e97\u94fa") &&
+            rect.width > 300 &&
+            rect.height > 240 &&
+            style.display !== "none" &&
+            style.visibility !== "hidden"
+          );
+        });
+      if (!modal) {
+        return false;
+      }
+      const scrollContainer =
+        (Array.from(modal.querySelectorAll("*"))
+          .map((node) => node as HTMLElement)
+          .find((el) => el.scrollHeight > el.clientHeight + 40 && el.clientHeight > 180) as HTMLElement | undefined) ||
+        modal;
+      scrollContainer.scrollTop = 0;
+      return true;
+    })
+    .catch(() => false);
+  await page.waitForTimeout(500);
   const normalizedExpected = normalizeShopName(expectedShopName);
   for (let attempt = 0; attempt < 16; attempt += 1) {
     const candidate = await page.evaluate((target) => {
@@ -693,7 +774,7 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
             Math.abs(cardRect.height - 88) -
             cardText.length / 5;
           return {
-            x: cardRect.x + cardRect.width / 2,
+            x: cardRect.x + Math.max(40, cardRect.width - 30),
             y: cardRect.y + cardRect.height / 2,
             text: cardText,
             score: exactScore
@@ -725,7 +806,15 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
     if (candidate.found && typeof candidate.x === "number" && typeof candidate.y === "number") {
       await page.mouse.click(candidate.x, candidate.y, { delay: 90 });
       await page.waitForTimeout(1800);
-      return true;
+      const dialogStillVisible = await waitForChooseShopDialog(page);
+      if (!dialogStillVisible) {
+        return true;
+      }
+      await page.keyboard.press("Enter").catch(() => {});
+      await page.waitForTimeout(1200);
+      if (!(await waitForChooseShopDialog(page))) {
+        return true;
+      }
     }
     if (!candidate.scrollable) {
       return false;
@@ -751,7 +840,6 @@ async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: str
   if (currentBefore && currentBefore.includes(expectedShopName)) {
     return currentBefore;
   }
-
   let lastActual = currentBefore || "";
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const menuOpened = await clickTopRightShopMenu(page);
@@ -794,18 +882,20 @@ async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: str
     }
 
     await page.waitForLoadState("domcontentloaded").catch(() => {});
-    await page.waitForTimeout(2200 + attempt * 700);
-    await clickTopRightShopMenu(page).catch(() => false);
-    await page.waitForTimeout(500);
-    const currentFromMenu = normalizeShopName(await readCurrentShopNameFromMenu(page));
-    const currentAfter = currentFromMenu || normalizeShopName(await detectCurrentShopName(page));
-    const bodyConfirmed = await pageContainsExpectedShop(page, expectedShopName);
-    if ((currentAfter && currentAfter.includes(expectedShopName)) || bodyConfirmed) {
+    let currentAfter = "";
+    for (let verifyAttempt = 0; verifyAttempt < 5; verifyAttempt += 1) {
+      await page.waitForTimeout(1800 + attempt * 500);
+      await clickTopRightShopMenu(page).catch(() => false);
+      await page.waitForTimeout(600);
+      const currentFromMenu = normalizeShopName(await readCurrentShopNameFromMenu(page));
+      currentAfter = currentFromMenu || normalizeShopName(await detectCurrentShopName(page));
+      if (currentAfter && currentAfter.includes(expectedShopName)) {
+        await page.keyboard.press("Escape").catch(() => {});
+        return currentAfter || expectedShopName;
+      }
       await page.keyboard.press("Escape").catch(() => {});
-      return currentAfter || expectedShopName;
     }
     lastActual = currentAfter || "";
-    await page.keyboard.press("Escape").catch(() => {});
     await gotoWithTolerance(page, PLATFORM_SPU_URL, 3000).catch(() => {});
     await page.waitForTimeout(1000);
     await page.keyboard.press("Escape").catch(() => {});
@@ -1167,6 +1257,8 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       context.pages().find((item) => !item.isClosed() && !item.url().includes("/ffa/g/create")) ||
       (await context.newPage());
     attachSafeDialogHandler(page);
+    await closeCreatePagesExcept(context, [page]);
+    await closeExtraPages(context, [page]);
     await page.bringToFront();
     await gotoWithTolerance(page, PLATFORM_SPU_URL, 3000);
     if (shopFolder) {
@@ -1375,6 +1467,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
     }
     attachSafeDialogHandler(targetPage);
     await targetPage.waitForTimeout(4000).catch(() => {});
+    await closeExtraPages(context, [targetPage]);
     const createPageUrl = targetPage.url();
     if (!createPageUrl.includes("/ffa/g/create")) {
       throw new Error(`Publish page did not open after query click. Current URL: ${createPageUrl}`);
@@ -2028,6 +2121,55 @@ async function clickRadioByLabel(page: Page, labelText: string): Promise<boolean
   }, labelText);
 }
 
+async function isRadioSelectedByLabel(page: Page, labelText: string): Promise<boolean> {
+  return page.evaluate((targetLabel) => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
+    const labels = elements
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const text = normalize(el.innerText || el.textContent || "");
+        if (text !== targetLabel || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        return { el, rect };
+      })
+      .filter(Boolean) as Array<{ el: HTMLElement; rect: DOMRect }>;
+
+    for (const label of labels) {
+      const candidates = elements
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          if (
+            rect.width <= 0 ||
+            rect.height <= 0 ||
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            rect.top < label.rect.top - 24 ||
+            rect.top > label.rect.bottom + 24 ||
+            rect.left < label.rect.left - 80 ||
+            rect.left > label.rect.left + 20
+          ) {
+            return null;
+          }
+          const input = el as HTMLInputElement;
+          const marker = [String(el.className || ""), el.getAttribute("role") || "", el.tagName].join(" ").toLowerCase();
+          const checked = input.checked === true || el.getAttribute("aria-checked") === "true" || marker.includes("checked");
+          const score = (marker.includes("radio") ? 200 : 0) - Math.abs(rect.left - label.rect.left) - Math.abs(rect.top - label.rect.top);
+          return score > 0 ? { checked, score } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+      if (candidates[0]?.checked) {
+        return true;
+      }
+    }
+    return false;
+  }, labelText);
+}
+
 async function dismissTransientOverlays(page: Page): Promise<void> {
   if (page.isClosed()) {
     return;
@@ -2052,10 +2194,10 @@ async function dismissTransientOverlays(page: Page): Promise<void> {
   }
 
   const clicked = await page.evaluate(() => {
-    const modalTitle = "\u0041\u0049\u7d20\u6750\u5de5\u5177";
+    const modalTitles = ["\u0041\u0049\u7d20\u6750\u5de5\u5177", "\u0041\u0049\u52a9\u624b"];
     const titleNode = Array.from(document.querySelectorAll("body *")).find((el) => {
       const text = (el.textContent || "").trim();
-      if (text !== modalTitle) {
+      if (!modalTitles.includes(text)) {
         return false;
       }
       const rect = (el as HTMLElement).getBoundingClientRect();
@@ -2079,20 +2221,25 @@ async function dismissTransientOverlays(page: Page): Promise<void> {
       .map((el) => {
         const rect = el.getBoundingClientRect();
         const text = (el.textContent || "").trim();
+        const marker = [text, el.getAttribute("aria-label") || "", el.getAttribute("title") || "", String(el.className || "")]
+          .join(" ")
+          .toLowerCase();
         if (rect.width <= 0 || rect.height <= 0) {
           return null;
         }
         if (rect.x < rootRect.x + rootRect.width * 0.7 || rect.y > rootRect.y + rootRect.height * 0.2) {
           return null;
         }
-        if (text && text.length > 2) {
+        const isCloseControl =
+          text === "\u00d7" || text === "×" || /close|icon-close|semi-icon-close|ai-content_tomini/.test(marker);
+        if (!isCloseControl) {
           return null;
         }
         return {
           el,
           x: rect.x,
           y: rect.y,
-          score: rect.x - rect.y
+          score: (text === "\u00d7" || text === "×" ? 500 : 0) + rect.x - rect.y
         };
       })
       .filter(Boolean)
@@ -2107,6 +2254,58 @@ async function dismissTransientOverlays(page: Page): Promise<void> {
     if (page.isClosed()) {
       return;
     }
+    await page.waitForTimeout(1200);
+  }
+
+  const closedAiAssistant = await page.evaluate(() => {
+    const bodyText = document.body.innerText || "";
+    if (!bodyText.includes("\u0041\u0049\u52a9\u624b")) {
+      return false;
+    }
+
+    const candidates = Array.from(document.querySelectorAll("button, [role='button'], span, div, svg"))
+      .map((el) => el as HTMLElement)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const text = (el.textContent || "").trim();
+        const marker = [text, el.getAttribute("aria-label") || "", el.getAttribute("title") || "", String(el.className || "")]
+          .join(" ")
+          .toLowerCase();
+        if (
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          rect.left < window.innerWidth * 0.55 ||
+          rect.top > 220 ||
+          rect.width > 90 ||
+          rect.height > 90
+        ) {
+          return null;
+        }
+        const isCloseControl = text === "\u00d7" || text === "×" || /close|icon-close|semi-icon-close/.test(marker);
+        if (!isCloseControl) {
+          return null;
+        }
+        return {
+          el,
+          score: rect.right + (text === "\u00d7" || text === "×" ? 500 : 0) - Math.abs(rect.top - 110)
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+
+    const target = candidates[0]?.el || (document.elementFromPoint(window.innerWidth - 28, 112) as Element | null);
+    if (!target) {
+      return false;
+    }
+    if (target instanceof HTMLElement) {
+      target.click();
+    } else {
+      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    }
+    return true;
+  });
+
+  if (closedAiAssistant) {
     await page.waitForTimeout(1200);
   }
 }
@@ -2506,6 +2705,7 @@ async function readComboboxContextValueByHints(page: Page, hints: string[]): Pro
 }
 
 async function chooseKeywordFromSearchDropdown(page: Page, hints: string[], keyword: string): Promise<string> {
+  await dismissTransientOverlays(page);
   const inputIndex = await findSearchInputIndexByHints(page, hints);
   if (inputIndex < 0) {
     return "";
@@ -3599,7 +3799,11 @@ async function applyFixedPublishSettings(
     try {
       const configuredFields: string[] = [];
 
-      if (await clickVisibleText(page, "\u73B0\u8D27\u53D1\u8D27\u6A21\u5F0F")) {
+      if (
+        (await clickVisibleText(page, "\u73B0\u8D27\u53D1\u8D27\u6A21\u5F0F")) ||
+        (await clickRadioByLabel(page, "\u73B0\u8D27")) ||
+        (await isRadioSelectedByLabel(page, "\u73B0\u8D27").catch(() => false))
+      ) {
         configuredFields.push("shippingMode");
         await page.waitForTimeout(500);
       }
@@ -3670,7 +3874,11 @@ async function applyFixedPublishSettingsOnPage(
 
   const configuredFields: string[] = [];
 
-  if (await clickVisibleText(page, "\u73B0\u8D27\u53D1\u8D27\u6A21\u5F0F")) {
+  if (
+    (await clickVisibleText(page, "\u73B0\u8D27\u53D1\u8D27\u6A21\u5F0F")) ||
+    (await clickRadioByLabel(page, "\u73B0\u8D27")) ||
+    (await isRadioSelectedByLabel(page, "\u73B0\u8D27").catch(() => false))
+  ) {
     configuredFields.push("shippingMode");
     await page.waitForTimeout(500);
   }
@@ -3943,14 +4151,59 @@ async function collectFileInputs(page: Page): Promise<
     accept: string;
     multiple: boolean;
     parentText: string;
+    sectionLabel: string;
   }>
 > {
   return page.locator("input[type='file']").evaluateAll((elements) =>
-    elements.map((el, index) => ({
-      index,
-      accept: el.getAttribute("accept") || "",
-      multiple: el.hasAttribute("multiple"),
-      parentText: (() => {
+    elements.map((el, index) => {
+      const inputRect = (() => {
+        let node: HTMLElement | null = el as HTMLElement;
+        for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+          const rect = node.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            return rect;
+          }
+        }
+        return (el as HTMLElement).getBoundingClientRect();
+      })();
+      const sectionLabel = (() => {
+        const normalize = (value: string): string => value.trim().replace(/\s+/g, " ");
+        const markers = ["主图3:4", "主图", "白底图", "商品详情", "详情页"];
+        const labels = Array.from(document.querySelectorAll("body *"))
+          .map((node) => node as HTMLElement)
+          .map((node) => {
+            const rect = node.getBoundingClientRect();
+            const text = normalize(node.textContent || "");
+            if (!text || rect.width <= 0 || rect.height <= 0 || text.length > 120) {
+              return null;
+            }
+            const marker = markers.find((item) => {
+              if (item === "主图") {
+                return (text === item || text.startsWith(item)) && !text.includes("主图3:4");
+              }
+              return text === item || text.startsWith(item) || text.includes(item);
+            });
+            if (!marker) {
+              return null;
+            }
+            return {
+              marker,
+              top: rect.top,
+              bottom: rect.bottom,
+              distance: Math.abs(inputRect.top - rect.bottom)
+            };
+          })
+          .filter(Boolean)
+          .filter((item) => item!.top <= inputRect.top + 40)
+          .sort((a, b) => a!.distance - b!.distance);
+        return labels[0]?.marker || "";
+      })();
+      return {
+        index,
+        accept: el.getAttribute("accept") || "",
+        multiple: el.hasAttribute("multiple"),
+        sectionLabel,
+        parentText: (() => {
         const normalize = (value: string): string => value.trim().replace(/\s+/g, " ");
         const sectionMarkers = [
           "\u4e3b\u56fe",
@@ -3978,14 +4231,15 @@ async function collectFileInputs(page: Page): Promise<
         }
         return best.slice(0, 1800);
       })()
-    }))
+      };
+    })
   );
 }
 
 function pickBestFileInput(
-  inputs: Array<{ index: number; accept: string; multiple: boolean; parentText: string }>,
-  scoreInput: (input: { index: number; accept: string; multiple: boolean; parentText: string }) => number
-): { index: number; accept: string; multiple: boolean; parentText: string } | null {
+  inputs: Array<{ index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string }>,
+  scoreInput: (input: { index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string }) => number
+): { index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string } | null {
   const scored = inputs
     .map((input) => ({ input, score: scoreInput(input) }))
     .filter((item) => item.score > 0)
@@ -3993,24 +4247,51 @@ function pickBestFileInput(
   return scored[0]?.input || null;
 }
 
-function scoreMainGraphicInput(input: { parentText: string; multiple: boolean }): number {
+function pickBestSectionFileInput(
+  inputs: Array<{ index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string }>,
+  sectionLabel: string,
+  scoreInput: (input: { index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string }) => number
+): { index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string } | null {
+  const exact = inputs.filter((input) => input.sectionLabel === sectionLabel);
+  return pickBestFileInput(exact.length ? exact : inputs, scoreInput);
+}
+
+function scoreMainGraphicInput(input: { parentText: string; multiple: boolean; sectionLabel?: string }): number {
   const text = input.parentText;
   let score = 0;
-  if (text.includes("\u767d\u5e95\u56fe")) score += 120;
-  if (text.includes("\u9891\u9053\u3001\u6d3b\u52a8")) score += 120;
+  if (input.sectionLabel === "\u4e3b\u56fe") score += 1000;
+  if (input.sectionLabel === "\u767d\u5e95\u56fe" || input.sectionLabel === "\u4e3b\u56fe3:4") score -= 1000;
   if (text.includes("\u4e0a\u4f20\u4e3b\u56fe")) score += 110;
   if (text.includes("\u4e3b\u56fe")) score += 80;
   if (text.includes("600*600") || text.includes("600\u00d7600")) score += 40;
   if (input.multiple) score += 10;
+  if (text.includes("\u767d\u5e95\u56fe")) score -= 220;
+  if (text.includes("\u9891\u9053\u3001\u6d3b\u52a8")) score -= 160;
   if (text.includes("\u5546\u54c1\u8be6\u60c5") || text.includes("\u5546\u8be6\u56fe\u7247")) score -= 160;
   if (text.includes("\u5bbd\u5ea6620") || /\(\d+\/50\)/.test(text)) score -= 140;
   if (text.includes("\u4e3b\u56fe3:4")) score -= 120;
   return score;
 }
 
-function scoreDetailGraphicInput(input: { parentText: string; multiple: boolean }): number {
+function scoreWhiteBackgroundGraphicInput(input: { parentText: string; multiple: boolean; sectionLabel?: string }): number {
   const text = input.parentText;
   let score = 0;
+  if (input.sectionLabel === "\u767d\u5e95\u56fe") score += 1000;
+  if (input.sectionLabel === "\u4e3b\u56fe" || input.sectionLabel === "\u4e3b\u56fe3:4") score -= 1000;
+  if (text.includes("\u767d\u5e95\u56fe")) score += 180;
+  if (text.includes("\u9891\u9053\u3001\u6d3b\u52a8")) score += 120;
+  if (text.includes("600*600") || text.includes("600\u00d7600")) score += 40;
+  if (text.includes("\u4e3b\u56fe3:4")) score -= 180;
+  if (text.includes("\u5546\u54c1\u8be6\u60c5") || text.includes("\u5546\u8be6\u56fe\u7247")) score -= 180;
+  if (text.includes("\u4e0a\u4f20\u4e3b\u56fe") && !text.includes("\u767d\u5e95\u56fe")) score -= 120;
+  return score;
+}
+
+function scoreDetailGraphicInput(input: { parentText: string; multiple: boolean; sectionLabel?: string }): number {
+  const text = input.parentText;
+  let score = 0;
+  if (input.sectionLabel === "\u5546\u54c1\u8be6\u60c5" || input.sectionLabel === "\u8be6\u60c5\u9875") score += 1000;
+  if (input.sectionLabel === "\u4e3b\u56fe" || input.sectionLabel === "\u767d\u5e95\u56fe" || input.sectionLabel === "\u4e3b\u56fe3:4") score -= 1000;
   if (text.includes("\u5546\u54c1\u8be6\u60c5")) score += 140;
   if (text.includes("\u5546\u8be6\u56fe\u7247")) score += 140;
   if (text.includes("\u5bbd\u5ea6620")) score += 100;
@@ -4059,6 +4340,45 @@ async function uploadDetailImagesByInputCapability(
     uploaded += 1;
     await page.waitForTimeout(1100);
   }
+  return uploaded;
+}
+
+async function uploadFilesToSectionSlots(
+  page: Page,
+  sectionLabel: string,
+  files: string[],
+  scoreInput: (input: { index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string }) => number,
+  startFileIndex = 0
+): Promise<number> {
+  if (startFileIndex >= files.length) {
+    return 0;
+  }
+
+  let uploaded = 0;
+  const inputs = await collectFileInputs(page);
+  const sectionInputs = inputs
+    .filter((input) => input.sectionLabel === sectionLabel)
+    .sort((a, b) => a.index - b.index);
+  const fallbackInputs = sectionInputs.length
+    ? sectionInputs
+    : inputs
+        .map((input) => ({ input, score: scoreInput(input) }))
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score || a.input.index - b.input.index)
+        .map((item) => item.input);
+
+  for (let slotOffset = startFileIndex; slotOffset < files.length; slotOffset += 1) {
+    const input = fallbackInputs[slotOffset];
+    const file = files[slotOffset];
+    if (!input || !file) {
+      break;
+    }
+    await page.locator("input[type='file']").nth(input.index).setInputFiles(file);
+    uploaded += 1;
+    await page.waitForTimeout(1200);
+    await dismissTransientOverlays(page);
+  }
+
   return uploaded;
 }
 
@@ -4211,7 +4531,7 @@ async function clickConfirmIfVisible(page: Page): Promise<void> {
 
 async function purgeForbiddenGraphicSections(page: Page): Promise<string[]> {
   const removedSections: string[] = [];
-  const forbiddenSections = ["主图3:4", "白底图"];
+  const forbiddenSections = ["主图3:4"];
 
   for (const sectionName of forbiddenSections) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -4312,7 +4632,7 @@ async function findDeleteControlNearPreviewSafe(
         const normalizedMarker = marker.replace(/\s+/g, "").toLowerCase();
         const centerX = rect.x + rect.width / 2;
         const centerY = rect.y + rect.height / 2;
-        const horizontallyAligned = centerX >= target.x - 30 && centerX <= target.x + target.width + 30;
+        const horizontallyAligned = centerX >= target.x - 30 && centerX <= target.x + target.width + 140;
         const belowPreview = centerY >= target.y + target.height - 10 && centerY <= target.y + target.height + 110;
         const upperFallback = centerY >= target.y - 120 && centerY <= target.y + 50;
 
@@ -4351,7 +4671,7 @@ async function findDeleteControlNearPreviewSafe(
 
 async function purgeForbiddenGraphicSectionsSafe(page: Page): Promise<string[]> {
   const removedSections: string[] = [];
-  const forbiddenSections = ["主图3:4", "白底图"];
+  const forbiddenSections = ["主图3:4"];
 
   for (const sectionName of forbiddenSections) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -4395,19 +4715,35 @@ async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string
         })
         .filter(Boolean) as Array<{ text: string; top: number; bottom: number; left: number }>;
 
-      const current = labels.find(
-        (item) =>
-          item.text === targetSection ||
-          item.text.startsWith(targetSection) ||
-          (item.text.includes(targetSection) && item.text.length <= targetSection.length + 80)
-      );
+      const contentLabels = labels.filter((item) => item.left > 250);
+      const pickSectionLabel = (items: Array<{ text: string; top: number; bottom: number; left: number }>, section: string) =>
+        items
+          .map((item) => {
+            const normalized = item.text.replace(/^\*/, "").trim();
+            const exact = normalized === section;
+            const starts = normalized.startsWith(section);
+            const shortIncludes = normalized.includes(section) && normalized.length <= section.length + 80;
+            if (!exact && !starts && !shortIncludes) {
+              return null;
+            }
+            return {
+              item,
+              score: (exact ? 1000 : starts ? 700 : 300) - normalized.length - item.left / 1000
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => (b!.score || 0) - (a!.score || 0))[0]?.item || null;
+      const current = pickSectionLabel(contentLabels, targetSection);
       if (!current) {
         return 0;
       }
 
       const nextTop =
-        labels.filter((item) => sectionLabels.includes(item.text) && item.top > current.top).sort((a, b) => a.top - b.top)[0]
+        contentLabels
+          .filter((item) => sectionLabels.some((section) => item.text.replace(/^\*/, "").trim() === section) && item.top > current.top)
+          .sort((a, b) => a.top - b.top)[0]
           ?.top || current.bottom + 500;
+      const effectiveNextTop = nextTop;
 
       const imageLike = Array.from(document.querySelectorAll("img, [style*='background-image']"))
         .map((el) => el as HTMLElement)
@@ -4424,7 +4760,7 @@ async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string
           };
         })
         .filter(Boolean)
-        .filter((item) => item!.top >= current.bottom - 20 && item!.top < nextTop - 10 && item!.left > current.left);
+          .filter((item) => item!.top >= current.top - 20 && item!.top < effectiveNextTop - 10 && item!.left > current.left);
 
       return Array.from(new Set(imageLike.map((item) => item!.key))).length;
     },
@@ -4433,9 +4769,56 @@ async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string
 }
 
 async function countMainImagePreviews(page: Page): Promise<number> {
+  return countGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe").catch(() => 0);
+}
+
+async function countWhiteBackgroundPreviews(page: Page): Promise<number> {
+  return countGraphicSectionPreviewsStrict(page, "\u767d\u5e95\u56fe").catch(() => 0);
+}
+
+async function countMain34Previews(page: Page): Promise<number> {
+  return countGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe3:4").catch(() => 0);
+}
+
+async function readDetailIndicatorCount(page: Page): Promise<number | null> {
+  return page
+    .evaluate(() => {
+      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const pattern = /(?:\u5546\s*\u54c1\s*\u8be6\s*\u60c5\s*\u56fe\s*\u7247|\u5546\s*\u8be6\s*\u56fe\s*\u7247)\s*[\(（]\s*(\d+)\s*\/\s*50\s*[\)）]/;
+      const visibleTexts = Array.from(document.querySelectorAll("body *"))
+        .map((el) => {
+          const node = el as HTMLElement;
+          const rect = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+            return "";
+          }
+          return normalize(node.textContent || "");
+        })
+        .filter(Boolean);
+
+      for (const text of visibleTexts) {
+        const match = text.match(pattern);
+        if (match) {
+          return Number(match[1]);
+        }
+      }
+
+      const bodyMatch = normalize(document.body.innerText || document.body.textContent || "").match(pattern);
+      return bodyMatch ? Number(bodyMatch[1]) : null;
+    })
+    .catch(() => null);
+}
+
+async function countDetailImagePreviews(page: Page): Promise<number> {
+  const indicatorCount = await readDetailIndicatorCount(page);
+  if (typeof indicatorCount === "number") {
+    return indicatorCount;
+  }
+
   const counts = await Promise.all([
-    countGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe").catch(() => 0),
-    countGraphicSectionPreviewsStrict(page, "\u767d\u5e95\u56fe").catch(() => 0)
+    countGraphicSectionPreviewsStrict(page, "\u8be6\u60c5\u9875").catch(() => 0),
+    countGraphicSectionPreviewsStrict(page, "\u5546\u54c1\u8be6\u60c5").catch(() => 0)
   ]);
   return Math.max(...counts);
 }
@@ -4458,19 +4841,35 @@ async function getGraphicSectionPreviewRectsStrict(
         })
         .filter(Boolean) as Array<{ text: string; top: number; bottom: number; left: number }>;
 
-      const current = labels.find(
-        (item) =>
-          item.text === targetSection ||
-          item.text.startsWith(targetSection) ||
-          (item.text.includes(targetSection) && item.text.length <= targetSection.length + 80)
-      );
+      const contentLabels = labels.filter((item) => item.left > 250);
+      const pickSectionLabel = (items: Array<{ text: string; top: number; bottom: number; left: number }>, section: string) =>
+        items
+          .map((item) => {
+            const normalized = item.text.replace(/^\*/, "").trim();
+            const exact = normalized === section;
+            const starts = normalized.startsWith(section);
+            const shortIncludes = normalized.includes(section) && normalized.length <= section.length + 80;
+            if (!exact && !starts && !shortIncludes) {
+              return null;
+            }
+            return {
+              item,
+              score: (exact ? 1000 : starts ? 700 : 300) - normalized.length - item.left / 1000
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => (b!.score || 0) - (a!.score || 0))[0]?.item || null;
+      const current = pickSectionLabel(contentLabels, targetSection);
       if (!current) {
         return [];
       }
 
       const nextTop =
-        labels.filter((item) => sectionLabels.includes(item.text) && item.top > current.top).sort((a, b) => a.top - b.top)[0]
+        contentLabels
+          .filter((item) => sectionLabels.some((section) => item.text.replace(/^\*/, "").trim() === section) && item.top > current.top)
+          .sort((a, b) => a.top - b.top)[0]
           ?.top || current.bottom + 500;
+      const effectiveNextTop = nextTop;
 
       return Array.from(document.querySelectorAll("img, [style*='background-image']"))
         .map((el) => el as HTMLElement)
@@ -4480,7 +4879,7 @@ async function getGraphicSectionPreviewRectsStrict(
           if (rect.width < 40 || rect.height < 40 || style.display === "none" || style.visibility === "hidden") {
             return null;
           }
-          if (rect.top < current.bottom - 20 || rect.top > nextTop - 10 || rect.left <= current.left) {
+          if (rect.top < current.top - 20 || rect.top > effectiveNextTop - 10 || rect.left <= current.left) {
             return null;
           }
           return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
@@ -4526,6 +4925,14 @@ async function purgeForbiddenGraphicSectionsStrict(page: Page): Promise<string[]
 
   for (const sectionName of FORBIDDEN_GRAPHIC_SECTION_LABELS) {
     await scrollGraphicSectionIntoView(page, sectionName).catch(() => false);
+    if (sectionName === "\u767d\u5e95\u56fe") {
+      const beforeCount = await countWhiteBackgroundPreviews(page).catch(() => 0);
+      const removedCount = await clearWhiteBackgroundPreviewsStrict(page).catch(() => 0);
+      if (removedCount > 0 || (beforeCount > 0 && (await countWhiteBackgroundPreviews(page).catch(() => beforeCount)) === 0)) {
+        removedSections.push(sectionName);
+      }
+      continue;
+    }
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const beforeCount = await countGraphicSectionPreviewsStrict(page, sectionName);
       if (!beforeCount) {
@@ -4562,6 +4969,160 @@ async function purgeForbiddenGraphicSectionsStrict(page: Page): Promise<string[]
   }
 
   return removedSections;
+}
+
+async function clearGraphicSectionPreviewsStrict(page: Page, sectionName: string, maxAttempts = 10): Promise<number> {
+  let removedCount = 0;
+  await scrollGraphicSectionIntoView(page, sectionName).catch(() => false);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const beforeCount = await countGraphicSectionPreviewsStrict(page, sectionName).catch(() => 0);
+    if (!beforeCount) {
+      break;
+    }
+
+    const previews = await getGraphicSectionPreviewRectsStrict(page, sectionName).catch(() => []);
+    if (!previews.length) {
+      break;
+    }
+
+    const target = previews[previews.length - 1];
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2).catch(() => {});
+    await page.waitForTimeout(250);
+    const deleteControl = await findDeleteControlNearPreviewSafe(page, target).catch(() => null);
+    if (deleteControl) {
+      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
+    } else {
+      await page.mouse.click(target.x + target.width - 10, target.y + 10, { delay: 60 }).catch(() => {});
+    }
+
+    await page.waitForTimeout(500);
+    await clickConfirmIfVisibleStrict(page);
+    await dismissTransientOverlays(page);
+
+    const afterCount = await countGraphicSectionPreviewsStrict(page, sectionName).catch(() => beforeCount);
+    if (afterCount < beforeCount) {
+      removedCount += beforeCount - afterCount;
+      continue;
+    }
+    break;
+  }
+
+  return removedCount;
+}
+
+async function clearWhiteBackgroundPreviewsStrict(page: Page, maxAttempts = 10): Promise<number> {
+  let removedCount = 0;
+  await scrollGraphicSectionIntoView(page, "\u767d\u5e95\u56fe").catch(() => false);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const beforeCount = await countWhiteBackgroundPreviews(page).catch(() => 0);
+    if (!beforeCount) {
+      break;
+    }
+
+    const target = await page.evaluate(() => {
+      const normalize = (value: string): string => String(value || "").replace(/\s+/g, " ").trim();
+      const labels = Array.from(document.querySelectorAll("body *"))
+        .map((el) => {
+          const rect = (el as HTMLElement).getBoundingClientRect();
+          return { text: normalize((el as HTMLElement).textContent || ""), rect };
+        })
+        .filter((item) => item.text && item.rect.width > 0 && item.rect.height > 0 && item.rect.left > 250);
+      const label = labels
+        .filter((item) => item.text === "\u767d\u5e95\u56fe" || item.text.startsWith("\u767d\u5e95\u56fe"))
+        .sort((a, b) => a.text.length - b.text.length)[0];
+      if (!label) {
+        return null;
+      }
+      const nextTop =
+        labels
+          .filter((item) => ["\u5546\u54c1\u8be6\u60c5", "\u8be6\u60c5\u9875"].includes(item.text) && item.rect.top > label.rect.top)
+          .sort((a, b) => a.rect.top - b.rect.top)[0]?.rect.top || label.rect.bottom + 500;
+
+      const image = Array.from(document.querySelectorAll("img, [style*='background-image']"))
+        .map((el) => {
+          const rect = (el as HTMLElement).getBoundingClientRect();
+          const style = window.getComputedStyle(el as HTMLElement);
+          if (
+            rect.width < 40 ||
+            rect.height < 40 ||
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            rect.top < label.rect.top - 20 ||
+            rect.top >= nextTop - 10 ||
+            rect.left <= label.rect.left
+          ) {
+            return null;
+          }
+          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        })
+        .filter(Boolean)[0] as { x: number; y: number; width: number; height: number } | undefined;
+
+      return image || null;
+    });
+    if (!target) {
+      break;
+    }
+
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2).catch(() => {});
+    await page.waitForTimeout(800);
+    const deleteControl = await page
+      .evaluate((preview) => {
+        const controls = Array.from(document.querySelectorAll("div, span, button, a, [role='button'], i, svg"))
+          .map((el) => {
+            const rect = (el as HTMLElement).getBoundingClientRect();
+            const text = ((el as HTMLElement).textContent || "").trim();
+            const marker = [
+              text,
+              el.getAttribute("aria-label") || "",
+              el.getAttribute("title") || "",
+              String((el as HTMLElement).className || "")
+            ]
+              .join(" ")
+              .replace(/\s+/g, "")
+              .toLowerCase();
+            const centerX = rect.x + rect.width / 2;
+            const centerY = rect.y + rect.height / 2;
+            const inPopoverRange =
+              centerX >= preview.x - 30 &&
+              centerX <= preview.x + preview.width + 170 &&
+              centerY >= preview.y - 160 &&
+              centerY <= preview.y + preview.height + 130;
+            if (!inPopoverRange || !(marker.includes("\u5220\u9664") || marker.includes("delete") || marker.includes("trash"))) {
+              return null;
+            }
+            return {
+              x: centerX,
+              y: centerY,
+              score: (text === "\u5220\u9664" ? 1000 : 0) + centerX - Math.abs(centerY - (preview.y - 35))
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => (b!.score || 0) - (a!.score || 0));
+        return controls[0] || null;
+      }, target)
+      .catch(() => null);
+
+    if (deleteControl) {
+      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 80 }).catch(() => {});
+    } else {
+      await page.mouse.click(target.x + target.width + 82, target.y - 38, { delay: 80 }).catch(() => {});
+    }
+    await page.waitForTimeout(1000);
+    await clickConfirmIfVisibleStrict(page);
+    await dismissTransientOverlays(page);
+    await page.waitForTimeout(800);
+
+    const afterCount = await countWhiteBackgroundPreviews(page).catch(() => beforeCount);
+    if (afterCount < beforeCount) {
+      removedCount += beforeCount - afterCount;
+      continue;
+    }
+    break;
+  }
+
+  return removedCount;
 }
 
 async function listRemainingForbiddenGraphicSections(page: Page): Promise<string[]> {
@@ -4614,29 +5175,17 @@ async function enforceForbiddenGraphicSectionsEmpty(
 
 async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
   await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
-  await scrollGraphicSectionIntoView(page, "\u8be6\u60c5\u9875").catch(() => false);
+  const detailSectionVisible =
+    (await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false)) ||
+    (await scrollGraphicSectionIntoView(page, "\u8be6\u60c5\u9875").catch(() => false));
+  if (!detailSectionVisible) {
+    await scrollPublishSectionContentIntoView(page, "\u56fe\u6587\u4fe1\u606f").catch(() => false);
+  }
   await page.mouse.wheel(0, 500).catch(() => {});
   await page.waitForTimeout(800);
   await dismissTransientOverlays(page);
-  const readDetailIndicatorCount = async (): Promise<number> =>
-    page.evaluate(() => {
-      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-      const texts = Array.from(document.querySelectorAll("body *"))
-        .map((el) => normalize((el as HTMLElement).textContent || ""))
-        .filter(Boolean);
-      for (const text of texts) {
-        const match = text.match(/\u5546\u8be6\u56fe\u7247\s*\((\d+)\/50\)/);
-        if (match) {
-          return Number(match[1]);
-        }
-      }
-      return 0;
-    });
 
-  const beforeCount = await readDetailIndicatorCount().catch(() => 0);
-  if (beforeCount >= 5) {
-    return true;
-  }
+  const beforeCount = (await readDetailIndicatorCount(page).catch(() => null)) || 0;
   const button = page.getByRole("button", { name: "\u4ece\u4e3b\u56fe\u586b\u5165" }).first();
   const textButton = page.getByText("\u4ece\u4e3b\u56fe\u586b\u5165", { exact: true }).first();
   let clicked = false;
@@ -4688,7 +5237,7 @@ async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await page.waitForTimeout(1200);
       await dismissTransientOverlays(page);
-      const afterCount = await readDetailIndicatorCount().catch(() => 0);
+      const afterCount = (await readDetailIndicatorCount(page).catch(() => null)) || 0;
       if ((beforeCount === 0 && afterCount > 0) || (beforeCount > 0 && afterCount >= beforeCount)) {
         return true;
       }
@@ -4697,13 +5246,18 @@ async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
   return false;
 }
 
-async function clickSmartCropForMain34Section(page: Page): Promise<boolean> {
+async function clickSmartCropForMain34Section(page: Page, expectedCount: number): Promise<boolean> {
   await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
   await scrollGraphicSectionIntoView(page, "\u4e3b\u56fe3:4").catch(() => false);
   await page.waitForTimeout(800);
   await dismissTransientOverlays(page);
 
-  const clicked = await page.evaluate(() => {
+  if ((await countMain34Previews(page)) >= expectedCount) {
+    return true;
+  }
+
+  const clickCrop = async (): Promise<boolean> =>
+    page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
     const nodes = Array.from(document.querySelectorAll("button, a, span, div"))
       .map((el) => el as HTMLElement)
@@ -4734,11 +5288,324 @@ async function clickSmartCropForMain34Section(page: Page): Promise<boolean> {
     return Boolean(clickable);
   });
 
-  if (clicked) {
-    await page.waitForTimeout(2500);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const clicked = await clickCrop().catch(() => false);
+    if (!clicked) {
+      return false;
+    }
+    await page.waitForTimeout(3200);
     await dismissTransientOverlays(page);
+    if ((await countMain34Previews(page)) >= expectedCount) {
+      return true;
+    }
+    if (attempt === 0) {
+      await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe3:4").catch(() => 0);
+      await page.waitForTimeout(800);
+    }
   }
-  return clicked;
+
+  return (await countMain34Previews(page)) >= expectedCount;
+}
+
+async function uploadQualificationImagesToDetailSection(
+  page: Page,
+  assets: ProductAssets,
+  filledFromMain: boolean,
+  expectedDetailCount: number
+): Promise<boolean> {
+  if (!assets.detailImages.length) {
+    return false;
+  }
+  const currentCount = await countDetailImagePreviews(page).catch(() => 0);
+
+  if (currentCount === 0 && !filledFromMain) {
+    const filled = await clickFillFromMainForDetailSection(page).catch(() => false);
+    if (!filled) {
+      return false;
+    }
+  }
+
+  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
+  const detailSectionVisible =
+    (await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false)) ||
+    (await scrollGraphicSectionIntoView(page, "\u8be6\u60c5\u9875").catch(() => false));
+  if (!detailSectionVisible) {
+    await scrollPublishSectionContentIntoView(page, "\u56fe\u6587\u4fe1\u606f").catch(() => false);
+  }
+  await page.mouse.wheel(0, 500).catch(() => {});
+  await page.waitForTimeout(800);
+  await dismissTransientOverlays(page);
+
+  const inputs = await collectFileInputs(page);
+  const detailInput = pickBestSectionFileInput(inputs, "\u5546\u54c1\u8be6\u60c5", scoreDetailGraphicInput) ||
+    pickBestSectionFileInput(inputs, "\u8be6\u60c5\u9875", scoreDetailGraphicInput) ||
+    pickBestFileInput(inputs, scoreDetailGraphicInput);
+  if (!detailInput) {
+    return (await countDetailImagePreviews(page).catch(() => 0)) >= expectedDetailCount;
+  }
+
+  await uploadDetailImagesByInputCapability(page, detailInput, assets.detailImages);
+  await page.waitForTimeout(2200);
+  await dismissTransientOverlays(page);
+  return (await countDetailImagePreviews(page).catch(() => 0)) >= expectedDetailCount;
+}
+
+async function clearDetailImagePreviewsStrict(page: Page, maxAttempts = 12): Promise<number> {
+  let removedCount = 0;
+  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
+  const detailSectionVisible =
+    (await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false)) ||
+    (await scrollGraphicSectionIntoView(page, "\u8be6\u60c5\u9875").catch(() => false));
+  if (!detailSectionVisible) {
+    await scrollPublishSectionContentIntoView(page, "\u56fe\u6587\u4fe1\u606f").catch(() => false);
+  }
+  await page.mouse.wheel(0, 500).catch(() => {});
+  await page.waitForTimeout(800);
+  await dismissTransientOverlays(page);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const beforeCount = await countDetailImagePreviews(page).catch(() => 0);
+    if (!beforeCount) {
+      break;
+    }
+
+    let previews = await getGraphicSectionPreviewRectsStrict(page, "\u8be6\u60c5\u9875").catch(() => []);
+    if (!previews.length) {
+      previews = await getGraphicSectionPreviewRectsStrict(page, "\u5546\u54c1\u8be6\u60c5").catch(() => []);
+    }
+    if (!previews.length) {
+      break;
+    }
+
+    const target = previews[previews.length - 1];
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2).catch(() => {});
+    await page.waitForTimeout(450);
+    const deleteControl = await findDeleteControlNearPreviewSafe(page, target).catch(() => null);
+    if (deleteControl) {
+      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 70 }).catch(() => {});
+    } else {
+      await page.mouse.click(target.x + target.width + 82, target.y - 38, { delay: 70 }).catch(() => {});
+    }
+    await page.waitForTimeout(900);
+    await clickConfirmIfVisibleStrict(page);
+    await dismissTransientOverlays(page);
+    await page.waitForTimeout(700);
+
+    const afterCount = await countDetailImagePreviews(page).catch(() => beforeCount);
+    if (afterCount < beforeCount) {
+      removedCount += beforeCount - afterCount;
+      continue;
+    }
+    break;
+  }
+
+  return removedCount;
+}
+
+async function ensureDetailImagesFromMainThenQualifications(
+  page: Page,
+  runtimeDir: string,
+  assets: ProductAssets
+): Promise<{ completed: boolean; filledFromMain: boolean; group: string; issue: string }> {
+  if (!assets.detailImages.length) {
+    return {
+      completed: false,
+      filledFromMain: false,
+      group: "",
+      issue: "No Feishu qualification images are available for 商品详情 upload."
+    };
+  }
+
+  let filledFromMain = false;
+  filledFromMain = await clickFillFromMainForDetailSection(page).catch(() => false);
+  const countAfterFillFromMain = await countDetailImagePreviews(page).catch(() => 0);
+  if (!filledFromMain || countAfterFillFromMain < 1) {
+    await savePageScreenshot(page, runtimeDir, "publish-page-detail-fill-from-main-failed.png").catch(() => "");
+    return {
+      completed: false,
+      filledFromMain,
+      group: "",
+      issue: "Detail images were not available after clicking fill-from-main."
+    };
+  }
+
+  const expectedDetailCount = countAfterFillFromMain + assets.detailImages.length;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const detailCompleted = await uploadQualificationImagesToDetailSection(page, assets, filledFromMain, expectedDetailCount).catch(() => false);
+    const finalCount = await countDetailImagePreviews(page).catch(() => 0);
+    if (detailCompleted && finalCount >= expectedDetailCount) {
+      return {
+        completed: true,
+        filledFromMain,
+        group: filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages:existingWithQualifications",
+        issue: ""
+      };
+    }
+    await savePageScreenshot(page, runtimeDir, `publish-page-detail-qualification-upload-retry-${attempt + 1}.png`).catch(() => "");
+    await page.waitForTimeout(1200);
+  }
+
+  const finalCount = await countDetailImagePreviews(page).catch(() => 0);
+  await savePageScreenshot(page, runtimeDir, "publish-page-detail-qualification-upload-failed.png").catch(() => "");
+  return {
+    completed: false,
+    filledFromMain,
+    group: "",
+    issue: `Detail images did not reach expected count after fill-from-main plus Feishu qualifications. expected=${expectedDetailCount}; actual=${finalCount}; qualificationImages=${assets.detailImages.length}`
+  };
+}
+
+async function uploadMissingMain34ImagesToSection(page: Page, assets: ProductAssets): Promise<boolean> {
+  const expectedCount = assets.mainImages.length;
+  let currentCount = await countMain34Previews(page).catch(() => 0);
+  if (currentCount >= expectedCount) {
+    return true;
+  }
+
+  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
+  await scrollGraphicSectionIntoView(page, "\u4e3b\u56fe3:4").catch(() => false);
+  await page.waitForTimeout(800);
+  await dismissTransientOverlays(page);
+
+  for (let index = currentCount; index < expectedCount; index += 1) {
+    const inputs = await collectFileInputs(page);
+    const main34Input = pickBestSectionFileInput(inputs, "\u4e3b\u56fe3:4", (input) => {
+      let score = 0;
+      if (input.sectionLabel === "\u4e3b\u56fe3:4") score += 1000;
+      if (input.parentText.includes("\u4e3b\u56fe3:4")) score += 160;
+      if (input.parentText.includes("\u4e0a\u4f20\u8f85\u52a9\u56fe")) score += 80;
+      if (input.sectionLabel === "\u4e3b\u56fe" || input.sectionLabel === "\u767d\u5e95\u56fe") score -= 1000;
+      if (input.parentText.includes("\u767d\u5e95\u56fe") || input.parentText.includes("\u5546\u54c1\u8be6\u60c5")) score -= 300;
+      return score;
+    });
+    if (!main34Input) {
+      break;
+    }
+
+    await uploadFilesToInput(page, main34Input, assets.mainImages.slice(index, index + 1));
+    await page.waitForTimeout(1600);
+    await dismissTransientOverlays(page);
+    const nextCount = await countMain34Previews(page).catch(() => currentCount);
+    if (nextCount <= currentCount) {
+      break;
+    }
+    currentCount = nextCount;
+  }
+
+  return (await countMain34Previews(page).catch(() => 0)) >= expectedCount;
+}
+
+async function uploadWhiteBackgroundImage(page: Page, assets: ProductAssets): Promise<boolean> {
+  if (!assets.whiteBackgroundImages.length) {
+    return false;
+  }
+
+  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
+  await scrollGraphicSectionIntoView(page, "\u767d\u5e95\u56fe").catch(() => false);
+  await page.waitForTimeout(800);
+  await dismissTransientOverlays(page);
+
+  const firstInputs = await collectFileInputs(page);
+  const firstWhiteInput = pickBestSectionFileInput(firstInputs, "\u767d\u5e95\u56fe", scoreWhiteBackgroundGraphicInput);
+  if (firstWhiteInput) {
+    await uploadFilesToInput(page, firstWhiteInput, assets.whiteBackgroundImages.slice(0, 1));
+    await page.waitForTimeout(2200);
+    if ((await countWhiteBackgroundPreviews(page)) > 0) {
+      return true;
+    }
+  }
+
+  async function clickWhiteBackgroundDeleteFallback(): Promise<boolean> {
+    return page.evaluate(() => {
+      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const labels = Array.from(document.querySelectorAll("body *"))
+        .map((el) => el as HTMLElement)
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          const text = normalize(el.textContent || "");
+          if (!text || rect.width <= 0 || rect.height <= 0) return null;
+          return { el, text, rect };
+        })
+        .filter(Boolean) as Array<{ el: HTMLElement; text: string; rect: DOMRect }>;
+      const current = labels.find((item) => item.text === "白底图" || item.text.startsWith("白底图"));
+      if (!current) return false;
+      const nextTop =
+        labels
+          .filter((item) => ["商品详情", "详情页"].some((label) => item.text === label || item.text.startsWith(label)) && item.rect.top > current.rect.top)
+          .sort((a, b) => a.rect.top - b.rect.top)[0]?.rect.top || current.rect.bottom + 520;
+      const deleteControls = Array.from(document.querySelectorAll("button, [role='button'], span, div, a"))
+        .map((el) => el as HTMLElement)
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          const text = normalize(el.textContent || "");
+          const marker = [text, el.getAttribute("aria-label") || "", el.getAttribute("title") || "", String(el.className || "")]
+            .join(" ")
+            .toLowerCase();
+          if (rect.width <= 0 || rect.height <= 0 || rect.top < current.rect.bottom - 30 || rect.top > nextTop - 5) return null;
+          const looksDelete = text === "删除" || /(delete|remove|trash|icon-delete|icon-trash|semi-icon-close|close)/.test(marker);
+          if (!looksDelete) return null;
+          return { el, score: (text === "删除" ? 1000 : 0) - Math.abs(rect.top - current.rect.bottom) };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+      const target = deleteControls[0]?.el || null;
+      target?.click();
+      return Boolean(target);
+    });
+  }
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const beforeCount = await countWhiteBackgroundPreviews(page);
+    if (!beforeCount) {
+      break;
+    }
+    const previews = await getGraphicSectionPreviewRectsStrict(page, "\u767d\u5e95\u56fe");
+    if (!previews.length) {
+      break;
+    }
+    const target = previews[previews.length - 1];
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
+    await page.waitForTimeout(250);
+    const deleteControl = await findDeleteControlNearPreviewSafe(page, target);
+    if (deleteControl) {
+      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
+    } else {
+      const clickedFallback = await clickWhiteBackgroundDeleteFallback().catch(() => false);
+      if (!clickedFallback) {
+        await page.mouse.click(target.x + target.width - 10, target.y + 10, { delay: 60 }).catch(() => {});
+      }
+    }
+    await page.waitForTimeout(500);
+    await clickConfirmIfVisibleStrict(page);
+    await dismissTransientOverlays(page);
+    const afterCount = await countWhiteBackgroundPreviews(page);
+    if (afterCount >= beforeCount) {
+      break;
+    }
+  }
+  if ((await countWhiteBackgroundPreviews(page)) > 0) {
+    return false;
+  }
+
+  const inputs = await collectFileInputs(page);
+  const whiteInput = pickBestSectionFileInput(inputs, "\u767d\u5e95\u56fe", scoreWhiteBackgroundGraphicInput);
+  if (!whiteInput) {
+    return false;
+  }
+
+  await uploadFilesToInput(page, whiteInput, assets.whiteBackgroundImages.slice(0, 1));
+  await page.waitForTimeout(1800);
+  return (await countWhiteBackgroundPreviews(page)) > 0;
+}
+
+function graphicUploadGroupsComplete(uploadedGroups: string[]): boolean {
+  const detailDone = uploadedGroups.some(
+    (item) =>
+      item === "detailImages" ||
+      item === "detailImages:fillFromMainThenUpload" ||
+      item === "detailImages:existingWithQualifications"
+  );
+  return uploadedGroups.includes("mainImages") && uploadedGroups.includes("optionalGraphicSectionsCleared") && detailDone;
 }
 
 async function uploadProductImages(
@@ -4769,23 +5636,41 @@ async function uploadProductImages(
     }
     const inputs = await collectFileInputs(page);
 
-    const mainInput = pickBestFileInput(inputs, scoreMainGraphicInput);
+    const mainInput = pickBestSectionFileInput(inputs, "\u4e3b\u56fe", scoreMainGraphicInput);
     if (!uploadIssue && mainInput && assets.mainImages.length) {
-      await uploadFilesToInput(page, mainInput, assets.mainImages);
-      uploadedGroups.push("mainImages");
+      await uploadFilesToSectionSlots(page, "\u4e3b\u56fe", assets.mainImages, scoreMainGraphicInput);
       await page.waitForTimeout(2600);
-      const cropped = await clickSmartCropForMain34Section(page).catch(() => false);
-      if (!cropped) {
-        logWarn('Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable after main image upload; continuing because main images were uploaded.');
+      if ((await countMainImagePreviews(page).catch(() => 0)) >= assets.mainImages.length) {
+        uploadedGroups.push("mainImages");
+      } else {
+        uploadIssue = `Main image slots did not contain ${assets.mainImages.length} images after upload.`;
+      }
+    }
+    if (!uploadIssue && uploadedGroups.includes("mainImages")) {
+      const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+        page,
+        runtimeDir,
+        "publish-page-forbidden-graphic-sections-cleared.png"
+      );
+      if (forbiddenResult.remainingSections.length) {
+        uploadIssue = `Forbidden optional graphic sections still contain images: ${forbiddenResult.remainingSections.join(", ")}`;
+      } else {
+        uploadedGroups.push("optionalGraphicSectionsCleared");
       }
     } else if (!uploadIssue && !mainInput) {
-      const existingMainPreviewCount = await countMainImagePreviews(page);
-      if (existingMainPreviewCount >= Math.min(assets.mainImages.length, 1)) {
-        uploadedGroups.push("mainImages");
-        const cropped = await clickSmartCropForMain34Section(page).catch(() => false);
-        if (!cropped) {
-          logWarn('Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable for existing main previews; continuing.');
-        }
+    const existingMainPreviewCount = await countMainImagePreviews(page);
+    if (existingMainPreviewCount >= assets.mainImages.length) {
+      uploadedGroups.push("mainImages");
+      const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+        page,
+        runtimeDir,
+        "publish-page-forbidden-graphic-sections-cleared-existing-main.png"
+      );
+      if (forbiddenResult.remainingSections.length) {
+        uploadIssue = `Forbidden optional graphic sections still contain images: ${forbiddenResult.remainingSections.join(", ")}`;
+      } else {
+        uploadedGroups.push("optionalGraphicSectionsCleared");
+      }
       } else {
         logWarn("Main image upload input was not found; checking existing main/white-background previews before failing.");
       }
@@ -4796,37 +5681,49 @@ async function uploadProductImages(
     await page.mouse.wheel(0, 900).catch(() => {});
     await page.waitForTimeout(800);
 
-    const filledFromMain = await clickFillFromMainForDetailSection(page).catch(() => false);
-    if (!uploadIssue && !filledFromMain) {
-      await savePageScreenshot(page, runtimeDir, "publish-page-detail-fill-from-main-failed.png").catch(() => "");
-    }
-    const detailInputs = await collectFileInputs(page);
-    const detailInput = pickBestFileInput(detailInputs, scoreDetailGraphicInput);
-
-    if (!uploadIssue && detailInput && assets.detailImages.length) {
-      await uploadDetailImagesByInputCapability(page, detailInput, assets.detailImages);
-      uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
-      await page.waitForTimeout(2500);
-    } else if (!uploadIssue && !detailInput) {
-      const existingDetailPreviewCount = await countGraphicSectionPreviewsStrict(page, "\u5546\u54C1\u8BE6\u60C5");
-      if (existingDetailPreviewCount >= Math.min(assets.detailImages.length, 1)) {
-        uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
+    let filledFromMain = false;
+    if (!uploadIssue) {
+      const detailResult = await ensureDetailImagesFromMainThenQualifications(page, runtimeDir, assets);
+      filledFromMain = detailResult.filledFromMain;
+      if (detailResult.completed) {
+        uploadedGroups.push(detailResult.group);
       } else {
-        uploadIssue = "Detail image upload input was not found.";
+        uploadIssue = detailResult.issue || "Detail images did not include fill-from-main result plus Feishu qualification images.";
       }
+    }
+
+  if (!uploadIssue) {
+    const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+      page,
+      runtimeDir,
+      "publish-page-forbidden-graphic-sections-final-check.png"
+    );
+    if (forbiddenResult.remainingSections.length) {
+      uploadIssue = `Forbidden optional graphic sections still contain images after detail upload: ${forbiddenResult.remainingSections.join(", ")}`;
+    } else if (!uploadedGroups.includes("optionalGraphicSectionsCleared")) {
+      uploadedGroups.push("optionalGraphicSectionsCleared");
+    }
   }
 
   const finalMainPreviewCount = await countMainImagePreviews(page).catch(() => 0);
-  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount >= Math.min(assets.mainImages.length, 1)) {
+  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount >= assets.mainImages.length) {
     uploadedGroups.push("mainImages");
   }
   if (!uploadIssue && !uploadedGroups.includes("mainImages")) {
     uploadIssue = "Main image upload input was not found and no existing main/white-background preview was detected.";
   }
-  const finalDetailPreviewCount = await countGraphicSectionPreviewsStrict(page, "\u5546\u54C1\u8BE6\u60C5").catch(() => 0);
+  if (!uploadIssue && !uploadedGroups.includes("optionalGraphicSectionsCleared")) {
+    uploadIssue = "Optional graphic sections were not confirmed as cleared.";
+  }
+  const finalDetailPreviewCount = await countDetailImagePreviews(page).catch(() => 0);
   if (
-    !uploadedGroups.some((item) => item === "detailImages" || item === "detailImages:fillFromMainThenUpload") &&
-    finalDetailPreviewCount >= Math.min(assets.detailImages.length, 1)
+    !uploadedGroups.some(
+      (item) =>
+        item === "detailImages" ||
+        item === "detailImages:fillFromMainThenUpload" ||
+        item === "detailImages:existingWithQualifications"
+    ) &&
+    finalDetailPreviewCount >= assets.detailImages.length + 1
   ) {
     uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
   }
@@ -4870,22 +5767,40 @@ async function uploadProductImagesOnPage(
   }
   const inputs = await collectFileInputs(page);
 
-  const mainInput = pickBestFileInput(inputs, scoreMainGraphicInput);
+  const mainInput = pickBestSectionFileInput(inputs, "\u4e3b\u56fe", scoreMainGraphicInput);
   if (!uploadIssue && mainInput && assets.mainImages.length) {
-    await uploadFilesToInput(page, mainInput, assets.mainImages);
-    uploadedGroups.push("mainImages");
-      await page.waitForTimeout(3000);
-      const cropped = await clickSmartCropForMain34Section(page).catch(() => false);
-      if (!cropped) {
-        logWarn('Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable after main image upload; continuing because main images were uploaded.');
-      }
+    await uploadFilesToSectionSlots(page, "\u4e3b\u56fe", assets.mainImages, scoreMainGraphicInput);
+    await page.waitForTimeout(3000);
+    if ((await countMainImagePreviews(page).catch(() => 0)) >= assets.mainImages.length) {
+      uploadedGroups.push("mainImages");
+    } else {
+      uploadIssue = `Main image slots did not contain ${assets.mainImages.length} images after upload.`;
+    }
+  }
+  if (!uploadIssue && uploadedGroups.includes("mainImages")) {
+    const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+      page,
+      runtimeDir,
+      "publish-page-forbidden-graphic-sections-cleared.png"
+    );
+    if (forbiddenResult.remainingSections.length) {
+      uploadIssue = `Forbidden optional graphic sections still contain images: ${forbiddenResult.remainingSections.join(", ")}`;
+    } else {
+      uploadedGroups.push("optionalGraphicSectionsCleared");
+    }
   } else if (!uploadIssue && !mainInput) {
     const existingMainPreviewCount = await countMainImagePreviews(page);
-    if (existingMainPreviewCount >= Math.min(assets.mainImages.length, 1)) {
+    if (existingMainPreviewCount >= assets.mainImages.length) {
       uploadedGroups.push("mainImages");
-      const cropped = await clickSmartCropForMain34Section(page).catch(() => false);
-      if (!cropped) {
-        logWarn('Main 3:4 smart crop action "从1:1主图智能裁剪" was not clickable for existing main previews; continuing.');
+      const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+        page,
+        runtimeDir,
+        "publish-page-forbidden-graphic-sections-cleared-existing-main.png"
+      );
+      if (forbiddenResult.remainingSections.length) {
+        uploadIssue = `Forbidden optional graphic sections still contain images: ${forbiddenResult.remainingSections.join(", ")}`;
+      } else {
+        uploadedGroups.push("optionalGraphicSectionsCleared");
       }
     } else {
       logWarn("Main image upload input was not found; checking existing main/white-background previews before failing.");
@@ -4897,39 +5812,51 @@ async function uploadProductImagesOnPage(
   await page.mouse.wheel(0, 900).catch(() => {});
   await page.waitForTimeout(800);
 
-  const filledFromMain = await clickFillFromMainForDetailSection(page).catch(() => false);
-  if (!uploadIssue && !filledFromMain) {
-    await savePageScreenshot(page, runtimeDir, "publish-page-detail-fill-from-main-failed.png").catch(() => "");
-  }
-  const detailInputs = await collectFileInputs(page);
-  const detailInput = pickBestFileInput(detailInputs, scoreDetailGraphicInput);
-
-  if (!uploadIssue && detailInput && assets.detailImages.length) {
-    await uploadDetailImagesByInputCapability(page, detailInput, assets.detailImages);
-    uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
-    await page.waitForTimeout(3500);
-  } else if (!uploadIssue && !detailInput) {
-    const existingDetailPreviewCount = await countGraphicSectionPreviewsStrict(page, "\u5546\u54C1\u8BE6\u60C5");
-    if (existingDetailPreviewCount >= Math.min(assets.detailImages.length, 1)) {
-      uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
+  let filledFromMain = false;
+  if (!uploadIssue) {
+    const detailResult = await ensureDetailImagesFromMainThenQualifications(page, runtimeDir, assets);
+    filledFromMain = detailResult.filledFromMain;
+    if (detailResult.completed) {
+      uploadedGroups.push(detailResult.group);
     } else {
-      uploadIssue = "Detail image upload input was not found.";
+      uploadIssue = detailResult.issue || "Detail images did not include fill-from-main result plus Feishu qualification images.";
     }
   }
 
   await dismissTransientOverlays(page);
 
+  if (!uploadIssue) {
+    const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+      page,
+      runtimeDir,
+      "publish-page-forbidden-graphic-sections-final-check.png"
+    );
+    if (forbiddenResult.remainingSections.length) {
+      uploadIssue = `Forbidden optional graphic sections still contain images after detail upload: ${forbiddenResult.remainingSections.join(", ")}`;
+    } else if (!uploadedGroups.includes("optionalGraphicSectionsCleared")) {
+      uploadedGroups.push("optionalGraphicSectionsCleared");
+    }
+  }
+
   const finalMainPreviewCount = await countMainImagePreviews(page).catch(() => 0);
-  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount >= Math.min(assets.mainImages.length, 1)) {
+  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount >= assets.mainImages.length) {
     uploadedGroups.push("mainImages");
   }
   if (!uploadIssue && !uploadedGroups.includes("mainImages")) {
     uploadIssue = "Main image upload input was not found and no existing main/white-background preview was detected.";
   }
-  const finalDetailPreviewCount = await countGraphicSectionPreviewsStrict(page, "\u5546\u54C1\u8BE6\u60C5").catch(() => 0);
+  if (!uploadIssue && !uploadedGroups.includes("optionalGraphicSectionsCleared")) {
+    uploadIssue = "Optional graphic sections were not confirmed as cleared.";
+  }
+  const finalDetailPreviewCount = await countDetailImagePreviews(page).catch(() => 0);
   if (
-    !uploadedGroups.some((item) => item === "detailImages" || item === "detailImages:fillFromMainThenUpload") &&
-    finalDetailPreviewCount >= Math.min(assets.detailImages.length, 1)
+    !uploadedGroups.some(
+      (item) =>
+        item === "detailImages" ||
+        item === "detailImages:fillFromMainThenUpload" ||
+        item === "detailImages:existingWithQualifications"
+    ) &&
+    finalDetailPreviewCount >= assets.detailImages.length + 1
   ) {
     uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
   }
@@ -5082,7 +6009,7 @@ async function runPublishCheckOnPage(
       .filter(Boolean);
 
     const visibleText = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const sectionLabels = ["\u4e3b\u56fe", "\u4e3b\u56fe3:4", "\u767d\u5e95\u56fe", "\u8be6\u60c5\u9875"];
+    const sectionLabels = ["\u4e3b\u56fe", "\u4e3b\u56fe3:4", "\u767d\u5e95\u56fe", "\u5546\u54c1\u8be6\u60c5", "\u8be6\u60c5\u9875"];
     const countSectionImages = (targetSection: string): number => {
       const labels = Array.from(document.querySelectorAll("body *"))
         .map((el) => el as HTMLElement)
@@ -5096,13 +6023,13 @@ async function runPublishCheckOnPage(
         })
         .filter(Boolean) as Array<{ text: string; top: number; bottom: number; left: number }>;
 
-      const current = labels.find((item) => item.text === targetSection);
+      const current = labels.find((item) => item.text === targetSection || item.text.startsWith(targetSection));
       if (!current) {
         return 0;
       }
 
       const nextTop =
-        labels.filter((item) => sectionLabels.includes(item.text) && item.top > current.top).sort((a, b) => a.top - b.top)[0]
+        labels.filter((item) => sectionLabels.some((label) => item.text === label || item.text.startsWith(label)) && item.top > current.top).sort((a, b) => a.top - b.top)[0]
           ?.top || current.bottom + 500;
 
       const imageLike = Array.from(document.querySelectorAll("img, [style*='background-image']"))
@@ -5813,12 +6740,14 @@ async function runPublishFlow(
 
   let createPageUrl = publishPageUrl || "";
   let matchedRowText = "";
+  let shopVerifiedBeforeCreatePage = false;
 
   if (!createPageUrl) {
     const queryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
     screenshotFiles.push(queryResult.screenshotFile);
     createPageUrl = queryResult.createPageUrl;
     matchedRowText = queryResult.matchedRowText;
+    shopVerifiedBeforeCreatePage = Boolean(shopFolder);
     stages.push({ step: "query_platform_spu", status: "completed" });
   }
 
@@ -5826,9 +6755,13 @@ async function runPublishFlow(
   try {
     const page = await context.newPage();
     attachSafeDialogHandler(page);
+    await closeCreatePagesExcept(context, [page]);
+    await closeExtraPages(context, [page]);
     await page.bringToFront();
     await gotoWithTolerance(page, createPageUrl, 3500);
-    await ensureShopContext(page, runtimeDir, shopFolder);
+    if (!shopVerifiedBeforeCreatePage) {
+      await ensureShopContext(page, runtimeDir, shopFolder);
+    }
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
       await gotoWithTolerance(page, createPageUrl, 3500);
@@ -5894,15 +6827,11 @@ async function runPublishFlow(
       screenshotFiles.push(imageResult.screenshotFile);
       uploadedGroups = imageResult.uploadedGroups;
       uploadIssue = imageResult.uploadIssue;
-      if (
-        uploadIssue ||
-        !uploadedGroups.includes("mainImages") ||
-        !uploadedGroups.some((item) => item === "detailImages" || item === "detailImages:fillFromMainThenUpload")
-      ) {
+      if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
         stages.push({ step: "upload_product_images", status: "failed" });
         if (graphicResetAttempt < 1) {
           logWarn(
-            `Graphic module did not reach a clean completed state; reopening from platform SPU instead of repairing the current create page. issue=${uploadIssue || "Main/detail image groups were not both uploaded successfully."}`
+            `Graphic module did not reach a clean completed state; reopening from platform SPU instead of repairing the current create page. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
           );
           await context.browser()?.close().catch(() => {});
           const retryResult = await runPublishFlow(runtimeDir, metadata, assets, shopFolder, undefined, stopBeforePublish, graphicResetAttempt + 1);
@@ -5917,7 +6846,7 @@ async function runPublishFlow(
           };
         }
         throw new Error(
-          `Sequential publish flow stopped: 图文信息模块未完成。${uploadIssue || "Main/detail image groups were not both uploaded successfully."}`
+          `Sequential publish flow stopped: 图文信息模块未完成。${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
         );
       }
       if (specAttempt === 0) {
@@ -6006,6 +6935,20 @@ async function runPublishFlow(
     }
     stages.push({ step: "apply_fixed_publish_settings", status: "completed" });
 
+    const preCheckForbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+      page,
+      runtimeDir,
+      "publish-page-forbidden-graphic-sections-before-check.png"
+    );
+    screenshotFiles.push(preCheckForbiddenResult.screenshotFile);
+    if (preCheckForbiddenResult.remainingSections.length) {
+      stages.push({ step: "pre_publish_forbidden_graphic_check", status: "failed" });
+      throw new Error(
+        `Sequential publish flow stopped: 发布前白底图/3:4主图仍未清空。remaining=${preCheckForbiddenResult.remainingSections.join(", ")}`
+      );
+    }
+    stages.push({ step: "pre_publish_forbidden_graphic_check", status: "completed" });
+
     const checkResult = await runPublishCheckOnPage(page, runtimeDir, "publish-page-fill-check.png");
     screenshotFiles.push(checkResult.screenshotFile);
     checkPassed = checkResult.checkPassed;
@@ -6046,6 +6989,20 @@ async function runPublishFlow(
     stages.push({ step: "run_publish_check", status: "completed" });
 
     if (!stopBeforePublish) {
+      const finalForbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+        page,
+        runtimeDir,
+        "publish-page-forbidden-graphic-sections-before-submit.png"
+      );
+      screenshotFiles.push(finalForbiddenResult.screenshotFile);
+      if (finalForbiddenResult.remainingSections.length) {
+        stages.push({ step: "final_forbidden_graphic_check", status: "failed" });
+        throw new Error(
+          `Sequential publish flow stopped: 提交前白底图/3:4主图仍未清空。remaining=${finalForbiddenResult.remainingSections.join(", ")}`
+        );
+      }
+      stages.push({ step: "final_forbidden_graphic_check", status: "completed" });
+
       const publishResult = await clickPublishProductOnPage(page, runtimeDir, "publish-page-published.png");
       screenshotFiles.push(publishResult.screenshotFile);
       publishClicked = publishResult.publishClicked;
@@ -6138,6 +7095,8 @@ async function runGraphicFlow(
   try {
     const page = await context.newPage();
     attachSafeDialogHandler(page);
+    await closeCreatePagesExcept(context, [page]);
+    await closeExtraPages(context, [page]);
     await page.bringToFront();
     await gotoWithTolerance(page, createPageUrl, 3500);
     await ensureShopContext(page, runtimeDir, shopFolder);
@@ -6204,15 +7163,11 @@ async function runGraphicFlow(
     screenshotFiles.push(imageResult.screenshotFile);
     uploadedGroups = imageResult.uploadedGroups;
     uploadIssue = imageResult.uploadIssue;
-    if (
-      uploadIssue ||
-      !uploadedGroups.includes("mainImages") ||
-      !uploadedGroups.some((item) => item === "detailImages" || item === "detailImages:fillFromMainThenUpload")
-    ) {
+    if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
       stages.push({ step: "upload_product_images", status: "failed" });
       if (graphicResetAttempt < 1) {
         logWarn(
-          `Graphic module did not reach a clean completed state; reopening from platform SPU instead of repairing the current create page. issue=${uploadIssue || "Main/detail image groups were not both uploaded successfully."}`
+          `Graphic module did not reach a clean completed state; reopening from platform SPU instead of repairing the current create page. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
         );
         await context.browser()?.close().catch(() => {});
         const retryResult = await runGraphicFlow(runtimeDir, metadata, assets, shopFolder, undefined, graphicResetAttempt + 1);
@@ -6226,7 +7181,7 @@ async function runGraphicFlow(
           ]
         };
       }
-      throw new Error(`Graphic flow stopped: 图文信息模块未完成。${uploadIssue || "Main/detail image groups were not both uploaded successfully."}`);
+      throw new Error(`Graphic flow stopped: 图文信息模块未完成。${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`);
     }
     stages.push({ step: "upload_product_images", status: "completed" });
 
@@ -6281,6 +7236,7 @@ export async function runPublishFromSpuJob(
         : {
             workbookFile: undefined,
             mainImages: [],
+            whiteBackgroundImages: [],
             detailImages: [],
             otherFiles: []
           };
@@ -6564,7 +7520,7 @@ export async function runPublishFromSpuJob(
                     : mode === "run_service_flow"
                       ? "service_module_ready"
                 : mode === "run_publish_flow"
-                  ? "publish_page_ready"
+                  ? ((browserData as { publishClicked?: boolean } | undefined)?.publishClicked ? "published" : "publish_page_ready")
             : "prepared",
       message:
         mode === "open_platform_spu"
@@ -6580,7 +7536,9 @@ export async function runPublishFromSpuJob(
                   : mode === "run_service_flow"
                     ? "Service settings applied and verified on the publish page."
               : mode === "run_publish_flow"
-                ? "Publish flow prepared, queried, and inspected in one task."
+                ? ((browserData as { publishClicked?: boolean } | undefined)?.publishClicked
+                    ? "Publish flow completed and publish button was clicked."
+                    : "Publish flow prepared, queried, and inspected in one task.")
             : "Product folder normalized. Browser publish handler can consume this plan directly.",
       startedAt,
       finishedAt: new Date().toISOString(),
@@ -6623,7 +7581,7 @@ export async function runPublishFromSpuJob(
           categoryAttributeRule:
             "\u7c7b\u76ee\u5c5e\u6027\u6a21\u5757\u91cc\u53ea\u5141\u8bb8\u586b\u5199\u201c\u578b\u53f7\u89c4\u683c=\u76d2\u88c5\u201d\uff0c\u5176\u4f59\u4efb\u4f55\u5b57\u6bb5\u90fd\u4e0d\u80fd\u6539\u52a8\uff1b\u4e00\u65e6\u89e6\u78b0\u5230\u5176\u4ed6\u7c7b\u76ee\u5c5e\u6027\uff0c\u5fc5\u987b\u7acb\u5373\u5237\u65b0\u9875\u9762\u5e76\u4ece\u6807\u9898\u586b\u5199\u5f00\u59cb\u91cd\u505a",
           mainImageRule:
-            "\u56fe\u6587\u4fe1\u606f\u53ea\u5728\u201c\u4e3b\u56fe\u201d\u6a21\u5757\u4e0a\u4f20\uff1b\u9996\u4f4d\u4e3b\u56fe\u5fc5\u987b\u4f7f\u7528 Dreamina CLI \u751f\u6210\u4e14\u5df2\u6253\u5e97\u94fa\u6c34\u5370\u7684 1:1 \u56fe\u7247\uff0c\u518d\u6309\u56fa\u5b9a\u987a\u5e8f\u642d\u914d input/fixed-main-images/\u4e0b\u7684\u8f85\u52a9\u56fe02-05\uff1b\u4e3b\u56fe\u4e0a\u4f20\u540e\uff0c\u5728\u201c\u4e3b\u56fe3:4\u201d\u6a21\u5757\u70b9\u51fb\u201c\u4ece1:1\u4e3b\u56fe\u667a\u80fd\u88c1\u526a\u201d\u76f4\u63a5\u751f\u6210\uff1b\u201c\u767d\u5e95\u56fe\u201d\u6a21\u5757\u4e0d\u4e3b\u52a8\u4e0a\u4f20\uff0c\u82e5\u5e73\u53f0\u81ea\u52a8\u586b\u5145\u5219\u4e0d\u5e72\u9884\uff1b\u8be6\u60c5\u9875\u5fc5\u987b\u5148\u70b9\u51fb\u201c\u4ece\u4e3b\u56fe\u586b\u5165\u201d\uff0c\u518d\u4e0a\u4f20\u4ea7\u54c1\u6587\u4ef6\u5939\u91cc\u7684\u8d44\u8d28\u56fe\u7247\u4f5c\u4e3a\u8be6\u60c5\u9875\u56fe\u7247",
+            "图文信息只在“主图”模块上传；首位主图必须使用已通过图生图生成且已打店铺水印的 1:1 主图，再按固定顺序搭配 input/fixed-main-images/ 下的辅助图02-05；“主图3:4”和“白底图”板块不再上传任何图片，也不点击智能裁剪；如果平台自动填充主图3:4或白底图，必须清空并读回确认为空；详情页必须先点击“从主图填入”，再上传产品文件夹里的资质图片作为详情页图片",
           shippingMode: "\u73B0\u8D27\u53D1\u8D27\u6A21\u5F0F",
           shippingTime: "48\u5C0F\u65F6",
           freightTemplateRule: "\u9009\u62e9\u540d\u79f0\u5305\u542b\u201c\u5ef6\u8349\u8fd0\u8d39\u201d\u7684\u8fd0\u8d39\u6a21\u677f",

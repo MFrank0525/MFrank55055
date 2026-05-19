@@ -4,8 +4,10 @@ import { generatePosterPromptsWithDeepSeek } from "./deepseek-prompts.js";
 import { writeDeepSeekPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateSellingPointsWithDoubao } from "./doubao-selling-points.js";
 import { generateJimengAssets } from "./jimeng-assets.js";
-import { appendProcessedImages, discoverPendingImages } from "./file-batch.js";
-import { loadFeishuProductRuntimeRecord } from "./feishu-products.js";
+import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
+import { appendProcessedImages, discoverPendingImages, filterPendingImages } from "./file-batch.js";
+import { loadFeishuProductRuntimeRecord, resolveFeishuProductSourceImages } from "./feishu-products.js";
+import { getProductCategoryPlan } from "./product-category.js";
 import { enrichDistributedTitleSheets } from "./metadata.js";
 import { cleanupAfterPublish } from "./cleanup.js";
 import { buildAutoListingPreflightSummary } from "./preflight.js";
@@ -107,6 +109,7 @@ async function executeTaskChain(
   dreaminaImageCountStrategy: "accept_all" | "require_exact" | "limit_to_count",
   cleanupAfterPublishEnabled: boolean,
   cleanupSourceImageAfterPublish: boolean,
+  archiveMainImageDir: string,
   startStep: string,
   endStep: string,
   eventFile: string,
@@ -212,7 +215,7 @@ async function executeTaskChain(
           lastUpdatedAt: new Date().toISOString(),
           notes: [
             ...current.notes,
-            `Feishu product data loaded: record=${feishuRuntimeRecord.record.recordId}; spu=${feishuRuntimeRecord.record.spu}.`
+            `Feishu product data loaded: record=${feishuRuntimeRecord.record.recordId}; spu=${feishuRuntimeRecord.record.spu}; category=${getProductCategoryPlan(feishuRuntimeRecord.record.productCategory).category}.`
           ]
         };
         appendEvent(
@@ -269,7 +272,8 @@ async function executeTaskChain(
         brand: current.sellingPointArtifact.brand,
         userCognitionName: current.sellingPointArtifact.userCognitionName,
         brandedGenericName: current.sellingPointArtifact.brandedGenericName,
-        prompts: deepseekArtifact.prompts
+        prompts: deepseekArtifact.prompts,
+        promptCount: getProductCategoryPlan(current.feishuProductRecord?.productCategory).promptCount
       });
       current = {
         ...current,
@@ -300,6 +304,7 @@ async function executeTaskChain(
         throw new Error("Jimeng step requires Doubao selling points and DeepSeek prompts.");
       }
       appendEvent(eventFile, createEvent("info", step, "Starting Jimeng asset generation.", current.taskId));
+      const productPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
       const jimengArtifact = await generateJimengAssets({
         runtimeDir,
         taskId: current.taskId,
@@ -317,6 +322,8 @@ async function executeTaskChain(
         dreaminaRatio,
         dreaminaExpectedImageCount,
         dreaminaImageCountStrategy,
+        promptCount: productPlan.promptCount,
+        shopCodes: productPlan.shopCodes,
         simulateOnly
       });
       current = {
@@ -363,7 +370,8 @@ async function executeTaskChain(
         sellingPointText: current.sellingPointArtifact.sellingPointText,
         userCognitionName: current.feishuProductRecord?.userCognitionName,
         genericName: current.feishuProductRecord?.genericName,
-        titleCount,
+        productCategory: current.feishuProductRecord?.productCategory,
+        titleCount: getProductCategoryPlan(current.feishuProductRecord?.productCategory).titleCount || titleCount,
         simulateOnly,
         runtimeDir
       });
@@ -456,6 +464,9 @@ async function executeTaskChain(
         productFolders: current.generatedProductFolders,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
         productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact.brandedGenericName,
+        sourceFiles: (current.feishuProductRecord?.qualificationImages || [])
+          .map((item) => item.localFile || "")
+          .filter(Boolean),
         simulateOnly
       });
       current = {
@@ -527,11 +538,22 @@ async function executeTaskChain(
         current.shopDistributionArtifact?.distributedFolders?.map((folder) =>
           path.join(runtimeDir, "publish", path.basename(folder))
         ) || [];
+      const archivedFiles = archiveUnwatermarkedMainImages({
+        jimengArtifact: current.jimengArtifact,
+        productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact?.userCognitionName || current.sourceImageName,
+        archiveRootDir: archiveMainImageDir,
+        simulateOnly
+      });
+      const sourceAssetFiles = [
+        ...(current.feishuProductRecord?.whiteBackgroundImages || []).map((item) => item.localFile || ""),
+        ...(current.feishuProductRecord?.qualificationImages || []).map((item) => item.localFile || "")
+      ].filter(Boolean);
       const cleanupArtifact = cleanupAfterPublish({
         distributedFolders: current.shopDistributionArtifact?.distributedFolders || [],
         titleWorkbookFiles: current.titleSheetArtifact?.generatedFiles.map((item) => item.workbookFile) || [],
         wordFiles: current.deepseekArtifact?.wordFiles || [],
         sourceImagePath: current.sourceImagePath,
+        sourceAssetFiles,
         taskRuntimeDir,
         publishRuntimeDirs,
         titleDir,
@@ -540,12 +562,13 @@ async function executeTaskChain(
         cleanupSourceImageAfterPublish,
         simulateOnly
       });
+      cleanupArtifact.archivedFiles = archivedFiles;
       current = {
         ...current,
         status: step,
         cleanupArtifact,
         lastUpdatedAt: new Date().toISOString(),
-        notes: [...current.notes, `Cleanup recorded for ${cleanupArtifact.removedPaths.length} path(s).`]
+        notes: [...current.notes, `Archived ${archivedFiles.length} unwatermarked main image(s).`, `Cleanup recorded for ${cleanupArtifact.removedPaths.length} path(s).`]
       };
       appendEvent(
         eventFile,
@@ -578,12 +601,18 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   const runId = path.basename(resolved.runtimeDir);
   const startedAt = new Date().toISOString();
   const logFile = path.join(resolved.runtimeDir, "logs", "run.log");
-  const discoveredImages = discoverPendingImages(
-    resolved.input.feishuImageDir,
-    resolved.input.imageExtensions,
-    resolved.processedImageManifest,
-    resolved.input.maxImagesPerRun
-  );
+  const discoveredImages = resolved.input.feishuProductDataFile
+    ? filterPendingImages(
+        resolveFeishuProductSourceImages(resolved.input.feishuProductDataFile),
+        resolved.processedImageManifest,
+        resolved.input.maxImagesPerRun
+      )
+    : discoverPendingImages(
+        resolved.input.feishuImageDir,
+        resolved.input.imageExtensions,
+        resolved.processedImageManifest,
+        resolved.input.maxImagesPerRun
+      );
   const shouldAllowRecoveredTask = resolved.input.startStep !== "discovered";
   const effectiveImages =
     discoveredImages.length > 0
@@ -722,6 +751,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.input.dreaminaImageCountStrategy,
           resolved.input.cleanupAfterPublish,
           resolved.input.cleanupSourceImageAfterPublish,
+          resolved.input.archiveMainImageDir,
           resolved.input.startStep,
           resolved.input.endStep,
           resolved.eventFile,

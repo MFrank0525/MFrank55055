@@ -26,6 +26,10 @@ function readPayload(filePath: string): FeishuProductRecord[] {
   return records.filter((record) => record && typeof record === "object");
 }
 
+export function loadFeishuProductRecords(productDataFile: string): FeishuProductRecord[] {
+  return readPayload(productDataFile);
+}
+
 function assertRecordReady(record: FeishuProductRecord): void {
   const missing: string[] = [];
   if (!record.userCognitionName) missing.push("userCognitionName");
@@ -34,6 +38,7 @@ function assertRecordReady(record: FeishuProductRecord): void {
   if (!record.spu) missing.push("spu");
   if (!record.sellingPointText) missing.push("sellingPointText");
   if (!record.shortTitle) missing.push("shortTitle");
+  if (!record.productCategory) missing.push("productCategory");
   if (missing.length > 0) {
     throw new Error(`Feishu product record ${record.recordId} is incomplete: ${missing.join(", ")}`);
   }
@@ -79,6 +84,24 @@ function attachmentLocalFiles(record: FeishuProductRecord): string[] {
     .map((attachment) => attachment.localFile || "")
     .filter(Boolean)
     .map((filePath) => path.resolve(filePath));
+}
+
+export function resolveFeishuProductSourceImages(productDataFile: string): string[] {
+  const records = readPayload(productDataFile);
+  return records.map((record, index) => {
+    const sourceImage = attachmentLocalFiles(record)[0];
+    if (!sourceImage) {
+      throw new Error(
+        `Feishu product row ${index + 1} (${record.recordId || "unknown"}) has no downloaded white background image.`
+      );
+    }
+    if (!fs.existsSync(sourceImage)) {
+      throw new Error(
+        `Feishu product row ${index + 1} (${record.recordId || "unknown"}) white background image was missing: ${sourceImage}`
+      );
+    }
+    return sourceImage;
+  });
 }
 
 function matchRecordByImage(records: FeishuProductRecord[], imagePath: string): FeishuProductRecord | null {

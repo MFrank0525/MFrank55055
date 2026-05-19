@@ -17,6 +17,14 @@ interface CliArgs {
   qualificationDir: string;
 }
 
+interface LocalFeishuAuthConfig {
+  auth?: {
+    appId?: string;
+    appSecret?: string;
+    tenantAccessToken?: string;
+  };
+}
+
 function getArg(argv: string[], name: string, defaultValue = ""): string {
   const index = argv.indexOf(`--${name}`);
   return index >= 0 ? argv[index + 1] || defaultValue : defaultValue;
@@ -50,8 +58,20 @@ function validateMappedFields(configFieldNames: string[], actualFieldNames: Set<
   return configFieldNames.filter((fieldName) => !actualFieldNames.has(fieldName));
 }
 
+function loadLocalAuthEnv(configFile: string): void {
+  const resolved = path.resolve(configFile);
+  if (!fs.existsSync(resolved)) {
+    return;
+  }
+  const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as LocalFeishuAuthConfig;
+  process.env.FEISHU_APP_ID = process.env.FEISHU_APP_ID || parsed.auth?.appId || "";
+  process.env.FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || parsed.auth?.appSecret || "";
+  process.env.FEISHU_TENANT_ACCESS_TOKEN = process.env.FEISHU_TENANT_ACCESS_TOKEN || parsed.auth?.tenantAccessToken || "";
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  loadLocalAuthEnv(args.configFile);
   const config = loadFeishuBitableConfig(args.configFile);
   assertFeishuAuthConfigReady();
 
@@ -135,7 +155,8 @@ async function main(): Promise<void> {
     const assetPayload = {
       ...payload,
       records: downloadResult.records,
-      downloadedFiles: downloadResult.downloadedFiles
+      downloadedFiles: downloadResult.downloadedFiles,
+      removedStaleFiles: downloadResult.removedStaleFiles
     };
     fs.writeFileSync(outFile, `${JSON.stringify(assetPayload, null, 2)}\n`, "utf8");
     console.log(
@@ -144,6 +165,7 @@ async function main(): Promise<void> {
           ok: assetPayload.ok,
           count: assetPayload.count,
           downloadedFileCount: downloadResult.downloadedFiles.length,
+          removedStaleFileCount: downloadResult.removedStaleFiles.length,
           outFile,
           invalidRecords
         },

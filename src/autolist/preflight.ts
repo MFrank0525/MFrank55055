@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { loadFeishuProductRecords } from "./feishu-products.js";
 import type { AutoListingPreflightSummary, AutoListingResolvedJob } from "./types.js";
 
 function countImageFiles(dir: string): number {
@@ -18,7 +19,9 @@ function countShopFolders(dir: string): number {
 
 export function buildAutoListingPreflightSummary(resolved: AutoListingResolvedJob): AutoListingPreflightSummary {
   const warnings: string[] = [];
-  const sourceImages = countImageFiles(resolved.input.feishuImageDir);
+  const sourceImages = resolved.input.feishuProductDataFile
+    ? loadFeishuProductRecords(resolved.input.feishuProductDataFile).length
+    : countImageFiles(resolved.input.feishuImageDir);
   const shops = countShopFolders(resolved.input.shopRootDir);
 
   if (!resolved.input.simulateOnly) {
@@ -27,7 +30,7 @@ export function buildAutoListingPreflightSummary(resolved: AutoListingResolvedJo
     );
   }
   if (sourceImages === 0) {
-    warnings.push("No source white-background images were found.");
+    warnings.push(resolved.input.feishuProductDataFile ? "No Feishu product records were found." : "No source white-background images were found.");
   }
   if (shops < 5) {
     warnings.push(`Expected at least 5 shop folders, found ${shops}.`);

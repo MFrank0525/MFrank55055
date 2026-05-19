@@ -16,6 +16,7 @@
     "spu": "SPU",
     "sellingPointText": "产品卖点",
     "shortTitle": "导购短标题",
+    "productCategory": "产品类目",
     "qualificationImages": "资质图片",
     "whiteBackgroundImages": "白底图"
   },
@@ -26,6 +27,7 @@
     "spu",
     "sellingPointText",
     "shortTitle",
+    "productCategory",
     "qualificationImages",
     "whiteBackgroundImages"
   ]

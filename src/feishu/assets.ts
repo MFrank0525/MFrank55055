@@ -14,6 +14,7 @@ export interface DownloadFeishuAssetsOptions {
 export interface DownloadFeishuAssetsResult {
   downloadedFiles: string[];
   records: FeishuProductRecord[];
+  removedStaleFiles: string[];
 }
 
 function extensionFromAttachment(attachment: FeishuBitableAttachment): string {
@@ -41,6 +42,28 @@ function buildFileName(record: FeishuProductRecord, label: string, attachment: F
       .join("-")
   );
   return `${baseName}${extensionFromAttachment(attachment)}`;
+}
+
+function listLocalAssetFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(dir)
+    .filter((name) => /\.(png|jpg|jpeg|webp|gif|bin)$/i.test(name))
+    .map((name) => path.resolve(dir, name));
+}
+
+function removeUnreferencedAssets(dir: string, referencedFiles: Set<string>): string[] {
+  const removed: string[] = [];
+  for (const file of listLocalAssetFiles(dir)) {
+    if (referencedFiles.has(file)) {
+      continue;
+    }
+    fs.rmSync(file, { force: true });
+    removed.push(file);
+  }
+  return removed;
 }
 
 async function downloadAttachmentSet(
@@ -80,6 +103,8 @@ export async function downloadFeishuProductAssets(
 ): Promise<DownloadFeishuAssetsResult> {
   const downloadedFiles: string[] = [];
   const records: FeishuProductRecord[] = [];
+  const referencedWhiteBackgroundFiles = new Set<string>();
+  const referencedQualificationFiles = new Set<string>();
 
   for (const record of options.records) {
     const whiteBackground = await downloadAttachmentSet(
@@ -97,6 +122,12 @@ export async function downloadFeishuProductAssets(
       options.qualificationDir
     );
     downloadedFiles.push(...whiteBackground.files, ...qualifications.files);
+    for (const file of whiteBackground.files) {
+      referencedWhiteBackgroundFiles.add(path.resolve(file));
+    }
+    for (const file of qualifications.files) {
+      referencedQualificationFiles.add(path.resolve(file));
+    }
     records.push({
       ...record,
       whiteBackgroundImages: whiteBackground.attachments,
@@ -104,8 +135,14 @@ export async function downloadFeishuProductAssets(
     });
   }
 
+  const removedStaleFiles = [
+    ...removeUnreferencedAssets(options.whiteBackgroundDir, referencedWhiteBackgroundFiles),
+    ...removeUnreferencedAssets(options.qualificationDir, referencedQualificationFiles)
+  ];
+
   return {
     downloadedFiles,
-    records
+    records,
+    removedStaleFiles
   };
 }

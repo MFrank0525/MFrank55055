@@ -9,6 +9,7 @@ const REQUIRED_FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
   "spu",
   "sellingPointText",
   "shortTitle",
+  "productCategory",
   "qualificationImages",
   "whiteBackgroundImages"
 ];
@@ -79,6 +80,7 @@ export function loadFeishuBitableConfig(configFile: string): FeishuBitableConfig
       spu: readString(fieldMap.spu, "fieldMap.spu"),
       sellingPointText: readString(fieldMap.sellingPointText, "fieldMap.sellingPointText"),
       shortTitle: readString(fieldMap.shortTitle, "fieldMap.shortTitle"),
+      productCategory: readString(fieldMap.productCategory, "fieldMap.productCategory"),
       qualificationImages: readString(fieldMap.qualificationImages, "fieldMap.qualificationImages"),
       whiteBackgroundImages: readString(fieldMap.whiteBackgroundImages, "fieldMap.whiteBackgroundImages")
     },

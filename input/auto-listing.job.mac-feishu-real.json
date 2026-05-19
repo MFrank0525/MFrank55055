@@ -20,9 +20,10 @@
     "serialOnly": true,
     "stopOnError": true,
     "cleanupAfterPublish": true,
-    "cleanupSourceImageAfterPublish": false,
+    "cleanupSourceImageAfterPublish": true,
+    "archiveMainImageDir": "/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图",
     "titleCount": 20,
-    "maxImagesPerRun": 1,
+    "maxImagesPerRun": 0,
     "simulateOnly": false,
     "startStep": "discovered",
     "endStep": "done"

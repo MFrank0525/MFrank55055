@@ -3,6 +3,7 @@ import path from "node:path";
 import { formatTimestamp, sanitizeFileName } from "../doubao/paths.js";
 import { runDoubaoJob } from "../doubao/run.js";
 import { readManualTextBlock } from "./operation-manual.js";
+import { getProductCategoryPlan } from "./product-category.js";
 import { writeSimpleWorkbook } from "./xlsx-lite.js";
 import type { TitleSheetArtifact, TitleSheetFile } from "./types.js";
 
@@ -61,9 +62,62 @@ function buildWorkbookRows(title: string): string[][] {
   ];
 }
 
-function buildRealTitlePrompt(titleCount: number, userCognitionName: string, genericName: string): string {
+function buildMedicalDeviceTitleRule(titleCount: number): string {
+  return getTitleGenerationRule(titleCount);
+}
+
+function buildOtcDrugTitleRule(titleCount: number, genericName: string): string {
+  return `一、关键词采集规则【真实抖音商城热搜词】
+只采集抖音商城搜索下拉词、商品流量大词、成交热搜词，严禁乱填词，杜绝自创词、凑数词、冷门词
+关键词统一以中文逗号隔开排列，只保留和产品强相关实用词汇
+二、标题硬性格式规则
+标题开头固定三选一随机使用：医用级、正品、官方正品
+标题结尾固定填写指定统一后缀，不添加符号、空格、特殊字符，后缀固定为：${genericName}
+全篇标题无任何空格，字体连贯紧凑
+固定禁用词汇：抖音、热销、买送、炎症、草本、草药、治病，全程严禁出现
+内容构成：只拼接采集好的真实热搜关键词，禁止私自添加修饰句、宣传语、多余文案
+字数标准：单条标题严格锁定58个汉字，逐字核对，不多一字、不少一字
+三、排版输出规则
+标题编号统一格式：01、02、03……依次排序至${titleCount}条
+仅输出成品标题内容，不附带关键词列表、解释、备注、话术、说明
+${titleCount}条全部生成完毕即可终止输出，无额外多余内容
+四、按照这些规则，生成电商标题
+采集用户认知名和产品通用名称在抖音商城真实高热度高转化高频搜索关键词，逗号分隔排版，不用自创冷门词汇。依据以上全套执行规则组合创作标题，每条严格58个汉字，开头轮换医用级、正品、官方正品，结尾固定指定后缀产品通用名称，无空格无违规词，仅拼接热搜词凑齐字数，逐条核对字数无误，按01至${titleCount}编号输出${titleCount}条成品标题，不添加任何多余内容。`;
+}
+
+function buildHealthFoodTitleRule(titleCount: number): string {
+  return `一、关键词采集规则【真实抖音商城热搜词】
+只采集抖音商城搜索下拉词、商品流量大词、成交热搜词，严禁乱填词，杜绝自创词、凑数词、冷门词
+关键词统一以中文逗号隔开排列，只保留和产品强相关实用词汇
+二、标题硬性格式规则
+标题取消固定前缀，不使用“医用级、正品、官方正品”等固定开头
+标题取消固定后缀，不添加统一后缀
+全篇标题无任何空格，字体连贯紧凑
+固定禁用词汇：抖音、热销、买送、炎症、草本、草药、治病，全程严禁出现
+内容构成：只拼接采集好的真实热搜关键词，禁止私自添加修饰句、宣传语、多余文案
+字数标准：单条标题严格锁定28个汉字，逐字核对，不多一字、不少一字
+三、排版输出规则
+标题编号统一格式：01、02、03……依次排序至${titleCount}条
+仅输出成品标题内容，不附带关键词列表、解释、备注、话术、说明
+${titleCount}条全部生成完毕即可终止输出，无额外多余内容
+四、按照这些规则，生成电商标题
+采集用户认知名和产品通用名称在抖音商城真实高热度高转化高频搜索关键词，逗号分隔排版，不用自创冷门词汇。依据以上全套执行规则组合创作标题，每条严格28个汉字，无固定前缀，无固定后缀，无空格无违规词，仅拼接热搜词凑齐字数，逐条核对字数无误，按01至${titleCount}编号输出${titleCount}条成品标题，不添加任何多余内容。`;
+}
+
+function buildCategoryTitleRule(titleCount: number, userCognitionName: string, genericName: string, productCategory?: string): string {
+  const plan = getProductCategoryPlan(productCategory);
+  if (plan.titleRule === "otc_drug") {
+    return buildOtcDrugTitleRule(titleCount, genericName);
+  }
+  if (plan.titleRule === "health_food") {
+    return buildHealthFoodTitleRule(titleCount);
+  }
+  return buildMedicalDeviceTitleRule(titleCount);
+}
+
+function buildRealTitlePrompt(titleCount: number, userCognitionName: string, genericName: string, productCategory?: string): string {
   return replaceProductPlaceholders(
-    [getTitlePromptPrefix(), getTitleGenerationRule(titleCount)].join("\n"),
+    [getTitlePromptPrefix(), buildCategoryTitleRule(titleCount, userCognitionName, genericName, productCategory)].join("\n"),
     userCognitionName,
     genericName
   );
@@ -90,6 +144,7 @@ export async function generateTitleSheets(options: {
   sellingPointText: string;
   userCognitionName?: string;
   genericName?: string;
+  productCategory?: string;
   titleCount: number;
   simulateOnly: boolean;
   runtimeDir: string;
@@ -101,6 +156,7 @@ export async function generateTitleSheets(options: {
       sellingPointText: options.sellingPointText,
       userCognitionName: options.userCognitionName,
       genericName: options.genericName,
+      productCategory: options.productCategory,
       titleCount: options.titleCount,
       runtimeDir: options.runtimeDir
     });
@@ -134,6 +190,7 @@ export async function generateTitleSheetsFromDoubao(options: {
   sellingPointText: string;
   userCognitionName?: string;
   genericName?: string;
+  productCategory?: string;
   titleCount: number;
   runtimeDir: string;
 }): Promise<TitleSheetArtifact> {
@@ -149,7 +206,7 @@ export async function generateTitleSheetsFromDoubao(options: {
   fs.mkdirSync(outputDir, { recursive: true });
 
   const result = await runDoubaoJob({
-    promptText: buildRealTitlePrompt(options.titleCount, userCognitionName, genericName),
+    promptText: buildRealTitlePrompt(options.titleCount, userCognitionName, genericName, options.productCategory),
     imagePaths: [options.sourceImagePath],
     outputDir,
     titleCount: options.titleCount,

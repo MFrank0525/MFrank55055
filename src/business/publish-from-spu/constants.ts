@@ -10,9 +10,10 @@ export const FIXED_SPEC_VALUES = [
 export const FIXED_PRICES = [89, 86, 69.9, 39.9];
 export const FIXED_STOCK = 1000;
 export const FIXED_FREIGHT_TEMPLATE_KEYWORD = "\u5ef6\u8349\u8fd0\u8d39";
-export const SPEC_TEMPLATE_KEYWORD_DEFAULT = "\u4e702\u90011";
+export const SPEC_TEMPLATE_KEYWORD_DEFAULT = "\u4e70\u4e8c\u9001\u4e00";
 export const SPEC_TEMPLATE_KEYWORD_JIUGUANG = "\u4e45\u5149\u5c0f\u6cfd";
 export const FIXED_MAIN_IMAGE_DIR = path.resolve(process.cwd(), "input", "fixed-main-images");
+export const FEISHU_WHITE_BACKGROUND_IMAGE_DIR = path.resolve(process.cwd(), "input", "auto-listing", "feishu-images");
 export const FIXED_MAIN_AUXILIARY_FILES = [
   "\u8f85\u52a9\u56fe02.png",
   "\u8f85\u52a9\u56fe03.png",
@@ -21,7 +22,7 @@ export const FIXED_MAIN_AUXILIARY_FILES = [
 ];
 export const REQUIRED_MAIN_IMAGE_RATIO = 1;
 export const REQUIRED_MAIN_IMAGE_RATIO_TOLERANCE = 0.02;
-export const GRAPHIC_SECTION_LABELS = ["\u4e3b\u56fe", "\u4e3b\u56fe3:4", "\u767d\u5e95\u56fe", "\u8be6\u60c5\u9875"];
+export const GRAPHIC_SECTION_LABELS = ["\u4e3b\u56fe", "\u4e3b\u56fe3:4", "\u767d\u5e95\u56fe", "\u5546\u54c1\u8be6\u60c5", "\u8be6\u60c5\u9875"];
 export const FORBIDDEN_GRAPHIC_SECTION_LABELS = ["\u4e3b\u56fe3:4", "\u767d\u5e95\u56fe"];
 export const PLATFORM_SPU_QUERY_RULE =
   "\u6807\u54c1\u68c0\u7d22\u65f6\uff0c\u54c1\u724c\u5fc5\u987b\u4e25\u683c\u4f7f\u7528\u8868\u683c\u91cc\u83b7\u53d6\u7684\u54c1\u724c\u4fe1\u606f\uff0cSPU\u5fc5\u987b\u4e25\u683c\u4f7f\u7528\u8868\u683c\u91cc\u83b7\u53d6\u7684SPU\u4fe1\u606f\uff0c\u4e0d\u5141\u8bb8\u7a0b\u5e8f\u81ea\u521b\u6216\u63a8\u6d4b\u66ff\u6362\u67e5\u8be2\u503c";

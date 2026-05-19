@@ -86,15 +86,24 @@ async function canConnectOverCdp(port = activeRemoteDebuggingPort): Promise<bool
 
 async function ensureRemoteBrowser(userDataDir: string): Promise<void> {
   for (const port of REMOTE_DEBUGGING_PORTS) {
-    if ((await isDebugEndpointReady(port)) || (await canConnectOverCdp(port))) {
+    const endpointReady = await isDebugEndpointReady(port);
+    const cdpUsable = await canConnectOverCdp(port);
+    if (cdpUsable) {
       activeRemoteDebuggingPort = port;
       return;
+    }
+    if (endpointReady) {
+      logWarn(`remote debugging endpoint on port ${port} is reachable but not Playwright-compatible; trying another port`);
     }
   }
 
   const executable = getBrowserExecutable();
   let lastError: Error | null = null;
   for (const port of REMOTE_DEBUGGING_PORTS) {
+    if (await isDebugEndpointReady(port)) {
+      logWarn(`remote debugging port ${port} is already occupied by an incompatible browser; skipping launch on this port`);
+      continue;
+    }
     logInfo(`starting reusable browser: ${executable}`);
     const child = spawn(
       executable,

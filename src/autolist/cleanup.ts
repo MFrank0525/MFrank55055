@@ -11,6 +11,7 @@ export function cleanupAfterPublish(options: {
   titleWorkbookFiles: string[];
   wordFiles?: string[];
   sourceImagePath: string;
+  sourceAssetFiles?: string[];
   cleanupSourceImageAfterPublish?: boolean;
   taskRuntimeDir?: string;
   publishRuntimeDirs?: string[];
@@ -52,15 +53,13 @@ export function cleanupAfterPublish(options: {
     ...(options.taskRuntimeDir ? [options.taskRuntimeDir] : []),
     ...titleDirFiles,
     ...jimengDirFiles,
-    ...(options.cleanupSourceImageAfterPublish ? [options.sourceImagePath] : [])
+    ...(!options.simulateOnly && options.cleanupSourceImageAfterPublish
+      ? [options.sourceImagePath, ...(options.sourceAssetFiles || [])]
+      : [])
   ];
   const uniqueTargets = Array.from(new Set(targets.filter(Boolean)));
   for (const target of uniqueTargets) {
     if (!target) {
-      continue;
-    }
-    if (options.simulateOnly) {
-      removedPaths.push(target);
       continue;
     }
     if (fs.existsSync(target)) {

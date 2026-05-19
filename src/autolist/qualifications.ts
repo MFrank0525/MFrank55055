@@ -25,12 +25,15 @@ export function attachQualificationFiles(options: {
   productFolders: string[];
   sellingPointText: string;
   productName?: string;
+  sourceFiles?: string[];
   simulateOnly: boolean;
 }): QualificationArtifact {
   const productName = (options.productName || "").trim() || inferProductName(options.sellingPointText);
   const target = normalize(productName);
-  const sourceFiles = listImageFiles(options.qualificationDir);
-  const matches = sourceFiles.filter((file) => normalize(path.basename(file)).includes(target));
+  const explicitFiles = (options.sourceFiles || []).filter((file) => file && fs.existsSync(file));
+  const sourceFiles = explicitFiles.length > 0 ? explicitFiles : listImageFiles(options.qualificationDir);
+  const matches =
+    explicitFiles.length > 0 ? explicitFiles : sourceFiles.filter((file) => normalize(path.basename(file)).includes(target));
   const copiedFiles: string[] = [];
 
   for (const productFolder of options.productFolders) {

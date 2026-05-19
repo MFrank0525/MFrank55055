@@ -66,6 +66,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     stopOnError: input.stopOnError ?? true,
     cleanupAfterPublish: input.cleanupAfterPublish ?? true,
     cleanupSourceImageAfterPublish: input.cleanupSourceImageAfterPublish ?? true,
+    archiveMainImageDir: path.resolve(input.archiveMainImageDir || "/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图"),
     titleCount: input.titleCount ?? 20,
     maxImagesPerRun: input.maxImagesPerRun ?? 0,
     simulateOnly: input.simulateOnly ?? true,

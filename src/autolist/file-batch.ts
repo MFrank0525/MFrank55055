@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-function readProcessedImages(manifestFile: string): Set<string> {
+export function readProcessedImages(manifestFile: string): Set<string> {
   if (!fs.existsSync(manifestFile)) {
     return new Set<string>();
   }
@@ -47,6 +47,19 @@ export function discoverPendingImages(
     .map((name) => path.join(imageDir, name));
 
   const pending = sortBySequenceThenName(allImages).filter((filePath) => !processed.has(path.resolve(filePath)));
+  if (maxImagesPerRun > 0) {
+    return pending.slice(0, maxImagesPerRun);
+  }
+  return pending;
+}
+
+export function filterPendingImages(
+  imagePaths: string[],
+  processedManifestFile: string,
+  maxImagesPerRun: number
+): string[] {
+  const processed = readProcessedImages(processedManifestFile);
+  const pending = imagePaths.map((filePath) => path.resolve(filePath)).filter((filePath) => !processed.has(filePath));
   if (maxImagesPerRun > 0) {
     return pending.slice(0, maxImagesPerRun);
   }

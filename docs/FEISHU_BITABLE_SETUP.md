@@ -78,6 +78,7 @@ export FEISHU_BITABLE_URL="https://..."
 - `SPU信息`
 - `产品卖点`
 - `导购短标题`
+- `产品类目`
 - `资质图片`
 - `产品白底图`
 
@@ -128,6 +129,7 @@ npm run feishu:assets -- --config ./input/feishu-bitable.config.json --out ./dat
 - `spu`
 - `sellingPointText`
 - `shortTitle`
+- `productCategory`
 - `qualificationImages`
 - `whiteBackgroundImages`
 
@@ -153,7 +155,27 @@ npm run flow:mac-feishu:real
 
 这个 job 通过 `feishuProductDataFile` 读取 `data/feishu/products.json`。配置后，自动上架流程里的卖点上下文会来自飞书字段 `产品卖点`，不再调用豆包生成产品卖点。
 
-该 Mac Feishu job 默认设置 `cleanupSourceImageAfterPublish=false`，避免真实发布清理时删除从飞书下载的白底图源文件。
+飞书产品执行顺序：
+
+- 自动上架严格按照 `data/feishu/products.json` 的记录顺序执行，也就是飞书视图导出的产品顺序。
+- 默认 Mac Feishu job 的 `maxImagesPerRun=0`，表示飞书里有多少条产品记录就上架多少条。
+- 每条记录使用它绑定的第一张已下载 `产品白底图` 作为图生图参考源；如果缺失或本地文件不存在，流程会直接报配置缺口。
+- 已处理过的源图会写入 `data/auto-listing/processed-images.json`，下次自动跳过。
+- 所有飞书记录都处理完成后，项目自动停止运行。
+
+产品类目规则：
+
+- `医疗器械`：按原始完整流程执行，5 个店铺、5 份 Word、20 张主图、20 条标题。
+- `非处方药`：只上架到 `03延草纲目个护保健专营店`、`04延草纲目康复理疗专营店`、`05延草纲目医疗保健专营店`；只生成 3 份 Word、12 张主图、12 条标题；标题固定后缀为 `产品通用名称`，不再追加 `延草纲目`。
+- `保健食品`：上架店铺、主图数量和流程保持医疗器械一致；标题取消固定前缀和固定后缀，单条标题改为 28 个汉字。
+
+该 Mac Feishu job 默认设置 `cleanupSourceImageAfterPublish=true`，每个产品完成后会删除飞书下载附件、标题表、Word 文档、运行目录、店铺产品文件夹等中间文件，只保留归档后的无水印主图。
+
+无水印主图归档路径固定为：
+
+```bash
+/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<用户认知名>/
+```
 
 真实流程仍然保留豆包生成电商标题，因为标题质量以抖音电商实战转化为优先。
 

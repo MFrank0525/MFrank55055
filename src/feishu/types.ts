@@ -5,6 +5,7 @@ export interface FeishuBitableFieldMap {
   spu: string;
   sellingPointText: string;
   shortTitle: string;
+  productCategory?: string;
   qualificationImages: string;
   whiteBackgroundImages: string;
 }
@@ -46,6 +47,7 @@ export interface FeishuProductRecord {
   spu: string;
   sellingPointText: string;
   shortTitle: string;
+  productCategory?: string;
   qualificationImages: FeishuBitableAttachment[];
   whiteBackgroundImages: FeishuBitableAttachment[];
   rawFields: Record<string, unknown>;

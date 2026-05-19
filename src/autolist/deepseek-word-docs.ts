@@ -9,9 +9,10 @@ export function writeDeepSeekPromptWordFiles(options: {
   userCognitionName: string;
   brandedGenericName: string;
   prompts: string[];
+  promptCount?: number;
 }): string[] {
   const instruction1 = buildDreaminaInstruction1(options.brand, options.userCognitionName, options.brandedGenericName);
-  return options.prompts.slice(0, 5).map((prompt, index) => {
+  return options.prompts.slice(0, options.promptCount || 5).map((prompt, index) => {
     const filePath = path.join(options.jimengImageDir, `即梦提示词${String(index + 1).padStart(2, "0")}.docx`);
     writeSimpleWordDocument(filePath, [instruction1, options.sellingPointText, prompt]);
     return filePath;
