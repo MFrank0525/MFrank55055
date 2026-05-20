@@ -82,6 +82,10 @@ function appendEvent(filePath: string, event: AutoListingEvent): void {
   fs.appendFileSync(filePath, `${JSON.stringify(event)}\n`, "utf8");
 }
 
+function isProductFullyProcessed(task: ImageTaskState): boolean {
+  return task.status === "cleaned" || task.status === "done";
+}
+
 function persistState(stateFile: string, state: AutoListingRunState): void {
   writeJson(stateFile, state);
 }
@@ -533,6 +537,7 @@ async function executeTaskChain(
     }
 
     if (step === "cleaned") {
+      const categoryPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
       const taskRuntimeDir = path.join(runtimeDir, "tasks", current.taskId);
       const publishRuntimeDirs =
         current.shopDistributionArtifact?.distributedFolders?.map((folder) =>
@@ -544,6 +549,11 @@ async function executeTaskChain(
         archiveRootDir: archiveMainImageDir,
         simulateOnly
       });
+      if (!simulateOnly && archivedFiles.length !== categoryPlan.titleCount) {
+        throw new Error(
+          `Archive guard failed for ${current.sourceImageName}: expected ${categoryPlan.titleCount} unwatermarked main image(s) for ${categoryPlan.category}, got ${archivedFiles.length}. Cleanup was not started.`
+        );
+      }
       const sourceAssetFiles = [
         ...(current.feishuProductRecord?.whiteBackgroundImages || []).map((item) => item.localFile || ""),
         ...(current.feishuProductRecord?.qualificationImages || []).map((item) => item.localFile || "")
@@ -713,8 +723,6 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     }
 
     let workingState = state;
-    const processedThisRun: string[] = [];
-
     for (const task of workingState.tasks) {
       workingState = {
         ...workingState,
@@ -780,6 +788,9 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           lastUpdatedAt: new Date().toISOString()
         };
         persistState(resolved.stateFile, workingState);
+        if (!resolved.input.simulateOnly && isProductFullyProcessed(completedTask)) {
+          appendProcessedImages(resolved.processedImageManifest, [task.sourceImagePath]);
+        }
         writeJson(
           resolved.manualsReadFile,
           {
@@ -788,7 +799,6 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
             manuals: manualReadSummary(manualReadMap)
           }
         );
-        processedThisRun.push(task.sourceImagePath);
         logInfo(`task completed: ${task.sourceImageName}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -827,9 +837,6 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
 
     const completed = markRunCompleted(workingState);
     persistState(resolved.stateFile, completed);
-    if (!resolved.input.simulateOnly) {
-      appendProcessedImages(resolved.processedImageManifest, processedThisRun);
-    }
 
     result.ok = true;
     result.finishedAt = new Date().toISOString();

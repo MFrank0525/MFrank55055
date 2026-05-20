@@ -71,6 +71,9 @@ After each product completes publishing:
 - Preserve only unwatermarked main images.
 - Copy preserved images into `/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><用户认知名>/`; for example `202605201106宝元堂筋骨康凝胶`.
 - Name preserved images with a clear no-watermark sequence such as `<用户认知名>无水印主图01.png`.
+- Before cleanup in real mode, verify archived unwatermarked image count equals the category plan: 20 for `医疗器械`/`保健食品`, 12 for `非处方药`.
+- Mark each product source image processed immediately after `cleaned` or `done`; do not wait for the whole multi-product run.
+- In `simulateOnly=true`, cleanup may report candidate paths but must not actually delete files or folders.
 - Remove intermediate Word files, generated watermarked files, shop distribution folders, run publish artifacts, local Feishu attachment copies, temporary source images, and stale generated files.
 - Do not delete the final archive folder.
 

@@ -63,11 +63,13 @@ export function cleanupAfterPublish(options: {
       continue;
     }
     if (fs.existsSync(target)) {
-      const stat = fs.statSync(target);
-      if (stat.isDirectory()) {
-        fs.rmSync(target, { recursive: true, force: true });
-      } else {
-        fs.rmSync(target, { force: true });
+      if (!options.simulateOnly) {
+        const stat = fs.statSync(target);
+        if (stat.isDirectory()) {
+          fs.rmSync(target, { recursive: true, force: true });
+        } else {
+          fs.rmSync(target, { force: true });
+        }
       }
       removedPaths.push(target);
     }
