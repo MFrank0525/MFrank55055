@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { sanitizeFileName } from "../doubao/paths.js";
+import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { extendPathEnv, getDreaminaWrapperPath, getPythonCommand } from "../utils/platform.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import { applyLocalWatermark } from "./local-watermark.js";
@@ -610,6 +611,7 @@ function readOpenAiCompatibleImageConfig(configFile: string): OpenAiCompatibleIm
   if (!parsed.apiUrl) {
     throw new Error(`Image generation config missing apiUrl: ${resolved}`);
   }
+  assertNoGptPlusWebUrl(parsed.apiUrl, `image generation apiUrl in ${resolved}`);
   if (!apiKey) {
     throw new Error(`Image generation API key missing. Set IMAGE_GENERATION_API_KEY or apiKey in ${resolved}.`);
   }

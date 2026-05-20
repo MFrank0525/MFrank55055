@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { assertNoGptPlusWebUrl, installGptPlusQuotaGuard } from "../utils/gpt-plus-guard.js";
 import { logInfo, logWarn } from "../utils/logger.js";
 import { getFallbackUserDataDir, getUserDataDir } from "./session.js";
 
@@ -153,6 +154,7 @@ function pageMatchesWorkspace(page: Page, key: WorkspacePageKey): boolean {
 
 async function ensureWorkspacePages(context: BrowserContext): Promise<void> {
   for (const spec of WORKSPACE_PAGE_SPECS) {
+    assertNoGptPlusWebUrl(spec.url, `workspace page ${spec.key}`);
     const existing = context.pages().find((item) => !item.isClosed() && pageMatchesWorkspace(item, spec.key));
     if (existing) {
       continue;
@@ -174,6 +176,7 @@ export async function getWorkspacePage(context: BrowserContext, key: WorkspacePa
     throw new Error(`Workspace page spec not found: ${key}`);
   }
 
+  assertNoGptPlusWebUrl(spec.url, `workspace page ${key}`);
   const page = await context.newPage();
   await page.goto(spec.url, { waitUntil: "domcontentloaded" }).catch(() => {});
   await page.waitForTimeout(800).catch(() => {});
@@ -191,10 +194,12 @@ export async function launchPersistentBrowser(): Promise<BrowserContext> {
   const browser = await connectBrowser();
   const existingContext = browser.contexts()[0];
   if (existingContext) {
+    await installGptPlusQuotaGuard(existingContext);
     await ensureWorkspacePages(existingContext);
     return existingContext;
   }
   const context = await browser.newContext();
+  await installGptPlusQuotaGuard(context);
   await ensureWorkspacePages(context);
   return context;
 }
@@ -202,6 +207,7 @@ export async function launchPersistentBrowser(): Promise<BrowserContext> {
 export async function openSearchPage(context: BrowserContext, keyword: string): Promise<Page> {
   const page = context.pages().find((item) => !item.isClosed()) || (await context.newPage());
   const url = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=general`;
+  assertNoGptPlusWebUrl(url, "Douyin search page");
   logInfo(`opening ${url}`);
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(5000);
@@ -211,6 +217,7 @@ export async function openSearchPage(context: BrowserContext, keyword: string): 
 export async function openSuggestionPage(context: BrowserContext): Promise<Page> {
   const page = context.pages().find((item) => !item.isClosed()) || (await context.newPage());
   const url = "https://www.douyin.com/jingxuan";
+  assertNoGptPlusWebUrl(url, "Douyin suggestion page");
   logInfo(`opening ${url}`);
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(4000);

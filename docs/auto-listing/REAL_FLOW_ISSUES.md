@@ -207,3 +207,9 @@ npm run flow:mac-feishu:real
 - 现象：`simulateOnly=true` 的全周期模拟会生成临时标题表、Word 和店铺产品文件夹；清理结果虽然标记为 simulated，但清理函数仍会实际删除这些路径。
 - 根因：清理函数只把 `simulateOnly` 写入 artifact，没有把它作为删除动作的保护条件。
 - 处理：`cleanupAfterPublish` 在模拟模式下只收集并记录将要清理的路径，不执行 `fs.rmSync`；真实模式保持原有清理行为。
+
+#### RF-033：全周期流程必须避免消耗 GPT Plus 会员消息额度
+
+- 现象：用户希望自动上架流程一旦开始，就不再消耗 GPT Plus 会员额度。
+- 根因：项目依赖多个网页和接口 provider，如果未来误把 ChatGPT 网页端 URL 配进流程，可能使用 Plus 会员消息额度。
+- 处理：增加 `GPT Plus quota guard`：运行时扫描并拦截 `chatgpt.com`、`chat.openai.com` 等 ChatGPT 网页端域名；图片生图配置也会拒绝这类网页端 URL。OpenAI-compatible API/中转站接口继续允许，因为其计费与 GPT Plus 会员消息额度分离。

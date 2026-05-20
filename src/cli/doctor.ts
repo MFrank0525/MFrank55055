@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
+import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { getDefaultDreaminaBin, getDreaminaWrapperPath, getPythonCommand } from "../utils/platform.js";
 
 interface CheckResult {
@@ -174,6 +175,7 @@ function checkOpenAiCompatibleImageGenerationConfig(configFile: string, required
         detail: `${resolved}; missing ${missing.join(", ")}`
       };
     }
+    assertNoGptPlusWebUrl(parsed.apiUrl || "", `image generation apiUrl in ${resolved}`);
     return {
       name: "OpenAI-compatible image generation config",
       ok: true,

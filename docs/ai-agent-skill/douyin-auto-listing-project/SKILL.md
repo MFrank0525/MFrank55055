@@ -15,6 +15,7 @@ The user may refer to this as `抖音全流程上架项目`, `抖音自动上架
 
 - Do not commit secrets, tokens, cookies, browser profiles, generated run data, or `input/feishu-bitable.config.json`.
 - Treat `/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图` as the preserved final-main-image archive root.
+- The full auto-listing flow must not use ChatGPT web/Plus message quota. Keep ChatGPT web URLs such as `chatgpt.com` and `chat.openai.com` out of jobs, browser automation, and image generation config. OpenAI-compatible API or gateway billing is separate from GPT Plus message quota.
 - Prefer fixing workflow rules in code and docs instead of relying on manual browser habits.
 - If Doudian image upload fields are unreliable, keep the invariant: upload only required image slots, clear optional auto-filled white-background/3:4 slots when required by the current rule, and validate before moving to the next module.
 - Avoid touching the Doudian AI assistant. If it opens, close it with the top-right close button before continuing.
