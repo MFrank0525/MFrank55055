@@ -21,7 +21,19 @@ export function extendPathEnv(paths: string[]): NodeJS.ProcessEnv {
 }
 
 export function getPythonCommand(): string {
-  return process.env.PYTHON_BIN || (process.platform === "win32" ? "python" : "python3");
+  if (process.env.PYTHON_BIN) {
+    return process.env.PYTHON_BIN;
+  }
+  if (process.platform === "win32") {
+    return "python";
+  }
+  // Hermes/agent shells may prepend their own venv to PATH. On macOS this can
+  // shadow the system Python that has the image-processing dependencies used by
+  // this project, so prefer the stable system interpreter when it exists.
+  if (process.platform === "darwin" && fs.existsSync("/usr/bin/python3")) {
+    return "/usr/bin/python3";
+  }
+  return "python3";
 }
 
 export function getPasteShortcut(): string {

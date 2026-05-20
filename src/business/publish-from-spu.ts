@@ -649,7 +649,104 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
   return false;
 }
 
+async function selectShopFromDialogByVisibleText(page: Page, expectedShopName: string): Promise<boolean> {
+  const point = await page.evaluate((targetName) => {
+    const normalize = (value: string): string => String(value || "").replace(/^\d+/, "").replace(/\s+/g, "").trim();
+    const target = normalize(targetName);
+    const isVisible = (el: HTMLElement): boolean => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+    };
+    const modals = Array.from(document.querySelectorAll("body *"))
+      .map((node) => node as HTMLElement)
+      .filter((el) => {
+        const rect = el.getBoundingClientRect();
+        const text = normalize(el.innerText || el.textContent || "");
+        return isVisible(el) && text.includes("请选择店铺") && rect.width > 300 && rect.height > 240;
+      })
+      .sort((a, b) => {
+        const ar = a.getBoundingClientRect();
+        const br = b.getBoundingClientRect();
+        return Math.abs(ar.width - 640) - Math.abs(br.width - 640) || ar.height - br.height;
+      });
+    const modal = modals[0];
+    if (!modal) {
+      return null;
+    }
+    const modalRect = modal.getBoundingClientRect();
+    const textNodes = Array.from(modal.querySelectorAll("*"))
+      .map((node) => node as HTMLElement)
+      .filter((el) => {
+        if (!isVisible(el)) {
+          return false;
+        }
+        const text = normalize(el.innerText || el.textContent || "");
+        return text === target || (text.includes(target) && text.length <= target.length + 20);
+      })
+      .sort((a, b) => {
+        const aText = normalize(a.innerText || a.textContent || "");
+        const bText = normalize(b.innerText || b.textContent || "");
+        const exactDelta = (aText === target ? 0 : 1) - (bText === target ? 0 : 1);
+        if (exactDelta !== 0) {
+          return exactDelta;
+        }
+        return aText.length - bText.length;
+      });
+    const nameNode = textNodes[0];
+    if (!nameNode) {
+      return null;
+    }
+
+    const scrollContainer =
+      (Array.from(modal.querySelectorAll("*"))
+        .map((node) => node as HTMLElement)
+        .filter((el) => el.scrollHeight > el.clientHeight + 40 && el.clientHeight > 160)
+        .sort((a, b) => b.clientHeight - a.clientHeight)[0] as HTMLElement | undefined) || modal;
+    let card: HTMLElement = nameNode;
+    for (let depth = 0; depth < 8; depth += 1) {
+      const parent = card.parentElement as HTMLElement | null;
+      if (!parent || parent === modal || parent === scrollContainer) {
+        break;
+      }
+      const rect = parent.getBoundingClientRect();
+      const text = normalize(parent.innerText || parent.textContent || "");
+      if (text.includes(target) && rect.width >= 220 && rect.height >= 50 && rect.width <= modalRect.width + 8) {
+        card = parent;
+      }
+    }
+
+    // If the target card is near the bottom fade/edge, move it to the middle before clicking.
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const cardOffsetTop = card.offsetTop;
+    scrollContainer.scrollTop = Math.max(0, cardOffsetTop - scrollContainer.clientHeight / 2 + card.clientHeight / 2);
+    card.scrollIntoView({ block: "center", inline: "nearest" });
+
+    const cardRect = card.getBoundingClientRect();
+    const clickTarget =
+      (Array.from(card.querySelectorAll("svg, [role='button'], button"))
+        .map((node) => node as HTMLElement)
+        .filter((el) => isVisible(el))
+        .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0] as HTMLElement | undefined) ||
+      card;
+    const targetRect = clickTarget.getBoundingClientRect();
+    const x = clickTarget === card ? cardRect.x + Math.max(40, cardRect.width - 28) : targetRect.x + targetRect.width / 2;
+    const y = clickTarget === card ? Math.min(Math.max(cardRect.y + cardRect.height / 2, containerRect.y + 20), containerRect.bottom - 20) : targetRect.y + targetRect.height / 2;
+    return { x, y };
+  }, expectedShopName).catch(() => null);
+  if (!point) {
+    return false;
+  }
+  await page.mouse.click(point.x, point.y, { delay: 100 }).catch(() => {});
+  await page.waitForTimeout(1800);
+  return !(await waitForChooseShopDialog(page));
+}
+
 async function selectShopFromDialog(page: Page, expectedShopName: string): Promise<boolean> {
+  const visibleTextMatched = await selectShopFromDialogByVisibleText(page, expectedShopName);
+  if (visibleTextMatched) {
+    return true;
+  }
   const exactMatched = await selectShopFromDialogExact(page, expectedShopName);
   if (exactMatched) {
     return true;

@@ -33,9 +33,13 @@ function loadFeishuEnv(configFile: string): NodeJS.ProcessEnv {
   const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as LocalFeishuConfig;
   return {
     ...process.env,
-    FEISHU_APP_ID: process.env.FEISHU_APP_ID || parsed.auth?.appId || "",
-    FEISHU_APP_SECRET: process.env.FEISHU_APP_SECRET || parsed.auth?.appSecret || "",
-    FEISHU_TENANT_ACCESS_TOKEN: process.env.FEISHU_TENANT_ACCESS_TOKEN || parsed.auth?.tenantAccessToken || ""
+    // Prefer this flow's explicit config over global shell variables. The
+    // workstation may have FEISHU_APP_ID/SECRET for another app, which causes
+    // Feishu to return misleading "missing scope" errors even when the app
+    // shown in the config has the required scopes enabled.
+    FEISHU_APP_ID: parsed.auth?.appId || process.env.FEISHU_APP_ID || "",
+    FEISHU_APP_SECRET: parsed.auth?.appSecret || process.env.FEISHU_APP_SECRET || "",
+    FEISHU_TENANT_ACCESS_TOKEN: parsed.auth?.tenantAccessToken || process.env.FEISHU_TENANT_ACCESS_TOKEN || ""
   };
 }
 

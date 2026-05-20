@@ -64,9 +64,12 @@ function loadLocalAuthEnv(configFile: string): void {
     return;
   }
   const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as LocalFeishuAuthConfig;
-  process.env.FEISHU_APP_ID = process.env.FEISHU_APP_ID || parsed.auth?.appId || "";
-  process.env.FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || parsed.auth?.appSecret || "";
-  process.env.FEISHU_TENANT_ACCESS_TOKEN = process.env.FEISHU_TENANT_ACCESS_TOKEN || parsed.auth?.tenantAccessToken || "";
+  // This project keeps its Feishu app credentials in the explicit config file.
+  // Prefer that file over machine-wide FEISHU_* variables so a stale/global app
+  // does not silently obtain a tenant token for the wrong Feishu app.
+  process.env.FEISHU_APP_ID = parsed.auth?.appId || process.env.FEISHU_APP_ID || "";
+  process.env.FEISHU_APP_SECRET = parsed.auth?.appSecret || process.env.FEISHU_APP_SECRET || "";
+  process.env.FEISHU_TENANT_ACCESS_TOKEN = parsed.auth?.tenantAccessToken || process.env.FEISHU_TENANT_ACCESS_TOKEN || "";
 }
 
 async function main(): Promise<void> {

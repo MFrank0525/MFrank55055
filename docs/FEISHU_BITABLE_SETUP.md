@@ -174,7 +174,7 @@ npm run flow:mac-feishu:real
 无水印主图归档路径固定为：
 
 ```bash
-/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<用户认知名>/
+/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><用户认知名>/
 ```
 
 真实流程仍然保留豆包生成电商标题，因为标题质量以抖音电商实战转化为优先。

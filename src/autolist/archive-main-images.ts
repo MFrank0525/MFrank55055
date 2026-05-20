@@ -9,6 +9,17 @@ function isImageFile(filePath: string): boolean {
   return /\.(png|jpg|jpeg|webp)$/i.test(filePath);
 }
 
+function archiveTimestamp(date = new Date()): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    pad(date.getHours()),
+    pad(date.getMinutes())
+  ].join("");
+}
+
 export function archiveUnwatermarkedMainImages(options: {
   jimengArtifact?: JimengArtifact;
   productName: string;
@@ -17,7 +28,8 @@ export function archiveUnwatermarkedMainImages(options: {
 }): string[] {
   const archiveRootDir = options.archiveRootDir || DEFAULT_ARCHIVE_ROOT;
   const productFolderName = sanitizeFileName(options.productName || "未命名产品");
-  const targetDir = path.join(archiveRootDir, productFolderName);
+  const archiveFolderName = `${archiveTimestamp()}${productFolderName}`;
+  const targetDir = path.join(archiveRootDir, archiveFolderName);
   const rawFiles = (options.jimengArtifact?.generatedFiles || [])
     .map((item) => item.rawImageFile || "")
     .filter((filePath) => filePath && isImageFile(filePath) && fs.existsSync(filePath));
@@ -41,5 +53,4 @@ export function archiveUnwatermarkedMainImages(options: {
   });
 }
 
-export { DEFAULT_ARCHIVE_ROOT };
-
+export { DEFAULT_ARCHIVE_ROOT, archiveTimestamp };

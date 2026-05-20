@@ -69,7 +69,7 @@ If `产品类目` is empty, treat it as `医疗器械`. If it is not one of the 
 After each product completes publishing:
 
 - Preserve only unwatermarked main images.
-- Copy preserved images into `/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<用户认知名>/`.
+- Copy preserved images into `/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><用户认知名>/`; for example `202605201106宝元堂筋骨康凝胶`.
 - Name preserved images with a clear no-watermark sequence such as `<用户认知名>无水印主图01.png`.
 - Remove intermediate Word files, generated watermarked files, shop distribution folders, run publish artifacts, local Feishu attachment copies, temporary source images, and stale generated files.
 - Do not delete the final archive folder.
@@ -104,6 +104,11 @@ npm run flow:mac-feishu:real
 - `src/autolist/cleanup.ts`: post-publish cleanup.
 - `src/feishu/*`: Feishu Bitable config, records, and asset downloads.
 - `src/business/publish-from-spu/*`: Doudian publishing automation.
+
+## Troubleshooting Notes
+
+- If Feishu reports missing wiki scopes even though the visible app has `wiki:wiki` or `wiki:wiki:readonly` enabled, check for machine-wide `FEISHU_APP_ID`/`FEISHU_APP_SECRET` pointing to a different app. This project should prefer `input/feishu-bitable.config.json` credentials over global env vars.
+- In Hermes/agent shells on macOS, `python3` may resolve to the agent venv instead of `/usr/bin/python3`; the project expects the interpreter with Pillow installed for image processing.
 
 ## Verification Before Handoff
 
