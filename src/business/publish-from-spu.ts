@@ -2160,8 +2160,7 @@ async function clickVisibleText(page: Page, text: string): Promise<boolean> {
   if (!(await target.count())) {
     return false;
   }
-  await target.click({ timeout: 3000 }).catch(() => {});
-  return true;
+  return target.click({ timeout: 3000 }).then(() => true).catch(() => false);
 }
 
 async function clickRadioByLabel(page: Page, labelText: string): Promise<boolean> {
@@ -4022,7 +4021,10 @@ async function ensureSpecEditorVisible(page: Page): Promise<boolean> {
     return false;
   }
 
-  await addButton.click({ timeout: 3000 }).catch(() => {});
+  const clicked = await addButton.click({ timeout: 3000 }).then(() => true).catch(() => false);
+  if (!clicked) {
+    return false;
+  }
   await page.waitForTimeout(1000);
   return (await existingEditor.count()) > 0;
 }
@@ -5314,12 +5316,10 @@ async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
   let clicked = false;
   if (await button.count()) {
     await button.scrollIntoViewIfNeeded().catch(() => {});
-    await button.click({ timeout: 3000 }).catch(() => {});
-    clicked = true;
+    clicked = await button.click({ timeout: 3000 }).then(() => true).catch(() => false);
   } else if (await textButton.count()) {
     await textButton.scrollIntoViewIfNeeded().catch(() => {});
-    await textButton.click({ timeout: 3000 }).catch(() => {});
-    clicked = true;
+    clicked = await textButton.click({ timeout: 3000 }).then(() => true).catch(() => false);
   } else {
     clicked = await page.evaluate(() => {
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
@@ -6069,22 +6069,46 @@ async function runPublishCheck(
 
 async function recoverUsablePublishPage(currentPage: Page): Promise<Page> {
   const context = currentPage.context();
-  const recoveredPage =
-    context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/create")) ||
-    context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g")) ||
-    (!currentPage.isClosed() ? currentPage : null) ||
-    context.pages().find((item) => !item.isClosed()) ||
-    null;
+  const candidates = [
+    currentPage,
+    ...context.pages().filter((item) => item !== currentPage)
+  ].filter((item) => !item.isClosed() && item.url().includes("/ffa/g/create"));
 
-  if (!recoveredPage) {
-    throw new Error("Publish page context was lost and no replacement page is available.");
+  let recoveredPage: Page | null = null;
+  for (const candidate of candidates) {
+    attachSafeDialogHandler(candidate);
+    await candidate.bringToFront().catch(() => {});
+    await candidate.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
+    await candidate.waitForTimeout(800).catch(() => {});
+    const usable = await isUsablePublishCreatePage(candidate).catch(() => false);
+    if (usable) {
+      recoveredPage = candidate;
+      break;
+    }
   }
 
-  attachSafeDialogHandler(recoveredPage);
+  if (!recoveredPage) {
+    throw new Error("Publish create page context was lost and no usable replacement page is available.");
+  }
+
   await recoveredPage.bringToFront().catch(() => {});
-  await recoveredPage.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
-  await recoveredPage.waitForTimeout(1200).catch(() => {});
   return recoveredPage;
+}
+
+async function isUsablePublishCreatePage(page: Page): Promise<boolean> {
+  if (page.isClosed() || !page.url().includes("/ffa/g/create")) {
+    return false;
+  }
+  return page.evaluate(() => {
+    const bodyText = document.body.innerText || "";
+    const requiredSectionCount = ["基础信息", "图文信息", "价格库存", "服务与履约"].filter((text) => bodyText.includes(text)).length;
+    const hasPublishAction = bodyText.includes("发布商品") || bodyText.includes("填写检查");
+    const loginRequired =
+      (bodyText.includes("扫码登录") && bodyText.includes("抖店App")) ||
+      bodyText.includes("打开抖店App扫码登录") ||
+      bodyText.includes("切换为手机/邮箱登录");
+    return requiredSectionCount >= 2 && hasPublishAction && !loginRequired;
+  });
 }
 
 async function recoverUsablePageFromContext(context: Awaited<ReturnType<typeof launchPersistentBrowser>>, preferredUrlPart?: string): Promise<Page> {
@@ -6366,7 +6390,11 @@ async function readPublishSubmissionState(page: Page): Promise<{ submitted: bool
     if (successPatterns.some((text) => bodyText.includes(text))) {
       return { submitted: true, issue: "" };
     }
-    if (!url.includes("/ffa/g/create") && !bodyText.includes("发布商品")) {
+    if (
+      !url.includes("/ffa/g/create") &&
+      /\/ffa\/g\/(success|audit)/.test(url) &&
+      !bodyText.includes("发布商品")
+    ) {
       return { submitted: true, issue: "" };
     }
     const blockingPatterns = ["必填", "请填写", "错误", "失败", "待处理", "校验未通过", "请上传", "不能为空"];
@@ -6416,29 +6444,40 @@ async function clickPublishProductOnPage(
   await activePage.waitForTimeout(1200);
   await dismissTransientOverlays(activePage);
 
-  const publishButton = activePage.getByRole("button", { name: "\u53d1\u5e03\u5546\u54c1" }).first();
   let publishClicked = false;
   let publishIssue = "";
-  if (await publishButton.count()) {
+  for (let attempt = 0; attempt < 2 && !publishClicked; attempt += 1) {
     try {
+      activePage = await recoverUsablePublishPage(activePage);
+      await dismissTransientOverlays(activePage);
+      const publishButton = activePage.getByRole("button", { name: "\u53d1\u5e03\u5546\u54c1" }).first();
+      if (!(await publishButton.count())) {
+        publishIssue = "Publish product button was not found after all module checks passed.";
+        break;
+      }
       const disabled = await publishButton.isDisabled({ timeout: 1000 }).catch(() => false);
       if (disabled) {
         publishIssue = "Publish product button was visible but disabled after all module checks passed.";
+        break;
       } else {
         await publishButton.scrollIntoViewIfNeeded().catch(() => {});
         await publishButton.click({ timeout: 5000 });
       }
-      activePage = await recoverUsablePublishPage(activePage);
       if (!publishIssue) {
+        if (activePage.isClosed()) {
+          activePage = await recoverUsablePageFromContext(activePage.context(), "/ffa/g").catch(() => activePage);
+        }
         const submissionState = await waitForPublishSubmission(activePage);
         publishClicked = submissionState.submitted;
         publishIssue = submissionState.issue;
       }
     } catch (error) {
       publishIssue = `Publish product button click failed: ${error instanceof Error ? error.message : String(error)}`;
+      if (attempt === 0) {
+        await activePage.waitForTimeout(1200).catch(() => {});
+        continue;
+      }
     }
-  } else {
-    publishIssue = "Publish product button was not found after all module checks passed.";
   }
 
   const screenshotFile = await savePageScreenshot(activePage, runtimeDir, fileName);
