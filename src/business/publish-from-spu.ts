@@ -4927,6 +4927,25 @@ async function countDetailImagePreviews(page: Page): Promise<number> {
   return Math.max(...counts);
 }
 
+async function waitForPreviewCount(
+  page: Page,
+  readCount: () => Promise<number>,
+  expectedCount: number,
+  timeoutMs = 30000
+): Promise<number> {
+  const startedAt = Date.now();
+  let lastCount = await readCount().catch(() => 0);
+  while (Date.now() - startedAt < timeoutMs) {
+    if (lastCount >= expectedCount) {
+      return lastCount;
+    }
+    await page.waitForTimeout(1200);
+    await dismissTransientOverlays(page);
+    lastCount = await readCount().catch(() => lastCount);
+  }
+  return lastCount;
+}
+
 async function getGraphicSectionPreviewRectsStrict(
   page: Page,
   sectionName: string
@@ -5520,6 +5539,12 @@ async function ensureDetailImagesFromMainThenQualifications(
     };
   }
 
+  const existingDetailCount = await countDetailImagePreviews(page).catch(() => 0);
+  if (existingDetailCount > 0) {
+    await clearDetailImagePreviewsStrict(page, Math.max(12, existingDetailCount + 3)).catch(() => 0);
+    await page.waitForTimeout(800);
+  }
+
   let filledFromMain = false;
   filledFromMain = await clickFillFromMainForDetailSection(page).catch(() => false);
   const countAfterFillFromMain = await countDetailImagePreviews(page).catch(() => 0);
@@ -5536,7 +5561,7 @@ async function ensureDetailImagesFromMainThenQualifications(
   const expectedDetailCount = countAfterFillFromMain + assets.detailImages.length;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const detailCompleted = await uploadQualificationImagesToDetailSection(page, assets, filledFromMain, expectedDetailCount).catch(() => false);
-    const finalCount = await countDetailImagePreviews(page).catch(() => 0);
+    const finalCount = await waitForPreviewCount(page, () => countDetailImagePreviews(page), expectedDetailCount, 25000);
     if (detailCompleted && finalCount >= expectedDetailCount) {
       return {
         completed: true,
@@ -5742,12 +5767,17 @@ async function uploadProductImages(
 
     const mainInput = pickBestSectionFileInput(inputs, "\u4e3b\u56fe", scoreMainGraphicInput);
     if (!uploadIssue && mainInput && assets.mainImages.length) {
+      const existingMainCount = await countMainImagePreviews(page).catch(() => 0);
+      if (existingMainCount > 0) {
+        await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, existingMainCount + 3)).catch(() => 0);
+        await page.waitForTimeout(800);
+      }
       await uploadFilesToSectionSlots(page, "\u4e3b\u56fe", assets.mainImages, scoreMainGraphicInput);
-      await page.waitForTimeout(2600);
-      if ((await countMainImagePreviews(page).catch(() => 0)) >= assets.mainImages.length) {
+      const uploadedMainCount = await waitForPreviewCount(page, () => countMainImagePreviews(page), assets.mainImages.length);
+      if (uploadedMainCount >= assets.mainImages.length) {
         uploadedGroups.push("mainImages");
       } else {
-        uploadIssue = `Main image slots did not contain ${assets.mainImages.length} images after upload.`;
+        uploadIssue = `Main image slots did not contain ${assets.mainImages.length} images after upload; actual=${uploadedMainCount}.`;
       }
     }
     if (!uploadIssue && uploadedGroups.includes("mainImages")) {
@@ -5873,12 +5903,17 @@ async function uploadProductImagesOnPage(
 
   const mainInput = pickBestSectionFileInput(inputs, "\u4e3b\u56fe", scoreMainGraphicInput);
   if (!uploadIssue && mainInput && assets.mainImages.length) {
+    const existingMainCount = await countMainImagePreviews(page).catch(() => 0);
+    if (existingMainCount > 0) {
+      await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, existingMainCount + 3)).catch(() => 0);
+      await page.waitForTimeout(800);
+    }
     await uploadFilesToSectionSlots(page, "\u4e3b\u56fe", assets.mainImages, scoreMainGraphicInput);
-    await page.waitForTimeout(3000);
-    if ((await countMainImagePreviews(page).catch(() => 0)) >= assets.mainImages.length) {
+    const uploadedMainCount = await waitForPreviewCount(page, () => countMainImagePreviews(page), assets.mainImages.length);
+    if (uploadedMainCount >= assets.mainImages.length) {
       uploadedGroups.push("mainImages");
     } else {
-      uploadIssue = `Main image slots did not contain ${assets.mainImages.length} images after upload.`;
+      uploadIssue = `Main image slots did not contain ${assets.mainImages.length} images after upload; actual=${uploadedMainCount}.`;
     }
   }
   if (!uploadIssue && uploadedGroups.includes("mainImages")) {
@@ -6269,6 +6304,102 @@ async function runPublishCheckOnPage(
   };
 }
 
+async function clickVisibleDialogAction(page: Page, labels: string[]): Promise<boolean> {
+  return page.evaluate((expectedLabels) => {
+    const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+    const dialogs = Array.from(document.querySelectorAll("[role='dialog'], [aria-modal='true'], .semi-modal, .ant-modal, .auxo-modal"))
+      .map((el) => el as HTMLElement)
+      .filter((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      });
+    const roots = dialogs.length ? dialogs : [document.body];
+    const targets = roots
+      .flatMap((root) =>
+        Array.from(root.querySelectorAll("button, [role='button'], a, span, div")).map((el) => el as HTMLElement)
+      )
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const text = normalize(el.innerText || el.textContent || "");
+        if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        const labelIndex = expectedLabels.findIndex((label) => text === normalize(label) || text.includes(normalize(label)));
+        if (labelIndex < 0) {
+          return null;
+        }
+        const marker = [String(el.className || ""), el.getAttribute("type") || "", el.getAttribute("aria-label") || ""]
+          .join(" ")
+          .toLowerCase();
+        return {
+          el,
+          score:
+            (marker.includes("primary") ? 300 : 0) +
+            (el.tagName.toLowerCase() === "button" ? 200 : 0) +
+            (100 - labelIndex * 10) +
+            rect.right / 100
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b!.score || 0) - (a!.score || 0));
+    const target = targets[0]?.el || null;
+    target?.click();
+    return Boolean(target);
+  }, labels);
+}
+
+async function readPublishSubmissionState(page: Page): Promise<{ submitted: boolean; issue: string }> {
+  return page.evaluate(() => {
+    const bodyText = (document.body.innerText || "").replace(/\s+/g, "");
+    const url = window.location.href;
+    const successPatterns = [
+      "发布成功",
+      "提交成功",
+      "商品发布成功",
+      "已提交审核",
+      "提交审核成功",
+      "创建成功",
+      "发布任务已提交"
+    ];
+    if (successPatterns.some((text) => bodyText.includes(text))) {
+      return { submitted: true, issue: "" };
+    }
+    if (!url.includes("/ffa/g/create") && !bodyText.includes("发布商品")) {
+      return { submitted: true, issue: "" };
+    }
+    const blockingPatterns = ["必填", "请填写", "错误", "失败", "待处理", "校验未通过", "请上传", "不能为空"];
+    const issue =
+      bodyText
+        .split(/[\n。；;，,]/)
+        .map((line) => line.trim())
+        .filter((line) => blockingPatterns.some((text) => line.includes(text)))
+        .slice(0, 3)
+        .join(" | ") || "No publish success signal was detected after clicking 发布商品.";
+    return { submitted: false, issue };
+  });
+}
+
+async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolean; issue: string }> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    await page.waitForTimeout(1500).catch(() => {});
+    await clickVisibleDialogAction(page, ["确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
+    await dismissTransientOverlays(page);
+    const state = await readPublishSubmissionState(page).catch((error) => ({
+      submitted: false,
+      issue: error instanceof Error ? error.message : String(error)
+    }));
+    if (state.submitted) {
+      return state;
+    }
+  }
+  return readPublishSubmissionState(page).catch((error) => ({
+    submitted: false,
+    issue: error instanceof Error ? error.message : String(error)
+  }));
+}
+
 async function clickPublishProductOnPage(
   page: Page,
   runtimeDir: string,
@@ -6290,10 +6421,19 @@ async function clickPublishProductOnPage(
   let publishIssue = "";
   if (await publishButton.count()) {
     try {
-      await publishButton.click({ timeout: 3000 });
-      await activePage.waitForTimeout(1500).catch(() => {});
+      const disabled = await publishButton.isDisabled({ timeout: 1000 }).catch(() => false);
+      if (disabled) {
+        publishIssue = "Publish product button was visible but disabled after all module checks passed.";
+      } else {
+        await publishButton.scrollIntoViewIfNeeded().catch(() => {});
+        await publishButton.click({ timeout: 5000 });
+      }
       activePage = await recoverUsablePublishPage(activePage);
-      publishClicked = true;
+      if (!publishIssue) {
+        const submissionState = await waitForPublishSubmission(activePage);
+        publishClicked = submissionState.submitted;
+        publishIssue = submissionState.issue;
+      }
     } catch (error) {
       publishIssue = `Publish product button click failed: ${error instanceof Error ? error.message : String(error)}`;
     }
