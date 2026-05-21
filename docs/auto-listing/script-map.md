@@ -12,22 +12,19 @@
 
 ## 2. 分步骤脚本映射
 
-### `doubao_generated`
+### `selling_points_loaded`
 
-- `src/autolist/doubao-selling-points.ts`
-- `src/doubao/submit.ts`
-- `src/doubao/capture.ts`
-- `src/doubao/save.ts`
+- `src/autolist/feishu-products.ts`
 
-### `deepseek_generated`
+### `poster_prompts_generated`
 
 - `src/autolist/deepseek-prompts.ts`
 - `src/autolist/deepseek-word-docs.ts`
 - `src/autolist/docx-lite.ts`
 
-### `jimeng_generated`
+### `main_images_generated`
 
-- `src/autolist/jimeng-assets.ts`
+- `src/autolist/jimeng-assets.ts`（历史文件名，当前职责是主图生成）
 - `src/autolist/local-watermark.ts`
 - `src/autolist/local-watermark.py`
 

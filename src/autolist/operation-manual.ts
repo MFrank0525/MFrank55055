@@ -5,9 +5,9 @@ import type { AutoListingStep } from "./types.js";
 const MANUAL_ROOT = path.resolve(process.cwd(), "docs", "auto-listing", "steps");
 
 const STEP_MANUAL_FILES: Partial<Record<AutoListingStep, string>> = {
-  doubao_generated: "01-doubao-selling-points.md",
-  deepseek_generated: "02-deepseek-prompts.md",
-  jimeng_generated: "03-dreamina-generation.md",
+  selling_points_loaded: "01-selling-points.md",
+  poster_prompts_generated: "02-deepseek-prompts.md",
+  main_images_generated: "03-main-image-generation.md",
   product_folders_built: "04-product-folders.md",
   titles_generated: "05-title-generation.md",
   titles_distributed: "06-title-distribution.md",

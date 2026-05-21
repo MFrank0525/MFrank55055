@@ -2,6 +2,18 @@ import fs from "node:fs";
 import zlib from "node:zlib";
 import type { ProductSheetSummary } from "./types.js";
 
+function columnIndex(cellRef: string): number | undefined {
+  const letters = cellRef.match(/^[A-Z]+/i)?.[0]?.toUpperCase();
+  if (!letters) {
+    return undefined;
+  }
+  let index = 0;
+  for (const letter of letters) {
+    index = index * 26 + letter.charCodeAt(0) - 64;
+  }
+  return index - 1;
+}
+
 async function readWorksheetRows(xlsxPath: string): Promise<string[][]> {
   const zip = fs.readFileSync(xlsxPath);
 
@@ -89,6 +101,8 @@ async function readWorksheetRows(xlsxPath: string): Promise<string[][]> {
     for (const cellMatch of rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
       const attrs = cellMatch[1];
       const body = cellMatch[2];
+      const ref = attrs.match(/\br="([^"]+)"/)?.[1] || "";
+      const explicitColumnIndex = ref ? columnIndex(ref) : undefined;
       const type = attrs.match(/\bt="([^"]+)"/)?.[1] || "";
       let value = "";
 
@@ -105,6 +119,10 @@ async function readWorksheetRows(xlsxPath: string): Promise<string[][]> {
       }
 
       const normalized = value.trim();
+      if (explicitColumnIndex !== undefined) {
+        values[explicitColumnIndex] = normalized;
+        continue;
+      }
       if (normalized) {
         values.push(normalized);
       }

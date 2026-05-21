@@ -91,8 +91,14 @@ async function captureLatestAnswerText(options: {
       };
     }
 
+    if (mode === "titles") {
+      throw new Error("Doubao title response was not found in the latest visible answer.");
+    }
+    if (mode === "selling_points") {
+      throw new Error("Doubao selling-point response was not found in the latest visible answer.");
+    }
     return {
-      text: normalize(document.body.innerText || ""),
+      text: normalize(document.body.innerText || "").slice(-8000),
       selector: ""
     };
   }, options.mode || "latest");
@@ -146,11 +152,11 @@ export async function captureConversation(options: CaptureConversationOptions): 
           await page.screenshot({ path: pngFile, fullPage: true });
         }
       } else {
-        await page.screenshot({ path: pngFile, fullPage: true });
+        await page.screenshot({ path: pngFile, fullPage: false });
       }
     } catch {
       try {
-        await page.screenshot({ path: pngFile, fullPage: true });
+        await page.screenshot({ path: pngFile, fullPage: false });
       } catch {
         // Screenshot is only an audit artifact. Do not fail the workflow if capture cannot render.
       }

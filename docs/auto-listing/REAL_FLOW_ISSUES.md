@@ -146,7 +146,7 @@ npm run flow:mac-feishu:real
 
 - 现象：用户调整 image2 图生图规则后，历史 Word 文件里的第一段旧指令仍可能被断点生图复用。
 - 根因：Word 文件是早前 DeepSeek 阶段生成的落地副本，不适合作为长期唯一规则源。
-- 处理：OpenAI-compatible image edit 实际提示词改为读取当前 `03-dreamina-generation.md` 的最新模板，并组合 `最新图生图规则 + 产品卖点 + 过滤后的 DeepSeek 提示词`；旧 Word 文件只继续提供卖点段和对应 DeepSeek 段。
+- 处理：OpenAI-compatible image edit 实际提示词改为读取当前 `03-main-image-generation.md` 的最新模板，并组合 `最新图生图规则 + 产品卖点 + 过滤后的 DeepSeek 提示词`；旧 Word 文件只继续提供卖点段和对应 DeepSeek 段。
 
 #### RF-023：image2 生图轮数原则确认
 

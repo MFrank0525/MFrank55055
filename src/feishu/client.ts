@@ -44,6 +44,18 @@ function encodePath(value: string): string {
   return encodeURIComponent(value);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function redactFeishuPath(path: string): string {
+  return path
+    .replace(/(\/bitable\/v1\/apps\/)[^/]+/i, "$1[redacted-app]")
+    .replace(/(\/tables\/)[^/?]+/i, "$1[redacted-table]")
+    .replace(/([?&](?:token|page_token)=)[^&]+/gi, "$1[redacted]")
+    .replace(/(\/medias\/)[^/]+(\/download\b)/i, "$1[redacted]$2");
+}
+
 async function requestFeishu<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`https://open.feishu.cn/open-apis${path}`, {
     ...init,
@@ -55,7 +67,7 @@ async function requestFeishu<T>(token: string, path: string, init: RequestInit =
   });
   const payload = (await response.json()) as FeishuApiResponse<T>;
   if (!response.ok || payload.code !== 0 || payload.data === undefined) {
-    throw new Error(`Feishu API failed: ${path}; code=${payload.code}; msg=${payload.msg || response.statusText}`);
+    throw new Error(`Feishu API failed: ${redactFeishuPath(path)}; code=${payload.code}; msg=${payload.msg || response.statusText}`);
   }
   return payload.data;
 }
@@ -64,15 +76,31 @@ export async function downloadFeishuMedia(token: string, fileToken: string, down
   const url =
     downloadUrl.trim() ||
     `https://open.feishu.cn/open-apis/drive/v1/medias/${encodePath(fileToken)}/download`;
-  const response = await fetch(url.startsWith("http") ? url : `https://open.feishu.cn/open-apis${url}`, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  });
-  if (!response.ok) {
-    throw new Error(`Feishu media download failed: ${fileToken}; status=${response.status} ${response.statusText}`);
+  const targetUrl = url.startsWith("http") ? url : `https://open.feishu.cn/open-apis${url}`;
+  if (!targetUrl.startsWith("https://open.feishu.cn/open-apis/")) {
+    throw new Error("Feishu media download URL must use the Feishu open platform.");
   }
-  return Buffer.from(await response.arrayBuffer());
+  let lastError = "";
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(targetUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        return Buffer.from(await response.arrayBuffer());
+      }
+      lastError = `status=${response.status} ${response.statusText}`;
+      if (![408, 429, 500, 502, 503, 504].includes(response.status)) {
+        break;
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await sleep(1000 * attempt);
+  }
+  throw new Error(`Feishu media download failed: [redacted file token]; ${lastError}`);
 }
 
 export async function listBitableFields(config: FeishuBitableConfig, token: string): Promise<FeishuBitableField[]> {
@@ -115,7 +143,7 @@ export async function resolveWikiNode(token: string, tenantAccessToken: string):
   }>(tenantAccessToken, `/wiki/v2/spaces/get_node?${query.toString()}`);
   const node = data.node;
   if (!node?.obj_token) {
-    throw new Error(`Feishu wiki node did not return obj_token for token=${token}`);
+    throw new Error("Feishu wiki node did not return obj_token for the configured wiki node token.");
   }
   return {
     nodeToken: node.node_token || token,

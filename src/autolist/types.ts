@@ -1,10 +1,10 @@
 import type { FeishuProductRecord } from "../feishu/types.js";
 
 export const AUTO_LISTING_STEPS = [
-  "discovered",
-  "doubao_generated",
-  "deepseek_generated",
-  "jimeng_generated",
+  "source_images_discovered",
+  "selling_points_loaded",
+  "poster_prompts_generated",
+  "main_images_generated",
   "product_folders_built",
   "titles_generated",
   "titles_distributed",
@@ -17,14 +17,29 @@ export const AUTO_LISTING_STEPS = [
 ] as const;
 
 export type AutoListingStep = (typeof AUTO_LISTING_STEPS)[number];
+// Legacy step ids are accepted only for reading old job/state files. New outputs must use AUTO_LISTING_STEPS.
+export type LegacyAutoListingStep = "discovered" | "doubao_generated" | "deepseek_generated" | "jimeng_generated";
+export type AutoListingStepInput = AutoListingStep | LegacyAutoListingStep;
+
+export const LEGACY_AUTO_LISTING_STEP_ALIASES: Record<LegacyAutoListingStep, AutoListingStep> = {
+  discovered: "source_images_discovered",
+  doubao_generated: "selling_points_loaded",
+  deepseek_generated: "poster_prompts_generated",
+  jimeng_generated: "main_images_generated"
+};
+
+export function normalizeAutoListingStep(step: AutoListingStepInput): AutoListingStep {
+  return (LEGACY_AUTO_LISTING_STEP_ALIASES as Partial<Record<string, AutoListingStep>>)[step] || (step as AutoListingStep);
+}
 
 export type AutoListingStatus = AutoListingStep | "failed";
-export type DreaminaImageCountStrategy = "accept_all" | "require_exact" | "limit_to_count";
-export type ImageGenerationProvider = "dreamina" | "openai-compatible";
+export type MainImageCountStrategy = "accept_all" | "require_exact" | "limit_to_count";
+export type ImageGenerationProvider = "openai-compatible";
 
 export interface AutoListingJobInput {
   feishuImageDir: string;
-  jimengImageDir: string;
+  mainImageWorkDir?: string;
+  jimengImageDir?: string;
   titleDir: string;
   qualificationDir: string;
   productInfoXlsx?: string;
@@ -34,15 +49,11 @@ export interface AutoListingJobInput {
   deepseekConversationUrl?: string;
   imageGenerationProvider?: ImageGenerationProvider;
   imageGenerationConfigFile?: string;
-  dreaminaBin?: string;
-  dreaminaPollSeconds?: number;
-  dreaminaModelVersion?: string;
-  dreaminaResolutionType?: string;
-  dreaminaRatio?: string;
-  dreaminaExpectedImageCount?: number;
-  dreaminaImageCountStrategy?: DreaminaImageCountStrategy;
+  mainImageExpectedCount?: number;
+  mainImageCountStrategy?: MainImageCountStrategy;
   runtimeRootDir?: string;
   processedImageManifest?: string;
+  pauseSignalFile?: string;
   imageExtensions?: string[];
   serialOnly?: boolean;
   stopOnError?: boolean;
@@ -51,10 +62,12 @@ export interface AutoListingJobInput {
   archiveMainImageDir?: string;
   titleCount?: number;
   maxImagesPerRun?: number;
+  resumeSourceImagePath?: string;
+  resumeProductFolderNames?: string[];
   simulateOnly?: boolean;
   clearTestOutputsBeforeRun?: boolean;
-  startStep?: AutoListingStep;
-  endStep?: AutoListingStep;
+  startStep?: AutoListingStepInput;
+  endStep?: AutoListingStepInput;
 }
 
 export interface AutoListingJobFile {
@@ -97,7 +110,7 @@ export interface DeepSeekArtifact {
   simulated: boolean;
 }
 
-export interface JimengGeneratedFile {
+export interface MainImageGeneratedFile {
   imageFile: string;
   rawImageFile?: string;
   shopFolder?: string;
@@ -108,9 +121,9 @@ export interface JimengGeneratedFile {
   submitId?: string;
 }
 
-export interface JimengArtifact {
+export interface MainImageArtifact {
   promptFile: string;
-  generatedFiles: JimengGeneratedFile[];
+  generatedFiles: MainImageGeneratedFile[];
   simulated: boolean;
 }
 
@@ -173,15 +186,20 @@ export interface AutoListingPreflightSummary {
     feishuProductDataFile?: string;
     productInfoXlsx?: string;
     feishuImageDir: string;
+    mainImageWorkDir: string;
     qualificationDir: string;
     shopRootDir: string;
     imageGenerationProvider: ImageGenerationProvider;
     imageGenerationConfigFile?: string;
+    mainImageExpectedCount: number;
+    mainImageCountStrategy: MainImageCountStrategy;
+    pauseSignalFile: string;
   };
   counts: {
     sourceImages: number;
     shops: number;
   };
+  errors: string[];
   warnings: string[];
 }
 
@@ -198,7 +216,7 @@ export interface ImageTaskState {
   notes: string[];
   sellingPointArtifact?: SellingPointArtifact;
   deepseekArtifact?: DeepSeekArtifact;
-  jimengArtifact?: JimengArtifact;
+  mainImageArtifact?: MainImageArtifact;
   titleSheetArtifact?: TitleSheetArtifact;
   metadataArtifact?: MetadataArtifact;
   qualificationArtifact?: QualificationArtifact;
@@ -213,7 +231,7 @@ export interface AutoListingRunState {
   runId: string;
   startedAt: string;
   lastUpdatedAt: string;
-  status: "running" | "failed" | "completed";
+  status: "running" | "failed" | "completed" | "paused";
   currentTaskId?: string;
   tasks: ImageTaskState[];
   errors: AutoListingTaskError[];
@@ -235,6 +253,7 @@ export interface AutoListingResolvedJob {
   manualsReadFile: string;
   preflightFile: string;
   processedImageManifest: string;
+  pauseSignalFile: string;
   input: Required<AutoListingJobInput>;
 }
 
@@ -251,6 +270,7 @@ export interface AutoListingRunResult {
     manualsReadFile: string;
     processedImageManifest: string;
     preflightFile?: string;
+    pauseSignalFile?: string;
   };
   discoveredImages: string[];
   tasks: ImageTaskState[];

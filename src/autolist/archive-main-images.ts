@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { sanitizeFileName } from "../doubao/paths.js";
-import type { JimengArtifact } from "./types.js";
+import type { MainImageArtifact } from "./types.js";
 
 const DEFAULT_ARCHIVE_ROOT = "/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图";
 
@@ -20,8 +20,21 @@ function archiveTimestamp(date = new Date()): string {
   ].join("");
 }
 
+function resolveUniqueArchiveDir(baseDir: string): string {
+  if (!fs.existsSync(baseDir)) {
+    return baseDir;
+  }
+  for (let index = 2; index <= 99; index += 1) {
+    const candidate = `${baseDir}-${String(index).padStart(2, "0")}`;
+    if (!fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error(`Archive target already exists and no unique suffix was available: ${baseDir}`);
+}
+
 export function archiveUnwatermarkedMainImages(options: {
-  jimengArtifact?: JimengArtifact;
+  mainImageArtifact?: MainImageArtifact;
   productName: string;
   archiveRootDir?: string;
   simulateOnly: boolean;
@@ -29,8 +42,8 @@ export function archiveUnwatermarkedMainImages(options: {
   const archiveRootDir = options.archiveRootDir || DEFAULT_ARCHIVE_ROOT;
   const productFolderName = sanitizeFileName(options.productName || "未命名产品");
   const archiveFolderName = `${archiveTimestamp()}${productFolderName}`;
-  const targetDir = path.join(archiveRootDir, archiveFolderName);
-  const rawFiles = (options.jimengArtifact?.generatedFiles || [])
+  const targetDir = resolveUniqueArchiveDir(path.join(archiveRootDir, archiveFolderName));
+  const rawFiles = (options.mainImageArtifact?.generatedFiles || [])
     .map((item) => item.rawImageFile || "")
     .filter((filePath) => filePath && isImageFile(filePath) && fs.existsSync(filePath));
 
@@ -39,7 +52,6 @@ export function archiveUnwatermarkedMainImages(options: {
   }
 
   if (!options.simulateOnly) {
-    fs.rmSync(targetDir, { recursive: true, force: true });
     fs.mkdirSync(targetDir, { recursive: true });
   }
 

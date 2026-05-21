@@ -1,5 +1,6 @@
 import type { FeishuBitableAttachment, FeishuBitableConfig, FeishuProductRecord } from "./types.js";
 import type { FeishuBitableRecord } from "./client.js";
+import { normalizeProductCategory } from "../autolist/product-category.js";
 
 function extractText(value: unknown): string {
   if (value === null || value === undefined) {
@@ -48,6 +49,49 @@ function extractAttachments(value: unknown): FeishuBitableAttachment[] {
     .filter((item): item is FeishuBitableAttachment => item !== null);
 }
 
+function sanitizeFeishuFieldValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeFeishuFieldValue(item));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (/^(tmp_url|url|download_url)$/i.test(key)) {
+      sanitized[key] = "[redacted feishu media url]";
+      continue;
+    }
+    if (/token/i.test(key)) {
+      sanitized[key] = "[redacted]";
+      continue;
+    }
+    sanitized[key] = sanitizeFeishuFieldValue(nestedValue);
+  }
+  return sanitized;
+}
+
+function sanitizeAttachment(attachment: FeishuBitableAttachment): FeishuBitableAttachment {
+  return {
+    fileToken: attachment.fileToken ? "[redacted]" : "",
+    name: attachment.name,
+    size: attachment.size,
+    mimeType: attachment.mimeType,
+    localFile: attachment.localFile,
+    raw: sanitizeFeishuFieldValue(attachment.raw)
+  };
+}
+
+export function sanitizeFeishuProductRecord(record: FeishuProductRecord): FeishuProductRecord {
+  return {
+    ...record,
+    qualificationImages: record.qualificationImages.map(sanitizeAttachment),
+    whiteBackgroundImages: record.whiteBackgroundImages.map(sanitizeAttachment),
+    rawFields: sanitizeFeishuFieldValue(record.rawFields) as Record<string, unknown>
+  };
+}
+
 export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config: FeishuBitableConfig): FeishuProductRecord {
   const fields = record.fields;
   const field = (key: keyof FeishuBitableConfig["fieldMap"]): unknown => {
@@ -78,9 +122,13 @@ export function validateFeishuProductRecord(record: FeishuProductRecord): string
   if (!record.spu) missing.push("spu");
   if (!record.sellingPointText) missing.push("sellingPointText");
   if (!record.shortTitle) missing.push("shortTitle");
-  if (!record.productCategory) missing.push("productCategory");
   if (!record.qualificationImages.length) missing.push("qualificationImages");
   if (!record.whiteBackgroundImages.length) missing.push("whiteBackgroundImages");
+  try {
+    normalizeProductCategory(record.productCategory);
+  } catch (error) {
+    missing.push(`productCategory(${error instanceof Error ? error.message : String(error)})`);
+  }
   return missing;
 }
 

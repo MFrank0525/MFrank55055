@@ -9,6 +9,7 @@ export interface DownloadFeishuAssetsOptions {
   records: FeishuProductRecord[];
   whiteBackgroundDir: string;
   qualificationDir: string;
+  cleanupStaleAssets?: boolean;
 }
 
 export interface DownloadFeishuAssetsResult {
@@ -20,14 +21,17 @@ export interface DownloadFeishuAssetsResult {
 function extensionFromAttachment(attachment: FeishuBitableAttachment): string {
   const fromName = path.extname(attachment.name || "");
   if (fromName) {
-    return fromName;
+    const normalized = fromName.toLowerCase();
+    if ([".png", ".jpg", ".jpeg", ".webp"].includes(normalized)) {
+      return normalized;
+    }
+    throw new Error(`Unsupported Feishu attachment image type: ${attachment.name}`);
   }
   const mimeType = attachment.mimeType || "";
   if (mimeType.includes("jpeg")) return ".jpg";
   if (mimeType.includes("png")) return ".png";
   if (mimeType.includes("webp")) return ".webp";
-  if (mimeType.includes("gif")) return ".gif";
-  return ".bin";
+  throw new Error(`Unsupported Feishu attachment image MIME type: ${mimeType || "unknown"}`);
 }
 
 function buildFileName(record: FeishuProductRecord, label: string, attachment: FeishuBitableAttachment, index: number): string {
@@ -50,7 +54,7 @@ function listLocalAssetFiles(dir: string): string[] {
   }
   return fs
     .readdirSync(dir)
-    .filter((name) => /\.(png|jpg|jpeg|webp|gif|bin)$/i.test(name))
+    .filter((name) => /(白底图|资质图片)-\d{2}\.(png|jpg|jpeg|webp|gif|bin)$/i.test(name))
     .map((name) => path.resolve(dir, name));
 }
 
@@ -135,10 +139,12 @@ export async function downloadFeishuProductAssets(
     });
   }
 
-  const removedStaleFiles = [
-    ...removeUnreferencedAssets(options.whiteBackgroundDir, referencedWhiteBackgroundFiles),
-    ...removeUnreferencedAssets(options.qualificationDir, referencedQualificationFiles)
-  ];
+  const removedStaleFiles = options.cleanupStaleAssets
+    ? [
+        ...removeUnreferencedAssets(options.whiteBackgroundDir, referencedWhiteBackgroundFiles),
+        ...removeUnreferencedAssets(options.qualificationDir, referencedQualificationFiles)
+      ]
+    : [];
 
   return {
     downloadedFiles,

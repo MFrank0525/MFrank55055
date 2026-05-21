@@ -1,8 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { formatTimestamp } from "../doubao/paths.js";
-import { getDefaultDreaminaBin } from "../utils/platform.js";
-import { AUTO_LISTING_STEPS } from "./types.js";
+import { AUTO_LISTING_STEPS, normalizeAutoListingStep } from "./types.js";
 import type { AutoListingJobFile, AutoListingJobInput, AutoListingResolvedJob } from "./types.js";
 
 const DEFAULT_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
@@ -16,12 +15,12 @@ function ensureDirExists(targetPath: string, label: string): string {
 }
 
 function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput> {
-  const startStep = input.startStep || "discovered";
-  const endStep = input.endStep || "done";
+  const startStep = normalizeAutoListingStep(input.startStep || "source_images_discovered");
+  const endStep = normalizeAutoListingStep(input.endStep || "done");
   const feishuProductDataFile = input.feishuProductDataFile
     ? ensureDirExists(input.feishuProductDataFile, "Feishu product data file")
     : "";
-  if (!AUTO_LISTING_STEPS.includes(startStep) && startStep !== "discovered") {
+  if (!AUTO_LISTING_STEPS.includes(startStep)) {
     throw new Error(`Invalid startStep: ${startStep}`);
   }
   if (!AUTO_LISTING_STEPS.includes(endStep)) {
@@ -30,7 +29,8 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
 
   return {
     feishuImageDir: ensureDirExists(input.feishuImageDir, "Feishu image dir"),
-    jimengImageDir: ensureDirExists(input.jimengImageDir, "Jimeng image dir"),
+    mainImageWorkDir: ensureDirExists(input.mainImageWorkDir || input.jimengImageDir || "", "Main image work dir"),
+    jimengImageDir: ensureDirExists(input.mainImageWorkDir || input.jimengImageDir || "", "Main image work dir"),
     titleDir: ensureDirExists(input.titleDir, "Title dir"),
     qualificationDir: ensureDirExists(input.qualificationDir, "Qualification dir"),
     productInfoXlsx: input.productInfoXlsx
@@ -46,29 +46,29 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     feishuProductDataFile,
     shopRootDir: ensureDirExists(input.shopRootDir, "Shop root dir"),
     deepseekConversationUrl: input.deepseekConversationUrl || "",
-    imageGenerationProvider: input.imageGenerationProvider || "dreamina",
+    imageGenerationProvider: input.imageGenerationProvider || "openai-compatible",
     imageGenerationConfigFile: input.imageGenerationConfigFile
       ? ensureDirExists(input.imageGenerationConfigFile, "Image generation config file")
       : "",
-    dreaminaBin: path.resolve(input.dreaminaBin || getDefaultDreaminaBin()),
-    dreaminaPollSeconds: input.dreaminaPollSeconds ?? 120,
-    dreaminaModelVersion: input.dreaminaModelVersion || "5.0",
-    dreaminaResolutionType: input.dreaminaResolutionType || "2k",
-    dreaminaRatio: input.dreaminaRatio || "1:1",
-    dreaminaExpectedImageCount: input.dreaminaExpectedImageCount ?? 4,
-    dreaminaImageCountStrategy: input.dreaminaImageCountStrategy || "require_exact",
+    mainImageExpectedCount: input.mainImageExpectedCount ?? 4,
+    mainImageCountStrategy: input.mainImageCountStrategy || "require_exact",
     runtimeRootDir: path.resolve(input.runtimeRootDir || path.join(process.cwd(), "data", "auto-listing", "runs")),
     processedImageManifest: path.resolve(
       input.processedImageManifest || path.join(process.cwd(), "data", "auto-listing", "processed-images.json")
     ),
+    pauseSignalFile: path.resolve(
+      input.pauseSignalFile || path.join(process.cwd(), "data", "auto-listing", "control", "pause.requested")
+    ),
     imageExtensions: (input.imageExtensions || DEFAULT_IMAGE_EXTENSIONS).map((item) => item.toLowerCase()),
     serialOnly: input.serialOnly ?? true,
     stopOnError: input.stopOnError ?? true,
-    cleanupAfterPublish: input.cleanupAfterPublish ?? true,
-    cleanupSourceImageAfterPublish: input.cleanupSourceImageAfterPublish ?? true,
+    cleanupAfterPublish: input.cleanupAfterPublish ?? false,
+    cleanupSourceImageAfterPublish: input.cleanupSourceImageAfterPublish ?? false,
     archiveMainImageDir: path.resolve(input.archiveMainImageDir || "/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图"),
     titleCount: input.titleCount ?? 20,
     maxImagesPerRun: input.maxImagesPerRun ?? 0,
+    resumeSourceImagePath: input.resumeSourceImagePath ? path.resolve(input.resumeSourceImagePath) : "",
+    resumeProductFolderNames: input.resumeProductFolderNames || [],
     simulateOnly: input.simulateOnly ?? true,
     clearTestOutputsBeforeRun: input.clearTestOutputsBeforeRun ?? false,
     startStep,
@@ -92,6 +92,7 @@ export function resolveAutoListingJob(job: AutoListingJobFile): AutoListingResol
 
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.mkdirSync(path.dirname(input.processedImageManifest), { recursive: true });
+  fs.mkdirSync(path.dirname(input.pauseSignalFile), { recursive: true });
 
   return {
     runtimeDir,
@@ -101,6 +102,7 @@ export function resolveAutoListingJob(job: AutoListingJobFile): AutoListingResol
     manualsReadFile,
     preflightFile,
     processedImageManifest: input.processedImageManifest,
+    pauseSignalFile: input.pauseSignalFile,
     input
   };
 }

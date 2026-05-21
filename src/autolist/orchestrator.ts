@@ -2,8 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { generatePosterPromptsWithDeepSeek } from "./deepseek-prompts.js";
 import { writeDeepSeekPromptWordFiles } from "./deepseek-word-docs.js";
-import { generateSellingPointsWithDoubao } from "./doubao-selling-points.js";
-import { generateJimengAssets } from "./jimeng-assets.js";
+import { generateMainImageAssets } from "./jimeng-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, filterPendingImages } from "./file-batch.js";
 import { loadFeishuProductRuntimeRecord, resolveFeishuProductSourceImages } from "./feishu-products.js";
@@ -13,14 +12,14 @@ import { cleanupAfterPublish } from "./cleanup.js";
 import { buildAutoListingPreflightSummary } from "./preflight.js";
 import { readOperationManual } from "./operation-manual.js";
 import { prepareTestRunOutputs } from "./prepare-test-run.js";
-import { publishDistributedProducts } from "./publish.js";
+import { publishDistributedProducts, publishRuntimeKey } from "./publish.js";
 import { attachQualificationFiles } from "./qualifications.js";
 import { recoverArtifactsFromWordFiles, recoverDistributedFoldersFromShopRoot } from "./resume.js";
 import { distributeProductFoldersToShops } from "./shop-distribution.js";
-import { distributeTitleSheets, generateTitleSheets } from "./title-sheets.js";
+import { assertTitleDistributionTargets, distributeTitleSheets, generateTitleSheets } from "./title-sheets.js";
 import { resolveAutoListingJob } from "./config.js";
 import { assertRuleTextIntegrity } from "./rule-text.js";
-import { createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed } from "./state-machine.js";
+import { createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed, markRunPaused } from "./state-machine.js";
 import { logError, logInfo, setLogFile } from "../utils/logger.js";
 import type {
   AutoListingEvent,
@@ -30,6 +29,7 @@ import type {
   AutoListingTaskError,
   ImageTaskState
 } from "./types.js";
+import { normalizeAutoListingStep } from "./types.js";
 
 interface ManualReadRecord {
   step: string;
@@ -72,14 +72,35 @@ function discoverFallbackImages(
     .map((item) => item.filePath);
 }
 
+function filterResumeSourceImage(images: string[], resumeSourceImagePath: string): string[] {
+  if (!resumeSourceImagePath) {
+    return images;
+  }
+  if (!images.length) {
+    return [];
+  }
+  const resolvedResumePath = path.resolve(resumeSourceImagePath);
+  const selected = images.filter((imagePath) => path.resolve(imagePath) === resolvedResumePath);
+  if (!selected.length) {
+    throw new Error(`Resume source image was not found in the current source list: ${resolvedResumePath}`);
+  }
+  return selected;
+}
+
 function writeJson(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(/(authorization|bearer|api[-_]?key|secret|token|cookie)(["'\s:=]+)([^"'\s,}]+)/gi, "$1$2[redacted]")
+    .replace(/(app_secret|appSecret|tenant_access_token|tenantAccessToken)(["'\s:=]+)([^"'\s,}]+)/gi, "$1$2[redacted]");
+}
+
 function appendEvent(filePath: string, event: AutoListingEvent): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.appendFileSync(filePath, `${JSON.stringify(event)}\n`, "utf8");
+  fs.appendFileSync(filePath, `${JSON.stringify({ ...event, message: redactSensitiveText(event.message) })}\n`, "utf8");
 }
 
 function isProductFullyProcessed(task: ImageTaskState): boolean {
@@ -90,10 +111,42 @@ function persistState(stateFile: string, state: AutoListingRunState): void {
   writeJson(stateFile, state);
 }
 
+class AutoListingPausedError extends Error {
+  constructor(
+    readonly signalFile: string,
+    readonly taskId?: string,
+    readonly step?: string
+  ) {
+    super(`Auto-listing pause requested by signal file: ${signalFile}`);
+    this.name = "AutoListingPausedError";
+  }
+}
+
+class AutoListingStepError extends Error {
+  constructor(
+    readonly step: string,
+    message: string,
+    readonly cause?: unknown
+  ) {
+    super(message);
+    this.name = "AutoListingStepError";
+  }
+}
+
+function isPauseRequested(signalFile: string): boolean {
+  return Boolean(signalFile && fs.existsSync(signalFile));
+}
+
+function assertNotPaused(signalFile: string, taskId?: string, step?: string): void {
+  if (isPauseRequested(signalFile)) {
+    throw new AutoListingPausedError(signalFile, taskId, step);
+  }
+}
+
 async function executeTaskChain(
   task: ImageTaskState,
   runtimeDir: string,
-  jimengImageDir: string,
+  mainImageWorkDir: string,
   titleDir: string,
   titleCount: number,
   qualificationDir: string,
@@ -102,22 +155,19 @@ async function executeTaskChain(
   feishuProductDataFile: string,
   shopRootDir: string,
   deepseekConversationUrl: string,
-  imageGenerationProvider: "dreamina" | "openai-compatible",
+  imageGenerationProvider: "openai-compatible",
   imageGenerationConfigFile: string,
-  dreaminaBin: string,
-  dreaminaPollSeconds: number,
-  dreaminaModelVersion: string,
-  dreaminaResolutionType: string,
-  dreaminaRatio: string,
-  dreaminaExpectedImageCount: number,
-  dreaminaImageCountStrategy: "accept_all" | "require_exact" | "limit_to_count",
+  mainImageExpectedCount: number,
+  mainImageCountStrategy: "accept_all" | "require_exact" | "limit_to_count",
   cleanupAfterPublishEnabled: boolean,
   cleanupSourceImageAfterPublish: boolean,
   archiveMainImageDir: string,
   startStep: string,
   endStep: string,
   eventFile: string,
+  pauseSignalFile: string,
   simulateOnly: boolean,
+  resumeProductFolderNames: string[],
   manualReadMap: Map<string, ManualReadRecord>,
   onProgress?: (task: ImageTaskState) => void
 ): Promise<ImageTaskState> {
@@ -126,17 +176,20 @@ async function executeTaskChain(
     onProgress?.(current);
   };
   const allSteps = getPlannedSteps();
-  const startIndex = startStep === "discovered" ? 1 : Math.max(1, allSteps.indexOf(startStep as (typeof allSteps)[number]));
-  const endIndex = Math.max(startIndex, allSteps.indexOf(endStep as (typeof allSteps)[number]));
+  const normalizedStartStep = normalizeAutoListingStep(startStep as any);
+  const normalizedEndStep = normalizeAutoListingStep(endStep as any);
+  const startIndex =
+    normalizedStartStep === "source_images_discovered" ? 1 : Math.max(1, allSteps.indexOf(normalizedStartStep));
+  const endIndex = Math.max(startIndex, allSteps.indexOf(normalizedEndStep));
 
   if (
-    startIndex >= allSteps.indexOf("jimeng_generated") &&
+    startIndex >= allSteps.indexOf("main_images_generated") &&
     (!current.sellingPointArtifact?.sellingPointText || !current.deepseekArtifact?.wordFiles?.length)
   ) {
     const recovered = recoverArtifactsFromWordFiles({
       runtimeDir,
       taskId: current.taskId,
-      jimengImageDir,
+      jimengImageDir: mainImageWorkDir,
       feishuProductDataFile,
       sourceImagePath: current.sourceImagePath
     });
@@ -146,11 +199,11 @@ async function executeTaskChain(
       deepseekArtifact: current.deepseekArtifact || recovered.deepseekArtifact,
       feishuProductRecord: current.feishuProductRecord || recovered.feishuProductRecord,
       lastUpdatedAt: new Date().toISOString(),
-      notes: [...current.notes, "Recovered selling points and DeepSeek prompts from saved Word files."]
+      notes: [...current.notes, "Recovered selling points and poster prompts from saved Word files."]
     };
     appendEvent(
       eventFile,
-      createEvent("info", "resume", "Recovered selling points and DeepSeek prompts from saved Word files.", current.taskId)
+      createEvent("info", "resume", "Recovered selling points and poster prompts from saved Word files.", current.taskId)
     );
   }
 
@@ -158,7 +211,13 @@ async function executeTaskChain(
     const recovered = recoverDistributedFoldersFromShopRoot({
       shopRootDir,
       requireWorkbook: startIndex >= allSteps.indexOf("published"),
-      expectedCount: titleCount
+      expectedCount: titleCount,
+      productNameCandidates: [
+        current.feishuProductRecord?.userCognitionName || "",
+        current.sellingPointArtifact?.userCognitionName || "",
+        current.sellingPointArtifact?.brandedGenericName || ""
+      ],
+      expectedProductFolderNames: resumeProductFolderNames
     });
     current = {
       ...current,
@@ -179,105 +238,89 @@ async function executeTaskChain(
   }
 
   for (const step of allSteps.slice(startIndex, endIndex + 1)) {
-    const operationManual = readOperationManual(step);
-    if (operationManual) {
-      const now = new Date().toISOString();
-      const key = `${step}:${operationManual.filePath}`;
-      const existing = manualReadMap.get(key);
-      manualReadMap.set(key, {
-        step,
-        filePath: operationManual.filePath,
-        readCount: (existing?.readCount || 0) + 1,
-        firstReadAt: existing?.firstReadAt || now,
-        lastReadAt: now
-      });
-      appendEvent(
-        eventFile,
-        createEvent("info", step, `Loaded operation manual: ${operationManual.filePath}`, current.taskId)
-      );
-      current = {
-        ...current,
-        lastUpdatedAt: new Date().toISOString(),
-        notes: [...current.notes, `Loaded operation manual before ${step}: ${operationManual.filePath}`]
-      };
-    }
-
-    if (step === "doubao_generated") {
-      if (feishuProductDataFile) {
-        appendEvent(eventFile, createEvent("info", step, "Loading selling points from Feishu product data.", current.taskId));
-        const feishuRuntimeRecord = loadFeishuProductRuntimeRecord({
-          productDataFile: feishuProductDataFile,
-          sourceImagePath: current.sourceImagePath,
-          runtimeDir,
-          taskId: current.taskId
+    try {
+      assertNotPaused(pauseSignalFile, current.taskId, step);
+      const operationManual = readOperationManual(step);
+      if (operationManual) {
+        const now = new Date().toISOString();
+        const key = `${step}:${operationManual.filePath}`;
+        const existing = manualReadMap.get(key);
+        manualReadMap.set(key, {
+          step,
+          filePath: operationManual.filePath,
+          readCount: (existing?.readCount || 0) + 1,
+          firstReadAt: existing?.firstReadAt || now,
+          lastReadAt: now
         });
-        current = {
-          ...current,
-          status: step,
-          sellingPointArtifact: feishuRuntimeRecord.sellingPointArtifact,
-          feishuProductRecord: feishuRuntimeRecord.record,
-          lastUpdatedAt: new Date().toISOString(),
-          notes: [
-            ...current.notes,
-            `Feishu product data loaded: record=${feishuRuntimeRecord.record.recordId}; spu=${feishuRuntimeRecord.record.spu}; category=${getProductCategoryPlan(feishuRuntimeRecord.record.productCategory).category}.`
-          ]
-        };
         appendEvent(
           eventFile,
-          createEvent(
-            "info",
-            step,
-            `Feishu selling points loaded: ${feishuRuntimeRecord.sellingPointArtifact.sellingPointText}`,
-            current.taskId
-          )
+          createEvent("info", step, `Loaded operation manual: ${operationManual.filePath}`, current.taskId)
         );
-        markProgress();
-        continue;
+        current = {
+          ...current,
+          lastUpdatedAt: new Date().toISOString(),
+          notes: [...current.notes, `Loaded operation manual before ${step}: ${operationManual.filePath}`]
+        };
       }
 
-      appendEvent(eventFile, createEvent("info", step, "Starting Doubao selling point generation.", current.taskId));
-      const sellingPointArtifact = await generateSellingPointsWithDoubao({
+    if (step === "selling_points_loaded") {
+      if (!feishuProductDataFile) {
+        throw new Error("Selling points must come from Feishu product data. Configure feishuProductDataFile before running auto-listing.");
+      }
+      appendEvent(eventFile, createEvent("info", step, "Loading selling points from Feishu product data.", current.taskId));
+      const feishuRuntimeRecord = loadFeishuProductRuntimeRecord({
+        productDataFile: feishuProductDataFile,
+        sourceImagePath: current.sourceImagePath,
         runtimeDir,
-        taskId: current.taskId,
-        imagePath: current.sourceImagePath,
-        imageName: current.sourceImageName,
-        simulateOnly
+        taskId: current.taskId
       });
       current = {
         ...current,
         status: step,
-        sellingPointArtifact,
+        sellingPointArtifact: feishuRuntimeRecord.sellingPointArtifact,
+        feishuProductRecord: feishuRuntimeRecord.record,
         lastUpdatedAt: new Date().toISOString(),
-        notes: [...current.notes, `Doubao selling points generated with ${sellingPointArtifact.segmentCount} segments.`]
+        notes: [
+          ...current.notes,
+          `Feishu product data loaded: record=${feishuRuntimeRecord.record.recordId}; spu=${feishuRuntimeRecord.record.spu}; category=${getProductCategoryPlan(feishuRuntimeRecord.record.productCategory).category}.`
+        ]
       };
       appendEvent(
         eventFile,
-        createEvent("info", step, `Doubao selling points captured: ${sellingPointArtifact.sellingPointText}`, current.taskId)
+        createEvent(
+          "info",
+          step,
+          `Feishu selling points loaded for record=${feishuRuntimeRecord.record.recordId}.`,
+          current.taskId
+        )
       );
       markProgress();
       continue;
     }
 
-    if (step === "deepseek_generated") {
+    if (step === "poster_prompts_generated") {
       if (!current.sellingPointArtifact?.sellingPointText) {
-        throw new Error("DeepSeek step requires Doubao selling points.");
+        throw new Error("Poster prompt generation requires selling points.");
       }
-      appendEvent(eventFile, createEvent("info", step, "Starting DeepSeek poster prompt generation.", current.taskId));
+      appendEvent(eventFile, createEvent("info", step, "Starting poster prompt generation.", current.taskId));
+      assertNotPaused(pauseSignalFile, current.taskId, step);
+      const promptCount = getProductCategoryPlan(current.feishuProductRecord?.productCategory).promptCount;
       const deepseekArtifact = await generatePosterPromptsWithDeepSeek({
         runtimeDir,
         taskId: current.taskId,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
         conversationUrl: deepseekConversationUrl,
+        promptCount,
         simulateOnly
       });
       deepseekArtifact.wordFiles = writeDeepSeekPromptWordFiles({
-        jimengImageDir,
+        jimengImageDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
         sellingPointText: current.sellingPointArtifact.sellingPointText,
         brand: current.sellingPointArtifact.brand,
         userCognitionName: current.sellingPointArtifact.userCognitionName,
         brandedGenericName: current.sellingPointArtifact.brandedGenericName,
         prompts: deepseekArtifact.prompts,
-        promptCount: getProductCategoryPlan(current.feishuProductRecord?.productCategory).promptCount
+        promptCount
       });
       current = {
         ...current,
@@ -286,8 +329,8 @@ async function executeTaskChain(
         lastUpdatedAt: new Date().toISOString(),
         notes: [
           ...current.notes,
-          `DeepSeek generated ${deepseekArtifact.prompts.length} poster prompt paragraphs.`,
-          `DeepSeek prompt Word files generated: ${deepseekArtifact.wordFiles?.length || 0}.`
+          `Poster prompt provider generated ${deepseekArtifact.prompts.length} prompt paragraph(s).`,
+          `Poster prompt Word files generated: ${deepseekArtifact.wordFiles?.length || 0}.`
         ]
       };
       appendEvent(
@@ -295,7 +338,7 @@ async function executeTaskChain(
         createEvent(
           "info",
           step,
-          `DeepSeek prompts ready: ${deepseekArtifact.prompts.join(" | ")}; wordFiles=${deepseekArtifact.wordFiles?.length || 0}`,
+          `Poster prompts ready: promptCount=${deepseekArtifact.prompts.length}; wordFiles=${deepseekArtifact.wordFiles?.length || 0}`,
           current.taskId
         )
       );
@@ -303,13 +346,14 @@ async function executeTaskChain(
       continue;
     }
 
-    if (step === "jimeng_generated") {
+    if (step === "main_images_generated") {
       if (!current.sellingPointArtifact?.sellingPointText || !current.deepseekArtifact?.prompts?.length) {
-        throw new Error("Jimeng step requires Doubao selling points and DeepSeek prompts.");
+        throw new Error("Main image generation requires selling points and poster prompts.");
       }
-      appendEvent(eventFile, createEvent("info", step, "Starting Jimeng asset generation.", current.taskId));
+      appendEvent(eventFile, createEvent("info", step, "Starting main image generation.", current.taskId));
+      assertNotPaused(pauseSignalFile, current.taskId, step);
       const productPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
-      const jimengArtifact = await generateJimengAssets({
+      const mainImageArtifact = await generateMainImageAssets({
         runtimeDir,
         taskId: current.taskId,
         shopRootDir,
@@ -319,13 +363,8 @@ async function executeTaskChain(
         wordFiles: current.deepseekArtifact.wordFiles || [],
         imageGenerationProvider,
         imageGenerationConfigFile,
-        dreaminaBin,
-        dreaminaPollSeconds,
-        dreaminaModelVersion,
-        dreaminaResolutionType,
-        dreaminaRatio,
-        dreaminaExpectedImageCount,
-        dreaminaImageCountStrategy,
+        mainImageExpectedCount,
+        mainImageCountStrategy,
         promptCount: productPlan.promptCount,
         shopCodes: productPlan.shopCodes,
         simulateOnly
@@ -333,28 +372,28 @@ async function executeTaskChain(
       current = {
         ...current,
         status: step,
-        jimengArtifact,
+        mainImageArtifact,
         lastUpdatedAt: new Date().toISOString(),
-        notes: [...current.notes, `Jimeng generated ${jimengArtifact.generatedFiles.length} image placeholder(s).`]
+        notes: [...current.notes, `Main image generation produced ${mainImageArtifact.generatedFiles.length} file(s).`]
       };
       appendEvent(
         eventFile,
-        createEvent("info", step, `Jimeng assets ready: ${jimengArtifact.generatedFiles.length} file(s).`, current.taskId)
+        createEvent("info", step, `Main images ready: ${mainImageArtifact.generatedFiles.length} file(s).`, current.taskId)
       );
       markProgress();
       continue;
     }
 
     if (step === "product_folders_built") {
-      if (!current.jimengArtifact?.generatedFiles?.length) {
-        throw new Error("Product folder step requires Jimeng generated files.");
+      if (!current.mainImageArtifact?.generatedFiles?.length) {
+        throw new Error("Product folder step requires generated main image files.");
       }
       current = {
         ...current,
         status: step,
-        generatedProductFolders: current.jimengArtifact.generatedFiles.map((item) => item.productFolder),
+        generatedProductFolders: current.mainImageArtifact.generatedFiles.map((item) => item.productFolder),
         lastUpdatedAt: new Date().toISOString(),
-        notes: [...current.notes, `Built ${current.jimengArtifact.generatedFiles.length} product folder(s).`]
+        notes: [...current.notes, `Built ${current.mainImageArtifact.generatedFiles.length} product folder(s).`]
       };
       appendEvent(
         eventFile,
@@ -368,6 +407,11 @@ async function executeTaskChain(
       if (!current.sellingPointArtifact?.sellingPointText) {
         throw new Error("Title generation requires Doubao selling points.");
       }
+      assertNotPaused(pauseSignalFile, current.taskId, step);
+      const effectiveTitleCount = getProductCategoryPlan(current.feishuProductRecord?.productCategory).titleCount || titleCount;
+      if (!simulateOnly) {
+        assertTitleDistributionTargets(current.generatedProductFolders, effectiveTitleCount);
+      }
       const titleSheetArtifact = await generateTitleSheets({
         titleDir,
         sourceImagePath: current.sourceImagePath,
@@ -375,7 +419,7 @@ async function executeTaskChain(
         userCognitionName: current.feishuProductRecord?.userCognitionName,
         genericName: current.feishuProductRecord?.genericName,
         productCategory: current.feishuProductRecord?.productCategory,
-        titleCount: getProductCategoryPlan(current.feishuProductRecord?.productCategory).titleCount || titleCount,
+        titleCount: effectiveTitleCount,
         simulateOnly,
         runtimeDir
       });
@@ -398,7 +442,11 @@ async function executeTaskChain(
       if (!current.titleSheetArtifact?.generatedFiles?.length || !current.generatedProductFolders.length) {
         throw new Error("Title distribution requires generated title sheets and product folders.");
       }
-      const distributedArtifact = distributeTitleSheets(current.generatedProductFolders, current.titleSheetArtifact.generatedFiles);
+      const distributedArtifact = distributeTitleSheets(
+        current.generatedProductFolders,
+        current.titleSheetArtifact.generatedFiles,
+        simulateOnly
+      );
       current = {
         ...current,
         status: step,
@@ -516,10 +564,12 @@ async function executeTaskChain(
       if (!current.shopDistributionArtifact?.distributedFolders?.length) {
         throw new Error("Publish step requires distributed shop folders.");
       }
+      assertNotPaused(pauseSignalFile, current.taskId, step);
       const publishArtifact = await publishDistributedProducts({
         runtimeDir,
         distributedFolders: current.shopDistributionArtifact.distributedFolders,
-        simulateOnly
+        simulateOnly,
+        assertNotPaused: () => assertNotPaused(pauseSignalFile, current.taskId, step)
       });
       current = {
         ...current,
@@ -533,18 +583,23 @@ async function executeTaskChain(
         createEvent("info", step, `Publish results ready: ${publishArtifact.results.length}`, current.taskId)
       );
       markProgress();
+      const failedPublishResult = publishArtifact.results.find((item) => !item.ok);
+      if (failedPublishResult) {
+        throw new Error(`Publish failed for ${failedPublishResult.productFolder}: ${failedPublishResult.message}`);
+      }
       continue;
     }
 
     if (step === "cleaned") {
+      assertNotPaused(pauseSignalFile, current.taskId, step);
       const categoryPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
       const taskRuntimeDir = path.join(runtimeDir, "tasks", current.taskId);
       const publishRuntimeDirs =
         current.shopDistributionArtifact?.distributedFolders?.map((folder) =>
-          path.join(runtimeDir, "publish", path.basename(folder))
+          path.join(runtimeDir, "publish", publishRuntimeKey(folder))
         ) || [];
       const archivedFiles = archiveUnwatermarkedMainImages({
-        jimengArtifact: current.jimengArtifact,
+        mainImageArtifact: current.mainImageArtifact,
         productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact?.userCognitionName || current.sourceImageName,
         archiveRootDir: archiveMainImageDir,
         simulateOnly
@@ -567,7 +622,7 @@ async function executeTaskChain(
         taskRuntimeDir,
         publishRuntimeDirs,
         titleDir,
-        jimengImageDir,
+        jimengImageDir: mainImageWorkDir,
         cleanupAfterPublish: cleanupAfterPublishEnabled,
         cleanupSourceImageAfterPublish,
         simulateOnly
@@ -588,10 +643,7 @@ async function executeTaskChain(
       continue;
     }
 
-    const message =
-      step === "done"
-        ? "Task chain scaffold completed. Downstream modules are still placeholders."
-        : `Placeholder step recorded for ${step}.`;
+    const message = step === "done" ? "Task chain completed." : `Step recorded for ${step}.`;
     appendEvent(eventFile, createEvent("info", step, message, current.taskId));
     current = {
       ...current,
@@ -601,6 +653,13 @@ async function executeTaskChain(
       notes: [...current.notes, message]
     };
     markProgress();
+    } catch (error) {
+      if (error instanceof AutoListingPausedError) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new AutoListingStepError(step, message, error);
+    }
   }
   return current;
 }
@@ -623,15 +682,19 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
         resolved.processedImageManifest,
         resolved.input.maxImagesPerRun
       );
-  const shouldAllowRecoveredTask = resolved.input.startStep !== "discovered";
+  const resumeFilteredDiscoveredImages = filterResumeSourceImage(discoveredImages, resolved.input.resumeSourceImagePath);
+  const shouldAllowRecoveredTask = resolved.input.startStep !== "source_images_discovered";
   const effectiveImages =
-    discoveredImages.length > 0
-      ? discoveredImages
+    resumeFilteredDiscoveredImages.length > 0
+      ? resumeFilteredDiscoveredImages
       : shouldAllowRecoveredTask
-        ? discoverFallbackImages(
-            resolved.input.feishuImageDir,
-            resolved.input.imageExtensions,
-            resolved.input.maxImagesPerRun
+        ? filterResumeSourceImage(
+            discoverFallbackImages(
+              resolved.input.feishuImageDir,
+              resolved.input.imageExtensions,
+              resolved.input.maxImagesPerRun
+            ),
+            resolved.input.resumeSourceImagePath
           )
         : [];
 
@@ -647,7 +710,8 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
       eventFile: resolved.eventFile,
       manualsReadFile: resolved.manualsReadFile,
       processedImageManifest: resolved.processedImageManifest,
-      preflightFile: resolved.preflightFile
+      preflightFile: resolved.preflightFile,
+      pauseSignalFile: resolved.pauseSignalFile
     },
     discoveredImages: effectiveImages,
     tasks: [],
@@ -661,11 +725,15 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   setLogFile(logFile);
 
   try {
-    writeJson(resolved.preflightFile, buildAutoListingPreflightSummary(resolved));
+    const preflight = buildAutoListingPreflightSummary(resolved);
+    writeJson(resolved.preflightFile, preflight);
+    if (preflight.errors.length > 0) {
+      throw new Error(`Auto-listing preflight failed: ${preflight.errors.join(" ")}`);
+    }
 
     const preRunRemoved = prepareTestRunOutputs({
       runtimeDir: resolved.runtimeDir,
-      jimengImageDir: resolved.input.jimengImageDir,
+      jimengImageDir: resolved.input.mainImageWorkDir,
       titleDir: resolved.input.titleDir,
       shopRootDir: resolved.input.shopRootDir,
       enabled: resolved.input.clearTestOutputsBeforeRun,
@@ -710,7 +778,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
       return result;
     }
 
-    if (discoveredImages.length === 0 && effectiveImages.length > 0) {
+    if (resumeFilteredDiscoveredImages.length === 0 && effectiveImages.length > 0) {
       appendEvent(
         resolved.eventFile,
         createEvent(
@@ -736,10 +804,11 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
       );
 
       try {
+        assertNotPaused(resolved.pauseSignalFile, task.taskId, "task_started");
         const completedTask = await executeTaskChain(
           task,
           resolved.runtimeDir,
-          resolved.input.jimengImageDir,
+          resolved.input.mainImageWorkDir,
           resolved.input.titleDir,
           resolved.input.titleCount,
           resolved.input.qualificationDir,
@@ -750,20 +819,17 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.input.deepseekConversationUrl,
           resolved.input.imageGenerationProvider,
           resolved.input.imageGenerationConfigFile,
-          resolved.input.dreaminaBin,
-          resolved.input.dreaminaPollSeconds,
-          resolved.input.dreaminaModelVersion,
-          resolved.input.dreaminaResolutionType,
-          resolved.input.dreaminaRatio,
-          resolved.input.dreaminaExpectedImageCount,
-          resolved.input.dreaminaImageCountStrategy,
+          resolved.input.mainImageExpectedCount,
+          resolved.input.mainImageCountStrategy,
           resolved.input.cleanupAfterPublish,
           resolved.input.cleanupSourceImageAfterPublish,
           resolved.input.archiveMainImageDir,
           resolved.input.startStep,
           resolved.input.endStep,
           resolved.eventFile,
+          resolved.pauseSignalFile,
           resolved.input.simulateOnly,
+          resolved.input.resumeProductFolderNames,
           manualReadMap,
           (updatedTask) => {
             workingState = {
@@ -801,11 +867,43 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
         );
         logInfo(`task completed: ${task.sourceImageName}`);
       } catch (error) {
+        if (error instanceof AutoListingPausedError) {
+          const pausedState = markRunPaused(workingState);
+          persistState(resolved.stateFile, pausedState);
+          appendEvent(
+            resolved.eventFile,
+            createEvent(
+              "info",
+              error.step || "pause",
+              `Pause requested. State persisted; remove ${error.signalFile} before resuming.`,
+              error.taskId
+            )
+          );
+          result.ok = false;
+          result.finishedAt = new Date().toISOString();
+          result.tasks = pausedState.tasks;
+          result.manualsRead = manualReadSummary(manualReadMap);
+          result.error = {
+            message: error.message
+          };
+          writeJson(
+            resolved.manualsReadFile,
+            {
+              runId,
+              updatedAt: new Date().toISOString(),
+              manuals: result.manualsRead
+            }
+          );
+          writeJson(resolved.resultFile, result);
+          logInfo(`auto-listing paused: ${runId}`);
+          return result;
+        }
+        const failedStep = error instanceof AutoListingStepError ? error.step : "task_execution";
         const message = error instanceof Error ? error.message : String(error);
         const latestTaskState = workingState.tasks.find((item) => item.taskId === task.taskId) || task;
-        const failedTask = failTask(latestTaskState, "task_execution", message);
+        const failedTask = failTask(latestTaskState, failedStep, message);
         const taskError: AutoListingTaskError = {
-          step: "task_execution",
+          step: failedStep,
           message,
           capturedAt: failedTask.error?.capturedAt || new Date().toISOString()
         };
@@ -835,6 +933,33 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
       }
     }
 
+    const failedTasks = workingState.tasks.filter((task) => task.status === "failed");
+    if (failedTasks.length > 0) {
+      const failedState = markRunFailed(workingState, {
+        step: "run_completed_with_failed_tasks",
+        message: `${failedTasks.length} task(s) failed before run completion.`,
+        capturedAt: new Date().toISOString()
+      });
+      persistState(resolved.stateFile, failedState);
+      result.ok = false;
+      result.finishedAt = new Date().toISOString();
+      result.tasks = failedState.tasks;
+      result.manualsRead = manualReadSummary(manualReadMap);
+      result.error = {
+        message: `${failedTasks.length} task(s) failed.`
+      };
+      writeJson(
+        resolved.manualsReadFile,
+        {
+          runId,
+          updatedAt: new Date().toISOString(),
+          manuals: result.manualsRead
+        }
+      );
+      writeJson(resolved.resultFile, result);
+      return result;
+    }
+
     const completed = markRunCompleted(workingState);
     persistState(resolved.stateFile, completed);
 
@@ -854,10 +979,24 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     logInfo(`auto-listing run finished: ${runId}`);
     return result;
   } catch (error) {
+    if (error instanceof AutoListingPausedError) {
+      const paused = markRunPaused(state);
+      persistState(resolved.stateFile, paused);
+      appendEvent(
+        resolved.eventFile,
+        createEvent("info", error.step || "pause", `Pause requested. Remove ${error.signalFile} before resuming.`, error.taskId)
+      );
+      result.finishedAt = new Date().toISOString();
+      result.tasks = paused.tasks;
+      result.error = {
+        message: error.message
+      };
+      writeJson(resolved.resultFile, result);
+      return result;
+    }
     result.finishedAt = new Date().toISOString();
     result.error = {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
+      message: error instanceof Error ? error.message : String(error)
     };
     result.manualsRead = manualReadSummary(manualReadMap);
     writeJson(

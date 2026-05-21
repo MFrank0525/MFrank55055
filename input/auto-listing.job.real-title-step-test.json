@@ -3,7 +3,6 @@
   "resultFile": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\runs\\real-title-step-test\\result.json",
   "input": {
     "feishuImageDir": "C:\\Users\\ffc\\Desktop\\20260402飞书白底图",
-    "jimengImageDir": "C:\\Users\\ffc\\Desktop\\20260403即梦图片",
     "titleDir": "C:\\Users\\ffc\\Desktop\\20260331豆包标题",
     "qualificationDir": "C:\\Users\\ffc\\Desktop\\20260401产品资质图片",
     "productInfoXlsx": "C:\\Users\\ffc\\Desktop\\2026商品信息表.xlsx",
@@ -19,6 +18,8 @@
     "maxImagesPerRun": 1,
     "simulateOnly": false,
     "startStep": "titles_generated",
-    "endStep": "titles_generated"
+    "endStep": "titles_generated",
+    "mainImageWorkDir": "C:\\Users\\ffc\\Desktop\\20260403即梦图片",
+    "pauseSignalFile": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\control\\pause.requested"
   }
 }

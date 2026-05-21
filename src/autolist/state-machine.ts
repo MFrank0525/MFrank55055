@@ -25,7 +25,7 @@ export function createRunState(runId: string, imagePaths: string[]): AutoListing
       sequenceNo: index + 1,
       sourceImagePath: path.resolve(filePath),
       sourceImageName: path.basename(filePath),
-      status: "discovered",
+      status: "source_images_discovered",
       startedAt: timestamp,
       lastUpdatedAt: timestamp,
       generatedProductFolders: [],
@@ -92,6 +92,14 @@ export function markRunFailed(state: AutoListingRunState, error: AutoListingTask
     currentTaskId: undefined,
     lastUpdatedAt: nowIso(),
     errors: [...state.errors, error]
+  };
+}
+
+export function markRunPaused(state: AutoListingRunState): AutoListingRunState {
+  return {
+    ...state,
+    status: "paused",
+    lastUpdatedAt: nowIso()
   };
 }
 

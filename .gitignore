@@ -11,6 +11,7 @@ output/
 logs/
 *.log
 *.ndjson
+*.bak
 
 # Local environment and secrets
 .env
@@ -19,8 +20,13 @@ logs/
 *auth*.json
 *token*.json
 *secret*.json
+*cookie*.json
+*cookies*.json
+*.cookies
 input/feishu-bitable.config.json
 input/image-generation.config.json
+data/browser-profile/
+data/browser-profile-fallback/
 input/auto-listing/feishu-images/*
 !input/auto-listing/feishu-images/.gitkeep
 input/auto-listing/jimeng-images/*

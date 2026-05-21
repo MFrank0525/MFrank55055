@@ -55,6 +55,7 @@ export function loadFeishuBitableConfig(configFile: string): FeishuBitableConfig
   const envAppToken = process.env.FEISHU_BITABLE_APP_TOKEN || process.env.FEISHU_APP_TOKEN || "";
   const envTableId = process.env.FEISHU_BITABLE_TABLE_ID || process.env.FEISHU_TABLE_ID || "";
   const envViewId = process.env.FEISHU_BITABLE_VIEW_ID || process.env.FEISHU_VIEW_ID || "";
+  const envWikiNodeToken = process.env.FEISHU_WIKI_NODE_TOKEN || "";
   const parsedUrl = parseBitableUrl(input.bitableUrl || process.env.FEISHU_BITABLE_URL || "");
 
   const fieldMap = input.fieldMap;
@@ -68,7 +69,7 @@ export function loadFeishuBitableConfig(configFile: string): FeishuBitableConfig
 
   return {
     bitableUrl: input.bitableUrl || process.env.FEISHU_BITABLE_URL || undefined,
-    wikiNodeToken: parsedUrl.wikiNodeToken,
+    wikiNodeToken: (input.wikiNodeToken || envWikiNodeToken || parsedUrl.wikiNodeToken || "").trim() || undefined,
     appToken: (input.appToken || envAppToken || parsedUrl.appToken || "").trim(),
     tableId: (input.tableId || envTableId || parsedUrl.tableId || "").trim(),
     viewId: (input.viewId || envViewId || parsedUrl.viewId || "").trim() || undefined,

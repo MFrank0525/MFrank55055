@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { shopCodeFromFolder } from "./product-category.js";
 import type { ShopDistributionArtifact } from "./types.js";
 
 function copyDirectoryRecursive(sourceDir: string, targetDir: string): void {
@@ -26,12 +27,13 @@ function moveDirectory(sourceDir: string, targetDir: string): void {
 
 function resolveShopFolder(shopRootDir: string, productFolder: string, simulateOnly: boolean): string {
   const baseName = path.basename(productFolder);
+  const parentShopCode = shopCodeFromFolder(path.basename(path.dirname(productFolder)));
   const shopFolders = fs
     .readdirSync(shopRootDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(shopRootDir, entry.name));
 
-  const matched = shopFolders.find((folder) => baseName.includes(path.basename(folder)));
+  const matched = parentShopCode ? shopFolders.find((folder) => shopCodeFromFolder(folder) === parentShopCode) : undefined;
   if (matched) {
     return matched;
   }
@@ -42,7 +44,9 @@ function resolveShopFolder(shopRootDir: string, productFolder: string, simulateO
 
   const inferredName = baseName.match(/^(.+?)(\d{2,}.*)$/)?.[1] || "模拟店铺";
   const fallback = path.join(shopRootDir, inferredName);
-  fs.mkdirSync(fallback, { recursive: true });
+  if (!simulateOnly) {
+    fs.mkdirSync(fallback, { recursive: true });
+  }
   return fallback;
 }
 
@@ -51,7 +55,16 @@ export function distributeProductFoldersToShops(options: {
   productFolders: string[];
   simulateOnly: boolean;
 }): ShopDistributionArtifact {
-  fs.mkdirSync(options.shopRootDir, { recursive: true });
+  if (options.simulateOnly) {
+    return {
+      distributedFolders: [...options.productFolders],
+      simulated: true
+    };
+  }
+
+  if (!options.simulateOnly) {
+    fs.mkdirSync(options.shopRootDir, { recursive: true });
+  }
   const distributedFolders: string[] = [];
 
   for (const productFolder of options.productFolders) {
@@ -61,14 +74,14 @@ export function distributeProductFoldersToShops(options: {
     }
     const shopFolder = resolveShopFolder(options.shopRootDir, productFolder, options.simulateOnly);
     const targetFolder = path.join(shopFolder, path.basename(productFolder));
-    if (fs.existsSync(targetFolder)) {
-      fs.rmSync(targetFolder, { recursive: true, force: true });
-    }
     if (options.simulateOnly) {
-      copyDirectoryRecursive(productFolder, targetFolder);
-    } else {
-      moveDirectory(productFolder, targetFolder);
+      distributedFolders.push(targetFolder);
+      continue;
     }
+    if (fs.existsSync(targetFolder)) {
+      throw new Error(`Refusing to overwrite existing shop product folder: ${targetFolder}`);
+    }
+    moveDirectory(productFolder, targetFolder);
     distributedFolders.push(targetFolder);
   }
 

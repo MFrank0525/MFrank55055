@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
+import { saveCheckpoint, clearCheckpoint } from "../business/publish-from-spu/checkpoint.js";
 import { readWorkbookRows } from "./xlsx-lite.js";
 import type { PublishArtifact } from "./types.js";
 
@@ -90,7 +91,7 @@ function validateProductFolderAssets(productFolder: string, shopFolder: string):
   const errors: string[] = [];
 
   if (mainCandidates.length === 0) {
-    errors.push("No Dreamina watermarked main image candidate was found.");
+    errors.push("No generated watermarked main image candidate was found.");
   } else {
     const normalizedMainNames = mainCandidates.map((name) => normalizeShopName(name));
     if (!normalizedMainNames.some((name) => expectedShopNames.some((expectedShopName) => name.includes(expectedShopName)))) {
@@ -132,10 +133,38 @@ function runPreflightForProductFolder(productFolder: string): PublishPreflightEr
   return errors;
 }
 
+export function publishRuntimeKey(productFolder: string): string {
+  const shopName = path.basename(path.dirname(productFolder));
+  const productName = path.basename(productFolder);
+  return `${shopName}__${productName}`.replace(/[\/\\:*?"<>|]/g, "_");
+}
+
+function wasPublishCompleted(runtimeDir: string): boolean {
+  const resultFile = path.join(runtimeDir, "result.json");
+  if (!fs.existsSync(resultFile)) {
+    return false;
+  }
+  try {
+    const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as {
+      ok?: boolean;
+      status?: string;
+      data?: {
+        browser?: {
+          publishClicked?: boolean;
+        };
+      };
+    };
+    return result.ok === true && result.status === "published" && result.data?.browser?.publishClicked === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function publishDistributedProducts(options: {
   runtimeDir: string;
   distributedFolders: string[];
   simulateOnly: boolean;
+  assertNotPaused?: () => void;
 }): Promise<PublishArtifact> {
   const orderedFolders = [...options.distributedFolders].sort((a, b) => {
     const shopDiff = path.dirname(a).localeCompare(path.dirname(b), "zh-CN");
@@ -147,14 +176,9 @@ export async function publishDistributedProducts(options: {
 
   const alreadyPublishedResults: PublishArtifact["results"] = [];
   const pendingFolders = orderedFolders.filter((productFolder) => {
-    const publishedMarker = path.join(
-      options.runtimeDir,
-      "publish",
-      path.basename(productFolder),
-      "screenshots",
-      "publish-page-published.png"
-    );
-    if (!fs.existsSync(publishedMarker)) {
+    const runtimeKey = publishRuntimeKey(productFolder);
+    const publishRuntimeDir = path.join(options.runtimeDir, "publish", runtimeKey);
+    if (!wasPublishCompleted(publishRuntimeDir)) {
       return true;
     }
 
@@ -163,25 +187,30 @@ export async function publishDistributedProducts(options: {
       ok: true,
       status: "published",
       message: "Skipped because this product was already published in a previous run.",
-      resultFile: path.join(options.runtimeDir, "publish", path.basename(productFolder), "result.json")
+      resultFile: path.join(publishRuntimeDir, "result.json")
     });
     return false;
   });
 
+  const preflightErrors = pendingFolders.flatMap((productFolder) => runPreflightForProductFolder(productFolder));
   if (options.simulateOnly) {
     return {
-      preflightErrors: [],
+      preflightErrors,
       results: pendingFolders.map((productFolder) => ({
         productFolder,
         ok: true,
-        status: "simulated",
-        message: "Publish simulated."
+        status: preflightErrors.some((item) => item.productFolder === productFolder)
+          ? "simulated_with_preflight_warnings"
+          : "simulated",
+        message: preflightErrors
+          .filter((item) => item.productFolder === productFolder)
+          .map((item) => item.message)
+          .join(" | ") || "Publish simulated."
       })).concat(alreadyPublishedResults),
       simulated: true
     };
   }
 
-  const preflightErrors = pendingFolders.flatMap((productFolder) => runPreflightForProductFolder(productFolder));
   if (preflightErrors.length > 0) {
     throw new Error(
       `Publish preflight failed for ${preflightErrors.length} issue(s): ${preflightErrors
@@ -192,8 +221,11 @@ export async function publishDistributedProducts(options: {
 
   const results: PublishArtifact["results"] = [...alreadyPublishedResults];
   for (const productFolder of pendingFolders) {
+    options.assertNotPaused?.();
     const shopFolder = path.dirname(productFolder);
     const fields = readProductWorkbookFields(findWorkbookFile(productFolder));
+    const runtimeKey = publishRuntimeKey(productFolder);
+
     const publishResult = await runPublishFromSpuJob(
       {
         shopFolder,
@@ -210,8 +242,8 @@ export async function publishDistributedProducts(options: {
         retryOnSystemError: true
       },
       {
-        runId: `auto-listing-${path.basename(productFolder)}`,
-        runtimeDir: path.join(options.runtimeDir, "publish", path.basename(productFolder))
+        runId: `auto-listing-${runtimeKey}`,
+        runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey)
       }
     );
 
@@ -223,9 +255,16 @@ export async function publishDistributedProducts(options: {
       resultFile: publishResult.artifacts.resultFile
     });
 
+    const checkpointFile = path.join(options.runtimeDir, "publish", runtimeKey);
     if (!publishResult.ok) {
-      throw new Error(`Publish failed for ${productFolder}: ${publishResult.message}`);
+      clearCheckpoint(checkpointFile);
+      return {
+        preflightErrors: [],
+        results,
+        simulated: false
+      };
     }
+    saveCheckpoint(checkpointFile, [{ step: "publish_flow", status: "completed" }]);
   }
 
   return {

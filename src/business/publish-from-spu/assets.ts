@@ -141,7 +141,7 @@ function getFeishuWhiteBackgroundImages(productFolder: string): string[] {
       ...fs.readdirSync(productFolder).filter((name) => name.toLowerCase().endsWith(".xlsx"))
     ].join(" ")
   );
-  const matchedRecord = readFeishuProductsData()
+  const matchedRecords = readFeishuProductsData()
     .map((record) => {
       const keys = [record?.spu, record?.userCognitionName, record?.genericName, `${record?.brand || ""}${record?.genericName || ""}`]
         .map((item) => normalizeText(String(item || "")))
@@ -150,7 +150,13 @@ function getFeishuWhiteBackgroundImages(productFolder: string): string[] {
       return { record, score };
     })
     .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score)[0]?.record;
+    .sort((a, b) => b.score - a.score);
+  const bestScore = matchedRecords[0]?.score || 0;
+  const bestRecords = matchedRecords.filter((item) => item.score === bestScore);
+  if (bestRecords.length > 1) {
+    throw new Error(`Multiple Feishu product records match product folder: ${productFolder}`);
+  }
+  const matchedRecord = bestRecords[0]?.record;
   const recordWhiteImages = Array.isArray(matchedRecord?.whiteBackgroundImages)
     ? matchedRecord.whiteBackgroundImages
         .map((attachment: any) => String(attachment?.localFile || ""))
@@ -162,15 +168,7 @@ function getFeishuWhiteBackgroundImages(productFolder: string): string[] {
     return sortByFileRule(recordWhiteImages).slice(0, 1);
   }
 
-  if (!fs.existsSync(FEISHU_WHITE_BACKGROUND_IMAGE_DIR)) {
-    return [];
-  }
-
-  const sourceWhiteImages = fs
-    .readdirSync(FEISHU_WHITE_BACKGROUND_IMAGE_DIR)
-    .filter((name) => isWhiteBackgroundImageFile(name))
-    .map((name) => path.join(FEISHU_WHITE_BACKGROUND_IMAGE_DIR, name));
-  return sortByFileRule(sourceWhiteImages).slice(0, 1);
+  return [];
 }
 
 function findPrimaryMainImage(productFolder: string): string[] {
@@ -236,7 +234,7 @@ export function classifyAssets(productFolder: string): ProductAssets {
   const mainImages = [...primaryMainImageSet, ...getFixedAuxiliaryImages()];
   const whiteBackgroundImages = getFeishuWhiteBackgroundImages(productFolder);
   if (primaryMainImageSet.size === 0) {
-    throw new Error(`No Dreamina watermarked main image was found in product folder: ${productFolder}`);
+    throw new Error(`No generated watermarked main image was found in product folder: ${productFolder}`);
   }
   if (whiteBackgroundImages.length === 0) {
     throw new Error(`No Feishu white-background image was found for product folder: ${productFolder}`);
@@ -292,12 +290,25 @@ function readImageDimensions(filePath: string): ImageDimensions {
     }
   }
 
-  if (buffer.length >= 30 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") {
+  if (buffer.length >= 20 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") {
     const chunk = buffer.toString("ascii", 12, 16);
     if (chunk === "VP8X" && buffer.length >= 30) {
       return {
         width: 1 + buffer.readUIntLE(24, 3),
         height: 1 + buffer.readUIntLE(27, 3)
+      };
+    }
+    if (chunk === "VP8 " && buffer.length >= 30) {
+      return {
+        width: buffer.readUInt16LE(26) & 0x3fff,
+        height: buffer.readUInt16LE(28) & 0x3fff
+      };
+    }
+    if (chunk === "VP8L" && buffer.length >= 25) {
+      const bits = buffer.readUInt32LE(21);
+      return {
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >> 14) & 0x3fff) + 1
       };
     }
   }

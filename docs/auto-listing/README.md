@@ -16,21 +16,21 @@
 调度器会在每个步骤开始前读取对应 `md`。
 
 3. 规则只有一个来源  
-豆包卖点、DeepSeek 指令、Dreamina 指令1模板，统一从步骤 `md` 读取，不允许在多个执行脚本里长期复制第二份正文。
+飞书卖点字段、DeepSeek 指令、主图生图指令模板，统一从步骤 `md` 读取，不允许在多个执行脚本里长期复制第二份正文。
 
 4. 断点续跑，不重跑已完成步骤  
 如果全流程卡在某一步，先只修这一步。修完后从这一步继续跑，不重复执行前面已经完成且没有问题的步骤。
 
 5. 积分产物优先复用，不允许浪费  
-中转站生图、Dreamina 等需要消耗额度生成的图片，失败后优先复用已成功产物，只补缺失部分，不允许无必要重复生成。
+中转站生图等需要消耗额度生成的图片，失败后优先复用已成功产物，只补缺失部分，不允许无必要重复生成。
 
 6. 主流程固定，工具可替换  
-上架前必须完成主图生成、标题生成、SPU 信息、导购短标题、品牌名称等业务节点。豆包、DeepSeek、Dreamina、中转站 `gpt-image-2` 或后续其他模型，只是完成节点目标的工具 provider。优化 provider 时不改变主流程顺序，不把工具名当成新的主流程节点。
+上架前必须完成主图生成、标题生成、SPU 信息、导购短标题、品牌名称等业务节点。飞书、豆包、DeepSeek、中转站 `gpt-image-2` 或后续其他工具，只能作为节点内部 provider 或数据来源。优化 provider 时不改变主流程顺序，不把工具名当成新的主流程节点。
 
 ## 主链路步骤
 
 1. 产品数据就绪：获取白底图、SPU、导购短标题、品牌名称、产品卖点、资质图。
-2. 卖点上下文就绪：从飞书或 provider 获取可用于后续提示词和标题的卖点上下文。
+2. 卖点上下文就绪：从飞书 `产品卖点` 字段获取可用于后续提示词和标题的卖点上下文。
 3. 图片提示词就绪：把卖点上下文转成主图/海报生图提示词。
 4. 主图生成完成：调用当前生图 provider 生成主图，并完成本地水印与产品文件夹整理。
 5. 标题生成完成：调用当前标题 provider 生成电商标题并落成标题表格。
@@ -40,7 +40,7 @@
 9. 上架发布完成：按发布 SOP 完成抖店发布。
 10. 清理归档完成：清理临时目录，保留运行记录。
 
-当前代码里的 step id 仍兼容旧命名，如 `doubao_generated`、`deepseek_generated`、`jimeng_generated`。这些 id 只是历史兼容标识，语义以本节业务节点为准。
+新任务的 state、result、events、job 必须使用真实业务 step id。旧 step id 只作为读取历史 job/state 的兼容 alias。
 
 ## 先看哪里
 
@@ -86,3 +86,16 @@ npm run rules:check
 - `manuals-read.json`
 
 这样可以看到本轮实际读取了哪些步骤说明文件。
+
+默认 CLI 只在终端输出摘要，完整任务状态保存在 `result.json` 和 `state.json`。需要在终端输出完整 JSON 时，给 `auto-listing` 加 `--json`。
+
+## 暂停与继续
+
+```bash
+npm run auto-listing:pause
+npm run auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json --resume-from-state ./data/auto-listing/runs/<runId>/state.json --out ./data/auto-listing/runs/<runId>/resume.job.json
+npm run auto-listing:resume-ready
+npm run business:auto-listing -- --job ./data/auto-listing/runs/<runId>/resume.job.json
+```
+
+真实流程仍需通过 `flow:mac-feishu:real`，或在直接运行 real job 时显式加 `--allow-real`。

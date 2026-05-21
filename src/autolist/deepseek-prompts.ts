@@ -42,16 +42,26 @@ function saveConversationCache(cache: Record<string, string>): void {
   fs.writeFileSync(CONVERSATION_CACHE_FILE, JSON.stringify(cache, null, 2), "utf8");
 }
 
-function buildPromptText(sellingPointText: string): string {
-  return [getDeepSeekInstruction1(), sellingPointText, buildDeepSeekInstruction2()].join("\n");
+function buildPromptText(sellingPointText: string, promptCount: number): string {
+  return [
+    getDeepSeekInstruction1(),
+    sellingPointText,
+    buildDeepSeekInstruction2(),
+    `本次只输出${promptCount}款不同的电商海报关键词段落。`
+  ].join("\n");
 }
 
-function buildRetryPrompt(sellingPointText: string): string {
-  return [getDeepSeekInstruction1(), sellingPointText, getDeepSeekRetryInstruction()].join("\n");
+function buildRetryPrompt(sellingPointText: string, promptCount: number): string {
+  return [
+    getDeepSeekInstruction1(),
+    sellingPointText,
+    getDeepSeekRetryInstruction(),
+    `本次只补充输出${promptCount}款不同的电商海报关键词段落。`
+  ].join("\n");
 }
 
-function writePromptFile(taskDir: string, sellingPointText: string): { promptFile: string; promptText: string } {
-  const promptText = buildPromptText(sellingPointText);
+function writePromptFile(taskDir: string, sellingPointText: string, promptCount: number): { promptFile: string; promptText: string } {
+  const promptText = buildPromptText(sellingPointText, promptCount);
   const promptFile = path.join(taskDir, "deepseek-poster-prompt.txt");
   fs.writeFileSync(promptFile, `${promptText}\n`, "utf8");
   return { promptFile, promptText };
@@ -123,13 +133,13 @@ function subtractKnownParagraphs(after: string[], before: string[]): string[] {
   return delta;
 }
 
-function validatePromptParagraphs(prompts: string[]): string[] {
-  if (prompts.length !== 5) {
-    throw new Error(`DeepSeek must return 5 keyword paragraphs, got ${prompts.length}.`);
+function validatePromptParagraphs(prompts: string[], promptCount: number): string[] {
+  if (prompts.length !== promptCount) {
+    throw new Error(`DeepSeek must return ${promptCount} keyword paragraphs, got ${prompts.length}.`);
   }
   const normalized = prompts.map((item) => normalizeLine(item)).filter(Boolean);
-  if (new Set(normalized).size !== 5) {
-    throw new Error("DeepSeek must return 5 distinct keyword paragraphs.");
+  if (new Set(normalized).size !== promptCount) {
+    throw new Error(`DeepSeek must return ${promptCount} distinct keyword paragraphs.`);
   }
   for (const prompt of normalized) {
     if (prompt.split(",").filter(Boolean).length < 4) {
@@ -139,8 +149,8 @@ function validatePromptParagraphs(prompts: string[]): string[] {
   return normalized;
 }
 
-function buildSimulatedArtifact(taskDir: string, sellingPointText: string): DeepSeekArtifact {
-  const { promptFile } = writePromptFile(taskDir, sellingPointText);
+function buildSimulatedArtifact(taskDir: string, sellingPointText: string, promptCount: number): DeepSeekArtifact {
+  const { promptFile } = writePromptFile(taskDir, sellingPointText, promptCount);
   const rawFile = path.join(taskDir, "deepseek-raw.txt");
   const extractedFile = path.join(taskDir, "deepseek-extracted.txt");
   const screenshotFile = path.join(taskDir, "deepseek.png");
@@ -151,9 +161,10 @@ function buildSimulatedArtifact(taskDir: string, sellingPointText: string): Deep
     "康复护理场景,临床洁净背景,使用方法演示,人群呼应,器械认证元素,电商主图构图",
     "生物制造车间,医疗蓝光,产品主体强化,适用人群暗示,步骤提示,品牌水印预留"
   ];
-  fs.writeFileSync(rawFile, `${prompts.join("\n")}\n`, "utf8");
-  fs.writeFileSync(extractedFile, `${prompts.join("\n")}\n`, "utf8");
-  return { promptFile, rawFile, extractedFile, screenshotFile, prompts, simulated: true };
+  const selectedPrompts = prompts.slice(0, promptCount);
+  fs.writeFileSync(rawFile, `${selectedPrompts.join("\n")}\n`, "utf8");
+  fs.writeFileSync(extractedFile, `${selectedPrompts.join("\n")}\n`, "utf8");
+  return { promptFile, rawFile, extractedFile, screenshotFile, prompts: selectedPrompts, simulated: true };
 }
 
 async function getDeepSeekPage(): Promise<Page> {
@@ -314,7 +325,7 @@ async function submitOnExistingConversation(
   promptText: string,
   screenshotFile: string,
   rawFile: string
-): Promise<{ submittedAt: string; capturedAt: string }> {
+): Promise<{ submittedAt: string; capturedAt: string; rawText: string }> {
   const input = await findPromptInput(page);
   await writeWholePrompt(input, promptText, page);
   const submittedAt = new Date().toISOString();
@@ -337,13 +348,10 @@ async function submitOnExistingConversation(
 
   await sleep(18000);
   const bodyText = await page.locator("body").innerText().catch(() => "");
-  fs.writeFileSync(rawFile, bodyText, "utf8");
-  await page.screenshot({ path: screenshotFile, fullPage: true });
-  return { submittedAt, capturedAt: new Date().toISOString() };
-}
-
-function readTextFile(filePath: string): string {
-  return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
+  const replyText = sliceReplyAfterPrompt(bodyText, promptText).slice(-12000);
+  fs.writeFileSync(rawFile, replyText, "utf8");
+  await page.screenshot({ path: screenshotFile, fullPage: false });
+  return { submittedAt, capturedAt: new Date().toISOString(), rawText: bodyText };
 }
 
 function extractNewPromptParagraphs(beforeRaw: string, afterRaw: string, sellingPointText: string, promptText: string): string[] {
@@ -358,41 +366,42 @@ export async function generatePosterPromptsWithDeepSeek(options: {
   taskId: string;
   sellingPointText: string;
   conversationUrl?: string;
+  promptCount: number;
   simulateOnly: boolean;
 }): Promise<DeepSeekArtifact> {
   const taskDir = ensureTaskDir(options.runtimeDir, options.taskId);
   if (options.simulateOnly) {
-    return buildSimulatedArtifact(taskDir, options.sellingPointText);
+    return buildSimulatedArtifact(taskDir, options.sellingPointText, options.promptCount);
   }
 
   const page = await getDeepSeekPage();
   await ensureDeepSeekConversationWithUrl(page, options.conversationUrl || "");
 
-  const { promptFile, promptText } = writePromptFile(taskDir, options.sellingPointText);
+  const { promptFile, promptText } = writePromptFile(taskDir, options.sellingPointText, options.promptCount);
   const rawFile = path.join(taskDir, "deepseek-raw.txt");
   const extractedFile = path.join(taskDir, "deepseek-extracted.txt");
   const screenshotFile = path.join(taskDir, "deepseek.png");
   const beforeRawFile = path.join(taskDir, "deepseek-before-raw.txt");
   const beforeRaw = await page.locator("body").innerText().catch(() => "");
-  fs.writeFileSync(beforeRawFile, beforeRaw, "utf8");
+  fs.writeFileSync(beforeRawFile, `${extractPromptParagraphs(beforeRaw, options.sellingPointText).join("\n")}\n`, "utf8");
 
   let timing = await submitOnExistingConversation(page, promptText, screenshotFile, rawFile);
-  let extracted = extractNewPromptParagraphs(beforeRaw, readTextFile(rawFile), options.sellingPointText, promptText);
+  let extracted = extractNewPromptParagraphs(beforeRaw, timing.rawText, options.sellingPointText, promptText);
 
-  if (extracted.length < 5) {
-    const retryPromptText = buildRetryPrompt(options.sellingPointText);
+  if (extracted.length < options.promptCount) {
+    const retryPromptText = buildRetryPrompt(options.sellingPointText, options.promptCount);
     const retryPromptFile = path.join(taskDir, "deepseek-poster-retry-prompt.txt");
     const retryRawFile = path.join(taskDir, "deepseek-retry-raw.txt");
     const retryScreenshotFile = path.join(taskDir, "deepseek-retry.png");
     const retryBeforeRawFile = path.join(taskDir, "deepseek-retry-before-raw.txt");
     const retryBeforeRaw = await page.locator("body").innerText().catch(() => "");
     fs.writeFileSync(retryPromptFile, `${retryPromptText}\n`, "utf8");
-    fs.writeFileSync(retryBeforeRawFile, retryBeforeRaw, "utf8");
+    fs.writeFileSync(retryBeforeRawFile, `${extractPromptParagraphs(retryBeforeRaw, options.sellingPointText).join("\n")}\n`, "utf8");
     timing = await submitOnExistingConversation(page, retryPromptText, retryScreenshotFile, retryRawFile);
-    extracted = extractNewPromptParagraphs(retryBeforeRaw, readTextFile(retryRawFile), options.sellingPointText, retryPromptText);
+    extracted = extractNewPromptParagraphs(retryBeforeRaw, timing.rawText, options.sellingPointText, retryPromptText);
   }
 
-  const prompts = validatePromptParagraphs(extracted);
+  const prompts = validatePromptParagraphs(extracted.slice(0, options.promptCount), options.promptCount);
   fs.writeFileSync(extractedFile, `${prompts.join("\n")}\n`, "utf8");
   return {
     promptFile,

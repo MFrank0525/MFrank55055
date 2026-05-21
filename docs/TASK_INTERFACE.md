@@ -1,34 +1,25 @@
 # Legacy Task Interface
 
-这个文档只描述旧的统一任务入口兼容层：
+旧统一任务入口已经移除，不再提供：
 
 ```bash
 npm run task:legacy -- --taskFile ./input/legacy/task.json
 ```
 
-默认业务执行不要再使用它。默认请改用：
+这类入口容易绕开独立 CLI 里的 doctor、dry-run、checkpoint 和真实发布保护，所以不再作为兼容层保留。
+
+默认请改用：
 
 - `npm run business:doubao -- --job <doubao-job.json>`
 - `npm run business:publish -- --job <publish-from-spu.job.json>`
+- `npm run business:auto-listing -- --job <auto-listing-job.json>`
 
-## 仍兼容的任务类型
+## 已移除的旧任务类型
 
 - `doubao.run`
 - `publish_from_spu`
 
-## 兼容层作用
-
-- 读取旧任务文件
-- 按 `taskType` 转发到现有业务实现
-- 继续输出旧格式结果 JSON
-
-## 不建议继续做的事
-
-- 不要新增新的 `taskType`
-- 不要把多个业务塞进一个统一任务流
-- 不要把它当成默认执行入口
-
-## 迁移建议
+## 迁移方式
 
 旧：
 
@@ -53,3 +44,5 @@ npm run task:legacy -- --taskFile ./input/legacy/task.publish-from-spu.flow.insp
 ```bash
 npm run business:publish -- --job ./input/publish-from-spu.job.example.json
 ```
+
+旧任务文件不要继续扩展新的 `taskType`。需要组合流程时，请使用 `business:auto-listing` 的 job 配置和 checkpoint/resume 能力。

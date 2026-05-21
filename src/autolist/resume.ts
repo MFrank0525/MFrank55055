@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { sanitizeFileName } from "../doubao/paths.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
-import { validateSellingPointText } from "./doubao-selling-points.js";
 import { loadFeishuProductRuntimeRecord } from "./feishu-products.js";
+import { getProductCategoryPlan } from "./product-category.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import type { DeepSeekArtifact, SellingPointArtifact, ShopDistributionArtifact } from "./types.js";
 
@@ -62,13 +63,9 @@ export function recoverArtifactsFromWordFiles(options: {
 } {
   const wordFiles = fs
     .readdirSync(options.jimengImageDir)
-    .filter((name) => /^即梦提示词\d{2}\.docx$/i.test(name))
+    .filter((name) => /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(name))
     .sort((a, b) => a.localeCompare(b, "zh-CN"))
     .map((name) => path.join(options.jimengImageDir, name));
-
-  if (wordFiles.length < 5) {
-    throw new Error(`Expected 5 Word prompt files in ${options.jimengImageDir}, got ${wordFiles.length}.`);
-  }
 
   const paragraphs = readSimpleWordDocument(wordFiles[0]);
   if (paragraphs.length < 3) {
@@ -84,7 +81,14 @@ export function recoverArtifactsFromWordFiles(options: {
           taskId: options.taskId
         })
       : null;
-  const validated = feishuRuntimeRecord ? null : validateSellingPointText(paragraphs[1]);
+  if (!feishuRuntimeRecord) {
+    throw new Error("Selling points must come from Feishu product data. feishuProductDataFile is required for resume.");
+  }
+  const expectedPromptCount = getProductCategoryPlan(feishuRuntimeRecord.record.productCategory).promptCount;
+  if (wordFiles.length < expectedPromptCount) {
+    throw new Error(`Expected ${expectedPromptCount} Word prompt files in ${options.jimengImageDir}, got ${wordFiles.length}.`);
+  }
+
   const prompts = wordFiles.map((file) => {
     const parts = readSimpleWordDocument(file);
     if (parts.length < 3 || !parts[2]?.trim()) {
@@ -93,26 +97,13 @@ export function recoverArtifactsFromWordFiles(options: {
     return parts[2].trim();
   });
 
-  const taskDir = path.join(options.runtimeDir, "tasks", options.taskId);
-  const sellingPointArtifact: SellingPointArtifact =
-    feishuRuntimeRecord?.sellingPointArtifact || {
-      promptFile: existingOrFallback(path.join(taskDir, "doubao-selling-points-prompt.txt")),
-      rawFile: existingOrFallback(path.join(taskDir, "doubao-selling-points-raw.txt")),
-      screenshotFile: existingOrFallback(path.join(taskDir, "doubao-selling-points.png")),
-      sellingPointText: (validated as NonNullable<typeof validated>).normalizedText,
-      segments: (validated as NonNullable<typeof validated>).segments,
-      brand: (validated as NonNullable<typeof validated>).brand,
-      userCognitionName: (validated as NonNullable<typeof validated>).userCognitionName,
-      brandedGenericName: (validated as NonNullable<typeof validated>).brandedGenericName,
-      segmentCount: (validated as NonNullable<typeof validated>).segmentCount,
-      simulated: false
-    };
+  const sellingPointArtifact: SellingPointArtifact = feishuRuntimeRecord.sellingPointArtifact;
 
   const deepseekArtifact: DeepSeekArtifact = {
-    promptFile: existingOrFallback(path.join(taskDir, "deepseek-poster-prompt.txt")),
-    rawFile: existingOrFallback(path.join(taskDir, "deepseek-raw.txt")),
-    extractedFile: existingOrFallback(path.join(taskDir, "deepseek-extracted.txt")),
-    screenshotFile: existingOrFallback(path.join(taskDir, "deepseek.png")),
+    promptFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "deepseek-poster-prompt.txt")),
+    rawFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "deepseek-raw.txt")),
+    extractedFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "deepseek-extracted.txt")),
+    screenshotFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "deepseek.png")),
     prompts,
     wordFiles,
     simulated: false
@@ -121,7 +112,7 @@ export function recoverArtifactsFromWordFiles(options: {
   return {
     sellingPointArtifact,
     deepseekArtifact,
-    feishuProductRecord: feishuRuntimeRecord?.record
+    feishuProductRecord: feishuRuntimeRecord.record
   };
 }
 
@@ -129,6 +120,8 @@ export function recoverDistributedFoldersFromShopRoot(options: {
   shopRootDir: string;
   requireWorkbook?: boolean;
   expectedCount?: number;
+  productNameCandidates?: string[];
+  expectedProductFolderNames?: string[];
 }): {
   generatedProductFolders: string[];
   shopDistributionArtifact: ShopDistributionArtifact;
@@ -138,6 +131,12 @@ export function recoverDistributedFoldersFromShopRoot(options: {
   }
 
   const shopFolders = readShopFolders(options.shopRootDir);
+  const productNameCandidates = Array.from(
+    new Set((options.productNameCandidates || []).map((item) => sanitizeFileName(item)).filter(Boolean))
+  );
+  const expectedProductFolderNames = new Set(
+    (options.expectedProductFolderNames || []).map((item) => sanitizeFileName(item)).filter(Boolean)
+  );
   const distributedFolders = shopFolders
     .flatMap((shopFolder) =>
       fs
@@ -146,6 +145,15 @@ export function recoverDistributedFoldersFromShopRoot(options: {
         .map((entry) => path.join(shopFolder, entry.name))
     )
     .filter((productFolder) => {
+      if (expectedProductFolderNames.size > 0) {
+        return expectedProductFolderNames.has(path.basename(productFolder));
+      }
+      if (
+        productNameCandidates.length > 0 &&
+        !productNameCandidates.some((productName) => path.basename(productFolder).includes(productName))
+      ) {
+        return false;
+      }
       if (options.requireWorkbook === false) {
         return true;
       }
@@ -163,7 +171,8 @@ export function recoverDistributedFoldersFromShopRoot(options: {
   });
 
   if (!selectedFolders.length) {
-    throw new Error(`No distributed product folders with workbook files were found in ${options.shopRootDir}.`);
+    const productFilter = productNameCandidates.length ? ` matching ${productNameCandidates.join(" / ")}` : "";
+    throw new Error(`No distributed product folders${productFilter} with workbook files were found in ${options.shopRootDir}.`);
   }
 
   return {

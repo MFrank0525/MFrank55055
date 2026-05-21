@@ -1,7 +1,7 @@
 {
   "input": {
     "feishuImageDir": "./input/auto-listing/feishu-images",
-    "jimengImageDir": "./input/auto-listing/jimeng-images",
+    "mainImageWorkDir": "./input/auto-listing/jimeng-images",
     "titleDir": "./input/auto-listing/titles",
     "qualificationDir": "./input/auto-listing/qualifications",
     "feishuProductDataFile": "./data/feishu/products.json",
@@ -13,10 +13,11 @@
     "dreaminaModelVersion": "5.0",
     "dreaminaResolutionType": "2k",
     "dreaminaRatio": "1:1",
-    "dreaminaExpectedImageCount": 4,
-    "dreaminaImageCountStrategy": "require_exact",
+    "mainImageExpectedCount": 4,
+    "mainImageCountStrategy": "require_exact",
     "runtimeRootDir": "./data/auto-listing/runs",
     "processedImageManifest": "./data/auto-listing/processed-images.json",
+    "pauseSignalFile": "./data/auto-listing/control/pause.requested",
     "serialOnly": true,
     "stopOnError": true,
     "cleanupAfterPublish": true,
@@ -25,7 +26,7 @@
     "titleCount": 20,
     "maxImagesPerRun": 0,
     "simulateOnly": false,
-    "startStep": "discovered",
+    "startStep": "source_images_discovered",
     "endStep": "done"
   }
 }

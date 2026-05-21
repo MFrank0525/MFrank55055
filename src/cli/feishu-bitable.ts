@@ -4,7 +4,12 @@ import { assertFeishuAuthConfigReady, getTenantAccessToken } from "../feishu/aut
 import { downloadFeishuProductAssets } from "../feishu/assets.js";
 import { listBitableFields, resolveWikiNode, searchBitableRecords } from "../feishu/client.js";
 import { assertFeishuBitableConfigReady, loadFeishuBitableConfig } from "../feishu/config.js";
-import { isEmptyFeishuProductRecord, normalizeFeishuProductRecord, validateFeishuProductRecord } from "../feishu/product-records.js";
+import {
+  isEmptyFeishuProductRecord,
+  normalizeFeishuProductRecord,
+  sanitizeFeishuProductRecord,
+  validateFeishuProductRecord
+} from "../feishu/product-records.js";
 
 type Mode = "check" | "fields" | "records" | "dump" | "assets";
 
@@ -15,6 +20,7 @@ interface CliArgs {
   outFile: string;
   whiteBackgroundDir: string;
   qualificationDir: string;
+  cleanupStaleAssets: boolean;
 }
 
 interface LocalFeishuAuthConfig {
@@ -44,18 +50,27 @@ function parseArgs(argv: string[]): CliArgs {
   const outFile = getArg(argv, "out", "data/feishu/products.json");
   const whiteBackgroundDir = getArg(argv, "white-background-dir", "input/auto-listing/feishu-images");
   const qualificationDir = getArg(argv, "qualification-dir", "input/auto-listing/qualifications");
+  const cleanupStaleAssets = argv.includes("--cleanup-stale-assets");
   return {
     mode,
     configFile,
     limit: Number.isFinite(limit) ? limit : 0,
     outFile,
     whiteBackgroundDir,
-    qualificationDir
+    qualificationDir,
+    cleanupStaleAssets
   };
 }
 
 function validateMappedFields(configFieldNames: string[], actualFieldNames: Set<string>): string[] {
   return configFieldNames.filter((fieldName) => !actualFieldNames.has(fieldName));
+}
+
+function redactIdentifier(value: string | undefined): string {
+  if (!value) {
+    return "";
+  }
+  return value.length <= 8 ? "[redacted]" : `${value.slice(0, 4)}...[redacted]...${value.slice(-4)}`;
 }
 
 function loadLocalAuthEnv(configFile: string): void {
@@ -64,12 +79,12 @@ function loadLocalAuthEnv(configFile: string): void {
     return;
   }
   const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as LocalFeishuAuthConfig;
-  // This project keeps its Feishu app credentials in the explicit config file.
-  // Prefer that file over machine-wide FEISHU_* variables so a stale/global app
-  // does not silently obtain a tenant token for the wrong Feishu app.
-  process.env.FEISHU_APP_ID = parsed.auth?.appId || process.env.FEISHU_APP_ID || "";
-  process.env.FEISHU_APP_SECRET = parsed.auth?.appSecret || process.env.FEISHU_APP_SECRET || "";
-  process.env.FEISHU_TENANT_ACCESS_TOKEN = parsed.auth?.tenantAccessToken || process.env.FEISHU_TENANT_ACCESS_TOKEN || "";
+  if (!parsed.auth) {
+    return;
+  }
+  process.env.FEISHU_APP_ID = parsed.auth.appId?.trim() || "";
+  process.env.FEISHU_APP_SECRET = parsed.auth.appSecret?.trim() || "";
+  process.env.FEISHU_TENANT_ACCESS_TOKEN = parsed.auth.tenantAccessToken?.trim() || "";
 }
 
 async function main(): Promise<void> {
@@ -106,9 +121,9 @@ async function main(): Promise<void> {
       JSON.stringify(
         {
           ok: true,
-          appToken: config.appToken,
-          tableId: config.tableId,
-          viewId: config.viewId || "",
+          appToken: redactIdentifier(config.appToken),
+          tableId: redactIdentifier(config.tableId),
+          viewId: redactIdentifier(config.viewId),
           mappedFields: mappedFieldNames,
           fieldCount: fields.length
         },
@@ -137,27 +152,37 @@ async function main(): Promise<void> {
     .map((record) => ({ recordId: record.recordId, missing: validateFeishuProductRecord(record) }))
     .filter((item) => item.missing.length > 0);
 
+  const sanitizedRecords = records.map((record) => sanitizeFeishuProductRecord(record));
   const payload = {
     ok: missingMappedFields.length === 0 && invalidRecords.length === 0,
     count: records.length,
     skippedEmptyCount: allRecords.length - records.length,
     missingMappedFields,
     invalidRecords,
-    records
+    records: sanitizedRecords
   };
 
   if (args.mode === "assets") {
+    if (!payload.ok) {
+      const outFile = path.resolve(args.outFile);
+      fs.mkdirSync(path.dirname(outFile), { recursive: true });
+      fs.writeFileSync(outFile, `${JSON.stringify({ ...payload, downloadedFiles: [], removedStaleFiles: [] }, null, 2)}\n`, "utf8");
+      console.log(JSON.stringify({ ok: false, count: payload.count, downloadedFileCount: 0, removedStaleFileCount: 0, outFile, invalidRecords }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
     const downloadResult = await downloadFeishuProductAssets({
       token,
       records,
       whiteBackgroundDir: args.whiteBackgroundDir,
-      qualificationDir: args.qualificationDir
+      qualificationDir: args.qualificationDir,
+      cleanupStaleAssets: args.cleanupStaleAssets
     });
     const outFile = path.resolve(args.outFile);
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     const assetPayload = {
       ...payload,
-      records: downloadResult.records,
+      records: downloadResult.records.map((record) => sanitizeFeishuProductRecord(record)),
       downloadedFiles: downloadResult.downloadedFiles,
       removedStaleFiles: downloadResult.removedStaleFiles
     };

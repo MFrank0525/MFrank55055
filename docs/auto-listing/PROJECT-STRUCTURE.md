@@ -71,7 +71,7 @@ npm run rules:check
 
 ### 卖点上下文
 
-[01-doubao-selling-points.md](docs/auto-listing/steps/01-doubao-selling-points.md)
+[01-selling-points.md](docs/auto-listing/steps/01-selling-points.md)
 
 ### 图片提示词
 
@@ -79,7 +79,7 @@ npm run rules:check
 
 ### 主图生成指令模板
 
-[03-dreamina-generation.md](docs/auto-listing/steps/03-dreamina-generation.md)
+[03-main-image-generation.md](docs/auto-listing/steps/03-main-image-generation.md)
 
 ## 不允许再发生的情况
 

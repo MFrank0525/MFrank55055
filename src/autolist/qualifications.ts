@@ -20,6 +20,10 @@ function listImageFiles(dir: string): string[] {
     .map((name) => path.join(dir, name));
 }
 
+function isImageFile(file: string): boolean {
+  return /\.(png|jpg|jpeg|webp)$/i.test(file);
+}
+
 export function attachQualificationFiles(options: {
   qualificationDir: string;
   productFolders: string[];
@@ -30,8 +34,9 @@ export function attachQualificationFiles(options: {
 }): QualificationArtifact {
   const productName = (options.productName || "").trim() || inferProductName(options.sellingPointText);
   const target = normalize(productName);
-  const explicitFiles = (options.sourceFiles || []).filter((file) => file && fs.existsSync(file));
-  const sourceFiles = explicitFiles.length > 0 ? explicitFiles : listImageFiles(options.qualificationDir);
+  const sourceFilesProvided = (options.sourceFiles || []).filter(Boolean).length > 0;
+  const explicitFiles = (options.sourceFiles || []).filter((file) => file && isImageFile(file) && fs.existsSync(file));
+  const sourceFiles = sourceFilesProvided ? explicitFiles : listImageFiles(options.qualificationDir);
   const matches =
     explicitFiles.length > 0 ? explicitFiles : sourceFiles.filter((file) => normalize(path.basename(file)).includes(target));
   const copiedFiles: string[] = [];
@@ -43,7 +48,9 @@ export function attachQualificationFiles(options: {
       const targetName =
         matches.length > 0 ? path.basename(sourceFile) : `资质图片-模拟${path.extname(sourceFile) || ".png"}`;
       const targetFile = path.join(productFolder, targetName);
-      fs.copyFileSync(sourceFile, targetFile);
+      if (!options.simulateOnly) {
+        fs.copyFileSync(sourceFile, targetFile);
+      }
       copiedFiles.push(targetFile);
     }
   }

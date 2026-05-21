@@ -72,6 +72,13 @@ async function savePageScreenshot(page: Page, runtimeDir: string, fileName: stri
   }
 }
 
+function writePublishJobResult(result: PublishFromSpuJobResult): PublishFromSpuJobResult {
+  const resultFile = result.artifacts.resultFile || path.join(result.runtimeDir, "result.json");
+  fs.mkdirSync(path.dirname(resultFile), { recursive: true });
+  fs.writeFileSync(resultFile, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  return result;
+}
+
 async function closeExtraPages(
   context: Awaited<ReturnType<typeof launchPersistentBrowser>>,
   keepPages: Page[]
@@ -6280,11 +6287,18 @@ async function clickPublishProductOnPage(
 
   const publishButton = activePage.getByRole("button", { name: "\u53d1\u5e03\u5546\u54c1" }).first();
   let publishClicked = false;
+  let publishIssue = "";
   if (await publishButton.count()) {
-    await publishButton.click({ timeout: 3000 }).catch(() => {});
-    await activePage.waitForTimeout(1500).catch(() => {});
-    activePage = await recoverUsablePublishPage(activePage);
-    publishClicked = true;
+    try {
+      await publishButton.click({ timeout: 3000 });
+      await activePage.waitForTimeout(1500).catch(() => {});
+      activePage = await recoverUsablePublishPage(activePage);
+      publishClicked = true;
+    } catch (error) {
+      publishIssue = `Publish product button click failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  } else {
+    publishIssue = "Publish product button was not found after all module checks passed.";
   }
 
   const screenshotFile = await savePageScreenshot(activePage, runtimeDir, fileName);
@@ -6293,7 +6307,7 @@ async function clickPublishProductOnPage(
     pageTitle: await activePage.title(),
     screenshotFile,
     publishClicked,
-    publishIssue: publishClicked ? "" : "Publish product button was not clickable after all module checks passed."
+    publishIssue
   };
 }
 
@@ -7601,7 +7615,7 @@ export async function runPublishFromSpuJob(
       };
     }
 
-    return {
+    return writePublishJobResult({
       ok: true,
       status:
         mode === "open_platform_spu"
@@ -7709,13 +7723,13 @@ export async function runPublishFromSpuJob(
           ...browserData
         }
       }
-    };
+    });
   } catch (error) {
     const diagnosticError = error as QueryDiagnosticError;
     if (diagnosticError.screenshotFile) {
       screenshots.push(diagnosticError.screenshotFile);
     }
-    return {
+    return writePublishJobResult({
       ok: false,
       status: "failed",
       message: error instanceof Error ? error.message : String(error),
@@ -7739,6 +7753,6 @@ export async function runPublishFromSpuJob(
         message: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       }
-    };
+    });
   }
 }

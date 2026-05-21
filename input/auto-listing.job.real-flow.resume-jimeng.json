@@ -3,7 +3,6 @@
   "resultFile": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\runs\\real-flow\\result.json",
   "input": {
     "feishuImageDir": "C:\\Users\\ffc\\Desktop\\20260402飞书白底图",
-    "jimengImageDir": "C:\\Users\\ffc\\Desktop\\20260403即梦图片",
     "titleDir": "C:\\Users\\ffc\\Desktop\\20260331豆包标题",
     "qualificationDir": "C:\\Users\\ffc\\Desktop\\20260401产品资质图片",
     "productInfoXlsx": "C:\\Users\\ffc\\Desktop\\2026商品信息表.xlsx",
@@ -14,8 +13,6 @@
     "dreaminaModelVersion": "5.0",
     "dreaminaResolutionType": "2k",
     "dreaminaRatio": "1:1",
-    "dreaminaExpectedImageCount": 4,
-    "dreaminaImageCountStrategy": "require_exact",
     "runtimeRootDir": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\runs",
     "processedImageManifest": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\processed-images.json",
     "serialOnly": true,
@@ -25,7 +22,11 @@
     "maxImagesPerRun": 2,
     "simulateOnly": false,
     "clearTestOutputsBeforeRun": false,
-    "startStep": "jimeng_generated",
-    "endStep": "done"
+    "startStep": "main_images_generated",
+    "endStep": "done",
+    "mainImageWorkDir": "C:\\Users\\ffc\\Desktop\\20260403即梦图片",
+    "mainImageExpectedCount": 4,
+    "mainImageCountStrategy": "require_exact",
+    "pauseSignalFile": "C:\\Users\\ffc\\.openclaw\\workspace\\douyin-title-generator\\data\\auto-listing\\control\\pause.requested"
   }
 }

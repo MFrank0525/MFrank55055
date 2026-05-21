@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { sanitizeFeishuProductRecord } from "../feishu/product-records.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import type { SellingPointArtifact } from "./types.js";
 
@@ -23,7 +24,9 @@ function readPayload(filePath: string): FeishuProductRecord[] {
   }
   const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as FeishuProductPayload | FeishuProductRecord[];
   const records = Array.isArray(parsed) ? parsed : parsed.records || [];
-  return records.filter((record) => record && typeof record === "object");
+  return records
+    .filter((record) => record && typeof record === "object")
+    .map((record) => sanitizeFeishuProductRecord(record));
 }
 
 export function loadFeishuProductRecords(productDataFile: string): FeishuProductRecord[] {
@@ -38,7 +41,6 @@ function assertRecordReady(record: FeishuProductRecord): void {
   if (!record.spu) missing.push("spu");
   if (!record.sellingPointText) missing.push("sellingPointText");
   if (!record.shortTitle) missing.push("shortTitle");
-  if (!record.productCategory) missing.push("productCategory");
   if (missing.length > 0) {
     throw new Error(`Feishu product record ${record.recordId} is incomplete: ${missing.join(", ")}`);
   }

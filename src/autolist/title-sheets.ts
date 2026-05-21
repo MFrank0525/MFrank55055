@@ -138,6 +138,45 @@ function readTitlesFromCsv(csvFile: string): string[] {
     .filter(Boolean);
 }
 
+function titleLength(title: string): number {
+  return Array.from(title).length;
+}
+
+function validateGeneratedTitles(titles: string[], productCategory: string | undefined, genericName: string): void {
+  const plan = getProductCategoryPlan(productCategory);
+  const forbiddenWords = ["抖音", "热销", "买送", "炎症", "草本", "草药", "治病"];
+  const errors: string[] = [];
+
+  titles.forEach((title, index) => {
+    const label = String(index + 1).padStart(2, "0");
+    if (titleLength(title) !== plan.titleCharacterCount) {
+      errors.push(`${label} length=${titleLength(title)}, expected=${plan.titleCharacterCount}`);
+    }
+    if (/\s/.test(title)) {
+      errors.push(`${label} contains whitespace`);
+    }
+    const forbidden = forbiddenWords.find((word) => title.includes(word));
+    if (forbidden) {
+      errors.push(`${label} contains forbidden word: ${forbidden}`);
+    }
+    if (plan.titleRule === "otc_drug") {
+      if (!/^(医用级|正品|官方正品)/.test(title)) {
+        errors.push(`${label} missing OTC prefix`);
+      }
+      if (!title.endsWith(genericName)) {
+        errors.push(`${label} missing OTC suffix: ${genericName}`);
+      }
+    }
+    if (plan.titleRule === "health_food" && /^(医用级|正品|官方正品)/.test(title)) {
+      errors.push(`${label} health food title uses fixed prefix`);
+    }
+  });
+
+  if (errors.length > 0) {
+    throw new Error(`Doubao title validation failed: ${errors.join(" | ")}`);
+  }
+}
+
 export async function generateTitleSheets(options: {
   titleDir: string;
   sourceImagePath: string;
@@ -162,13 +201,14 @@ export async function generateTitleSheets(options: {
     });
   }
 
-  fs.mkdirSync(options.titleDir, { recursive: true });
+  const titleOutputDir = path.join(options.runtimeDir, "simulated-titles");
+  fs.mkdirSync(titleOutputDir, { recursive: true });
   const productName = inferProductName(options.sellingPointText);
   const timestamp = formatTimestamp();
   const titles = buildSimulatedTitles(productName, options.titleCount);
   const generatedFiles: TitleSheetFile[] = titles.map((title, index) => {
     const workbookFile = path.join(
-      options.titleDir,
+      titleOutputDir,
       `${sanitizeFileName(`${productName}豆包${String(index + 1).padStart(2, "0")}${timestamp}`)}.xlsx`
     );
     writeSimpleWorkbook(workbookFile, buildWorkbookRows(title));
@@ -226,6 +266,7 @@ export async function generateTitleSheetsFromDoubao(options: {
   if (titles.length < options.titleCount) {
     throw new Error(`Doubao title generation returned ${titles.length} titles, expected ${options.titleCount}.`);
   }
+  validateGeneratedTitles(titles, options.productCategory, genericName);
 
   const generatedFiles: TitleSheetFile[] = titles.map((title, index) => {
     const workbookFile = path.join(
@@ -245,22 +286,49 @@ export async function generateTitleSheetsFromDoubao(options: {
   };
 }
 
-export function distributeTitleSheets(productFolders: string[], generatedFiles: TitleSheetFile[]): TitleSheetArtifact {
+export function assertTitleDistributionTargets(productFolders: string[], titleCount: number): void {
+  if (productFolders.length !== titleCount) {
+    throw new Error(`Title distribution target count mismatch: productFolders=${productFolders.length}, titles=${titleCount}.`);
+  }
+  const occupiedFolders = productFolders
+    .map((folder) => ({
+      folder,
+      workbookFiles: fs.existsSync(folder)
+        ? fs.readdirSync(folder).filter((name) => name.toLowerCase().endsWith(".xlsx"))
+        : []
+    }))
+    .filter((item) => item.workbookFiles.length > 0);
+  if (occupiedFolders.length > 0) {
+    throw new Error(
+      `Refusing to generate paid titles while product folders already contain workbook(s): ${occupiedFolders
+        .map((item) => `${item.folder} -> ${item.workbookFiles.join(", ")}`)
+        .join(" | ")}`
+    );
+  }
+}
+
+export function distributeTitleSheets(productFolders: string[], generatedFiles: TitleSheetFile[], simulateOnly: boolean): TitleSheetArtifact {
+  assertTitleDistributionTargets(productFolders, generatedFiles.length);
   const updatedFiles = generatedFiles.map((item) => ({ ...item }));
   for (let index = 0; index < productFolders.length && index < updatedFiles.length; index += 1) {
     const targetFolder = productFolders[index];
     const workbookFile = updatedFiles[index].workbookFile;
     const targetFile = path.join(targetFolder, path.basename(workbookFile));
-    for (const name of fs.readdirSync(targetFolder)) {
-      if (name.toLowerCase().endsWith(".xlsx")) {
-        fs.rmSync(path.join(targetFolder, name), { force: true });
+    if (!simulateOnly) {
+      const existingWorkbookFiles = fs
+        .readdirSync(targetFolder)
+        .filter((name) => name.toLowerCase().endsWith(".xlsx") && path.join(targetFolder, name) !== targetFile);
+      if (existingWorkbookFiles.length > 0) {
+        throw new Error(
+          `Refusing to remove existing workbook(s) in ${targetFolder}: ${existingWorkbookFiles.join(", ")}`
+        );
       }
+      fs.copyFileSync(workbookFile, targetFile);
     }
-    fs.copyFileSync(workbookFile, targetFile);
     updatedFiles[index].distributedTo = targetFolder;
   }
   return {
     generatedFiles: updatedFiles,
-    simulated: true
+    simulated: simulateOnly
   };
 }

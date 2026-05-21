@@ -6,6 +6,7 @@ import { saveTitlesFromRaw } from "./save.js";
 import { submitPrompt } from "./submit.js";
 import type { DoubaoJobInput, DoubaoJobResolved, DoubaoRunResult } from "./types.js";
 import { logInfo, setLogFile } from "../utils/logger.js";
+import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 
 const DEFAULT_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 
@@ -78,6 +79,10 @@ function resolveJob(job: DoubaoJobInput): DoubaoJobResolved {
   fs.mkdirSync(outputDir, { recursive: true });
 
   const resultFile = path.resolve(job.resultFile || path.join(runtimeDir, "result.json"));
+  const conversationUrl = job.conversationUrl?.trim() || undefined;
+  if (conversationUrl) {
+    assertNoGptPlusWebUrl(conversationUrl, "Doubao conversationUrl");
+  }
   return {
     promptFile,
     outputDir,
@@ -87,7 +92,7 @@ function resolveJob(job: DoubaoJobInput): DoubaoJobResolved {
     runtimeDir,
     cleanupOutputDir: job.cleanupOutputDir ?? true,
     freshConversation: job.freshConversation ?? false,
-    conversationUrl: job.conversationUrl?.trim() || undefined,
+    conversationUrl,
     attachImages: job.attachImages ?? true,
     captureWaitMs: job.captureWaitMs
   };

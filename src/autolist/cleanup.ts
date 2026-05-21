@@ -1,9 +1,51 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { DEFAULT_ARCHIVE_ROOT } from "./archive-main-images.js";
 import type { CleanupArtifact } from "./types.js";
 
-function isGeneratedRuntimeFile(name: string): boolean {
-  return name !== ".gitkeep";
+function pathContains(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function assertSafeCleanupTarget(target: string): void {
+  const resolved = path.resolve(target);
+  const workspaceRoot = path.resolve(process.cwd());
+  const homeDir = path.resolve(os.homedir());
+  const archiveRoot = path.resolve(DEFAULT_ARCHIVE_ROOT);
+  const filesystemRoot = path.parse(resolved).root;
+
+  if (
+    resolved === filesystemRoot ||
+    resolved === workspaceRoot ||
+    resolved === homeDir ||
+    resolved === archiveRoot ||
+    pathContains(resolved, archiveRoot) ||
+    pathContains(archiveRoot, resolved)
+  ) {
+    throw new Error(`Refusing to clean unsafe path: ${target}`);
+  }
+}
+
+function collectTitleDirTargets(titleDir?: string): string[] {
+  if (!titleDir || !fs.existsSync(titleDir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(titleDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.(xlsx|csv)$/i.test(entry.name))
+    .map((entry) => path.join(titleDir, entry.name));
+}
+
+function collectJimengDirTargets(jimengImageDir?: string): string[] {
+  if (!jimengImageDir || !fs.existsSync(jimengImageDir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(jimengImageDir, { withFileTypes: true })
+    .filter((entry) => !(entry.isFile() && /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(entry.name)))
+    .map((entry) => path.join(jimengImageDir, entry.name));
 }
 
 export function cleanupAfterPublish(options: {
@@ -28,31 +70,14 @@ export function cleanupAfterPublish(options: {
     };
   }
 
-  const titleDirFiles =
-    options.titleDir && options.simulateOnly && fs.existsSync(options.titleDir)
-      ? fs
-          .readdirSync(options.titleDir)
-          .filter(isGeneratedRuntimeFile)
-          .map((name) => path.join(options.titleDir as string, name))
-          .filter((file) => fs.existsSync(file))
-      : [];
-  const jimengDirFiles =
-    options.jimengImageDir && options.simulateOnly && fs.existsSync(options.jimengImageDir)
-      ? fs
-          .readdirSync(options.jimengImageDir)
-          .filter(isGeneratedRuntimeFile)
-          .map((name) => path.join(options.jimengImageDir as string, name))
-          .filter((file) => fs.existsSync(file))
-      : [];
-
   const targets = [
     ...options.distributedFolders,
     ...options.titleWorkbookFiles,
     ...(options.wordFiles || []),
     ...(options.publishRuntimeDirs || []),
     ...(options.taskRuntimeDir ? [options.taskRuntimeDir] : []),
-    ...titleDirFiles,
-    ...jimengDirFiles,
+    ...collectTitleDirTargets(options.titleDir),
+    ...collectJimengDirTargets(options.jimengImageDir),
     ...(!options.simulateOnly && options.cleanupSourceImageAfterPublish
       ? [options.sourceImagePath, ...(options.sourceAssetFiles || [])]
       : [])
@@ -62,6 +87,7 @@ export function cleanupAfterPublish(options: {
     if (!target) {
       continue;
     }
+    assertSafeCleanupTarget(target);
     if (fs.existsSync(target)) {
       if (!options.simulateOnly) {
         const stat = fs.statSync(target);

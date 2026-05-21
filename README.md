@@ -36,18 +36,20 @@ npm run business:doubao -- --job ./input/doubao-job.example.json
 npm run business:publish -- --job ./input/publish-from-spu.job.example.json
 ```
 
+真实发布类模式（`run_publish_flow`、`run_pre_publish_flow`、`run_graphic_flow`）必须额外传 `--allow-publish`，避免误触抖店发布。默认终端只输出摘要，完整结果写入 `result.json`；需要完整 JSON 可加 `--json`。
+
 独立输入样例：
 - `input/publish-from-spu.job.example.json`
 
-## 兼容入口
+## 旧任务入口
 
-`npm run task` 仍然保留，但只作为旧任务文件兼容层。
+旧统一任务入口已经移除，不再提供 `npm run task` / `npm run task:legacy`。继续维护旧入口会绕开独立业务入口里的 doctor、dry-run、checkpoint 和真实发布保护，不适合作为自动上架主流程。
 
-不建议新流程继续使用：
+旧任务文件请迁移到独立业务入口：
 
-```bash
-npm run task:legacy -- --taskFile ./input/legacy/task.publish-from-spu.flow.inspect.json
-```
+- 豆包业务：`npm run business:doubao -- --job ./input/doubao-job.example.json`
+- SPU 发布：`npm run business:publish -- --job ./input/publish-from-spu.job.example.json`
+- 飞书全自动上架：`npm run business:auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json`
 
 ## 安装
 
@@ -113,6 +115,17 @@ npm run flow:mac-feishu:real
 ```
 
 真实流程会调用中转站 `gpt-image-2` 生图和豆包标题生成，并可能消耗外部服务额度。如生图接口返回余额、额度或计费不足，流程会提示充值中转站账号。
+`flow:mac-feishu:real` 会先校验 job 的 `simulateOnly=false`，并在运行前打印外部服务消耗摘要；普通 `flow:mac-feishu` 会拒绝误跑真实 job。
+直接运行 real job 时必须显式传 `--allow-real`；默认 CLI 只输出摘要，完整结果保存在本轮 `result.json`，需要完整终端 JSON 可加 `--json`。
+
+暂停/继续：
+
+```bash
+npm run auto-listing:pause
+npm run auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json --resume-from-state ./data/auto-listing/runs/<runId>/state.json --out ./data/auto-listing/runs/<runId>/resume.job.json
+npm run auto-listing:resume-ready
+npm run business:auto-listing -- --job ./data/auto-listing/runs/<runId>/resume.job.json
+```
 
 豆包业务运行前：
 - 把要上传的图片放到 `input/images/`
@@ -133,7 +146,7 @@ SPU 发布业务运行前：
 
 - `src/doubao`: 豆包业务实现
 - `src/business/publish-from-spu.ts`: SPU 发布业务实现
-- `src/legacy-task`: 旧统一任务入口兼容层
 - `src/cli/doubao-run.ts`: 豆包独立 CLI
 - `src/cli/publish-from-spu.ts`: SPU 发布独立 CLI
-- `docs/TASK_INTERFACE.md`: 旧任务入口兼容说明
+- `src/cli/auto-listing.ts`: 飞书全自动上架 CLI
+- `docs/TASK_INTERFACE.md`: 旧任务入口迁移说明

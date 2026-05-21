@@ -133,6 +133,13 @@ npm run feishu:assets -- --config ./input/feishu-bitable.config.json --out ./dat
 - `qualificationImages`
 - `whiteBackgroundImages`
 
+安全边界：
+
+- 导出文件会脱敏飞书附件临时 URL、下载 URL 和非文件级 token 字段；`data/feishu/products.json` 只保留必要业务字段、附件文件名、`fileToken` 和本地附件路径。
+- `data/feishu/products.json` 仍属于运行数据，不提交 Git。
+- `input/feishu-bitable.config.json` 可放本机密钥，但必须保持 `.gitignore` 忽略，不要复制到示例配置。
+- 附件下载遇到 408、429、5xx 或瞬时网络错误会自动重试 3 次；仍失败时整批停止，避免带缺图数据进入上架。
+
 ## 接入自动上架
 
 Mac 版本优先使用：
@@ -182,6 +189,8 @@ npm run flow:mac-feishu:real
 真实流程的生图 provider 已切换为 OpenAI-compatible 中转站 `gpt-image-2`。本地密钥和接口配置放在 `input/image-generation.config.json`，该文件被 `.gitignore` 忽略；仓库只提交 `input/image-generation.config.example.json`。如果运行时报余额、额度或计费不足，需要先给中转站账号充值。
 
 这条链路不使用 ChatGPT 网页端，因此不应消耗 GPT Plus 会员消息额度。项目运行时会拦截 `chatgpt.com` 和 `chat.openai.com` 这类 ChatGPT/Plus 网页域名；OpenAI-compatible 图片接口或中转站接口属于 API/中转站计费，不等同于 GPT Plus 会员额度。
+
+真实流程仍会消耗飞书开放平台调用额度、附件下载流量、中转站生图额度、豆包标题生成账号额度，以及抖店浏览器账号会话资源。运行 `flow:mac-feishu:real` 前会打印外部服务消耗摘要。
 
 运行全流程前先检查：
 

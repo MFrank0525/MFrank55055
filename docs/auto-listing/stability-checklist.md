@@ -15,38 +15,89 @@
 
 仍需重点攻坚：
 
-1. 豆包卖点结构化
-2. DeepSeek 回复提取
-3. Dreamina CLI 出图稳定性
+1. 飞书卖点字段结构化
+2. 图片提示词回复提取
+3. 中转站 image2 主图生成稳定性
 4. 水印与产品文件夹落盘
 5. 商品信息表主键匹配
 6. 真正点击发布后的页面波动
 
 ## 整改项
 
-### 1. 豆包卖点结构化
+### -1. 浏览器账号态与 Cookie
 
 风险：
 
-- 固定对话可能被历史内容污染。
-- 第一个卖点后续仍要二次解析。
+- 豆包、DeepSeek、抖店复用持久化浏览器 profile，目录里会保存登录态 Cookie。
+- 主 profile 不可用时会启用 fallback profile，fallback 目录同样是敏感账号态。
 
 最稳定方案：
 
-1. 豆包返回后立即固化：
+1. `data/browser-profile` 和 `data/browser-profile-fallback` 必须保持 Git 忽略。
+2. doctor 必须检查两个 profile 目录都没有被 Git 跟踪。
+3. 不把 browser profile、cookie、storage state 复制到运行产物或提交仓库。
+4. 真实发布前只使用本机已登录账号态，不在脚本里写入账号密码。
+
+### 0. 暂停与继续
+
+已落地：
+
+1. 运行时默认检查暂停信号文件：
+   - `data/auto-listing/control/pause.requested`
+2. 如果信号文件存在，流程会在下一个步骤边界停止。
+3. 停止前会写入：
+   - `state.json`
+   - `result.json`
+   - `events.ndjson`
+   - `manuals-read.json`
+4. `state.json` 的 run status 会变成 `paused`，当前已经完成的步骤和产物路径会保留。
+
+使用方式：
+
+1. 暂停：
+   - `npm run auto-listing:pause`
+2. 生成继续任务：
+   - `npm run auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json --resume-from-state ./data/auto-listing/runs/<runId>/state.json --out ./data/auto-listing/runs/<runId>/resume.job.json`
+3. 继续前清除暂停信号：
+   - `npm run auto-listing:resume-ready`
+4. 运行生成的 resume job。
+   - `npm run business:auto-listing -- --job ./data/auto-listing/runs/<runId>/resume.job.json`
+5. 继续时不要清理 `data/auto-listing/runs/<runId>`、真实主图工作目录、真实标题目录、店铺产物目录，否则可复用产物会丢失。
+
+边界：
+
+- 暂停不是强杀进程；它会等当前步骤完成后，在下一步开始前停下。
+- 如果当前步骤正在调用豆包、DeepSeek、图片接口或抖店页面，需要等该步骤返回后才会落盘暂停。
+
+### 1. 飞书卖点字段结构化
+
+风险：
+
+- 飞书字段可能为空或格式不满足后续提示词/标题使用。
+- 卖点字段如果不结构化，会把错误带到图片提示词和标题生成。
+- 飞书附件临时 URL、下载 URL 或 token 类字段如果原样落盘，会扩大账号与数据泄漏面。
+- 附件下载网络抖动如果没有重试，会让整条链路在进入自动上架前随机失败。
+
+最稳定方案：
+
+1. 飞书产品数据读取后立即固化：
    - `brand`
    - `userCognitionName`
    - `brandedGenericName`
    - `sellingPointSegments[8]`
 2. 后续模块只消费结构化字段。
 3. 拆不出关键字段就立即失败。
+4. 导出到 `data/feishu/products.json` 前脱敏附件临时 URL、下载 URL 和非文件级 token 字段。
+5. 附件下载对瞬时网络错误和 408、429、5xx 自动重试，重试后仍失败才停止。
 
-### 2. DeepSeek 回复提取
+### 2. 图片提示词回复提取
 
 风险：
 
 - 可能没进入指定会话。
 - 可能抓到历史内容，提取不到 5 段。
+- 运行产物如果保存整页历史对话，会扩大账号信息和历史业务内容泄漏面。
+- 自动重试如果不设上限，会重复消耗 DeepSeek 网页账号额度。
 
 最稳定方案：
 
@@ -54,12 +105,29 @@
 2. 只截取本次 prompt 之后的最后一条回复块。
 3. 结果必须正好 5 段，且每段为逗号关键词。
 4. 不满足就失败，不写 Word。
+5. 只保存本轮回复片段、提取结果和当前视口截图，不保存整页历史对话。
+6. 固定重试最多 1 次。
 
-### 3. Dreamina CLI 出图稳定性
+### 2.1 标题生成回复提取
 
 风险：
 
-- 单次不一定返回 4 张。
+- 豆包标题生成会消耗网页账号额度。
+- 抓取不到标题时如果退回整页正文，会把历史对话落盘并污染标题解析。
+
+最稳定方案：
+
+1. 固定使用标题对话 URL。
+2. 不上传图片，只发送飞书字段生成出的标题指令。
+3. 只抓取符合标题格式的最新回复。
+4. 抓不到标题就失败，不保存整页历史对话。
+5. 不在同一失败点无限重试。
+
+### 3. 中转站 image2 主图生成稳定性
+
+风险：
+
+- 单次接口不一定返回 4 张。
 - Prompt 过重时可能直接失败。
 
 最稳定方案：
@@ -67,11 +135,11 @@
 1. 自动重复提交，累计到 4 张。
 2. 明确区分：
    - 提交失败
-   - `gen_status=fail`
+   - HTTP/API 失败
    - 成功但不足 4 张
-3. Dreamina 实际消费文案严格来自 Word 可采纳内容，不自行增删。
+3. image2 实际消费文案严格来自 Word 可采纳内容，不自行增删。
 4. 每轮落盘：
-   - `dreamina-prompt.txt`
+   - `image2-prompt.txt`
    - `submit_id`
    - `query_result` 原始结果
 
@@ -120,13 +188,14 @@
 2. 每个模块单独截图、单独校验。
 3. 模块失败立即停止，不自动跳过。
 4. 店铺切换后统一回固定标品管理 URL。
+5. 直接运行发布 CLI 的真实发布类模式必须加 `--allow-publish`；默认终端只输出摘要，完整结果写入 `result.json`。
 
 ## 推荐执行顺序
 
 1. 先稳生成侧：
-   - 豆包卖点结构化
-   - DeepSeek 回复提取
-   - Dreamina CLI 出图
+   - 飞书卖点字段结构化
+   - 图片提示词回复提取
+   - 中转站 image2 出图
 2. 再稳文件侧：
    - 水印落盘
    - 产品文件夹归档

@@ -8,6 +8,8 @@ import {
 
 interface CliArgs {
   jobFile: string;
+  allowPublish: boolean;
+  json: boolean;
 }
 
 interface PublishFromSpuJobFile {
@@ -18,11 +20,20 @@ interface PublishFromSpuJobFile {
 
 function parseArgs(argv: string[]): CliArgs {
   const args = new Map<string, string>();
-  for (let index = 0; index < argv.length; index += 2) {
+  const flags = new Set<string>();
+  for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
+    if (!key?.startsWith("--")) {
+      continue;
+    }
+    if (key === "--allow-publish" || key === "--json") {
+      flags.add(key);
+      continue;
+    }
     const value = argv[index + 1];
-    if (key?.startsWith("--") && value) {
+    if (value && !value.startsWith("--")) {
       args.set(key, value);
+      index += 1;
     }
   }
 
@@ -31,7 +42,7 @@ function parseArgs(argv: string[]): CliArgs {
     throw new Error("Usage: --job <publish-from-spu.job.json>");
   }
 
-  return { jobFile };
+  return { jobFile, allowPublish: flags.has("--allow-publish"), json: flags.has("--json") };
 }
 
 function loadJob(jobFile: string): PublishFromSpuJobFile {
@@ -59,9 +70,17 @@ function writeResult(result: PublishFromSpuJobResult): void {
   fs.writeFileSync(resultFile, `${JSON.stringify(result, null, 2)}\n`, "utf8");
 }
 
+function requiresPublishConfirmation(input: PublishFromSpuJobInput): boolean {
+  const mode = input.mode || "prepare";
+  return mode === "run_publish_flow" || mode === "run_pre_publish_flow" || mode === "run_graphic_flow";
+}
+
 async function main(): Promise<void> {
-  const { jobFile } = parseArgs(process.argv.slice(2));
+  const { jobFile, allowPublish, json } = parseArgs(process.argv.slice(2));
   const job = loadJob(jobFile);
+  if (requiresPublishConfirmation(job.input) && !allowPublish) {
+    throw new Error("Publish flow requires explicit --allow-publish to avoid accidental Doudian browser publishing.");
+  }
   const runId = path.basename(path.resolve(jobFile), path.extname(jobFile));
   const result = await runPublishFromSpuJob(job.input, {
     runId,
@@ -70,7 +89,25 @@ async function main(): Promise<void> {
   });
 
   writeResult(result);
-  console.log(JSON.stringify(result, null, 2));
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(
+      JSON.stringify(
+        {
+          ok: result.ok,
+          status: result.status,
+          message: result.message,
+          runtimeDir: result.runtimeDir,
+          resultFile: result.artifacts.resultFile,
+          screenshotCount: result.artifacts.screenshots.length,
+          error: result.error?.message
+        },
+        null,
+        2
+      )
+    );
+  }
   if (!result.ok) {
     process.exitCode = 1;
   }

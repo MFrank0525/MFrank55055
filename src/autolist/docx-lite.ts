@@ -172,7 +172,7 @@ export function writeSimpleWordDocument(filePath: string, paragraphs: string[]):
  xmlns:dcterms="http://purl.org/dc/terms/"
  xmlns:dcmitype="http://purl.org/dc/dcmitype/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:title>即梦提示词</dc:title>
+  <dc:title>主图提示词</dc:title>
   <dc:creator>Codex</dc:creator>
 </cp:coreProperties>`
     },

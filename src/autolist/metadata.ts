@@ -143,8 +143,10 @@ export function enrichDistributedTitleSheets(options: {
 
   assertMetadataComplete(metadata, matchedProductName);
 
-  for (const workbookFile of options.distributedWorkbookFiles) {
-    writeMetadataIntoWorkbook(workbookFile, metadata);
+  if (!options.simulateOnly) {
+    for (const workbookFile of options.distributedWorkbookFiles) {
+      writeMetadataIntoWorkbook(workbookFile, metadata);
+    }
   }
 
   return {

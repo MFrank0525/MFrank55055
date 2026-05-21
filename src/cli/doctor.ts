@@ -3,7 +3,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
-import { getDefaultDreaminaBin, getDreaminaWrapperPath, getPythonCommand } from "../utils/platform.js";
+import { getPythonCommand } from "../utils/platform.js";
 
 interface CheckResult {
   name: string;
@@ -15,10 +15,21 @@ interface CheckResult {
 type DoctorMode = "base" | "publish" | "auto-listing" | "feishu" | "all";
 
 interface DoctorOptions {
-  requireDreaminaGeneration: boolean;
   requireImageGeneration: boolean;
-  imageGenerationProvider: "dreamina" | "openai-compatible";
+  imageGenerationProvider: "openai-compatible";
   imageGenerationConfigFile: string;
+}
+
+interface AutoListingJobSummary {
+  input?: {
+    simulateOnly?: boolean;
+    deepseekConversationUrl?: string;
+    imageGenerationProvider?: "dreamina" | "openai-compatible";
+    imageGenerationConfigFile?: string;
+    dreaminaBin?: string;
+    pauseSignalFile?: string;
+    startStep?: string;
+  };
 }
 
 function exists(targetPath: string): boolean {
@@ -61,90 +72,36 @@ function checkCommand(name: string, command: string, args: string[] = ["--versio
   }
 }
 
-function checkDreaminaAccountAccess(): CheckResult {
-  const wrapper = getDreaminaWrapperPath("user_credit.py");
-  const dreaminaBin = getDefaultDreaminaBin();
-  if (!fs.existsSync(wrapper) || !fs.existsSync(dreaminaBin)) {
+function checkNotGitTracked(name: string, targetPath: string): CheckResult {
+  const resolved = path.resolve(targetPath);
+  if (!fs.existsSync(resolved)) {
     return {
-      name: "Dreamina account access",
-      ok: false,
-      detail: "Dreamina executable or credit wrapper is missing"
-    };
-  }
-
-  try {
-    const output = execFileSync(getPythonCommand(), [wrapper, "--dreamina-bin", dreaminaBin], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
-    }).trim();
-    const payload = JSON.parse(output) as { ok?: boolean; data?: unknown; error?: string };
-    if (!payload.ok) {
-      return {
-        name: "Dreamina account access",
-        ok: false,
-        detail: payload.error || "Dreamina account check failed"
-      };
-    }
-    return {
-      name: "Dreamina account access",
+      name,
       ok: true,
-      detail: "logged in and CLI-accessible"
-    };
-  } catch (error) {
-    return {
-      name: "Dreamina account access",
-      ok: false,
-      detail: error instanceof Error ? error.message : String(error)
+      detail: `not present: ${resolved}`,
+      required: false
     };
   }
-}
-
-function checkDreaminaGenerationAccess(required: boolean): CheckResult {
-  const wrapper = getDreaminaWrapperPath("user_credit.py");
-  const dreaminaBin = getDefaultDreaminaBin();
-  if (!fs.existsSync(wrapper) || !fs.existsSync(dreaminaBin)) {
-    return {
-      name: "Dreamina generation access",
-      ok: !required,
-      required,
-      detail: "Dreamina executable or credit wrapper is missing"
-    };
-  }
-
   try {
-    const output = execFileSync(getPythonCommand(), [wrapper, "--dreamina-bin", dreaminaBin], {
+    execFileSync("git", ["ls-files", "--error-unmatch", targetPath], {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
-    }).trim();
-    const payload = JSON.parse(output) as { ok?: boolean; data?: { vip_level?: unknown }; error?: string };
-    if (!payload.ok) {
-      return {
-        name: "Dreamina generation access",
-        ok: !required,
-        required,
-        detail: payload.error || "Dreamina account check failed"
-      };
-    }
-
-    const vipLevel = String(payload.data?.vip_level || "").trim();
-    const hasGenerationAccess = /maestro/i.test(vipLevel);
+      stdio: ["ignore", "pipe", "ignore"]
+    });
     return {
-      name: "Dreamina generation access",
-      ok: hasGenerationAccess || !required,
-      required,
-      detail: hasGenerationAccess
-        ? `image2image allowed; vip_level=${vipLevel}`
-        : `image2image requires maestro vip; current vip_level=${vipLevel || "unknown"}`
+      name,
+      ok: false,
+      detail: `tracked by git and must be removed from the index: ${targetPath}`
     };
-  } catch (error) {
+  } catch {
     return {
-      name: "Dreamina generation access",
-      ok: !required,
-      required,
-      detail: error instanceof Error ? error.message : String(error)
+      name,
+      ok: true,
+      detail: `present locally but not git-tracked: ${targetPath}`,
+      required: false
     };
   }
 }
+
 
 function checkOpenAiCompatibleImageGenerationConfig(configFile: string, required: boolean): CheckResult {
   const resolved = path.resolve(configFile || "input/image-generation.config.json");
@@ -219,13 +176,10 @@ function parseMode(argv: string[]): DoctorMode {
 }
 
 function parseOptions(argv: string[]): DoctorOptions {
-  const providerIndex = argv.indexOf("--image-generation-provider");
   const configIndex = argv.indexOf("--image-generation-config");
-  const provider = providerIndex >= 0 ? argv[providerIndex + 1] : "";
   return {
-    requireDreaminaGeneration: argv.includes("--require-dreamina-generation"),
     requireImageGeneration: argv.includes("--require-image-generation"),
-    imageGenerationProvider: provider === "openai-compatible" ? "openai-compatible" : "dreamina",
+    imageGenerationProvider: "openai-compatible",
     imageGenerationConfigFile:
       configIndex >= 0 ? argv[configIndex + 1] || "input/image-generation.config.json" : "input/image-generation.config.json"
   };
@@ -239,8 +193,13 @@ function baseChecks(): CheckResult[] {
   checkJson("input/publish-from-spu.job.example.json"),
   checkJson("input/auto-listing.job.example.json"),
   checkCommand("Python", getPythonCommand()),
-  checkPath("doubao prompt", "input/doubao-prompt.txt"),
-  checkPath("doubao image dir", "input/images")
+  checkNotGitTracked("secret file guard: Feishu config", "input/feishu-bitable.config.json"),
+  checkNotGitTracked("secret file guard: image generation config", "input/image-generation.config.json"),
+  checkNotGitTracked("secret file guard: browser storage", "data/browser-profile"),
+  checkNotGitTracked("secret file guard: fallback browser storage", "data/browser-profile-fallback"),
+  checkNotGitTracked("secret file guard: cookie artifacts", "cookies.json"),
+  checkNotGitTracked("runtime data guard", "data"),
+  checkNotGitTracked("output guard", "output")
   ];
 }
 
@@ -300,28 +259,87 @@ function checkAutoListingShopFolders(): CheckResult {
   return { name: "auto-listing shop folders", ok: true, detail: root };
 }
 
+function checkAutoListingJobFile(jobFile: string): CheckResult {
+  const resolved = path.resolve(jobFile);
+  if (!fs.existsSync(resolved)) {
+    return {
+      name: `auto-listing job: ${path.basename(jobFile)}`,
+      ok: true,
+      required: false,
+      detail: `not present: ${resolved}`
+    };
+  }
+  try {
+    const job = JSON.parse(fs.readFileSync(resolved, "utf8")) as AutoListingJobSummary;
+    const input = job.input || {};
+    if (input.deepseekConversationUrl) {
+      assertNoGptPlusWebUrl(input.deepseekConversationUrl, `${jobFile} deepseekConversationUrl`);
+    }
+    const provider = input.imageGenerationProvider || (input.dreaminaBin ? "dreamina" : "openai-compatible");
+    if (input.simulateOnly === false && provider === "openai-compatible") {
+      const configFile = input.imageGenerationConfigFile || "input/image-generation.config.json";
+      const configCheck = checkOpenAiCompatibleImageGenerationConfig(configFile, true);
+      if (!configCheck.ok) {
+        return {
+          name: `auto-listing job: ${path.basename(jobFile)}`,
+          ok: false,
+          detail: `real job image generation config invalid: ${configCheck.detail}`
+        };
+      }
+    }
+    if (input.simulateOnly === false && !input.pauseSignalFile) {
+      return {
+        name: `auto-listing job: ${path.basename(jobFile)}`,
+        ok: false,
+        detail: "real job missing pauseSignalFile"
+      };
+    }
+    if (input.startStep === "discovered") {
+      return {
+        name: `auto-listing job: ${path.basename(jobFile)}`,
+        ok: false,
+        detail: "uses legacy startStep=discovered; use source_images_discovered"
+      };
+    }
+    return {
+      name: `auto-listing job: ${path.basename(jobFile)}`,
+      ok: true,
+      detail: `${resolved}; simulateOnly=${String(input.simulateOnly ?? true)}`
+    };
+  } catch (error) {
+    return {
+      name: `auto-listing job: ${path.basename(jobFile)}`,
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function checkAutoListingJobFiles(): CheckResult[] {
+  const inputDir = path.resolve("input");
+  if (!fs.existsSync(inputDir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(inputDir)
+    .filter((name) => /^auto-listing\.job.*\.json$/i.test(name))
+    .sort((a, b) => a.localeCompare(b, "zh-CN"))
+    .map((name) => checkAutoListingJobFile(path.join("input", name)));
+}
+
 function autoListingChecks(options: DoctorOptions): CheckResult[] {
   return [
   checkCommand("Python Pillow", getPythonCommand(), ["-c", "import PIL; print(PIL.__version__)"]),
-  ...(options.imageGenerationProvider === "dreamina"
-    ? [
-        checkPath("Dreamina executable", getDefaultDreaminaBin()),
-        checkPath("Dreamina image wrapper", getDreaminaWrapperPath("image2image.py")),
-        checkPath("Dreamina query wrapper", getDreaminaWrapperPath("query_result.py")),
-        checkPath("Dreamina credit wrapper", getDreaminaWrapperPath("user_credit.py")),
-        checkDreaminaAccountAccess(),
-        ...(options.requireDreaminaGeneration ? [checkDreaminaGenerationAccess(true)] : [])
-      ]
-    : []),
-  ...(options.requireImageGeneration && options.imageGenerationProvider === "openai-compatible"
+  ...(options.requireImageGeneration
     ? [checkOpenAiCompatibleImageGenerationConfig(options.imageGenerationConfigFile, true)]
     : []),
   checkPath("auto-listing feishu images", "input/auto-listing/feishu-images"),
-  checkPath("auto-listing jimeng images", "input/auto-listing/jimeng-images"),
+  checkPath("auto-listing main image work dir", "input/auto-listing/jimeng-images"),
   checkPath("auto-listing titles", "input/auto-listing/titles"),
   checkPath("auto-listing qualifications", "input/auto-listing/qualifications"),
   checkAutoListingShopFolders(),
-  checkAutoListingProductInfoSource()
+  checkAutoListingProductInfoSource(),
+  ...checkAutoListingJobFiles()
   ];
 }
 

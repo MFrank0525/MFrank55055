@@ -1,12 +1,39 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { DEFAULT_ARCHIVE_ROOT } from "./archive-main-images.js";
 
 function safeRemove(targetPath: string, removed: string[]): void {
   if (!targetPath || !fs.existsSync(targetPath)) {
     return;
   }
+  assertSafeRemoveTarget(targetPath);
   fs.rmSync(targetPath, { recursive: true, force: true });
   removed.push(targetPath);
+}
+
+function pathContains(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function assertSafeRemoveTarget(targetPath: string): void {
+  const resolved = path.resolve(targetPath);
+  const workspaceRoot = path.resolve(process.cwd());
+  const homeDir = path.resolve(os.homedir());
+  const archiveRoot = path.resolve(DEFAULT_ARCHIVE_ROOT);
+  const filesystemRoot = path.parse(resolved).root;
+
+  if (
+    resolved === filesystemRoot ||
+    resolved === workspaceRoot ||
+    resolved === homeDir ||
+    resolved === archiveRoot ||
+    pathContains(resolved, archiveRoot) ||
+    pathContains(archiveRoot, resolved)
+  ) {
+    throw new Error(`Refusing to clear unsafe pre-run output path: ${targetPath}`);
+  }
 }
 
 function clearRuntimeDir(runtimeDir: string, removed: string[]): void {
@@ -34,7 +61,7 @@ function clearJimengDir(jimengImageDir: string, removed: string[]): void {
     return;
   }
   for (const entry of fs.readdirSync(jimengImageDir, { withFileTypes: true })) {
-    if (entry.isFile() && /^即梦提示词\d{2}\.docx$/i.test(entry.name)) {
+    if (entry.isFile() && /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(entry.name)) {
       continue;
     }
     safeRemove(path.join(jimengImageDir, entry.name), removed);

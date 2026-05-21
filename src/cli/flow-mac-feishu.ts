@@ -16,6 +16,14 @@ interface LocalFeishuConfig {
   };
 }
 
+interface AutoListingJobSummary {
+  input?: {
+    simulateOnly?: boolean;
+    imageGenerationProvider?: string;
+    imageGenerationConfigFile?: string;
+  };
+}
+
 function parseArgs(argv: string[]): FlowArgs {
   const configIndex = argv.indexOf("--config");
   return {
@@ -31,15 +39,14 @@ function loadFeishuEnv(configFile: string): NodeJS.ProcessEnv {
     return process.env;
   }
   const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as LocalFeishuConfig;
+  if (!parsed.auth) {
+    return process.env;
+  }
   return {
     ...process.env,
-    // Prefer this flow's explicit config over global shell variables. The
-    // workstation may have FEISHU_APP_ID/SECRET for another app, which causes
-    // Feishu to return misleading "missing scope" errors even when the app
-    // shown in the config has the required scopes enabled.
-    FEISHU_APP_ID: parsed.auth?.appId || process.env.FEISHU_APP_ID || "",
-    FEISHU_APP_SECRET: parsed.auth?.appSecret || process.env.FEISHU_APP_SECRET || "",
-    FEISHU_TENANT_ACCESS_TOKEN: parsed.auth?.tenantAccessToken || process.env.FEISHU_TENANT_ACCESS_TOKEN || ""
+    FEISHU_APP_ID: parsed.auth.appId?.trim() || "",
+    FEISHU_APP_SECRET: parsed.auth.appSecret?.trim() || "",
+    FEISHU_TENANT_ACCESS_TOKEN: parsed.auth.tenantAccessToken?.trim() || ""
   };
 }
 
@@ -54,6 +61,39 @@ function runStep(label: string, command: string, args: string[], env: NodeJS.Pro
   }
 }
 
+function loadJobSummary(jobFile: string): AutoListingJobSummary {
+  const resolved = path.resolve(jobFile);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`Job file not found: ${resolved}`);
+  }
+  return JSON.parse(fs.readFileSync(resolved, "utf8")) as AutoListingJobSummary;
+}
+
+function assertFlowModeMatchesJob(jobFile: string, real: boolean): void {
+  const job = loadJobSummary(jobFile);
+  const simulateOnly = job.input?.simulateOnly;
+  if (real && simulateOnly !== false) {
+    throw new Error(`Real flow requires job input.simulateOnly=false: ${path.resolve(jobFile)}`);
+  }
+  if (!real && simulateOnly === false) {
+    throw new Error(`Simulate flow refuses to run a real job with input.simulateOnly=false: ${path.resolve(jobFile)}`);
+  }
+}
+
+function printExternalCostSummary(jobFile: string, real: boolean): void {
+  const job = loadJobSummary(jobFile);
+  const provider = job.input?.imageGenerationProvider || "openai-compatible";
+  console.log("\n== External service summary ==");
+  console.log(`Mode: ${real ? "real paid-capable" : "simulate"}`);
+  console.log(`Image generation provider: ${provider}`);
+  if (real) {
+    console.log("May consume: Feishu API quota, OpenAI-compatible image generation credits, Doubao web account quota, Doudian browser session.");
+    console.log(`Image generation config file: ${path.resolve(job.input?.imageGenerationConfigFile || "./input/image-generation.config.json")}`);
+  } else {
+    console.log("Paid image generation and browser publishing must remain disabled by input.simulateOnly=true.");
+  }
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   const jobFile = args.real
@@ -62,18 +102,11 @@ function main(): void {
 
   console.log(`Flow mode: ${args.real ? "real" : "simulate"}`);
   console.log(`Job file: ${path.resolve(jobFile)}`);
+  assertFlowModeMatchesJob(jobFile, args.real);
+  printExternalCostSummary(jobFile, args.real);
   const feishuEnv = loadFeishuEnv(args.configFile);
 
-  runStep("Feishu assets", "npm", [
-    "run",
-    "feishu:assets",
-    "--",
-    "--config",
-    args.configFile,
-    "--out",
-    "./data/feishu/products.json"
-  ], feishuEnv);
-  runStep("Feishu doctor", "npm", ["run", "doctor:feishu"]);
+  runStep("Feishu doctor", "npm", ["run", "doctor:feishu"], feishuEnv);
   runStep(
     "Auto-listing doctor",
     "npm",
@@ -90,7 +123,24 @@ function main(): void {
         ]
       : ["run", "doctor:auto-listing", "--", "--image-generation-provider", "openai-compatible"]
   );
-  runStep("Auto-listing", "npm", ["run", "business:auto-listing", "--", "--job", jobFile]);
+  runStep("Feishu assets", "npm", [
+    "run",
+    "feishu:assets",
+    "--",
+    "--config",
+    args.configFile,
+    "--out",
+    "./data/feishu/products.json",
+    "--cleanup-stale-assets"
+  ], feishuEnv);
+  runStep("Auto-listing", "npm", [
+    "run",
+    "business:auto-listing",
+    "--",
+    "--job",
+    jobFile,
+    ...(args.real ? ["--allow-real"] : [])
+  ]);
 }
 
 try {
