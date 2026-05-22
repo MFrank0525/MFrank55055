@@ -87,3 +87,18 @@ export type PublishFlowStage = {
   step: string;
   status: "completed" | "failed";
 };
+
+export interface PublishActionResult {
+  action: string;
+  ok: boolean;
+  issue: string;
+  screenshotFile?: string;
+  pageUrl?: string;
+  pageTitle?: string;
+}
+
+export interface PublishRuleDecision {
+  rule: string;
+  passed: boolean;
+  issue: string;
+}

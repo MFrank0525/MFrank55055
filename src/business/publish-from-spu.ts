@@ -19,6 +19,7 @@ import {
   SPEC_TEMPLATE_KEYWORD_JIUGUANG
 } from "./publish-from-spu/constants.js";
 import type {
+  PublishActionResult,
   ProductAssets,
   PublishFlowStage,
   PublishFromSpuJobInput,
@@ -28,6 +29,8 @@ import type {
   QueryMatchCandidate
 } from "./publish-from-spu/types.js";
 import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
+import { evaluatePublishSubmission, evaluatePublishSubmissionAfterAction } from "./publish-from-spu/publish-rules.js";
+import { makePublishActionResult } from "./publish-from-spu/publish-actions.js";
 
 export type { PublishFromSpuJobInput, PublishFromSpuJobOptions, PublishFromSpuJobResult } from "./publish-from-spu/types.js";
 
@@ -6441,38 +6444,12 @@ async function clickVisibleDialogAction(page: Page, labels: string[]): Promise<b
 }
 
 async function readPublishSubmissionState(page: Page): Promise<{ submitted: boolean; issue: string }> {
-  return page.evaluate(() => {
-    const bodyText = (document.body?.innerText || "").replace(/\s+/g, "");
-    const url = window.location.href;
-    const successPatterns = [
-      "发布成功",
-      "提交成功",
-      "商品发布成功",
-      "已提交审核",
-      "提交审核成功",
-      "创建成功",
-      "发布任务已提交"
-    ];
-    if (successPatterns.some((text) => bodyText.includes(text))) {
-      return { submitted: true, issue: "" };
-    }
-    if (
-      !url.includes("/ffa/g/create") &&
-      /\/ffa\/g\/(success|audit)/.test(url) &&
-      !bodyText.includes("发布商品")
-    ) {
-      return { submitted: true, issue: "" };
-    }
-    const blockingPatterns = ["必填", "请填写", "错误", "失败", "待处理", "校验未通过", "请上传", "不能为空"];
-    const issue =
-      bodyText
-        .split(/[\n。；;，,]/)
-        .map((line) => line.trim())
-        .filter((line) => blockingPatterns.some((text) => line.includes(text)))
-        .slice(0, 3)
-        .join(" | ") || "No publish success signal was detected after clicking 发布商品.";
-    return { submitted: false, issue };
-  });
+  const snapshot = await page.evaluate(() => ({
+    bodyText: document.body?.innerText || "",
+    url: window.location.href
+  }));
+  const state = evaluatePublishSubmission(snapshot);
+  return { submitted: state.submitted, issue: state.issue };
 }
 
 async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolean; issue: string }> {
@@ -6496,7 +6473,8 @@ async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolea
 
 async function readPublishSubmissionStateFromContext(
   context: Awaited<ReturnType<Page["context"]>>,
-  fallbackPage: Page
+  fallbackPage: Page,
+  publishClickAttempted = false
 ): Promise<{ page: Page; submitted: boolean; issue: string }> {
   const pages = context.pages().filter((item) => !item.isClosed());
   for (const candidate of pages.length ? pages : [fallbackPage]) {
@@ -6508,19 +6486,17 @@ async function readPublishSubmissionStateFromContext(
 
   const freshCreatePages: string[] = [];
   for (const candidate of pages) {
-    const freshCreate = await candidate
-      .evaluate(() => {
-        const bodyText = (document.body?.innerText || "").replace(/\s+/g, "");
-        return (
-          window.location.href.includes("/ffa/g/create") &&
-          bodyText.includes("商品发布") &&
-          bodyText.includes("上传主图") &&
-          bodyText.includes("商品标题") &&
-          bodyText.includes("0/60")
-        );
-      })
-      .catch(() => false);
-    if (freshCreate) {
+    const state = await candidate
+      .evaluate(() => ({ bodyText: document.body?.innerText || "", url: window.location.href }))
+      .then((snapshot) => evaluatePublishSubmissionAfterAction(snapshot, publishClickAttempted))
+      .catch(() => null);
+    if (state?.submitted) {
+      return { page: candidate, submitted: true, issue: "" };
+    }
+    if (state?.freshCreatePage) {
+      if (publishClickAttempted) {
+        return { page: candidate, submitted: true, issue: "" };
+      }
       freshCreatePages.push(candidate.url());
     }
   }
@@ -6542,13 +6518,7 @@ async function clickPublishProductOnPage(
   page: Page,
   runtimeDir: string,
   fileName: string
-): Promise<{
-  pageUrl: string;
-  pageTitle: string;
-  screenshotFile: string;
-  publishClicked: boolean;
-  publishIssue: string;
-}> {
+): Promise<PublishActionResult & { publishClicked: boolean; publishIssue: string }> {
   let activePage = page;
   await activePage.bringToFront();
   await activePage.waitForTimeout(1200);
@@ -6591,12 +6561,12 @@ async function clickPublishProductOnPage(
           activePage = await recoverUsablePageFromContext(activeContext, "/ffa/g").catch(() => activePage);
         }
         let submissionState = await waitForPublishSubmission(activePage).catch(async () => {
-          const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage);
+          const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage, publishClickAttempted);
           activePage = contextState.page;
           return { submitted: contextState.submitted, issue: contextState.issue };
         });
         if (!submissionState.submitted) {
-          const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage).catch(() => null);
+          const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage, publishClickAttempted).catch(() => null);
           if (contextState?.submitted) {
             activePage = contextState.page;
             submissionState = { submitted: true, issue: "" };
@@ -6612,7 +6582,10 @@ async function clickPublishProductOnPage(
       }
     } catch (error) {
       publishIssue = `Publish product button click failed: ${error instanceof Error ? error.message : String(error)}`;
-      const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage).catch(() => null);
+      if (publishClickAttempted) {
+        await activePage.waitForTimeout(2500).catch(() => {});
+      }
+      const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage, publishClickAttempted).catch(() => null);
       if (contextState?.submitted) {
         activePage = contextState.page;
         publishClicked = true;
@@ -6628,6 +6601,14 @@ async function clickPublishProductOnPage(
 
   const screenshotFile = await savePageScreenshot(activePage, runtimeDir, fileName);
   return {
+    ...makePublishActionResult({
+      action: "click_publish_product",
+      ok: publishClicked && !publishIssue,
+      issue: publishIssue,
+      pageUrl: activePage.url(),
+      pageTitle: await activePage.title(),
+      screenshotFile
+    }),
     pageUrl: activePage.url(),
     pageTitle: await activePage.title(),
     screenshotFile,
@@ -7440,7 +7421,9 @@ async function runPublishFlow(
       stages.push({ step: "final_forbidden_graphic_check", status: "completed" });
 
       const publishResult = await clickPublishProductOnPage(page, runtimeDir, "publish-page-published.png");
-      screenshotFiles.push(publishResult.screenshotFile);
+      if (publishResult.screenshotFile) {
+        screenshotFiles.push(publishResult.screenshotFile);
+      }
       publishClicked = publishResult.publishClicked;
       publishIssue = publishResult.publishIssue;
       if (!publishClicked || publishIssue) {

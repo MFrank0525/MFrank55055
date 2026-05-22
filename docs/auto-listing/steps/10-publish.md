@@ -8,6 +8,7 @@
 
 - [publish.ts](src/autolist/publish.ts)
 - [publish-from-spu.ts](src/business/publish-from-spu.ts)
+- 规则与动作分层说明：[publish-rule-action-separation.md](docs/auto-listing/publish-rule-action-separation.md)
 
 ## 输入
 
@@ -51,6 +52,7 @@
 8. 同一商品流程只允许保留一个活跃 `/ffa/g/create` 发布页；重开发布页前必须关闭旧发布页。
 9. 发布前检查未通过、白底图/3:4 主图未清空、详情页未完成时，必须停止并记录 checkpoint，不允许点击 `发布商品`。
 10. 断点重跑时，如果当前产品已有发布成功截图或发布结果，必须跳过已发布商品，避免重复提交。
+11. 浏览器动作和业务规则必须分开保存：页面点击、上传、截图属于动作层；是否算发布成功、是否能继续、是否必须停止属于规则层。
 
 ## 失败条件
 
