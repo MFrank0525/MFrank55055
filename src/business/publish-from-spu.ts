@@ -29,7 +29,14 @@ import type {
   QueryMatchCandidate
 } from "./publish-from-spu/types.js";
 import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
-import { evaluatePublishSubmission, evaluatePublishSubmissionAfterAction } from "./publish-from-spu/publish-rules.js";
+import {
+  evaluateForbiddenGraphicSections,
+  evaluatePriceInventoryCompletion,
+  evaluatePublishCheckResult,
+  evaluatePublishSubmission,
+  evaluatePublishSubmissionAfterAction,
+  evaluateServiceCompletion
+} from "./publish-from-spu/publish-rules.js";
 import { makePublishActionResult } from "./publish-from-spu/publish-actions.js";
 
 export type { PublishFromSpuJobInput, PublishFromSpuJobOptions, PublishFromSpuJobResult } from "./publish-from-spu/types.js";
@@ -7311,7 +7318,13 @@ async function runPublishFlow(
       screenshotFiles.push(priceInventoryResult.screenshotFile);
       filledPriceRows = priceInventoryResult.filledRows;
       priceIssue = priceInventoryResult.priceIssue;
-      if (!specIssue && !priceIssue && filledPriceRows >= FIXED_PRICES.length) {
+      const priceRule = evaluatePriceInventoryCompletion({
+        filledPriceRows,
+        expectedRows: FIXED_PRICES.length,
+        priceIssue,
+        specIssue
+      });
+      if (priceRule.passed) {
         priceInventoryCompleted = true;
         break;
       }
@@ -7321,10 +7334,14 @@ async function runPublishFlow(
       break;
     }
     if (!priceInventoryCompleted) {
+      const priceRule = evaluatePriceInventoryCompletion({
+        filledPriceRows,
+        expectedRows: FIXED_PRICES.length,
+        priceIssue,
+        specIssue
+      });
       stages.push({ step: "apply_price_inventory", status: "failed" });
-      throw new Error(
-        `Sequential publish flow stopped: 价格库存模块未完成。${specIssue || priceIssue || `Expected ${FIXED_PRICES.length} price rows but filled ${filledPriceRows}.`}`
-      );
+      throw new Error(`Sequential publish flow stopped: 价格库存模块未完成。${priceRule.issue}`);
     }
     stages.push({ step: "apply_price_inventory", status: "completed" });
 
@@ -7339,16 +7356,10 @@ async function runPublishFlow(
     freightTemplateName = settingsResult.freightTemplateName;
     const serviceRequiredFields = ["shippingMode", "shippingTime", "productStatus", "freightTemplate"];
     const missingServiceFields = serviceRequiredFields.filter((field) => !configuredFields.includes(field));
-    if (!freightTemplateName || missingServiceFields.length) {
+    const serviceRule = evaluateServiceCompletion({ freightTemplateName, missingFields: missingServiceFields });
+    if (!serviceRule.passed) {
       stages.push({ step: "apply_fixed_publish_settings", status: "failed" });
-      throw new Error(
-        `Sequential publish flow stopped: 服务与履约模块未完成。${[
-          !freightTemplateName ? "Freight template was not selected." : "",
-          missingServiceFields.length ? `Missing configured fields: ${missingServiceFields.join(", ")}` : ""
-        ]
-          .filter(Boolean)
-          .join(" ")}`
-      );
+      throw new Error(`Sequential publish flow stopped: 服务与履约模块未完成。${serviceRule.issue}`);
     }
     stages.push({ step: "apply_fixed_publish_settings", status: "completed" });
 
@@ -7358,11 +7369,10 @@ async function runPublishFlow(
       "publish-page-forbidden-graphic-sections-before-check.png"
     );
     screenshotFiles.push(preCheckForbiddenResult.screenshotFile);
-    if (preCheckForbiddenResult.remainingSections.length) {
+    const preForbiddenRule = evaluateForbiddenGraphicSections(preCheckForbiddenResult.remainingSections);
+    if (!preForbiddenRule.passed) {
       stages.push({ step: "pre_publish_forbidden_graphic_check", status: "failed" });
-      throw new Error(
-        `Sequential publish flow stopped: 发布前白底图/3:4主图仍未清空。remaining=${preCheckForbiddenResult.remainingSections.join(", ")}`
-      );
+      throw new Error(`Sequential publish flow stopped: 发布前白底图/3:4主图仍未清空。${preForbiddenRule.issue}`);
     }
     stages.push({ step: "pre_publish_forbidden_graphic_check", status: "completed" });
 
@@ -7397,11 +7407,16 @@ async function runPublishFlow(
     if (checkPassed && !blockingFields.length && specIssue) {
       specIssue = "";
     }
-    if (!checkPassed || blockingFields.length) {
+    const publishCheckRule = evaluatePublishCheckResult({
+      checkPassed,
+      blockingFields,
+      uploadIssue,
+      specIssue,
+      priceIssue
+    });
+    if (!publishCheckRule.passed) {
       stages.push({ step: "run_publish_check", status: "failed" });
-      throw new Error(
-        `Sequential publish flow stopped: 妯″潡鏍￠獙鏈€氳繃銆?{checkMessage}${blockingFields.length ? ` blockingFields=${blockingFields.join(", ")}` : ""}`
-      );
+      throw new Error(`Sequential publish flow stopped: 模块校验未通过。${checkMessage} ${publishCheckRule.issue}`);
     }
     stages.push({ step: "run_publish_check", status: "completed" });
 
@@ -7412,11 +7427,10 @@ async function runPublishFlow(
         "publish-page-forbidden-graphic-sections-before-submit.png"
       );
       screenshotFiles.push(finalForbiddenResult.screenshotFile);
-      if (finalForbiddenResult.remainingSections.length) {
+      const finalForbiddenRule = evaluateForbiddenGraphicSections(finalForbiddenResult.remainingSections);
+      if (!finalForbiddenRule.passed) {
         stages.push({ step: "final_forbidden_graphic_check", status: "failed" });
-        throw new Error(
-          `Sequential publish flow stopped: 提交前白底图/3:4主图仍未清空。remaining=${finalForbiddenResult.remainingSections.join(", ")}`
-        );
+        throw new Error(`Sequential publish flow stopped: 提交前白底图/3:4主图仍未清空。${finalForbiddenRule.issue}`);
       }
       stages.push({ step: "final_forbidden_graphic_check", status: "completed" });
 

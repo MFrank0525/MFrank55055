@@ -14,6 +14,16 @@ The rule layer decides whether the observed state satisfies publish requirements
 - Shared action result structure: `src/business/publish-from-spu/publish-actions.ts`
 - Rule implementation: `src/business/publish-from-spu/publish-rules.ts`
 - Rule constants that are configuration-like: `src/business/publish-from-spu/constants.ts`
+- Watermark-level run manifest: `src/autolist/publish-manifest.ts`
+
+## Runtime Records
+
+Every publish run must write two structured files under the run runtime directory:
+
+- `publish-plan.json`: the exact product folders that will be skipped or published before browser side effects begin.
+- `publish-manifest.json`: one record per watermark product folder, including shop, watermark number, result file, status, final verification status, and error class.
+
+These files are rules-facing records. Browser actions may produce raw screenshots and `result.json`, but resume decisions must use the plan and manifest rather than ad hoc folder guesses.
 
 ## Required Practice
 
@@ -24,6 +34,8 @@ The rule layer decides whether the observed state satisfies publish requirements
 5. If the publish button was clicked and Doudian returns to a fresh empty `/ffa/g/create` page, treat that as submitted only through the publish submission rule.
 6. If the publish button was not clicked, a fresh empty create page must not be treated as submitted.
 7. All resume jobs must narrow `resumeProductFolderNames` to the intended remaining product folders.
+8. A product folder may be skipped only when `publish-manifest.json` or a compatible `result.json` has a safe published decision from `publish-rules.ts`.
+9. Failed entries must keep an `errorClass` so the next optimization can target the failure category instead of replaying the whole flow.
 
 ## Expansion Plan
 
@@ -34,3 +46,4 @@ Move these next, in order:
 3. Price and inventory verification rules.
 4. Freight template and service fulfillment rules.
 5. Shop context and SPU match rules.
+6. Product-list verification rules when the 商品管理 list page is stable enough to query by title/SPU.

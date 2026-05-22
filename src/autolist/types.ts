@@ -168,6 +168,8 @@ export interface PublishArtifact {
     status: string;
     message: string;
     resultFile?: string;
+    finalVerifyStatus?: string;
+    errorClass?: string;
   }>;
   simulated: boolean;
 }

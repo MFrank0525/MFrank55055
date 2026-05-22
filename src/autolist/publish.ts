@@ -2,6 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
 import { clearCheckpoint, isStageCompleted, loadCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
+import { evaluatePublishResult } from "../business/publish-from-spu/publish-rules.js";
+import {
+  extractWatermarkNo,
+  findPublishManifestEntry,
+  isManifestEntrySafelyPublished,
+  loadPublishManifest,
+  savePublishPlan,
+  upsertPublishManifestEntry
+} from "./publish-manifest.js";
 import { readWorkbookRows } from "./xlsx-lite.js";
 import type { PublishArtifact } from "./types.js";
 
@@ -171,6 +180,27 @@ function wasPublishCompleted(runtimeDir: string): boolean {
   }
 }
 
+function readPublishResultSummary(resultFile: string): { ok?: boolean; status?: string; message?: string; publishClicked?: boolean; publishIssue?: string } {
+  const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as {
+    ok?: boolean;
+    status?: string;
+    message?: string;
+    data?: {
+      browser?: {
+        publishClicked?: boolean;
+        publishIssue?: string;
+      };
+    };
+  };
+  return {
+    ok: result.ok,
+    status: result.status,
+    message: result.message,
+    publishClicked: result.data?.browser?.publishClicked,
+    publishIssue: result.data?.browser?.publishIssue
+  };
+}
+
 export async function publishDistributedProducts(options: {
   runtimeDir: string;
   distributedFolders: string[];
@@ -185,20 +215,82 @@ export async function publishDistributedProducts(options: {
     return path.basename(a).localeCompare(path.basename(b), "zh-CN");
   });
 
+  const manifest = loadPublishManifest(options.runtimeDir);
+  const plan = orderedFolders.map((productFolder) => {
+    const runtimeKey = publishRuntimeKey(productFolder);
+    const manifestEntry = findPublishManifestEntry(manifest, runtimeKey);
+    if (isManifestEntrySafelyPublished(manifestEntry)) {
+      return {
+        productFolder,
+        runtimeKey,
+        action: "skip" as const,
+        reason: `manifest:${manifestEntry?.finalVerifyStatus}`,
+        manifestStatus: manifestEntry?.status,
+        finalVerifyStatus: manifestEntry?.finalVerifyStatus
+      };
+    }
+    const resultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
+    if (fs.existsSync(resultFile)) {
+      const decision = evaluatePublishResult(readPublishResultSummary(resultFile));
+      if (decision.safelyPublished) {
+        return {
+          productFolder,
+          runtimeKey,
+          action: "skip" as const,
+          reason: `result:${decision.finalVerifyStatus}`,
+          manifestStatus: "published",
+          finalVerifyStatus: decision.finalVerifyStatus
+        };
+      }
+    }
+    return {
+      productFolder,
+      runtimeKey,
+      action: "publish" as const,
+      reason: manifestEntry?.message || "no safe published checkpoint",
+      manifestStatus: manifestEntry?.status,
+      finalVerifyStatus: manifestEntry?.finalVerifyStatus
+    };
+  });
+  savePublishPlan(options.runtimeDir, plan);
+
   const alreadyPublishedResults: PublishArtifact["results"] = [];
   const pendingFolders = orderedFolders.filter((productFolder) => {
     const runtimeKey = publishRuntimeKey(productFolder);
     const publishRuntimeDir = path.join(options.runtimeDir, "publish", runtimeKey);
+    const planItem = plan.find((item) => item.runtimeKey === runtimeKey);
+    if (planItem?.action === "skip") {
+      alreadyPublishedResults.push({
+        productFolder,
+        ok: true,
+        status: "published",
+        message: `Skipped because publish plan marked it completed: ${planItem.reason}`,
+        resultFile: path.join(publishRuntimeDir, "result.json"),
+        finalVerifyStatus: planItem.finalVerifyStatus
+      });
+      return false;
+    }
     if (!wasPublishCompleted(publishRuntimeDir)) {
       return true;
     }
 
+    upsertPublishManifestEntry(options.runtimeDir, {
+      productFolder,
+      runtimeKey,
+      shopFolder: path.dirname(productFolder),
+      watermarkNo: extractWatermarkNo(productFolder),
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      resultFile: path.join(publishRuntimeDir, "result.json"),
+      message: "Recovered from legacy completed result file."
+    });
     alreadyPublishedResults.push({
       productFolder,
       ok: true,
       status: "published",
       message: "Skipped because this product was already published in a previous run.",
-      resultFile: path.join(publishRuntimeDir, "result.json")
+      resultFile: path.join(publishRuntimeDir, "result.json"),
+      finalVerifyStatus: "publish_signal_confirmed"
     });
     return false;
   });
@@ -257,17 +349,32 @@ export async function publishDistributedProducts(options: {
         runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey)
       }
     );
+    const resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
+    const decision = evaluatePublishResult(resultSummary);
 
     results.push({
       productFolder,
       ok: publishResult.ok,
       status: publishResult.status,
       message: publishResult.message,
-      resultFile: publishResult.artifacts.resultFile
+      resultFile: publishResult.artifacts.resultFile,
+      finalVerifyStatus: decision.finalVerifyStatus,
+      errorClass: decision.errorClass
+    });
+    upsertPublishManifestEntry(options.runtimeDir, {
+      productFolder,
+      runtimeKey,
+      shopFolder,
+      watermarkNo: extractWatermarkNo(productFolder),
+      status: decision.safelyPublished ? "published" : "failed",
+      finalVerifyStatus: decision.finalVerifyStatus,
+      resultFile: publishResult.artifacts.resultFile,
+      message: publishResult.message,
+      errorClass: decision.errorClass
     });
 
     const checkpointFile = path.join(options.runtimeDir, "publish", runtimeKey);
-    if (!publishResult.ok) {
+    if (!decision.safelyPublished) {
       clearCheckpoint(checkpointFile);
       return {
         preflightErrors: [],
