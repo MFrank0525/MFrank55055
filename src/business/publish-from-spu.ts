@@ -410,6 +410,43 @@ async function clickTopRightShopMenu(page: Page): Promise<boolean> {
   return false;
 }
 
+async function waitForTopRightShopMenuAnchor(page: Page, timeoutMs = 12000): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const found = await page
+      .evaluate(() => {
+        const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+        const bodyText = normalize(document.body?.innerText || "");
+        if (bodyText.includes("切换组织/店铺") || bodyText.includes("退出")) {
+          return true;
+        }
+        return Array.from(document.querySelectorAll("body *"))
+          .map((node) => node as HTMLElement)
+          .some((el) => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            const text = normalize(el.innerText || el.textContent || "");
+            return (
+              Boolean(text) &&
+              rect.width > 0 &&
+              rect.height > 0 &&
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              rect.top <= 180 &&
+              rect.left >= window.innerWidth * 0.68 &&
+              /(旗舰店|专营店|专卖店|店铺)/.test(text)
+            );
+          });
+      })
+      .catch(() => false);
+    if (found) {
+      return true;
+    }
+    await page.waitForTimeout(600);
+  }
+  return false;
+}
+
 async function clickVisibleActionText(page: Page, text: string): Promise<boolean> {
   const point = await page.evaluate((targetText) => {
     const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
@@ -956,6 +993,11 @@ async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: str
   }
   let lastActual = currentBefore || "";
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    const anchorReady = await waitForTopRightShopMenuAnchor(page, 10000 + attempt * 3000);
+    if (!anchorReady) {
+      await gotoWithTolerance(page, PLATFORM_SPU_URL, 5000 + attempt * 1500).catch(() => {});
+      await waitForTopRightShopMenuAnchor(page, 8000 + attempt * 2000).catch(() => false);
+    }
     const menuOpened = await clickTopRightShopMenu(page);
     if (!menuOpened) {
       if (await isDoudianLoginRequired(page)) {
@@ -963,6 +1005,12 @@ async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: str
         throw new Error(
           `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
         );
+      }
+      if (attempt < 2) {
+        await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + attempt * 1500).catch(() => {});
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout(1000);
+        continue;
       }
       const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-menu-missing.png").catch(() => "");
       throw new Error(`Shop switch failed: could not open top-right shop menu for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
@@ -2485,7 +2533,16 @@ async function findPublishSectionTabCenter(page: Page, text: string): Promise<{ 
 async function isPublishSectionContentVisible(page: Page, text: string): Promise<boolean> {
   return page.evaluate((targetText) => {
     const markersBySection: Record<string, string[]> = {
-      "\u57fa\u7840\u4fe1\u606f": ["\u77ed\u6807\u9898", "\u578b\u53f7\u89c4\u683c"],
+      "\u57fa\u7840\u4fe1\u606f": [
+        "\u5546\u54c1\u6807\u9898",
+        "\u5bfc\u8d2d\u77ed\u6807\u9898",
+        "\u5546\u54c1\u7c7b\u76ee",
+        "\u7c7b\u76ee\u5c5e\u6027",
+        "\u54c1\u724c",
+        "\u533b\u7597\u5668\u68b0\u5907\u6848/\u6ce8\u518c\u53f7",
+        "\u77ed\u6807\u9898",
+        "\u578b\u53f7\u89c4\u683c"
+      ],
       "\u56fe\u6587\u4fe1\u606f": ["\u4e3b\u56fe", "\u5546\u54c1\u8be6\u60c5"],
       "\u4ef7\u683c\u5e93\u5b58": ["\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "\u5546\u54c1\u89c4\u683c"],
       "\u670d\u52a1\u4e0e\u5c65\u7ea6": ["\u552e\u540e\u670d\u52a1", "\u552e\u540e\u653f\u7b56", "\u552e\u540e\u670d\u52a1\u627f\u8bfa"],
@@ -2517,7 +2574,16 @@ async function isPublishSectionContentVisible(page: Page, text: string): Promise
 async function scrollPublishSectionContentIntoView(page: Page, text: string): Promise<boolean> {
   return page.evaluate((targetText) => {
     const markersBySection: Record<string, string[]> = {
-      "\u57fa\u7840\u4fe1\u606f": ["\u77ed\u6807\u9898", "\u578b\u53f7\u89c4\u683c"],
+      "\u57fa\u7840\u4fe1\u606f": [
+        "\u5546\u54c1\u6807\u9898",
+        "\u5bfc\u8d2d\u77ed\u6807\u9898",
+        "\u5546\u54c1\u7c7b\u76ee",
+        "\u7c7b\u76ee\u5c5e\u6027",
+        "\u54c1\u724c",
+        "\u533b\u7597\u5668\u68b0\u5907\u6848/\u6ce8\u518c\u53f7",
+        "\u77ed\u6807\u9898",
+        "\u578b\u53f7\u89c4\u683c"
+      ],
       "\u56fe\u6587\u4fe1\u606f": ["\u4e3b\u56fe", "\u5546\u54c1\u8be6\u60c5"],
       "\u4ef7\u683c\u5e93\u5b58": ["\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "\u5546\u54c1\u89c4\u683c"],
       "\u670d\u52a1\u4e0e\u5c65\u7ea6": ["\u552e\u540e\u670d\u52a1", "\u552e\u540e\u653f\u7b56", "\u552e\u540e\u670d\u52a1\u627f\u8bfa"],
@@ -6187,6 +6253,82 @@ async function isUsablePublishCreatePage(page: Page): Promise<boolean> {
   });
 }
 
+async function getPublishCreatePageHealth(page: Page): Promise<{
+  usable: boolean;
+  bodyTextLength: number;
+  sectionCount: number;
+  loading: boolean;
+  loginRequired: boolean;
+}> {
+  if (page.isClosed() || !page.url().includes("/ffa/g/create")) {
+    return { usable: false, bodyTextLength: 0, sectionCount: 0, loading: false, loginRequired: false };
+  }
+  return page.evaluate(() => {
+    const bodyText = document.body.innerText || "";
+    const normalized = bodyText.replace(/\s+/g, "");
+    const sectionCount = ["基础信息", "图文信息", "价格库存", "服务与履约"].filter((text) => normalized.includes(text)).length;
+    const hasPublishAction = normalized.includes("发布商品") || normalized.includes("填写检查");
+    const loginRequired =
+      (normalized.includes("扫码登录") && normalized.includes("抖店App")) ||
+      normalized.includes("打开抖店App扫码登录") ||
+      normalized.includes("切换为手机/邮箱登录");
+    const loading =
+      normalized.includes("加载中") ||
+      normalized.includes("努力加载") ||
+      normalized.includes("网络异常") ||
+      normalized.includes("系统繁忙") ||
+      normalized.includes("请稍后重试");
+    return {
+      usable: sectionCount >= 2 && hasPublishAction && !loginRequired,
+      bodyTextLength: normalized.length,
+      sectionCount,
+      loading,
+      loginRequired
+    };
+  });
+}
+
+async function waitForPublishCreatePageReady(
+  page: Page,
+  runtimeDir: string,
+  publishPageUrl: string,
+  label: string,
+  maxAttempts = 3
+): Promise<void> {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await Promise.race([
+      page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {}),
+      page.waitForTimeout(1800 + attempt * 600).catch(() => {})
+    ]);
+    const health = await getPublishCreatePageHealth(page).catch(() => ({
+      usable: false,
+      bodyTextLength: 0,
+      sectionCount: 0,
+      loading: false,
+      loginRequired: false
+    }));
+    if (health.usable) {
+      return;
+    }
+    if (health.loginRequired) {
+      throw new Error("Doudian login is required before publishing can continue.");
+    }
+    await savePageScreenshot(page, runtimeDir, `${label}-publish-page-not-ready-${attempt + 1}.png`).catch(() => "");
+    if (attempt < maxAttempts - 1) {
+      if (page.url().includes("/ffa/g/create")) {
+        await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+      } else if (publishPageUrl) {
+        await gotoWithTolerance(page, publishPageUrl, 2500).catch(() => {});
+      }
+      await page.waitForTimeout(2200 + attempt * 700).catch(() => {});
+      continue;
+    }
+    throw new Error(
+      `Publish create page did not become ready after network/page-content recovery. sections=${health.sectionCount}; textLength=${health.bodyTextLength}; loading=${health.loading}`
+    );
+  }
+}
+
 async function recoverUsablePageFromContext(context: Awaited<ReturnType<typeof launchPersistentBrowser>>, preferredUrlPart?: string): Promise<Page> {
   const recoveredPage =
     (preferredUrlPart
@@ -7183,12 +7325,14 @@ async function runPublishFlow(
     await closeExtraPages(context, [page]);
     await page.bringToFront();
     await gotoWithTolerance(page, createPageUrl, 3500);
+    await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "publish-initial");
     if (!shopVerifiedBeforeCreatePage) {
       await ensureShopContext(page, runtimeDir, shopFolder);
     }
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
       await gotoWithTolerance(page, createPageUrl, 3500);
+      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-basic-${basicAttempt + 1}`);
 
       try {
         await verifyCategoryRegistrationGateOnPage(
@@ -7247,6 +7391,7 @@ async function runPublishFlow(
 
     let priceInventoryCompleted = false;
     for (let specAttempt = 0; specAttempt < 2; specAttempt += 1) {
+      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-before-images-${specAttempt + 1}`);
       const imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
       screenshotFiles.push(imageResult.screenshotFile);
       uploadedGroups = imageResult.uploadedGroups;
@@ -7532,10 +7677,12 @@ async function runGraphicFlow(
     await closeExtraPages(context, [page]);
     await page.bringToFront();
     await gotoWithTolerance(page, createPageUrl, 3500);
+    await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "graphic-initial");
     await ensureShopContext(page, runtimeDir, shopFolder);
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
       await gotoWithTolerance(page, createPageUrl, 3500);
+      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `graphic-basic-${basicAttempt + 1}`);
 
       try {
         await verifyCategoryRegistrationGateOnPage(
@@ -7592,6 +7739,7 @@ async function runGraphicFlow(
       throw new Error("Graphic flow stopped: 基础信息模块未完成。");
     }
 
+    await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "graphic-before-images");
     const imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
     screenshotFiles.push(imageResult.screenshotFile);
     uploadedGroups = imageResult.uploadedGroups;

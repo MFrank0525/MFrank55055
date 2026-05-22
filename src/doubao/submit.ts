@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { launchPersistentBrowser } from "../browser/launch.js";
+import { closeBrowser, launchPersistentBrowser } from "../browser/launch.js";
 import { setClipboardText } from "../utils/clipboard.js";
 import { getPasteShortcut } from "../utils/platform.js";
 import type { SubmitPromptOptions, SubmitPromptResult } from "./types.js";
@@ -48,6 +48,7 @@ export async function submitPrompt(options: SubmitPromptOptions): Promise<Submit
 
   const { prompt, promptFile } = resolvePrompt(options);
   const context = await launchPersistentBrowser();
+  try {
   const existingPages = context.pages().filter((item) => !item.isClosed());
   const targetConversationUrl = options.conversationUrl?.trim() || "";
   const matchedPage = targetConversationUrl
@@ -115,4 +116,7 @@ export async function submitPrompt(options: SubmitPromptOptions): Promise<Submit
     promptLength: prompt.length,
     submittedAt: new Date().toISOString()
   };
+  } finally {
+    await closeBrowser(context);
+  }
 }

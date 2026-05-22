@@ -192,6 +192,38 @@ function validateGeneratedTitles(titles: string[], productCategory: string | und
   }
 }
 
+function findLatestExistingTitleCsv(outputDir: string, titleCount: number): string {
+  if (!fs.existsSync(outputDir)) {
+    return "";
+  }
+  const candidates = fs
+    .readdirSync(outputDir)
+    .filter((name) => name.toLowerCase().endsWith(".csv"))
+    .map((name) => path.join(outputDir, name))
+    .filter((file) => readTitlesFromCsv(file).length >= titleCount)
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  return candidates[0] || "";
+}
+
+function buildTitleWorkbookFiles(options: {
+  titleDir: string;
+  productName: string;
+  titles: string[];
+  timestamp: string;
+}): TitleSheetFile[] {
+  return options.titles.map((title, index) => {
+    const workbookFile = path.join(
+      options.titleDir,
+      `${sanitizeFileName(`${options.productName}豆包${String(index + 1).padStart(2, "0")}${options.timestamp}`)}.xlsx`
+    );
+    writeSimpleWorkbook(workbookFile, buildWorkbookRows(title));
+    return {
+      title,
+      workbookFile
+    };
+  });
+}
+
 export async function generateTitleSheets(options: {
   titleDir: string;
   sourceImagePath: string;
@@ -260,6 +292,20 @@ export async function generateTitleSheetsFromDoubao(options: {
   const outputDir = path.join(options.runtimeDir, "doubao-title-output");
   fs.mkdirSync(outputDir, { recursive: true });
 
+  const existingCsvFile = findLatestExistingTitleCsv(outputDir, options.titleCount);
+  if (existingCsvFile) {
+    const titles = readTitlesFromCsv(existingCsvFile).slice(0, options.titleCount);
+    return {
+      generatedFiles: buildTitleWorkbookFiles({
+        titleDir: options.titleDir,
+        productName,
+        titles,
+        timestamp
+      }),
+      simulated: false
+    };
+  }
+
   const result = await runDoubaoJob({
     promptText: buildRealTitlePrompt(options.titleCount, userCognitionName, genericName, options.productCategory),
     imagePaths: [options.sourceImagePath],
@@ -281,22 +327,14 @@ export async function generateTitleSheetsFromDoubao(options: {
   if (titles.length < options.titleCount) {
     throw new Error(`Doubao title generation returned ${titles.length} titles, expected ${options.titleCount}.`);
   }
-  validateGeneratedTitles(titles, options.productCategory, genericName);
-
-  const generatedFiles: TitleSheetFile[] = titles.map((title, index) => {
-    const workbookFile = path.join(
-      options.titleDir,
-      `${sanitizeFileName(`${productName}豆包${String(index + 1).padStart(2, "0")}${timestamp}`)}.xlsx`
-    );
-    writeSimpleWorkbook(workbookFile, buildWorkbookRows(title));
-    return {
-      title,
-      workbookFile
-    };
-  });
 
   return {
-    generatedFiles,
+    generatedFiles: buildTitleWorkbookFiles({
+      titleDir: options.titleDir,
+      productName,
+      titles,
+      timestamp
+    }),
     simulated: false
   };
 }

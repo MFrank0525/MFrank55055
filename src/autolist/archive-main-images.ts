@@ -9,6 +9,36 @@ function isImageFile(filePath: string): boolean {
   return /\.(png|jpg|jpeg|webp)$/i.test(filePath);
 }
 
+function isGeneratedRawMainImage(filePath: string): boolean {
+  return (
+    isImageFile(filePath) &&
+    filePath.includes(`${path.sep}openai-compatible${path.sep}raw${path.sep}`) &&
+    /^generated-\d+/i.test(path.basename(filePath))
+  );
+}
+
+function listImageFilesRecursive(dir: string): string[] {
+  if (!dir || !fs.existsSync(dir)) {
+    return [];
+  }
+  const collected: string[] = [];
+  const pending = [dir];
+  while (pending.length > 0) {
+    const currentDir = pending.pop() as string;
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(fullPath);
+        continue;
+      }
+      if (isImageFile(fullPath)) {
+        collected.push(fullPath);
+      }
+    }
+  }
+  return collected.sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
 function archiveTimestamp(date = new Date()): string {
   const pad = (value: number): string => String(value).padStart(2, "0");
   return [
@@ -37,15 +67,20 @@ export function archiveUnwatermarkedMainImages(options: {
   mainImageArtifact?: MainImageArtifact;
   productName: string;
   archiveRootDir?: string;
+  rawImageSearchDir?: string;
   simulateOnly: boolean;
 }): string[] {
   const archiveRootDir = options.archiveRootDir || DEFAULT_ARCHIVE_ROOT;
   const productFolderName = sanitizeFileName(options.productName || "未命名产品");
   const archiveFolderName = `${archiveTimestamp()}${productFolderName}`;
   const targetDir = resolveUniqueArchiveDir(path.join(archiveRootDir, archiveFolderName));
-  const rawFiles = (options.mainImageArtifact?.generatedFiles || [])
+  const artifactRawFiles = (options.mainImageArtifact?.generatedFiles || [])
     .map((item) => item.rawImageFile || "")
-    .filter((filePath) => filePath && isImageFile(filePath) && fs.existsSync(filePath));
+    .filter((filePath) => filePath && fs.existsSync(filePath) && isGeneratedRawMainImage(filePath));
+  const recoveredRawFiles = artifactRawFiles.length
+    ? []
+    : listImageFilesRecursive(options.rawImageSearchDir || "").filter(isGeneratedRawMainImage);
+  const rawFiles = artifactRawFiles.length ? artifactRawFiles : recoveredRawFiles;
 
   if (!rawFiles.length) {
     return [];
@@ -60,6 +95,9 @@ export function archiveUnwatermarkedMainImages(options: {
     const targetFile = path.join(targetDir, `${productFolderName}无水印主图${String(index + 1).padStart(2, "0")}${ext}`);
     if (!options.simulateOnly) {
       fs.copyFileSync(sourceFile, targetFile);
+      if (!fs.existsSync(targetFile) || fs.statSync(targetFile).size <= 0) {
+        throw new Error(`Archived unwatermarked main image was not written correctly: ${targetFile}`);
+      }
     }
     return targetFile;
   });

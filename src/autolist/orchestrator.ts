@@ -367,7 +367,10 @@ async function executeTaskChain(
         mainImageCountStrategy,
         promptCount: productPlan.promptCount,
         shopCodes: productPlan.shopCodes,
-        simulateOnly
+        simulateOnly,
+        onProgress: (message) => {
+          appendEvent(eventFile, createEvent("info", step, message, current.taskId));
+        }
       });
       current = {
         ...current,
@@ -602,6 +605,7 @@ async function executeTaskChain(
         mainImageArtifact: current.mainImageArtifact,
         productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact?.userCognitionName || current.sourceImageName,
         archiveRootDir: archiveMainImageDir,
+        rawImageSearchDir: taskRuntimeDir,
         simulateOnly
       });
       if (!simulateOnly && archivedFiles.length !== categoryPlan.titleCount) {

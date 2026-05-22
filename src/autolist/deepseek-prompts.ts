@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "playwright";
 import { sanitizeFileName } from "../doubao/paths.js";
-import { launchPersistentBrowser } from "../browser/launch.js";
+import { closeBrowser, launchPersistentBrowser } from "../browser/launch.js";
 import { setClipboardText } from "../utils/clipboard.js";
 import { getPasteShortcut, getSelectAllShortcut } from "../utils/platform.js";
 import type { DeepSeekArtifact } from "./types.js";
@@ -184,6 +184,11 @@ async function getDeepSeekPage(): Promise<Page> {
     await sleep(1000);
   }
   return page;
+}
+
+async function closeDeepSeekConnection(page: Page): Promise<void> {
+  const context = page.context();
+  await closeBrowser(context);
 }
 
 async function openHistorySidebar(page: Page): Promise<void> {
@@ -375,42 +380,46 @@ export async function generatePosterPromptsWithDeepSeek(options: {
   }
 
   const page = await getDeepSeekPage();
-  await ensureDeepSeekConversationWithUrl(page, options.conversationUrl || "");
+  try {
+    await ensureDeepSeekConversationWithUrl(page, options.conversationUrl || "");
 
-  const { promptFile, promptText } = writePromptFile(taskDir, options.sellingPointText, options.promptCount);
-  const rawFile = path.join(taskDir, "deepseek-raw.txt");
-  const extractedFile = path.join(taskDir, "deepseek-extracted.txt");
-  const screenshotFile = path.join(taskDir, "deepseek.png");
-  const beforeRawFile = path.join(taskDir, "deepseek-before-raw.txt");
-  const beforeRaw = await page.locator("body").innerText().catch(() => "");
-  fs.writeFileSync(beforeRawFile, `${extractPromptParagraphs(beforeRaw, options.sellingPointText).join("\n")}\n`, "utf8");
+    const { promptFile, promptText } = writePromptFile(taskDir, options.sellingPointText, options.promptCount);
+    const rawFile = path.join(taskDir, "deepseek-raw.txt");
+    const extractedFile = path.join(taskDir, "deepseek-extracted.txt");
+    const screenshotFile = path.join(taskDir, "deepseek.png");
+    const beforeRawFile = path.join(taskDir, "deepseek-before-raw.txt");
+    const beforeRaw = await page.locator("body").innerText().catch(() => "");
+    fs.writeFileSync(beforeRawFile, `${extractPromptParagraphs(beforeRaw, options.sellingPointText).join("\n")}\n`, "utf8");
 
-  let timing = await submitOnExistingConversation(page, promptText, screenshotFile, rawFile);
-  let extracted = extractNewPromptParagraphs(beforeRaw, timing.rawText, options.sellingPointText, promptText);
+    let timing = await submitOnExistingConversation(page, promptText, screenshotFile, rawFile);
+    let extracted = extractNewPromptParagraphs(beforeRaw, timing.rawText, options.sellingPointText, promptText);
 
-  if (extracted.length < options.promptCount) {
-    const retryPromptText = buildRetryPrompt(options.sellingPointText, options.promptCount);
-    const retryPromptFile = path.join(taskDir, "deepseek-poster-retry-prompt.txt");
-    const retryRawFile = path.join(taskDir, "deepseek-retry-raw.txt");
-    const retryScreenshotFile = path.join(taskDir, "deepseek-retry.png");
-    const retryBeforeRawFile = path.join(taskDir, "deepseek-retry-before-raw.txt");
-    const retryBeforeRaw = await page.locator("body").innerText().catch(() => "");
-    fs.writeFileSync(retryPromptFile, `${retryPromptText}\n`, "utf8");
-    fs.writeFileSync(retryBeforeRawFile, `${extractPromptParagraphs(retryBeforeRaw, options.sellingPointText).join("\n")}\n`, "utf8");
-    timing = await submitOnExistingConversation(page, retryPromptText, retryScreenshotFile, retryRawFile);
-    extracted = extractNewPromptParagraphs(retryBeforeRaw, timing.rawText, options.sellingPointText, retryPromptText);
+    if (extracted.length < options.promptCount) {
+      const retryPromptText = buildRetryPrompt(options.sellingPointText, options.promptCount);
+      const retryPromptFile = path.join(taskDir, "deepseek-poster-retry-prompt.txt");
+      const retryRawFile = path.join(taskDir, "deepseek-retry-raw.txt");
+      const retryScreenshotFile = path.join(taskDir, "deepseek-retry.png");
+      const retryBeforeRawFile = path.join(taskDir, "deepseek-retry-before-raw.txt");
+      const retryBeforeRaw = await page.locator("body").innerText().catch(() => "");
+      fs.writeFileSync(retryPromptFile, `${retryPromptText}\n`, "utf8");
+      fs.writeFileSync(retryBeforeRawFile, `${extractPromptParagraphs(retryBeforeRaw, options.sellingPointText).join("\n")}\n`, "utf8");
+      timing = await submitOnExistingConversation(page, retryPromptText, retryScreenshotFile, retryRawFile);
+      extracted = extractNewPromptParagraphs(retryBeforeRaw, timing.rawText, options.sellingPointText, retryPromptText);
+    }
+
+    const prompts = validatePromptParagraphs(extracted.slice(0, options.promptCount), options.promptCount);
+    fs.writeFileSync(extractedFile, `${prompts.join("\n")}\n`, "utf8");
+    return {
+      promptFile,
+      rawFile,
+      extractedFile,
+      screenshotFile,
+      prompts,
+      submittedAt: timing.submittedAt,
+      capturedAt: timing.capturedAt,
+      simulated: false
+    };
+  } finally {
+    await closeDeepSeekConnection(page);
   }
-
-  const prompts = validatePromptParagraphs(extracted.slice(0, options.promptCount), options.promptCount);
-  fs.writeFileSync(extractedFile, `${prompts.join("\n")}\n`, "utf8");
-  return {
-    promptFile,
-    rawFile,
-    extractedFile,
-    screenshotFile,
-    prompts,
-    submittedAt: timing.submittedAt,
-    capturedAt: timing.capturedAt,
-    simulated: false
-  };
 }

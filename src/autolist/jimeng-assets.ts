@@ -204,6 +204,13 @@ function isTransientImageProviderStatus(status: number): boolean {
   return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
 }
 
+function isTransientImageProviderErrorMessage(message: string): boolean {
+  if (isBillingError(message)) {
+    return false;
+  }
+  return /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|abort|timeout|timed out/i.test(message);
+}
+
 function extractTitleLine(promptText: string, label: string): string {
   const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(escapedLabel + "[：:]\\s*([^，,。\\n]+)");
@@ -385,6 +392,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
   sourceImagePath: string;
   downloadDir: string;
   expectedImageCount: number;
+  onProgress?: (message: string) => void;
 }): Promise<Array<{ file: string; submitId: string }>> {
   fs.mkdirSync(options.downloadDir, { recursive: true });
 
@@ -414,6 +422,39 @@ async function generateWithOpenAiCompatibleProvider(options: {
       throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
     } finally {
       clearTimeout(timer);
+    }
+  };
+  const sendRequestWithTransportRetries = async (
+    imageIndex: number,
+    label: string,
+    requestBodyFactory: () => BodyInit,
+    contentType?: string
+  ): Promise<{ response: Response; text: string }> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await sendRequest(requestBodyFactory(), contentType);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!isTransientImageProviderErrorMessage(message) || attempt >= maxTransientRetries) {
+          throw error;
+        }
+        const retryNo = attempt + 1;
+        writeImageGenerationJsonLog(
+          path.join(
+            options.downloadDir,
+            "response-" + String(imageIndex).padStart(2, "0") + "-transport-transient-" + retryNo + ".json"
+          ),
+          {
+            label,
+            retryNo,
+            maxTransientRetries,
+            error: message,
+            nextDelayMs: 3000 * retryNo
+          }
+        );
+        options.onProgress?.(`Image ${imageIndex}: transient transport error during ${label}; retry ${retryNo}/${maxTransientRetries}.`);
+        await sleep(3000 * retryNo);
+      }
     }
   };
 
@@ -478,21 +519,22 @@ async function generateWithOpenAiCompatibleProvider(options: {
     const requestSummary = buildRequestSummary(promptText);
     writeImageGenerationJsonLog(requestFile, requestSummary);
 
+    options.onProgress?.(`Image ${imageIndex}: submitting ${mode} request.`);
     let { response, text } =
       mode === "edits"
-        ? await sendRequest(buildEditFormData(true, promptText))
-        : await sendRequest(JSON.stringify(buildGenerationJsonBody(promptText)), "application/json");
+        ? await sendRequestWithTransportRetries(imageIndex, "initial", () => buildEditFormData(true, promptText))
+        : await sendRequestWithTransportRetries(imageIndex, "initial", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json");
     if (!response.ok && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(text)) {
       if (mode === "edits") {
         const retrySummary = { ...(requestSummary as Record<string, unknown>) };
         delete retrySummary.response_format;
         writeImageGenerationJsonLog(path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-retry.json"), retrySummary);
-        ({ response, text } = await sendRequest(buildEditFormData(false, promptText)));
+        ({ response, text } = await sendRequestWithTransportRetries(imageIndex, "response-format-retry", () => buildEditFormData(false, promptText)));
       } else {
         const retryBody = buildGenerationJsonBody(promptText);
         delete (retryBody as Record<string, unknown>).response_format;
         writeImageGenerationJsonLog(path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-retry.json"), retryBody);
-        ({ response, text } = await sendRequest(JSON.stringify(retryBody), "application/json"));
+        ({ response, text } = await sendRequestWithTransportRetries(imageIndex, "response-format-retry", () => JSON.stringify(retryBody), "application/json"));
       }
     }
     if (!response.ok && isContentPolicyError(text)) {
@@ -504,8 +546,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
       );
       ({ response, text } =
         mode === "edits"
-          ? await sendRequest(buildEditFormData(true, promptText))
-          : await sendRequest(JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
+          ? await sendRequestWithTransportRetries(imageIndex, "policy-retry", () => buildEditFormData(true, promptText))
+          : await sendRequestWithTransportRetries(imageIndex, "policy-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
       if (!response.ok && mode === "edits" && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(text)) {
         const retrySummary = { ...policyRetrySummary };
         delete retrySummary.response_format;
@@ -513,7 +555,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
           path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-policy-retry-no-response-format.json"),
           retrySummary
         );
-        ({ response, text } = await sendRequest(buildEditFormData(false, promptText)));
+        ({ response, text } = await sendRequestWithTransportRetries(imageIndex, "policy-response-format-retry", () => buildEditFormData(false, promptText)));
       }
     }
     for (let attempt = 1; !response.ok && isTransientImageProviderStatus(response.status) && attempt <= maxTransientRetries; attempt += 1) {
@@ -521,11 +563,12 @@ async function generateWithOpenAiCompatibleProvider(options: {
         path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-transient-" + attempt + ".json"),
         text
       );
+      options.onProgress?.(`Image ${imageIndex}: transient HTTP ${response.status}; retry ${attempt}/${maxTransientRetries}.`);
       await sleep(3000 * attempt);
       ({ response, text } =
         mode === "edits"
-          ? await sendRequest(buildEditFormData(true, promptText))
-          : await sendRequest(JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
+          ? await sendRequestWithTransportRetries(imageIndex, "http-transient-retry", () => buildEditFormData(true, promptText))
+          : await sendRequestWithTransportRetries(imageIndex, "http-transient-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
     }
     if (!response.ok) {
       writeImageGenerationTextLog(responseFile, text);
@@ -551,6 +594,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
     if (!saved) {
       throw normalizeImageGenerationError("Image generation returned no downloadable image payloads: " + text.slice(0, 500));
     }
+    options.onProgress?.(`Image ${imageIndex}: saved ${path.basename(saved.file)}.`);
     generated.push(saved);
   }
 
@@ -813,6 +857,7 @@ export async function generateMainImageAssets(options: {
   promptCount?: number;
   shopCodes?: string[];
   simulateOnly: boolean;
+  onProgress?: (message: string) => void;
 }): Promise<MainImageArtifact> {
   const taskDir = ensureTaskDir(options.runtimeDir, options.taskId);
   const promptFile = writePromptSummary(taskDir, options.wordFiles);
@@ -905,12 +950,14 @@ export async function generateMainImageAssets(options: {
       continue;
     }
 
+    options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: generating ${remainingImageCount} image(s).`);
     const generationResults = await generateWithOpenAiCompatibleProvider({
       configFile: options.imageGenerationConfigFile,
       promptText,
       sourceImagePath: options.sourceImagePath,
       downloadDir: path.join(roundDir, "openai-compatible", "raw"),
-      expectedImageCount: remainingImageCount
+      expectedImageCount: remainingImageCount,
+      onProgress: (message) => options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: ${message}`)
     });
 
     const watermarkedFiles = await applyLocalWatermark({
@@ -946,6 +993,7 @@ export async function generateMainImageAssets(options: {
       });
       imageIndex += 1;
     }
+    options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: staged ${watermarkedFiles.length} image(s).`);
   }
 
   return {

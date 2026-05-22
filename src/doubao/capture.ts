@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { launchPersistentBrowser } from "../browser/launch.js";
+import type { Page } from "playwright";
+import { closeBrowser, launchPersistentBrowser } from "../browser/launch.js";
 import type { CaptureConversationOptions, CaptureConversationResult } from "./types.js";
 
 function sleep(ms: number): Promise<void> {
@@ -8,21 +9,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function captureLatestAnswerText(options: {
+  page: Page;
   conversationUrl?: string;
   mode?: "titles" | "selling_points" | "latest";
 }): Promise<{ text: string; screenshotSelector?: string }> {
-  const context = await launchPersistentBrowser();
-  const pages = context.pages().filter((item) => !item.isClosed());
-  const targetConversationUrl = options.conversationUrl?.trim() || "";
-  const page =
-    (targetConversationUrl ? pages.find((item) => item.url().startsWith(targetConversationUrl)) : undefined) ||
-    pages.find((item) => /https:\/\/www\.doubao\.com\/chat\/\d+/.test(item.url())) ||
-    pages.find((item) => /https:\/\/www\.doubao\.com\/chat\//.test(item.url()));
-
-  if (!page) {
-    throw new Error("Doubao conversation page not found");
-  }
-
+  const page = options.page;
   await page.bringToFront();
   await page.waitForLoadState("domcontentloaded");
 
@@ -44,7 +35,9 @@ async function captureLatestAnswerText(options: {
     const seen = new Set<Element>();
     const candidates: Array<{ text: string; selector: string; top: number; bottom: number; score: number }> = [];
 
-    const looksLikeTitles = (text: string): boolean => /(^|\n)0?1\s+/.test(text) && /(^|\n)20\s+/.test(text);
+    const titleNumberPattern = (number: string): RegExp =>
+      new RegExp("(^|\\n)0?" + number + "\\s*[、,，.．:：)）\\]\\】\\s]+");
+    const looksLikeTitles = (text: string): boolean => titleNumberPattern("1").test(text) && titleNumberPattern("20").test(text);
     const looksLikeSellingPoints = (text: string): boolean =>
       /官方正品/.test(text) &&
       /正品保证/.test(text) &&
@@ -115,58 +108,63 @@ export async function captureConversation(options: CaptureConversationOptions): 
   }
 
   const context = await launchPersistentBrowser();
-  const pages = context.pages().filter((item) => !item.isClosed());
-  const targetConversationUrl = options.conversationUrl?.trim() || "";
-  const page =
-    (targetConversationUrl ? pages.find((item) => item.url().startsWith(targetConversationUrl)) : undefined) ||
-    pages.find((item) => /https:\/\/www\.doubao\.com\/chat\/\d+/.test(item.url())) ||
-    pages.find((item) => /https:\/\/www\.doubao\.com\/chat\//.test(item.url()));
+  try {
+    const pages = context.pages().filter((item) => !item.isClosed());
+    const targetConversationUrl = options.conversationUrl?.trim() || "";
+    const page =
+      (targetConversationUrl ? pages.find((item) => item.url().startsWith(targetConversationUrl)) : undefined) ||
+      pages.find((item) => /https:\/\/www\.doubao\.com\/chat\/\d+/.test(item.url())) ||
+      pages.find((item) => /https:\/\/www\.doubao\.com\/chat\//.test(item.url()));
 
-  if (!page) {
-    throw new Error("Doubao conversation page not found");
-  }
+    if (!page) {
+      throw new Error("Doubao conversation page not found");
+    }
 
-  await page.bringToFront();
-  await page.waitForLoadState("domcontentloaded");
-  await sleep(options.waitMs ?? 15000);
+    await page.bringToFront();
+    await page.waitForLoadState("domcontentloaded");
+    await sleep(options.waitMs ?? 15000);
 
-  const extracted = await captureLatestAnswerText({
-    conversationUrl: targetConversationUrl,
-    mode: options.mode
-  });
-  const rawFile = options.rawFileOut ? path.resolve(options.rawFileOut) : "";
-  const pngFile = options.screenshotOut ? path.resolve(options.screenshotOut) : "";
+    const extracted = await captureLatestAnswerText({
+      page,
+      conversationUrl: targetConversationUrl,
+      mode: options.mode
+    });
+    const rawFile = options.rawFileOut ? path.resolve(options.rawFileOut) : "";
+    const pngFile = options.screenshotOut ? path.resolve(options.screenshotOut) : "";
 
-  if (rawFile) {
-    fs.mkdirSync(path.dirname(rawFile), { recursive: true });
-    fs.writeFileSync(rawFile, extracted.text, "utf8");
-  }
-  if (pngFile) {
-    fs.mkdirSync(path.dirname(pngFile), { recursive: true });
-    try {
-      if (extracted.screenshotSelector) {
-        const target = page.locator(extracted.screenshotSelector).last();
-        if ((await target.count()) > 0 && (await target.isVisible().catch(() => false))) {
-          await target.screenshot({ path: pngFile });
-        } else {
-          await page.screenshot({ path: pngFile, fullPage: true });
-        }
-      } else {
-        await page.screenshot({ path: pngFile, fullPage: false });
-      }
-    } catch {
+    if (rawFile) {
+      fs.mkdirSync(path.dirname(rawFile), { recursive: true });
+      fs.writeFileSync(rawFile, extracted.text, "utf8");
+    }
+    if (pngFile) {
+      fs.mkdirSync(path.dirname(pngFile), { recursive: true });
       try {
-        await page.screenshot({ path: pngFile, fullPage: false });
+        if (extracted.screenshotSelector) {
+          const target = page.locator(extracted.screenshotSelector).last();
+          if ((await target.count()) > 0 && (await target.isVisible().catch(() => false))) {
+            await target.screenshot({ path: pngFile });
+          } else {
+            await page.screenshot({ path: pngFile, fullPage: true });
+          }
+        } else {
+          await page.screenshot({ path: pngFile, fullPage: false });
+        }
       } catch {
-        // Screenshot is only an audit artifact. Do not fail the workflow if capture cannot render.
+        try {
+          await page.screenshot({ path: pngFile, fullPage: false });
+        } catch {
+          // Screenshot is only an audit artifact. Do not fail the workflow if capture cannot render.
+        }
       }
     }
-  }
 
-  return {
-    activeUrl: page.url(),
-    rawFile,
-    pngFile,
-    capturedAt: new Date().toISOString()
-  };
+    return {
+      activeUrl: page.url(),
+      rawFile,
+      pngFile,
+      capturedAt: new Date().toISOString()
+    };
+  } finally {
+    await closeBrowser(context);
+  }
 }
