@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
-import { saveCheckpoint, clearCheckpoint } from "../business/publish-from-spu/checkpoint.js";
+import { clearCheckpoint, isStageCompleted, loadCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
 import { readWorkbookRows } from "./xlsx-lite.js";
 import type { PublishArtifact } from "./types.js";
 
@@ -140,8 +140,12 @@ export function publishRuntimeKey(productFolder: string): string {
 }
 
 function wasPublishCompleted(runtimeDir: string): boolean {
+  const checkpointCompleted = isStageCompleted(loadCheckpoint(runtimeDir), "publish_flow");
   const resultFile = path.join(runtimeDir, "result.json");
   if (!fs.existsSync(resultFile)) {
+    if (checkpointCompleted) {
+      clearCheckpoint(runtimeDir);
+    }
     return false;
   }
   try {
@@ -154,8 +158,15 @@ function wasPublishCompleted(runtimeDir: string): boolean {
         };
       };
     };
-    return result.ok === true && result.status === "published" && result.data?.browser?.publishClicked === true;
+    const resultCompleted = result.ok === true && result.status === "published" && result.data?.browser?.publishClicked === true;
+    if (!resultCompleted && checkpointCompleted) {
+      clearCheckpoint(runtimeDir);
+    }
+    return resultCompleted;
   } catch {
+    if (checkpointCompleted) {
+      clearCheckpoint(runtimeDir);
+    }
     return false;
   }
 }
