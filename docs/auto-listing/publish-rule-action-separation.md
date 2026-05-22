@@ -37,6 +37,18 @@ These files are rules-facing records. Browser actions may produce raw screenshot
 8. A product folder may be skipped only when `publish-manifest.json` or a compatible `result.json` has a safe published decision from `publish-rules.ts`.
 9. Failed entries must keep an `errorClass` so the next optimization can target the failure category instead of replaying the whole flow.
 
+## Root Cause First
+
+Do not add temporary patches that only bypass the current failed run. Every publish failure must be handled in this order:
+
+1. Classify the failure category and root cause.
+2. Decide whether the fix belongs to the rule layer, action layer, runtime state/resume layer, or input data layer.
+3. Store the long-term rule in `publish-rules.ts`, step docs, or related rule docs.
+4. Store browser implementation changes only in action code.
+5. Add or update runtime records such as `publish-plan.json` and `publish-manifest.json` when the issue affects resume or duplicate-publish safety.
+
+If a change cannot be explained as a root-cause fix, do not keep it.
+
 ## Expansion Plan
 
 Move these next, in order:
