@@ -133,9 +133,21 @@ function readTitlesFromCsv(csvFile: string): string[] {
         return "";
       }
       const rawTitle = match.groups.title;
-      return rawTitle.replace(/^"/, "").replace(/"$/, "").replace(/""/g, '"').trim();
+      return cleanGeneratedTitle(rawTitle.replace(/^"/, "").replace(/"$/, "").replace(/""/g, '"').trim());
     })
     .filter(Boolean);
+}
+
+function cleanGeneratedTitle(value: string): string {
+  const withoutDecorations = value
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/^["'`]?\d{1,3}["'`]?\s*[,，、.。:：)）\]\】|｜/-]+\s*["'`]?/, "")
+    .replace(/^(?:第)?\d{1,3}(?:条|个)?标题?[:：、.。)）\]\】\s-]*/, "")
+    .replace(/\s+/g, "")
+    .trim();
+  return Array.from(withoutDecorations)
+    .filter((char) => /[\p{Script=Han}\p{L}\p{N}]/u.test(char))
+    .join("");
 }
 
 function titleLength(title: string): number {
@@ -149,6 +161,9 @@ function validateGeneratedTitles(titles: string[], productCategory: string | und
 
   titles.forEach((title, index) => {
     const label = String(index + 1).padStart(2, "0");
+    if (title !== cleanGeneratedTitle(title)) {
+      errors.push(`${label} contains numbering, whitespace, or punctuation`);
+    }
     if (titleLength(title) !== plan.titleCharacterCount) {
       errors.push(`${label} length=${titleLength(title)}, expected=${plan.titleCharacterCount}`);
     }

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import {
   FEISHU_WHITE_BACKGROUND_IMAGE_DIR,
   FIXED_MAIN_AUXILIARY_FILES,
@@ -126,6 +127,39 @@ function getFixedAuxiliaryImages(): string[] {
   return FIXED_MAIN_AUXILIARY_FILES.map((name) => path.join(FIXED_MAIN_IMAGE_DIR, name)).filter((file) => fs.existsSync(file));
 }
 
+function fileHash(filePath: string): string {
+  return crypto.createHash("sha1").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function assertMainImageSet(mainImages: string[], productFolder: string): void {
+  const missingFiles = FIXED_MAIN_AUXILIARY_FILES
+    .map((name) => path.join(FIXED_MAIN_IMAGE_DIR, name))
+    .filter((file) => !fs.existsSync(file))
+    .map((file) => path.basename(file));
+  if (missingFiles.length) {
+    throw new Error(`Fixed auxiliary main image(s) were missing: ${missingFiles.join(", ")}`);
+  }
+  if (mainImages.length !== 1 + FIXED_MAIN_AUXILIARY_FILES.length) {
+    throw new Error(
+      `Main image upload set must contain 1 generated image plus ${FIXED_MAIN_AUXILIARY_FILES.length} fixed auxiliary image(s) for ${productFolder}; got ${mainImages.length}.`
+    );
+  }
+
+  const byHash = new Map<string, string[]>();
+  for (const filePath of mainImages) {
+    const hash = fileHash(filePath);
+    byHash.set(hash, [...(byHash.get(hash) || []), filePath]);
+  }
+  const duplicates = Array.from(byHash.values()).filter((items) => items.length > 1);
+  if (duplicates.length) {
+    throw new Error(
+      `Main image upload set contains duplicate image content: ${duplicates
+        .map((items) => items.map((file) => path.basename(file)).join(" = "))
+        .join(" | ")}`
+    );
+  }
+}
+
 function getFeishuWhiteBackgroundImages(productFolder: string): string[] {
   const folderWhiteImages = fs
     .readdirSync(productFolder)
@@ -242,6 +276,7 @@ export function classifyAssets(productFolder: string): ProductAssets {
   if (detailImages.length === 0) {
     throw new Error(`No qualification detail images were found in product folder: ${productFolder}`);
   }
+  assertMainImageSet(mainImages, productFolder);
 
   return {
     workbookFile,

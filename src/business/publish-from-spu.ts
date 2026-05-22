@@ -489,7 +489,7 @@ async function waitForChooseShopDialog(page: Page): Promise<boolean> {
   }
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const visible = await page.evaluate(() => {
-      const text = (document.body.innerText || "").replace(/\s+/g, "");
+      const text = (document.body?.innerText || "").replace(/\s+/g, "");
       return text.includes("请选择店铺");
     });
     if (visible) {
@@ -4473,8 +4473,19 @@ async function uploadFilesToSectionSlots(
         .sort((a, b) => b.score - a.score || a.input.index - b.input.index)
         .map((item) => item.input);
 
+  if (fallbackInputs.length === 1 && fallbackInputs[0].multiple) {
+    const selectedFiles = files.slice(startFileIndex);
+    if (!selectedFiles.length) {
+      return 0;
+    }
+    await page.locator("input[type='file']").nth(fallbackInputs[0].index).setInputFiles(selectedFiles);
+    await page.waitForTimeout(1200);
+    await dismissTransientOverlays(page);
+    return selectedFiles.length;
+  }
+
   for (let slotOffset = startFileIndex; slotOffset < files.length; slotOffset += 1) {
-    const input = fallbackInputs[slotOffset];
+    const input = fallbackInputs[slotOffset - startFileIndex];
     const file = files[slotOffset];
     if (!input || !file) {
       break;
@@ -4485,6 +4496,61 @@ async function uploadFilesToSectionSlots(
     await dismissTransientOverlays(page);
   }
 
+  return uploaded;
+}
+
+async function uploadMainImagesToSection(page: Page, files: string[]): Promise<number> {
+  if (!files.length) {
+    return 0;
+  }
+
+  let uploaded = 0;
+  const initialInputs = await collectFileInputs(page);
+  const mainInput =
+    initialInputs
+      .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
+      .filter((input) => input.parentText.includes("\u4e0a\u4f20\u4e3b\u56fe") || input.parentText.includes("\u5546\u54c1\u6b63\u9762\u56fe"))
+      .sort((a, b) => scoreMainGraphicInput(b) - scoreMainGraphicInput(a) || a.index - b.index)[0] ||
+    pickBestSectionFileInput(initialInputs, "\u4e3b\u56fe", scoreMainGraphicInput);
+
+  if (!mainInput) {
+    return 0;
+  }
+
+  const auxiliaryFiles = files.slice(1);
+  const auxiliaryInputs = (await collectFileInputs(page))
+    .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
+    .filter((input) => input.index !== mainInput.index)
+    .filter((input) => input.parentText.includes("\u4e0a\u4f20\u8f85\u52a9\u56fe"))
+    .sort((a, b) => a.index - b.index);
+
+  if (mainInput.multiple && auxiliaryFiles.length > auxiliaryInputs.length) {
+    await page.locator("input[type='file']").nth(mainInput.index).setInputFiles(files);
+    uploaded = files.length;
+    await waitForPreviewCount(page, () => countMainImagePreviews(page), uploaded).catch(() => 0);
+    await dismissTransientOverlays(page);
+    return uploaded;
+  }
+
+  await page.locator("input[type='file']").nth(mainInput.index).setInputFiles(files[0]);
+  uploaded += 1;
+  await waitForPreviewCount(page, () => countMainImagePreviews(page), uploaded).catch(() => 0);
+  await dismissTransientOverlays(page);
+
+  if (!auxiliaryFiles.length) {
+    return uploaded;
+  }
+
+  for (let index = 0; index < auxiliaryFiles.length; index += 1) {
+    const input = auxiliaryInputs[index];
+    if (!input) {
+      break;
+    }
+    await page.locator("input[type='file']").nth(input.index).setInputFiles(auxiliaryFiles[index]);
+    uploaded += 1;
+    await waitForPreviewCount(page, () => countMainImagePreviews(page), uploaded).catch(() => 0);
+    await dismissTransientOverlays(page);
+  }
   return uploaded;
 }
 
@@ -5772,7 +5838,7 @@ async function uploadProductImages(
         await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, existingMainCount + 3)).catch(() => 0);
         await page.waitForTimeout(800);
       }
-      await uploadFilesToSectionSlots(page, "\u4e3b\u56fe", assets.mainImages, scoreMainGraphicInput);
+      await uploadMainImagesToSection(page, assets.mainImages);
       const uploadedMainCount = await waitForPreviewCount(page, () => countMainImagePreviews(page), assets.mainImages.length);
       if (uploadedMainCount >= assets.mainImages.length) {
         uploadedGroups.push("mainImages");
@@ -5908,7 +5974,7 @@ async function uploadProductImagesOnPage(
       await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, existingMainCount + 3)).catch(() => 0);
       await page.waitForTimeout(800);
     }
-    await uploadFilesToSectionSlots(page, "\u4e3b\u56fe", assets.mainImages, scoreMainGraphicInput);
+    await uploadMainImagesToSection(page, assets.mainImages);
     const uploadedMainCount = await waitForPreviewCount(page, () => countMainImagePreviews(page), assets.mainImages.length);
     if (uploadedMainCount >= assets.mainImages.length) {
       uploadedGroups.push("mainImages");
@@ -6376,7 +6442,7 @@ async function clickVisibleDialogAction(page: Page, labels: string[]): Promise<b
 
 async function readPublishSubmissionState(page: Page): Promise<{ submitted: boolean; issue: string }> {
   return page.evaluate(() => {
-    const bodyText = (document.body.innerText || "").replace(/\s+/g, "");
+    const bodyText = (document.body?.innerText || "").replace(/\s+/g, "");
     const url = window.location.href;
     const successPatterns = [
       "发布成功",
@@ -6428,6 +6494,50 @@ async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolea
   }));
 }
 
+async function readPublishSubmissionStateFromContext(
+  context: Awaited<ReturnType<Page["context"]>>,
+  fallbackPage: Page
+): Promise<{ page: Page; submitted: boolean; issue: string }> {
+  const pages = context.pages().filter((item) => !item.isClosed());
+  for (const candidate of pages.length ? pages : [fallbackPage]) {
+    const state = await readPublishSubmissionState(candidate).catch(() => ({ submitted: false, issue: "" }));
+    if (state.submitted) {
+      return { page: candidate, submitted: true, issue: "" };
+    }
+  }
+
+  const freshCreatePages: string[] = [];
+  for (const candidate of pages) {
+    const freshCreate = await candidate
+      .evaluate(() => {
+        const bodyText = (document.body?.innerText || "").replace(/\s+/g, "");
+        return (
+          window.location.href.includes("/ffa/g/create") &&
+          bodyText.includes("商品发布") &&
+          bodyText.includes("上传主图") &&
+          bodyText.includes("商品标题") &&
+          bodyText.includes("0/60")
+        );
+      })
+      .catch(() => false);
+    if (freshCreate) {
+      freshCreatePages.push(candidate.url());
+    }
+  }
+
+  const issuePage = pages[0] || fallbackPage;
+  const issue = await readPublishSubmissionState(issuePage)
+    .then((state) => state.issue)
+    .catch((error) => (error instanceof Error ? error.message : String(error)));
+  return {
+    page: issuePage,
+    submitted: false,
+    issue: freshCreatePages.length
+      ? `Publish submission was not confirmed; browser returned to a fresh create page: ${freshCreatePages[0]}`
+      : issue
+  };
+}
+
 async function clickPublishProductOnPage(
   page: Page,
   runtimeDir: string,
@@ -6446,9 +6556,12 @@ async function clickPublishProductOnPage(
 
   let publishClicked = false;
   let publishIssue = "";
+  let publishClickAttempted = false;
+  let activeContext = activePage.context();
   for (let attempt = 0; attempt < 2 && !publishClicked; attempt += 1) {
     try {
       activePage = await recoverUsablePublishPage(activePage);
+      activeContext = activePage.context();
       await dismissTransientOverlays(activePage);
       const publishButton = activePage.getByRole("button", { name: "\u53d1\u5e03\u5546\u54c1" }).first();
       if (!(await publishButton.count())) {
@@ -6461,18 +6574,51 @@ async function clickPublishProductOnPage(
         break;
       } else {
         await publishButton.scrollIntoViewIfNeeded().catch(() => {});
-        await publishButton.click({ timeout: 5000 });
+        const box = await publishButton.boundingBox({ timeout: 5000 }).catch(() => null);
+        if (!box) {
+          publishIssue = "Publish product button was visible but no clickable bounding box was available.";
+          break;
+        }
+        publishClickAttempted = true;
+        await activePage.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { delay: 120 });
+        await activePage.waitForTimeout(1200).catch(() => {});
+        if (activePage.isClosed()) {
+          activePage = await recoverUsablePageFromContext(activeContext, "/ffa/g").catch(() => activePage);
+        }
       }
       if (!publishIssue) {
         if (activePage.isClosed()) {
-          activePage = await recoverUsablePageFromContext(activePage.context(), "/ffa/g").catch(() => activePage);
+          activePage = await recoverUsablePageFromContext(activeContext, "/ffa/g").catch(() => activePage);
         }
-        const submissionState = await waitForPublishSubmission(activePage);
+        let submissionState = await waitForPublishSubmission(activePage).catch(async () => {
+          const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage);
+          activePage = contextState.page;
+          return { submitted: contextState.submitted, issue: contextState.issue };
+        });
+        if (!submissionState.submitted) {
+          const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage).catch(() => null);
+          if (contextState?.submitted) {
+            activePage = contextState.page;
+            submissionState = { submitted: true, issue: "" };
+          } else if (contextState?.issue) {
+            activePage = contextState.page;
+            submissionState = { submitted: false, issue: contextState.issue };
+          }
+        }
         publishClicked = submissionState.submitted;
-        publishIssue = submissionState.issue;
+        publishIssue =
+          submissionState.issue ||
+          (submissionState.submitted || !publishClickAttempted ? "" : "Publish product button was clicked, but no submission success signal was detected.");
       }
     } catch (error) {
       publishIssue = `Publish product button click failed: ${error instanceof Error ? error.message : String(error)}`;
+      const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage).catch(() => null);
+      if (contextState?.submitted) {
+        activePage = contextState.page;
+        publishClicked = true;
+        publishIssue = "";
+        break;
+      }
       if (attempt === 0) {
         await activePage.waitForTimeout(1200).catch(() => {});
         continue;

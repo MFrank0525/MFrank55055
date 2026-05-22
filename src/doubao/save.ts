@@ -8,13 +8,18 @@ function normalizeLine(line: string): string {
 }
 
 function cleanTitle(value: string): string {
-  return value
+  const withoutDecorations = value
     .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/^["'`]?\d{1,3}["'`]?\s*[,，、.。:：)）\]\】|｜/-]+\s*["'`]?/, "")
+    .replace(/^(?:第)?\d{1,3}(?:条|个)?标题?[:：、.。)）\]\】\s-]*/, "")
     .replace(/\*\*/g, "")
     .replace(/本回答由AI生成[\s\S]*$/i, "")
     .replace(/参考资料[\s\S]*$/i, "")
     .replace(/\s+/g, "")
     .trim();
+  return Array.from(withoutDecorations)
+    .filter((char) => /[\p{Script=Han}\p{L}\p{N}]/u.test(char))
+    .join("");
 }
 
 function looksLikeNoise(value: string): boolean {
