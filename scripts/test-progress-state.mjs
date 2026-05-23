@@ -3,7 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { readLatestTaskProgressEvent } from "../dist/src/autolist/progress-events.js";
-import { auditAutoListingContinuity } from "../dist/src/autolist/audit-rules.js";
+import {
+  auditAutoListingContinuity,
+  auditMainImageGeneration,
+  auditPublishCoverage
+} from "../dist/src/autolist/audit-rules.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import { createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { classifyPublishFailure, shouldRetryPublishFailure } from "../dist/src/business/publish-from-spu/publish-rules.js";
@@ -139,3 +143,120 @@ const underDiscoveredRun = auditAutoListingContinuity({
 
 assert.equal(underDiscoveredRun.ok, false);
 assert.ok(underDiscoveredRun.errors.some((issue) => issue.code === "run_discovered_too_few_images"));
+
+function taskWithMainImages(generatedFiles) {
+  return {
+    taskId: "image-001",
+    sequenceNo: 1,
+    sourceImagePath: "/work/input/source.png",
+    sourceImageName: "source.png",
+    status: "main_images_generated",
+    lastUpdatedAt: "2026-05-23T00:00:00.000Z",
+    generatedProductFolders: [],
+    notes: [],
+    feishuProductRecord: record("rec-main", "/work/input/source.png"),
+    mainImageArtifact: {
+      promptFile: "/work/run/tasks/image-001/jimeng-prompts.txt",
+      generatedFiles,
+      simulated: false
+    }
+  };
+}
+
+const completeGeneratedFiles = [1, 2].flatMap((promptIndex) =>
+  [1, 2, 3, 4].map((imageIndex) => ({
+    imageFile: `/work/shop/product-${promptIndex}-${imageIndex}.png`,
+    rawImageFile: `/work/run/raw/generated-${promptIndex}-${imageIndex}.png`,
+    productFolder: `/work/shop/product-${promptIndex}`,
+    storeName: `shop-${promptIndex}`,
+    promptIndex,
+    promptWordFile: `/work/prompts/${promptIndex}.docx`
+  }))
+);
+
+const generationOk = auditMainImageGeneration({
+  tasks: [taskWithMainImages(completeGeneratedFiles)],
+  existingFiles: completeGeneratedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder]),
+  expectedPromptCount: 2,
+  expectedImagesPerPrompt: 4,
+  simulateOnly: false
+});
+
+assert.equal(generationOk.ok, true);
+assert.equal(generationOk.summary.auditedTaskCount, 1);
+assert.equal(generationOk.summary.generatedImageCount, 8);
+
+const generationMissingPromptImage = auditMainImageGeneration({
+  tasks: [taskWithMainImages(completeGeneratedFiles.slice(0, 7))],
+  existingFiles: completeGeneratedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder]),
+  expectedPromptCount: 2,
+  expectedImagesPerPrompt: 4,
+  simulateOnly: false
+});
+
+assert.equal(generationMissingPromptImage.ok, false);
+assert.ok(generationMissingPromptImage.errors.some((issue) => issue.code === "main_image_prompt_count_mismatch"));
+
+const generationDuplicate = auditMainImageGeneration({
+  tasks: [
+    taskWithMainImages([
+      completeGeneratedFiles[0],
+      { ...completeGeneratedFiles[1], imageFile: completeGeneratedFiles[0].imageFile },
+      ...completeGeneratedFiles.slice(2)
+    ])
+  ],
+  existingFiles: completeGeneratedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder]),
+  expectedPromptCount: 2,
+  expectedImagesPerPrompt: 4,
+  simulateOnly: false
+});
+
+assert.equal(generationDuplicate.ok, false);
+assert.ok(generationDuplicate.errors.some((issue) => issue.code === "main_image_duplicate_file"));
+
+const publishTask = {
+  taskId: "image-001",
+  sequenceNo: 1,
+  sourceImagePath: "/work/input/source.png",
+  sourceImageName: "source.png",
+  status: "published",
+  lastUpdatedAt: "2026-05-23T00:00:00.000Z",
+  generatedProductFolders: ["/work/shop/product-1"],
+  notes: [],
+  shopDistributionArtifact: {
+    distributedFolders: ["/work/shop/product-1"],
+    simulated: false
+  },
+  publishArtifact: {
+    results: [],
+    simulated: false
+  }
+};
+
+const publishOk = auditPublishCoverage({
+  tasks: [publishTask],
+  manifestEntries: [
+    {
+      productFolder: "/work/shop/product-1",
+      runtimeKey: "shop__product-1",
+      shopFolder: "/work/shop",
+      watermarkNo: 1,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      message: "ok",
+      updatedAt: "2026-05-23T00:00:00.000Z"
+    }
+  ]
+});
+
+assert.equal(publishOk.ok, true);
+assert.equal(publishOk.summary.expectedPublishCount, 1);
+assert.equal(publishOk.summary.safelyPublishedCount, 1);
+
+const publishMissing = auditPublishCoverage({
+  tasks: [publishTask],
+  manifestEntries: []
+});
+
+assert.equal(publishMissing.ok, false);
+assert.ok(publishMissing.errors.some((issue) => issue.code === "publish_result_missing"));

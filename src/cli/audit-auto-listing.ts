@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { auditAutoListingContinuity } from "../autolist/audit-rules.js";
+import { auditAutoListingContinuity, auditMainImageGeneration, auditPublishCoverage } from "../autolist/audit-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
+import { loadPublishManifest } from "../autolist/publish-manifest.js";
 import type { AutoListingJobFile, AutoListingRunState } from "../autolist/types.js";
 
 interface Args {
@@ -61,16 +62,15 @@ function listFilesRecursive(dir: string): string[] {
   if (!fs.existsSync(resolved)) {
     return [];
   }
-  const files: string[] = [];
+  const files: string[] = [resolved];
   const pending = [resolved];
   while (pending.length > 0) {
     const current = pending.pop() as string;
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const fullPath = path.join(current, entry.name);
+      files.push(fullPath);
       if (entry.isDirectory()) {
         pending.push(fullPath);
-      } else {
-        files.push(fullPath);
       }
     }
   }
@@ -112,8 +112,12 @@ function resolveFromJob(jobFile: string): {
   feishuProductDataFile: string;
   feishuImageDir: string;
   qualificationDir: string;
+  mainImageWorkDir: string;
+  shopRootDir: string;
   processedImageManifest: string;
   runtimeRootDir: string;
+  mainImageExpectedCount: number;
+  simulateOnly: boolean;
 } {
   const job = readJson<AutoListingJobFile>(jobFile);
   if (!job.input) {
@@ -124,35 +128,48 @@ function resolveFromJob(jobFile: string): {
     feishuProductDataFile: path.resolve(job.input.feishuProductDataFile || "data/feishu/products.json"),
     feishuImageDir: path.resolve(job.input.feishuImageDir),
     qualificationDir: path.resolve(job.input.qualificationDir),
+    mainImageWorkDir: path.resolve(job.input.mainImageWorkDir || job.input.jimengImageDir || "input/auto-listing/jimeng-images"),
+    shopRootDir: path.resolve(job.input.shopRootDir),
     processedImageManifest: path.resolve(job.input.processedImageManifest || "data/auto-listing/processed-images.json"),
-    runtimeRootDir: path.resolve(job.input.runtimeRootDir || "data/auto-listing/runs")
+    runtimeRootDir: path.resolve(job.input.runtimeRootDir || "data/auto-listing/runs"),
+    mainImageExpectedCount: job.input.mainImageExpectedCount ?? 4,
+    simulateOnly: job.input.simulateOnly ?? true
   };
 }
 
-function printText(result: ReturnType<typeof auditAutoListingContinuity>, context: Record<string, string | number | undefined>): void {
+function mergeAuditResults(results: Array<{ ok: boolean; errors: unknown[]; warnings: unknown[] }>): boolean {
+  return results.every((result) => result.ok);
+}
+
+function printIssueLines(lines: string[], label: string, issues: Array<{ code: string; message: string; filePath?: string }>): void {
+  if (issues.length === 0) {
+    return;
+  }
+  lines.push(label);
+  for (const item of issues) {
+    lines.push(`  - [${item.code}] ${item.message}${item.filePath ? ` ${item.filePath}` : ""}`);
+  }
+}
+
+function printText(input: {
+  continuity: ReturnType<typeof auditAutoListingContinuity>;
+  generation: ReturnType<typeof auditMainImageGeneration>;
+  publish: ReturnType<typeof auditPublishCoverage>;
+  context: Record<string, string | number | undefined>;
+}): void {
+  const ok = mergeAuditResults([input.continuity, input.generation, input.publish]);
   const lines = [
-    `自动上架连续性审计：${result.ok ? "通过" : "失败"}`,
-    `飞书产品：${result.summary.recordCount}`,
-    `已处理产品：${result.summary.processedRecordCount}`,
-    `待处理产品：${result.summary.pendingRecordCount}`,
-    `本地素材文件：${result.summary.existingFileCount}`,
-    context.runStatus ? `最新运行状态：${context.runStatus}` : undefined,
-    context.discoveredRunImageCount !== undefined ? `最新运行发现产品：${context.discoveredRunImageCount}` : undefined
-  ].filter(Boolean);
+    `自动上架审计：${ok ? "通过" : "失败"}`,
+    `连续性：飞书产品 ${input.continuity.summary.recordCount}，已处理 ${input.continuity.summary.processedRecordCount}，待处理 ${input.continuity.summary.pendingRecordCount}`,
+    `生图：审计任务 ${input.generation.summary.auditedTaskCount}，生成图片 ${input.generation.summary.generatedImageCount}/${input.generation.summary.expectedImageCount}`,
+    `发布：审计任务 ${input.publish.summary.auditedTaskCount}，安全发布 ${input.publish.summary.safelyPublishedCount}/${input.publish.summary.expectedPublishCount}`,
+    `本地素材文件：${input.continuity.summary.existingFileCount}`,
+    input.context.runStatus ? `最新运行状态：${input.context.runStatus}` : undefined,
+    input.context.discoveredRunImageCount !== undefined ? `最新运行发现产品：${input.context.discoveredRunImageCount}` : undefined
+  ].filter(Boolean) as string[];
 
-  if (result.errors.length > 0) {
-    lines.push("错误：");
-    for (const item of result.errors) {
-      lines.push(`  - [${item.code}] ${item.message}${item.filePath ? ` ${item.filePath}` : ""}`);
-    }
-  }
-
-  if (result.warnings.length > 0) {
-    lines.push("警告：");
-    for (const item of result.warnings) {
-      lines.push(`  - [${item.code}] ${item.message}${item.filePath ? ` ${item.filePath}` : ""}`);
-    }
-  }
+  printIssueLines(lines, "错误：", [...input.continuity.errors, ...input.generation.errors, ...input.publish.errors]);
+  printIssueLines(lines, "警告：", [...input.continuity.warnings, ...input.generation.warnings, ...input.publish.warnings]);
 
   console.log(lines.join("\n"));
 }
@@ -164,39 +181,65 @@ async function main(): Promise<void> {
   const processedImages = readProcessedImages(resolved.processedImageManifest);
   const existingFiles = [
     ...listFilesRecursive(resolved.feishuImageDir),
-    ...listFilesRecursive(resolved.qualificationDir)
+    ...listFilesRecursive(resolved.qualificationDir),
+    ...listFilesRecursive(resolved.mainImageWorkDir),
+    ...listFilesRecursive(resolved.shopRootDir),
+    ...listFilesRecursive(resolved.runtimeRootDir)
   ];
   const state = latestRunState(resolved.runtimeRootDir);
   const discoveredRunImageCount = state?.status === "running" ? state.tasks.length : undefined;
-  const result = auditAutoListingContinuity({
+  const latestRuntimeDir = state?.runId ? path.join(resolved.runtimeRootDir, state.runId) : resolved.runtimeRootDir;
+  const manifest = loadPublishManifest(latestRuntimeDir);
+  const continuity = auditAutoListingContinuity({
     records,
     processedImages,
     existingFiles,
     discoveredRunImageCount
   });
+  const generation = auditMainImageGeneration({
+    tasks: state?.tasks || [],
+    existingFiles,
+    expectedImagesPerPrompt: resolved.mainImageExpectedCount,
+    simulateOnly: resolved.simulateOnly
+  });
+  const publish = auditPublishCoverage({
+    tasks: state?.tasks || [],
+    manifestEntries: manifest.entries
+  });
+  const ok = mergeAuditResults([continuity, generation, publish]);
 
   const output = {
+    ok,
     jobFile: path.resolve(args.jobFile),
     feishuProductDataFile: resolved.feishuProductDataFile,
     feishuImageDir: resolved.feishuImageDir,
     qualificationDir: resolved.qualificationDir,
+    mainImageWorkDir: resolved.mainImageWorkDir,
+    shopRootDir: resolved.shopRootDir,
     processedImageManifest: resolved.processedImageManifest,
     runtimeRootDir: resolved.runtimeRootDir,
     runStatus: state?.status,
     runId: state?.runId,
-    ...result
+    continuity,
+    generation,
+    publish
   };
 
   if (args.json) {
     console.log(JSON.stringify(output, null, 2));
   } else {
-    printText(result, {
-      runStatus: state?.status,
-      discoveredRunImageCount
+    printText({
+      continuity,
+      generation,
+      publish,
+      context: {
+        runStatus: state?.status,
+        discoveredRunImageCount
+      }
     });
   }
 
-  if (!result.ok) {
+  if (!ok) {
     process.exitCode = 1;
   }
 }

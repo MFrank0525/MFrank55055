@@ -202,3 +202,5 @@ npm run audit:auto-listing
 - `data/auto-listing/processed-images.json` 里的已完成源图。
 - `input/auto-listing/feishu-images` 和 `input/auto-listing/qualifications` 是否仍保留待处理产品素材。
 - 最新运行如果还在进行，当前发现的任务数是否少于应处理的待处理产品数。
+- 已完成主图生成阶段的任务是否满足类目计划：每个 Word 提示词 4 张，医疗器械/保健食品总计 20 张，非处方药总计 12 张。
+- 已进入发布阶段的店铺产品文件夹是否都有安全发布信号；安全信号只能来自发布结果或 `publish-manifest.json` 中的 `published + publish_signal_confirmed/list_verified`。
