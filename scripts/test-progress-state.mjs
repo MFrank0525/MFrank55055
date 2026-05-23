@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { readLatestTaskProgressEvent } from "../dist/src/autolist/progress-events.js";
+import { auditAutoListingContinuity } from "../dist/src/autolist/audit-rules.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import { createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { classifyPublishFailure, shouldRetryPublishFailure } from "../dist/src/business/publish-from-spu/publish-rules.js";
@@ -68,3 +69,73 @@ assert.deepEqual(cleanupTargets.sort(), [
   "/work/input/auto-listing/feishu-images/product-1.png",
   "/work/input/auto-listing/qualifications/product-1-cert.png"
 ]);
+
+function record(recordId, whiteImage, qualificationImage) {
+  return {
+    recordId,
+    userCognitionName: recordId,
+    genericName: "凝胶",
+    brand: "宝元堂",
+    spu: recordId,
+    sellingPointText: "测试卖点",
+    shortTitle: "测试短标题",
+    rawFields: {},
+    whiteBackgroundImages: whiteImage
+      ? [{ fileToken: `${recordId}-white`, name: path.basename(whiteImage), localFile: whiteImage, raw: {} }]
+      : [],
+    qualificationImages: qualificationImage
+      ? [{ fileToken: `${recordId}-cert`, name: path.basename(qualificationImage), localFile: qualificationImage, raw: {} }]
+      : []
+  };
+}
+
+const continuityOk = auditAutoListingContinuity({
+  records: [
+    record("rec-1", "/work/input/auto-listing/feishu-images/product-1.png", "/work/input/auto-listing/qualifications/product-1-cert.png"),
+    record("rec-2", "/work/input/auto-listing/feishu-images/product-2.png", "/work/input/auto-listing/qualifications/product-2-cert.png"),
+    record("rec-3", "/work/input/auto-listing/feishu-images/product-3.png", "/work/input/auto-listing/qualifications/product-3-cert.png")
+  ],
+  processedImages: ["/work/input/auto-listing/feishu-images/product-1.png"],
+  existingFiles: [
+    "/work/input/auto-listing/feishu-images/product-2.png",
+    "/work/input/auto-listing/feishu-images/product-3.png",
+    "/work/input/auto-listing/qualifications/product-2-cert.png",
+    "/work/input/auto-listing/qualifications/product-3-cert.png"
+  ],
+  discoveredRunImageCount: 2
+});
+
+assert.equal(continuityOk.ok, true);
+assert.equal(continuityOk.summary.recordCount, 3);
+assert.equal(continuityOk.summary.processedRecordCount, 1);
+assert.equal(continuityOk.summary.pendingRecordCount, 2);
+
+const missingPendingAsset = auditAutoListingContinuity({
+  records: [
+    record("rec-1", "/work/input/auto-listing/feishu-images/product-1.png"),
+    record("rec-2", "/work/input/auto-listing/feishu-images/product-2.png")
+  ],
+  processedImages: ["/work/input/auto-listing/feishu-images/product-1.png"],
+  existingFiles: [],
+  discoveredRunImageCount: 1
+});
+
+assert.equal(missingPendingAsset.ok, false);
+assert.ok(missingPendingAsset.errors.some((issue) => issue.code === "pending_white_image_missing"));
+
+const underDiscoveredRun = auditAutoListingContinuity({
+  records: [
+    record("rec-1", "/work/input/auto-listing/feishu-images/product-1.png"),
+    record("rec-2", "/work/input/auto-listing/feishu-images/product-2.png"),
+    record("rec-3", "/work/input/auto-listing/feishu-images/product-3.png")
+  ],
+  processedImages: ["/work/input/auto-listing/feishu-images/product-1.png"],
+  existingFiles: [
+    "/work/input/auto-listing/feishu-images/product-2.png",
+    "/work/input/auto-listing/feishu-images/product-3.png"
+  ],
+  discoveredRunImageCount: 1
+});
+
+assert.equal(underDiscoveredRun.ok, false);
+assert.ok(underDiscoveredRun.errors.some((issue) => issue.code === "run_discovered_too_few_images"));

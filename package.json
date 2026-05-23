@@ -18,6 +18,7 @@
     "auto-listing:hermes-start": "npm run build && node dist/src/cli/hermes-auto-listing-runner.js start",
     "auto-listing:hermes-start:dry": "npm run build && node dist/src/cli/hermes-auto-listing-runner.js start --dry-run",
     "auto-listing:hermes-status": "npm run build && node dist/src/cli/hermes-auto-listing-runner.js status",
+    "audit:auto-listing": "npm run build && node dist/src/cli/audit-auto-listing.js",
     "rules:check": "npm run build && node dist/src/cli/check-rule-integrity.js",
     "business:doubao": "npm run doubao:run --",
     "business:publish": "npm run publish:spu --",

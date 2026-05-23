@@ -191,6 +191,14 @@ npm run auto-listing:hermes-status
 ```bash
 npm run doctor:feishu
 npm run doctor:auto-listing -- --require-image-generation --image-generation-provider openai-compatible --image-generation-config ./input/image-generation.config.json
+npm run audit:auto-listing
 ```
 
 如果 `doctor:feishu` 报 `invalidRecords`，需要先补齐飞书表格里的缺失字段或附件。
+
+`audit:auto-listing` 是只读审计命令，不会启动 Hermes、不会调用飞书下载、不会发布商品。它会检查：
+
+- `data/feishu/products.json` 里的产品总数和待处理数量。
+- `data/auto-listing/processed-images.json` 里的已完成源图。
+- `input/auto-listing/feishu-images` 和 `input/auto-listing/qualifications` 是否仍保留待处理产品素材。
+- 最新运行如果还在进行，当前发现的任务数是否少于应处理的待处理产品数。

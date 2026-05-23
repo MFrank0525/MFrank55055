@@ -5,7 +5,8 @@ import { writeDeepSeekPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateMainImageAssets } from "./jimeng-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, filterPendingImages } from "./file-batch.js";
-import { loadFeishuProductRuntimeRecord, resolveFeishuProductSourceImages } from "./feishu-products.js";
+import { collectFeishuProductAssetFiles } from "./audit-rules.js";
+import { loadFeishuProductRecords, loadFeishuProductRuntimeRecord, resolveFeishuProductSourceImages } from "./feishu-products.js";
 import { getProductCategoryPlan } from "./product-category.js";
 import { enrichDistributedTitleSheets } from "./metadata.js";
 import { cleanupAfterPublish } from "./cleanup.js";
@@ -103,21 +104,12 @@ function appendEvent(filePath: string, event: AutoListingEvent): void {
   fs.appendFileSync(filePath, `${JSON.stringify({ ...event, message: redactSensitiveText(event.message) })}\n`, "utf8");
 }
 
-function collectFeishuProductAssetFiles(feishuProductDataFile: string): string[] {
+function collectProtectedCleanupAssetFiles(feishuProductDataFile: string): string[] {
   if (!feishuProductDataFile || !fs.existsSync(feishuProductDataFile)) {
     return [];
   }
   try {
-    const data = JSON.parse(fs.readFileSync(feishuProductDataFile, "utf8")) as {
-      records?: Array<{
-        qualificationImages?: Array<{ localFile?: string }>;
-        whiteBackgroundImages?: Array<{ localFile?: string }>;
-      }>;
-    };
-    return (data.records || []).flatMap((record) => [
-      ...(record.whiteBackgroundImages || []).map((item) => item.localFile || ""),
-      ...(record.qualificationImages || []).map((item) => item.localFile || "")
-    ]).filter(Boolean);
+    return collectFeishuProductAssetFiles(loadFeishuProductRecords(feishuProductDataFile));
   } catch {
     return [];
   }
@@ -827,7 +819,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     }
 
     let workingState = state;
-    const protectedCleanupAssetFiles = collectFeishuProductAssetFiles(resolved.input.feishuProductDataFile);
+    const protectedCleanupAssetFiles = collectProtectedCleanupAssetFiles(resolved.input.feishuProductDataFile);
     for (const task of workingState.tasks) {
       workingState = {
         ...workingState,
