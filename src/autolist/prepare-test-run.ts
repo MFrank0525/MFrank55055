@@ -61,7 +61,7 @@ function clearJimengDir(jimengImageDir: string, removed: string[]): void {
     return;
   }
   for (const entry of fs.readdirSync(jimengImageDir, { withFileTypes: true })) {
-    if (entry.isFile() && /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(entry.name)) {
+    if (entry.name === ".gitkeep") {
       continue;
     }
     safeRemove(path.join(jimengImageDir, entry.name), removed);

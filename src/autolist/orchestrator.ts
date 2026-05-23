@@ -625,6 +625,10 @@ async function executeTaskChain(
         sourceAssetFiles,
         taskRuntimeDir,
         publishRuntimeDirs,
+        feishuImageDir: path.dirname(current.sourceImagePath),
+        qualificationDir,
+        shopRootDir,
+        autoListingInputDir: path.dirname(path.dirname(current.sourceImagePath)),
         titleDir,
         jimengImageDir: mainImageWorkDir,
         cleanupAfterPublish: cleanupAfterPublishEnabled,
@@ -674,18 +678,21 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   const runId = path.basename(resolved.runtimeDir);
   const startedAt = new Date().toISOString();
   const logFile = path.join(resolved.runtimeDir, "logs", "run.log");
-  const discoveredImages = resolved.input.feishuProductDataFile
-    ? filterPendingImages(
-        resolveFeishuProductSourceImages(resolved.input.feishuProductDataFile),
-        resolved.processedImageManifest,
-        resolved.input.maxImagesPerRun
-      )
-    : discoverPendingImages(
-        resolved.input.feishuImageDir,
-        resolved.input.imageExtensions,
-        resolved.processedImageManifest,
-        resolved.input.maxImagesPerRun
-      );
+  const discoveredImages =
+    resolved.input.resumeSourceImagePath
+      ? [resolved.input.resumeSourceImagePath]
+      : resolved.input.feishuProductDataFile
+        ? filterPendingImages(
+            resolveFeishuProductSourceImages(resolved.input.feishuProductDataFile),
+            resolved.processedImageManifest,
+            resolved.input.maxImagesPerRun
+          )
+        : discoverPendingImages(
+            resolved.input.feishuImageDir,
+            resolved.input.imageExtensions,
+            resolved.processedImageManifest,
+            resolved.input.maxImagesPerRun
+          );
   const resumeFilteredDiscoveredImages = filterResumeSourceImage(discoveredImages, resolved.input.resumeSourceImagePath);
   const shouldAllowRecoveredTask = resolved.input.startStep !== "source_images_discovered";
   const effectiveImages =

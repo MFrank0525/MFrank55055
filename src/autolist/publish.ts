@@ -3,6 +3,7 @@ import path from "node:path";
 import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
 import { clearCheckpoint, isStageCompleted, loadCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
 import { evaluatePublishResult } from "../business/publish-from-spu/publish-rules.js";
+import { logInfo } from "../utils/logger.js";
 import {
   extractWatermarkNo,
   findPublishManifestEntry,
@@ -328,6 +329,17 @@ export async function publishDistributedProducts(options: {
     const shopFolder = path.dirname(productFolder);
     const fields = readProductWorkbookFields(findWorkbookFile(productFolder));
     const runtimeKey = publishRuntimeKey(productFolder);
+    logInfo(`publishing product folder: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+    upsertPublishManifestEntry(options.runtimeDir, {
+      productFolder,
+      runtimeKey,
+      shopFolder,
+      watermarkNo: extractWatermarkNo(productFolder),
+      status: "pending",
+      finalVerifyStatus: "not_checked",
+      resultFile: path.join(options.runtimeDir, "publish", runtimeKey, "result.json"),
+      message: "Publish flow is running."
+    });
 
     const publishResult = await runPublishFromSpuJob(
       {
@@ -375,6 +387,7 @@ export async function publishDistributedProducts(options: {
 
     const checkpointFile = path.join(options.runtimeDir, "publish", runtimeKey);
     if (!decision.safelyPublished) {
+      logInfo(`publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`);
       clearCheckpoint(checkpointFile);
       return {
         preflightErrors: [],
@@ -382,6 +395,9 @@ export async function publishDistributedProducts(options: {
         simulated: false
       };
     }
+    logInfo(
+      `publish completed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.finalVerifyStatus}`
+    );
     saveCheckpoint(checkpointFile, [{ step: "publish_flow", status: "completed" }]);
   }
 

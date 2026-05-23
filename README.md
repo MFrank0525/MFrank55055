@@ -1,67 +1,46 @@
 # Douyin Business Automation
 
-这个仓库现在按两条独立业务线运行，不建议再用统一任务入口。
+本仓库保留三条明确入口：豆包业务、SPU 发布业务、飞书全自动上架业务。自动上架由项目调度器执行；Hermes 只负责启动和查询状态。
 
-## 业务入口
+## 入口
 
-### 1. 豆包业务
+### 飞书全自动上架
 
-用途：
-- 上传图片到豆包
-- 提交提示词
-- 抓取回答
-- 落地 CSV 和结果 JSON
+用户通过 Hermes / 飞书触发时，只使用启动器：
 
-执行：
+```bash
+npm run auto-listing:hermes-start
+```
+
+查询运行状态、成功结果或失败原因：
+
+```bash
+npm run auto-listing:hermes-status
+```
+
+启动器会快速返回，并把真实流程放到后台运行。它会优先续跑当前失败的真实任务，复用已经生成的提示词、主图、标题和发布产物；没有可续跑任务时才启动完整真实流程。
+
+### 豆包业务
 
 ```bash
 npm run business:doubao -- --job ./input/doubao-job.example.json
 ```
 
-独立输入样例：
-- `input/doubao-job.example.json`
-
-### 2. SPU 发布业务
-
-用途：
-- 读取商品文件夹素材和表格
-- 查询抖店后台 SPU
-- 打开商品发布页
-- 自动填写固定字段、图片、规格、价格库存
-- 输出截图和结构化结果
-
-执行：
+### SPU 发布业务
 
 ```bash
 npm run business:publish -- --job ./input/publish-from-spu.job.example.json
 ```
 
-真实发布类模式（`run_publish_flow`、`run_pre_publish_flow`、`run_graphic_flow`）必须额外传 `--allow-publish`，避免误触抖店发布。默认终端只输出摘要，完整结果写入 `result.json`；需要完整 JSON 可加 `--json`。
-
-独立输入样例：
-- `input/publish-from-spu.job.example.json`
-
-## 旧任务入口
-
-旧统一任务入口已经移除，不再提供 `npm run task` / `npm run task:legacy`。继续维护旧入口会绕开独立业务入口里的 doctor、dry-run、checkpoint 和真实发布保护，不适合作为自动上架主流程。
-
-旧任务文件请迁移到独立业务入口：
-
-- 豆包业务：`npm run business:doubao -- --job ./input/doubao-job.example.json`
-- SPU 发布：`npm run business:publish -- --job ./input/publish-from-spu.job.example.json`
-- 飞书全自动上架：`npm run business:auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json`
+真实发布类模式必须额外传 `--allow-publish`，避免误触发布。
 
 ## 安装
-
-macOS 推荐先确认 Node.js 已安装，然后在仓库根目录执行：
 
 ```bash
 npm install
 npx playwright install chromium
 npm run doctor
 ```
-
-`npm run doctor` 会检查依赖、Playwright Chromium、示例 JSON 和常用输入目录。
 
 专项检查：
 
@@ -72,81 +51,45 @@ npm run doctor:feishu
 npm run doctor:all
 ```
 
-默认 `doctor` 只检查基础环境，不检查真实商品目录、生图 provider、Pillow、商品信息表等专项业务资料。
-
-可选环境变量：
-- `PYTHON_BIN`：指定 Python 命令，默认 macOS/Linux 使用 `python3`
-- `IMAGE_GENERATION_API_KEY`：指定 OpenAI-compatible 中转站生图 API Key，优先级高于本地配置文件
-- `DREAMINA_BIN`：指定 Dreamina CLI 路径，默认优先查 `/opt/homebrew/bin/dreamina`
-- `DREAMINA_SKILL_DIR`：指定 dreamina-cli skill 目录，目录下应包含 `scripts/image2image.py` 等 wrapper；项目也内置了 `scripts/dreamina-cli/` wrapper
-
 自动上架的本地水印依赖 Python Pillow。如 `npm run doctor:auto-listing` 提示缺失，可安装：
 
 ```bash
 python3 -m pip install pillow
 ```
 
-## 本机运行准备
+## 飞书数据源
 
-示例 job 使用相对路径，默认从仓库根目录解析。
+配置说明见 [docs/FEISHU_BITABLE_SETUP.md](docs/FEISHU_BITABLE_SETUP.md)。
 
-飞书多维表格数据源配置见：
-
-- `docs/FEISHU_BITABLE_SETUP.md`
-
-飞书数据源主流程：
+常用检查：
 
 ```bash
+npm run feishu:check -- --config ./input/feishu-bitable.config.json
+npm run feishu:fields -- --config ./input/feishu-bitable.config.json
 npm run feishu:assets -- --config ./input/feishu-bitable.config.json --out ./data/feishu/products.json
-npm run doctor:feishu
-npm run business:auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json
 ```
 
-也可以直接运行一键模拟流程：
+## 自动上架本地文件
 
-```bash
-npm run flow:mac-feishu
+真实 Mac 飞书流程的生图配置在本地忽略文件：
+
+```text
+input/image-generation.config.json
 ```
 
-真实流程使用：
+仓库只提交示例：
 
-```bash
-npm run flow:mac-feishu:real
+```text
+input/image-generation.config.example.json
 ```
 
-真实流程会调用中转站 `gpt-image-2` 生图和豆包标题生成，并可能消耗外部服务额度。如生图接口返回余额、额度或计费不足，流程会提示充值中转站账号。
-`flow:mac-feishu:real` 会先校验 job 的 `simulateOnly=false`，并在运行前打印外部服务消耗摘要；普通 `flow:mac-feishu` 会拒绝误跑真实 job。
-直接运行 real job 时必须显式传 `--allow-real`；默认 CLI 只输出摘要，完整结果保存在本轮 `result.json`，需要完整终端 JSON 可加 `--json`。
-
-暂停/继续：
-
-```bash
-npm run auto-listing:pause
-npm run auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json --resume-from-state ./data/auto-listing/runs/<runId>/state.json --out ./data/auto-listing/runs/<runId>/resume.job.json
-npm run auto-listing:resume-ready
-npm run business:auto-listing -- --job ./data/auto-listing/runs/<runId>/resume.job.json
-```
-
-豆包业务运行前：
-- 把要上传的图片放到 `input/images/`
-- 确认提示词文件是 `input/doubao-prompt.txt`
-- 结果会写到 `output/doubao/` 和 `output/doubao-run-result.json`
-
-SPU 发布业务运行前：
-- 把 `input/publish-from-spu.job.example.json` 里的 `shopFolder` 和 `productFolder` 改成真实商品目录
-- 如果只想打开或查询页面，先把 `mode` 改成对应模式再运行
-
-自动上架业务运行前：
-- 把素材放到 `input/auto-listing/` 下对应目录
-- 优先使用飞书数据源：先运行 `npm run feishu:assets`
-- 如不使用飞书数据源，再把商品信息表保存为 `input/auto-listing/product-info.xlsx`
-- 真实 Mac 飞书流程的生图配置在本地忽略文件 `input/image-generation.config.json`，提交仓库的是 `input/image-generation.config.example.json`
+运行数据、浏览器 profile、飞书附件、生成图片、标题表、Word 文档和发布日志都不提交 Git。
 
 ## 目录
 
-- `src/doubao`: 豆包业务实现
-- `src/business/publish-from-spu.ts`: SPU 发布业务实现
-- `src/cli/doubao-run.ts`: 豆包独立 CLI
-- `src/cli/publish-from-spu.ts`: SPU 发布独立 CLI
-- `src/cli/auto-listing.ts`: 飞书全自动上架 CLI
-- `docs/TASK_INTERFACE.md`: 旧任务入口迁移说明
+- `src/cli/hermes-auto-listing-runner.ts`: Hermes 启动器和状态查询
+- `src/cli/auto-listing.ts`: 自动上架 CLI
+- `src/cli/flow-mac-feishu.ts`: 启动器内部使用的飞书流程编排
+- `src/autolist/orchestrator.ts`: 自动上架主调度器
+- `src/business/publish-from-spu.ts`: SPU 发布入口
+- `docs/auto-listing/README.md`: 自动上架规则总览

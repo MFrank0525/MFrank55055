@@ -26,6 +26,7 @@
     "titleCount": 20,
     "maxImagesPerRun": 0,
     "simulateOnly": false,
+    "clearTestOutputsBeforeRun": true,
     "startStep": "source_images_discovered",
     "endStep": "done"
   }

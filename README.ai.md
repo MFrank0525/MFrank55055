@@ -1,8 +1,16 @@
 # AI Execution Notes
 
-默认不要使用统一 `task` 入口。
+默认不要发明入口，也不要使用历史任务接口。自动上架只把 Hermes 当启动器。
 
 ## Business Entrypoints
+
+Hermes / 飞书触发自动上架：
+
+```bash
+npm run auto-listing:hermes-start
+```
+
+Hermes 不要直接同步执行底层流程脚本；真实流程可能超过终端工具超时和调用预算。后台入口会快速返回，并通过 `npm run auto-listing:hermes-status` 查看运行状态。
 
 豆包业务：
 
@@ -14,12 +22,6 @@ SPU 发布业务：
 
 ```bash
 npm run business:publish -- --job ./input/publish-from-spu.job.example.json
-```
-
-旧兼容入口：
-
-```bash
-npm run task:legacy -- --taskFile ./input/legacy/task.publish-from-spu.flow.inspect.json
 ```
 
 ## Publish SOP

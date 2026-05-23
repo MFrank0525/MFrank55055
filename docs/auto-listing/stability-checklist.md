@@ -56,13 +56,11 @@
 
 1. 暂停：
    - `npm run auto-listing:pause`
-2. 生成继续任务：
-   - `npm run auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json --resume-from-state ./data/auto-listing/runs/<runId>/state.json --out ./data/auto-listing/runs/<runId>/resume.job.json`
-3. 继续前清除暂停信号：
+2. 继续前清除暂停信号：
    - `npm run auto-listing:resume-ready`
-4. 运行生成的 resume job。
-   - `npm run business:auto-listing -- --job ./data/auto-listing/runs/<runId>/resume.job.json`
-5. 继续时不要清理 `data/auto-listing/runs/<runId>`、真实主图工作目录、真实标题目录、店铺产物目录，否则可复用产物会丢失。
+3. 继续上架：
+   - `npm run auto-listing:hermes-start`
+4. 继续时不要清理 `data/auto-listing/runs/<runId>`、真实主图工作目录、真实标题目录、店铺产物目录，否则可复用产物会丢失。
 
 边界：
 
@@ -178,6 +176,9 @@
 风险：
 
 - 页面弹窗、模板选择、履约配置、点击发布都可能波动。
+- 发布成功后抖店可能跳回空白创建页，不能误判为“页面丢失”。
+- 后台任务实际完成后，如果状态只看进程 PID，会误报 `exited_unknown`。
+- 日志只写“开始发布”会让长流程看起来像卡住。
 
 最稳定方案：
 
@@ -189,6 +190,11 @@
 3. 模块失败立即停止，不自动跳过。
 4. 店铺切换后统一回固定标品管理 URL。
 5. 直接运行发布 CLI 的真实发布类模式必须加 `--allow-publish`；默认终端只输出摘要，完整结果写入 `result.json`。
+6. 发布成功判定属于规则层：必须读取 `result.json`、`state.json`、`publish-manifest.json`，不能只看后台进程是否还活着。
+7. 已发布商品必须写入 `publish-manifest.json`，并以 `published + publish_signal_confirmed/list_verified` 作为安全跳过依据。
+8. 发布动作属于动作层：每个商品开始、完成、失败都必须写日志；日志不改变业务规则，只为状态汇报和卡顿诊断服务。
+9. Hermes 状态汇报必须把完成态显示为 `completed`，失败态显示为 `failed`；禁止在已有安全成功信号时显示 `exited_unknown`。
+10. `填写检查`/`发布商品` 后返回空白 `/ffa/g/create` 时，只能在已尝试点击发布后作为成功提交信号；未点击发布前仍视为未填写初始页。
 
 ## 推荐执行顺序
 

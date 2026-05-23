@@ -49,8 +49,7 @@ export function isFreshPublishCreatePage(snapshot: PublishPageSnapshot): boolean
   const bodyText = normalizeVisibleText(snapshot.bodyText);
   return (
     snapshot.url.includes("/ffa/g/create") &&
-    bodyText.includes("商品发布") &&
-    bodyText.includes("上传主图") &&
+    (bodyText.includes("主图上传") || bodyText.includes("上传主图")) &&
     bodyText.includes("商品标题") &&
     bodyText.includes("0/60")
   );

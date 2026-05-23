@@ -118,6 +118,15 @@ function inferResumeStartStep(task: ImageTaskState): AutoListingStep {
     if (failedStep && (AUTO_LISTING_STEPS as readonly string[]).includes(failedStep)) {
       return failedStep as AutoListingStep;
     }
+    if (/image generation|generated main image|main image|data items|downloadable image/i.test(task.error?.message || "")) {
+      return "main_images_generated";
+    }
+    if (task.deepseekArtifact?.wordFiles?.length || task.deepseekArtifact?.prompts?.length) {
+      return "main_images_generated";
+    }
+    if (task.sellingPointArtifact?.sellingPointText) {
+      return "poster_prompts_generated";
+    }
     return "source_images_discovered";
   }
   const normalizedStatus = normalizeAutoListingStep(task.status as any);
@@ -129,6 +138,44 @@ function inferResumeStartStep(task: ImageTaskState): AutoListingStep {
     return "source_images_discovered";
   }
   return AUTO_LISTING_STEPS[Math.min(currentIndex + 1, AUTO_LISTING_STEPS.length - 1)];
+}
+
+function listFilesRecursive(dir: string): string[] {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  const files: string[] = [];
+  const pending = [dir];
+  while (pending.length > 0) {
+    const current = pending.pop() as string;
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(fullPath);
+      } else {
+        files.push(fullPath);
+      }
+    }
+  }
+  return files;
+}
+
+function inferResumeStartStepFromDisk(task: ImageTaskState, runtimeDir: string, fallback: AutoListingStep): AutoListingStep {
+  const taskDir = path.join(runtimeDir, "tasks", task.taskId);
+  const files = listFilesRecursive(taskDir);
+  if (files.some((file) => file.includes(`${path.sep}staged${path.sep}`) && /\.(png|jpe?g|webp)$/i.test(file))) {
+    return "main_images_generated";
+  }
+  if (files.some((file) => file.includes(`${path.sep}openai-compatible${path.sep}raw${path.sep}`) && /^generated-\d+/i.test(path.basename(file)))) {
+    return "main_images_generated";
+  }
+  if (files.some((file) => file.includes(`${path.sep}poster-word-files${path.sep}`) && file.toLowerCase().endsWith(".docx"))) {
+    return "main_images_generated";
+  }
+  if (files.some((file) => path.basename(file) === "selling-points.txt")) {
+    return "poster_prompts_generated";
+  }
+  return fallback;
 }
 
 function collectResumeProductFolderNames(task: ImageTaskState): string[] {
@@ -152,8 +199,8 @@ function writeResumeJob(options: {
   outFile: string;
 }): AutoListingJobFile {
   const task = selectResumeTask(options.state);
-  const startStep = inferResumeStartStep(task);
   const runtimeDir = path.dirname(path.resolve(options.stateFile));
+  const startStep = inferResumeStartStepFromDisk(task, runtimeDir, inferResumeStartStep(task));
   const resumeJob: AutoListingJobFile = {
     ...options.sourceJob,
     runtimeDir,
@@ -208,7 +255,7 @@ async function main(): Promise<void> {
   }
 
   if (job.input?.simulateOnly === false && !allowReal) {
-    throw new Error("Real mode job requires explicit --allow-real. Use flow:mac-feishu:real or pass --allow-real after confirming external service costs.");
+    throw new Error("Real mode job requires explicit --allow-real. Use npm run auto-listing:hermes-start for normal starts, or pass --allow-real only for direct maintenance runs after confirming external service costs.");
   }
   printExternalCostSummary(job);
 

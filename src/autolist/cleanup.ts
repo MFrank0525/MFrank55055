@@ -44,8 +44,45 @@ function collectJimengDirTargets(jimengImageDir?: string): string[] {
   }
   return fs
     .readdirSync(jimengImageDir, { withFileTypes: true })
-    .filter((entry) => !(entry.isFile() && /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(entry.name)))
+    .filter((entry) => entry.name !== ".gitkeep")
     .map((entry) => path.join(jimengImageDir, entry.name));
+}
+
+function collectDirectoryChildren(dir?: string): string[] {
+  if (!dir || !fs.existsSync(dir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.name !== ".gitkeep")
+    .map((entry) => path.join(dir, entry.name));
+}
+
+function collectShopRootStaleTargets(shopRootDir?: string): string[] {
+  if (!shopRootDir || !fs.existsSync(shopRootDir)) {
+    return [];
+  }
+
+  return fs.readdirSync(shopRootDir, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(shopRootDir, entry.name);
+    if (entry.name === ".gitkeep") {
+      return [];
+    }
+    if (!entry.isDirectory()) {
+      return [entryPath];
+    }
+    return collectDirectoryChildren(entryPath);
+  });
+}
+
+function collectGeneratedResumeJobTargets(autoListingInputDir?: string): string[] {
+  if (!autoListingInputDir || !fs.existsSync(autoListingInputDir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(autoListingInputDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.resume\.generated\.json$/i.test(entry.name))
+    .map((entry) => path.join(autoListingInputDir, entry.name));
 }
 
 export function cleanupAfterPublish(options: {
@@ -57,6 +94,10 @@ export function cleanupAfterPublish(options: {
   cleanupSourceImageAfterPublish?: boolean;
   taskRuntimeDir?: string;
   publishRuntimeDirs?: string[];
+  feishuImageDir?: string;
+  qualificationDir?: string;
+  shopRootDir?: string;
+  autoListingInputDir?: string;
   titleDir?: string;
   jimengImageDir?: string;
   cleanupAfterPublish: boolean;
@@ -78,6 +119,16 @@ export function cleanupAfterPublish(options: {
     ...(options.taskRuntimeDir ? [options.taskRuntimeDir] : []),
     ...collectTitleDirTargets(options.titleDir),
     ...collectJimengDirTargets(options.jimengImageDir),
+    ...(!options.simulateOnly
+      ? [
+          ...collectDirectoryChildren(options.feishuImageDir),
+          ...collectDirectoryChildren(options.qualificationDir),
+          ...collectDirectoryChildren(options.titleDir),
+          ...collectDirectoryChildren(options.jimengImageDir),
+          ...collectShopRootStaleTargets(options.shopRootDir),
+          ...collectGeneratedResumeJobTargets(options.autoListingInputDir)
+        ]
+      : []),
     ...(!options.simulateOnly && options.cleanupSourceImageAfterPublish
       ? [options.sourceImagePath, ...(options.sourceAssetFiles || [])]
       : [])

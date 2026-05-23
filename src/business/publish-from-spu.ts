@@ -1403,7 +1403,7 @@ async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): P
   }, kind);
 }
 
-async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, shopFolder?: string): Promise<{
+async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, shopFolder?: string, retryNo = 0): Promise<{
   pageUrl: string;
   pageTitle: string;
   screenshotFile: string;
@@ -1596,6 +1596,16 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
         .map((item) => item.rowText.match(/ID:(\d+)/)?.[1] || "")
         .filter(Boolean)
         .slice(0, 5);
+      const queryLooksUnfiltered = !candidates.some((item) => item.normalizedText.includes(normalizedSpu));
+      if (queryLooksUnfiltered && retryNo < 2) {
+        logWarn(
+          `platform spu query returned rows unrelated to requested spu; retrying query ${retryNo + 1}/2. brand=${brand}; spu=${spu}`
+        );
+        await savePageScreenshot(page, runtimeDir, `platform-spu-query-unfiltered-retry-${retryNo + 1}.png`).catch(() => "");
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout(1200);
+        return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
+      }
       const error = new Error(
         `No queried result row matched brand/spu exactly. brand=${brand}; spu=${spu}; firstRow=${firstRowText.slice(0, 200)}; use input.publishPageUrl to bypass query when you already have a known create page URL.`
       ) as QueryDiagnosticError;

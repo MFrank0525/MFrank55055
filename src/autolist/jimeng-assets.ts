@@ -72,6 +72,7 @@ function redactImageGenerationLogValue(value: unknown): unknown {
 }
 
 function writeImageGenerationJsonLog(filePath: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(redactImageGenerationLogValue(value), null, 2) + "\n", "utf8");
 }
 
@@ -86,6 +87,7 @@ function writeImageGenerationTextLog(filePath: string, text: string): void {
   try {
     writeImageGenerationJsonLog(filePath, JSON.parse(text));
   } catch {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, redactImageGenerationLogText(text) + "\n", "utf8");
   }
 }
@@ -365,6 +367,10 @@ function extractGeneratedImageItems(payload: any, text: string): any[] {
   return items;
 }
 
+function getGeneratedImageItems(payload: any): any[] {
+  return Array.isArray(payload?.data) ? payload.data : [];
+}
+
 async function saveGeneratedImageItem(options: {
   item: any;
   payload: any;
@@ -576,14 +582,43 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
 
     let payload: any;
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      throw new Error("Image generation response was not JSON: " + text.slice(0, 500));
-    }
-    writeImageGenerationJsonLog(responseFile, payload);
+    let items: any[] = [];
+    for (let emptyAttempt = 0; ; emptyAttempt += 1) {
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        throw new Error("Image generation response was not JSON: " + text.slice(0, 500));
+      }
+      writeImageGenerationJsonLog(
+        emptyAttempt === 0
+          ? responseFile
+          : path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-empty-data-retry-" + emptyAttempt + ".json"),
+        payload
+      );
 
-    const items = extractGeneratedImageItems(payload, text);
+      items = getGeneratedImageItems(payload);
+      if (items.length > 0) {
+        break;
+      }
+      if (emptyAttempt >= maxTransientRetries) {
+        extractGeneratedImageItems(payload, text);
+      }
+
+      const retryNo = emptyAttempt + 1;
+      options.onProgress?.(`Image ${imageIndex}: provider returned empty data; retry ${retryNo}/${maxTransientRetries}.`);
+      await sleep(3000 * retryNo);
+      ({ response, text } =
+        mode === "edits"
+          ? await sendRequestWithTransportRetries(imageIndex, "empty-data-retry", () => buildEditFormData(true, promptText))
+          : await sendRequestWithTransportRetries(imageIndex, "empty-data-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
+      if (!response.ok) {
+        writeImageGenerationTextLog(
+          path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-empty-data-retry-http-error-" + retryNo + ".json"),
+          text
+        );
+        throw normalizeImageGenerationError("Image generation retry failed with HTTP " + response.status + ": " + (text || response.statusText));
+      }
+    }
     const saved = await saveGeneratedImageItem({
       item: items[0],
       payload,

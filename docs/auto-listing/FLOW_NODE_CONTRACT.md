@@ -36,7 +36,7 @@
 ## 禁止事项
 
 - 禁止在 state、result、events、job、文档主流程中使用 `doubao_generated`、`deepseek_generated`、`jimeng_generated` 这类旧工具名。
-- 旧 step id 只能作为读取历史 job/state 的兼容 alias，不能作为新任务输出。
+- 历史 step id 只允许在代码解析层处理已有运行记录，不能出现在新 job、文档或用户操作说明里。
 - 禁止切换 provider 时跳过上架前必要产物。
 - 禁止因为某个工具失败就把业务节点删除。
 - 禁止在多个脚本里复制同一份规则正文。

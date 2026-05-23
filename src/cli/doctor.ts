@@ -204,26 +204,8 @@ function baseChecks(): CheckResult[] {
 }
 
 function publishChecks(): CheckResult[] {
-  const legacyShopFolder = path.resolve("input/shop-folder");
-  const legacyProductFolder = path.resolve("input/shop-folder/001-product-folder");
-  if (!fs.existsSync(legacyShopFolder) || !fs.existsSync(legacyProductFolder)) {
-    const feishuJob = path.resolve("input/auto-listing.job.mac-feishu-flow.json");
-    const feishuData = path.resolve("data/feishu/products.json");
-    const shopRoot = path.resolve("input/auto-listing/shops");
-    if (fs.existsSync(feishuJob) && fs.existsSync(feishuData) && fs.existsSync(shopRoot)) {
-      return [
-        {
-          name: "publish source",
-          ok: true,
-          detail: `${feishuJob} (Feishu auto-listing mode)`
-        }
-      ];
-    }
-  }
-
   return [
-    checkPath("publish shop folder", "input/shop-folder"),
-    checkPath("publish product folder", "input/shop-folder/001-product-folder")
+    checkJson("input/publish-from-spu.job.example.json")
   ];
 }
 
@@ -298,7 +280,7 @@ function checkAutoListingJobFile(jobFile: string): CheckResult {
       return {
         name: `auto-listing job: ${path.basename(jobFile)}`,
         ok: false,
-        detail: "uses legacy startStep=discovered; use source_images_discovered"
+        detail: "uses removed startStep=discovered; use source_images_discovered"
       };
     }
     return {

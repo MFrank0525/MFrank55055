@@ -61,11 +61,21 @@ export function recoverArtifactsFromWordFiles(options: {
   deepseekArtifact: DeepSeekArtifact;
   feishuProductRecord?: FeishuProductRecord;
 } {
+  const candidateDirs = [
+    path.join(options.runtimeDir, "tasks", options.taskId, "poster-word-files"),
+    options.jimengImageDir
+  ];
+  const wordDir = candidateDirs.find((dir) => fs.existsSync(dir) && fs.readdirSync(dir).some((name) => /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(name)));
+  if (!wordDir) {
+    throw new Error(
+      `Resume requires saved Word prompt files, but none were found in: ${candidateDirs.join(" | ")}`
+    );
+  }
   const wordFiles = fs
-    .readdirSync(options.jimengImageDir)
+    .readdirSync(wordDir)
     .filter((name) => /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(name))
     .sort((a, b) => a.localeCompare(b, "zh-CN"))
-    .map((name) => path.join(options.jimengImageDir, name));
+    .map((name) => path.join(wordDir, name));
 
   const paragraphs = readSimpleWordDocument(wordFiles[0]);
   if (paragraphs.length < 3) {

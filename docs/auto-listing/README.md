@@ -30,6 +30,9 @@
 7. 禁止临时补丁式修复
 后续遇到任何问题，不能只为了应付眼前任务写临时补丁。必须先分析根因，判断问题属于规则、动作、状态恢复、外部页面波动还是数据输入，再从根本上优化。优化结果必须保持动作和规则分开保存：业务判断写入规则/文档/规则模块，浏览器点击、上传、读取页面等实现写入动作模块。
 
+8. 删除过时和错误信息
+发现过时、错误、会误导其他工具的入口、job、文档、示例或运行产物时，不做“降级保留”。如果不属于当前有效路径，就删除；如果仍有价值，就迁移到唯一正确入口或规则源。项目目录里只保留当前可执行、可学习、可维护的内容，避免后续工具学习到错误路径。
+
 ## 主链路步骤
 
 1. 产品数据就绪：获取白底图、SPU、导购短标题、品牌名称、产品卖点、资质图。
@@ -43,7 +46,7 @@
 9. 上架发布完成：按发布 SOP 完成抖店发布。
 10. 清理归档完成：清理临时目录，保留运行记录。
 
-新任务的 state、result、events、job 必须使用真实业务 step id。旧 step id 只作为读取历史 job/state 的兼容 alias。
+新任务的 state、result、events、job 必须使用真实业务 step id。历史兼容只允许留在代码解析层，不写入新的文档和 job。
 
 ## 先看哪里
 
@@ -66,6 +69,24 @@
 - 总调度核心：[orchestrator.ts](src/autolist/orchestrator.ts)
 - 发布入口：[publish-from-spu.ts](src/cli/publish-from-spu.ts)
 - 发布核心：[publish-from-spu.ts](src/business/publish-from-spu.ts)
+
+## Hermes / 飞书触发入口
+
+Hermes 收到“开始上架”这类飞书指令时，必须使用后台启动入口：
+
+```bash
+npm run auto-listing:hermes-start
+```
+
+不要在 Hermes 的单次终端工具调用里直接执行底层流程脚本。真实上架流程会运行很久，并且可能超过 Hermes 终端工具超时或调用预算，导致飞书收到空结果。后台启动入口会快速返回启动状态，把真实流程放到独立进程里运行，并把日志写入 `data/auto-listing/control/`。
+
+查看后台任务状态：
+
+```bash
+npm run auto-listing:hermes-status
+```
+
+如果存在当前失败运行生成的真实续跑 job，后台启动入口会优先续跑该 job，复用已经生成的主图、提示词等产物；否则才启动完整真实流程。这条规则是为了遵守“断点续跑、不重跑已完成步骤、不浪费积分产物”的项目原则。
 
 ## 修改规则的正确方式
 
@@ -97,9 +118,8 @@ npm run rules:check
 
 ```bash
 npm run auto-listing:pause
-npm run auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json --resume-from-state ./data/auto-listing/runs/<runId>/state.json --out ./data/auto-listing/runs/<runId>/resume.job.json
 npm run auto-listing:resume-ready
-npm run business:auto-listing -- --job ./data/auto-listing/runs/<runId>/resume.job.json
+npm run auto-listing:hermes-start
 ```
 
-真实流程仍需通过 `flow:mac-feishu:real`，或在直接运行 real job 时显式加 `--allow-real`。
+继续上架统一走 Hermes 启动器；启动器会自动选择当前可续跑的真实任务。

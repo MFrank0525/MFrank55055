@@ -142,22 +142,16 @@ npm run feishu:assets -- --config ./input/feishu-bitable.config.json --out ./dat
 
 ## 接入自动上架
 
-Mac 版本优先使用：
+Hermes / 飞书触发自动上架时只使用：
 
 ```bash
-npm run business:auto-listing -- --job ./input/auto-listing.job.mac-feishu-flow.json
+npm run auto-listing:hermes-start
 ```
 
-一键模拟流程：
+查询状态：
 
 ```bash
-npm run flow:mac-feishu
-```
-
-一键真实流程：
-
-```bash
-npm run flow:mac-feishu:real
+npm run auto-listing:hermes-status
 ```
 
 这个 job 通过 `feishuProductDataFile` 读取 `data/feishu/products.json`。配置后，自动上架流程里的卖点上下文会来自飞书字段 `产品卖点`，不再调用豆包生成产品卖点。
@@ -176,7 +170,7 @@ npm run flow:mac-feishu:real
 - `非处方药`：只上架到 `03延草纲目个护保健专营店`、`04延草纲目康复理疗专营店`、`05延草纲目医疗保健专营店`；只生成 3 份 Word、12 张主图、12 条标题；标题固定后缀为 `产品通用名称`，不再追加 `延草纲目`。
 - `保健食品`：上架店铺、主图数量和流程保持医疗器械一致；标题取消固定前缀和固定后缀，单条标题改为 28 个汉字。
 
-该 Mac Feishu job 默认设置 `cleanupSourceImageAfterPublish=true`，每个产品完成后会删除飞书下载附件、标题表、Word 文档、运行目录、店铺产品文件夹等中间文件，只保留归档后的无水印主图。
+该 Mac Feishu job 默认设置 `cleanupSourceImageAfterPublish=true`，每个产品完成后会删除飞书下载附件、标题表、Word 文档、运行目录、店铺产品文件夹等中间文件，只保留归档后的无水印主图。真实流程成功完成后还会清扫 `input/auto-listing` 下所有过时历史产物，包括旧批次白底图、资质附件、标题表、主图工作目录产物、店铺商品产物和自动生成的断点恢复 job，避免零星残留影响下一次运行。
 
 无水印主图归档路径固定为：
 
@@ -190,7 +184,7 @@ npm run flow:mac-feishu:real
 
 这条链路不使用 ChatGPT 网页端，因此不应消耗 GPT Plus 会员消息额度。项目运行时会拦截 `chatgpt.com` 和 `chat.openai.com` 这类 ChatGPT/Plus 网页域名；OpenAI-compatible 图片接口或中转站接口属于 API/中转站计费，不等同于 GPT Plus 会员额度。
 
-真实流程仍会消耗飞书开放平台调用额度、附件下载流量、中转站生图额度、豆包标题生成账号额度，以及抖店浏览器账号会话资源。运行 `flow:mac-feishu:real` 前会打印外部服务消耗摘要。
+真实流程仍会消耗飞书开放平台调用额度、附件下载流量、中转站生图额度、豆包标题生成账号额度，以及抖店浏览器账号会话资源。启动器会把真实流程放到后台运行，并通过状态命令返回结果摘要。
 
 运行全流程前先检查：
 

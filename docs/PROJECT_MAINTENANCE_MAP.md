@@ -49,13 +49,13 @@
 - 飞书字段名只通过 `fieldMap` 映射，不在业务步骤里硬编码。
 - 先用 `npm run feishu:check` 和 `npm run feishu:records` 验证数据源，再接入自动上架主链路。
 - 自动上架主链路只读取 `data/feishu/products.json`，飞书 API 调用和附件下载必须留在 `src/feishu/*` 与 `src/cli/feishu-bitable.ts`。
-- 使用 `feishuProductDataFile` 后，产品卖点来源为飞书字段 `产品卖点`，不再调用豆包生成产品卖点。
+- 产品卖点来源为飞书字段 `产品卖点`。
 
 ## 3. 自动上架动作脚本
 
 按业务节点维护：
 
-- 卖点上下文：`src/autolist/doubao-selling-points.ts`
+- 卖点上下文：`src/autolist/feishu-products.ts`
 - 图片提示词：`src/autolist/deepseek-prompts.ts`
 - 主图生成 provider / 水印 / 产品文件夹：`src/autolist/jimeng-assets.ts`
 - 标题表：`src/autolist/title-sheets.ts`
