@@ -30,6 +30,7 @@ import type {
 } from "./publish-from-spu/types.js";
 import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
 import {
+  evaluateShopSwitchMenuState,
   evaluateForbiddenGraphicSections,
   evaluatePriceInventoryCompletion,
   evaluatePublishCheckResult,
@@ -479,6 +480,29 @@ async function clickVisibleActionText(page: Page, text: string): Promise<boolean
   await page.mouse.click(point.x, point.y, { delay: 90 });
   await page.waitForTimeout(800);
   return true;
+}
+
+async function isShopSwitchEntryVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+    const target = normalize("切换组织/店铺");
+    return Array.from(document.querySelectorAll("body *"))
+      .map((node) => node as HTMLElement)
+      .some((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const text = normalize(el.innerText || el.textContent || "");
+        return (
+          Boolean(text) &&
+          text.includes(target) &&
+          rect.width >= 120 &&
+          rect.height >= 20 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          rect.left >= window.innerWidth * 0.68
+        );
+      });
+  }).catch(() => false);
 }
 
 async function clickShopSwitchEntry(page: Page): Promise<boolean> {
@@ -1016,11 +1040,43 @@ async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: str
       throw new Error(`Shop switch failed: could not open top-right shop menu for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
     }
 
-    let switcherClicked = await clickShopSwitchEntry(page);
-    if (!switcherClicked) {
-      switcherClicked = await clickVisibleActionText(page, "切换组织/店铺");
+    const currentFromMenuBeforeSwitch = normalizeShopName(await readCurrentShopNameFromMenu(page));
+    const initialSwitchDecision = evaluateShopSwitchMenuState({
+      expectedShopName,
+      currentShopName: currentFromMenuBeforeSwitch || lastActual || currentBefore,
+      menuOpened,
+      switchEntryVisible: await isShopSwitchEntryVisible(page)
+    });
+    if (initialSwitchDecision.action === "already_in_target_shop") {
+      await page.keyboard.press("Escape").catch(() => {});
+      return currentFromMenuBeforeSwitch || expectedShopName;
+    }
+    if (initialSwitchDecision.action === "retry_menu" && attempt < 2) {
+      await page.keyboard.press("Escape").catch(() => {});
+      await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + attempt * 1500).catch(() => {});
+      await page.waitForTimeout(1000);
+      continue;
+    }
+
+    let switcherClicked = false;
+    if (initialSwitchDecision.action === "click_switch_entry") {
+      switcherClicked = await clickShopSwitchEntry(page);
+      if (!switcherClicked) {
+        switcherClicked = await clickVisibleActionText(page, "切换组织/店铺");
+      }
     }
     if (!switcherClicked) {
+      const currentFromMenu = normalizeShopName(await readCurrentShopNameFromMenu(page));
+      const finalSwitchDecision = evaluateShopSwitchMenuState({
+        expectedShopName,
+        currentShopName: currentFromMenu || lastActual || currentBefore,
+        menuOpened: true,
+        switchEntryVisible: false
+      });
+      if (finalSwitchDecision.action === "already_in_target_shop") {
+        await page.keyboard.press("Escape").catch(() => {});
+        return currentFromMenu || expectedShopName;
+      }
       await saveShopSwitchDomSnapshot(page, runtimeDir, "shop-switch-entry-missing.html").catch(() => "");
       const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-entry-missing.png").catch(() => "");
       throw new Error(`Shop switch failed: could not find 切换组织/店铺 for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);

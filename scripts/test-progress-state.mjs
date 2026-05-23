@@ -10,7 +10,11 @@ import {
 } from "../dist/src/autolist/audit-rules.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import { createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
-import { classifyPublishFailure, shouldRetryPublishFailure } from "../dist/src/business/publish-from-spu/publish-rules.js";
+import {
+  classifyPublishFailure,
+  evaluateShopSwitchMenuState,
+  shouldRetryPublishFailure
+} from "../dist/src/business/publish-from-spu/publish-rules.js";
 
 const state = createRunState("test-run", ["/tmp/product.png"]);
 const task = state.tasks[0];
@@ -55,6 +59,34 @@ assert.equal(pageNotReadyClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 0), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 2), false);
 assert.equal(shouldRetryPublishFailure("validation_blocked", 0), false);
+
+const shopSwitchMissingClass = classifyPublishFailure("Shop switch failed: could not find 切换组织/店铺 for 延草纲目康复理疗专营店");
+assert.equal(shopSwitchMissingClass, "shop_switch_entry_unavailable");
+assert.equal(shouldRetryPublishFailure(shopSwitchMissingClass, 0), true);
+
+const alreadyInTargetShop = evaluateShopSwitchMenuState({
+  expectedShopName: "延草纲目康复理疗专营店",
+  currentShopName: "延草纲目康复理疗专营店",
+  menuOpened: true,
+  switchEntryVisible: false
+});
+
+assert.deepEqual(alreadyInTargetShop, {
+  action: "already_in_target_shop",
+  issue: ""
+});
+
+const switchEntryUnavailable = evaluateShopSwitchMenuState({
+  expectedShopName: "延草纲目康复理疗专营店",
+  currentShopName: "延草纲目个护保健专营店",
+  menuOpened: true,
+  switchEntryVisible: false
+});
+
+assert.deepEqual(switchEntryUnavailable, {
+  action: "retry_menu",
+  issue: "Shop switch entry is unavailable while current shop does not match target."
+});
 
 const cleanupTargets = selectCleanupTargets({
   candidates: [

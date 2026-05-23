@@ -29,6 +29,18 @@ export interface PublishRuleCheck {
   issue: string;
 }
 
+export interface ShopSwitchMenuStateInput {
+  expectedShopName: string;
+  currentShopName: string;
+  menuOpened: boolean;
+  switchEntryVisible: boolean;
+}
+
+export interface ShopSwitchMenuStateDecision {
+  action: "already_in_target_shop" | "click_switch_entry" | "retry_menu" | "open_menu";
+  issue: string;
+}
+
 const SUBMISSION_SUCCESS_TEXTS = [
   "发布成功",
   "提交成功",
@@ -43,6 +55,32 @@ const SUBMISSION_BLOCKING_TEXTS = ["必填", "请填写", "错误", "失败", "�
 
 export function normalizeVisibleText(value: string): string {
   return value.replace(/\s+/g, "").trim();
+}
+
+export function normalizeShopRuleText(value: string): string {
+  return normalizeVisibleText(value).replace(/^\d+/, "");
+}
+
+export function isExpectedShopContext(currentShopName: string, expectedShopName: string): boolean {
+  const current = normalizeShopRuleText(currentShopName);
+  const expected = normalizeShopRuleText(expectedShopName);
+  return Boolean(current && expected && (current.includes(expected) || expected.includes(current)));
+}
+
+export function evaluateShopSwitchMenuState(input: ShopSwitchMenuStateInput): ShopSwitchMenuStateDecision {
+  if (isExpectedShopContext(input.currentShopName, input.expectedShopName)) {
+    return { action: "already_in_target_shop", issue: "" };
+  }
+  if (!input.menuOpened) {
+    return { action: "open_menu", issue: "Shop switch menu is not open." };
+  }
+  if (input.switchEntryVisible) {
+    return { action: "click_switch_entry", issue: "" };
+  }
+  return {
+    action: "retry_menu",
+    issue: "Shop switch entry is unavailable while current shop does not match target."
+  };
 }
 
 export function isFreshPublishCreatePage(snapshot: PublishPageSnapshot): boolean {
@@ -92,6 +130,9 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("PlatformSPUquerypagewasnotready") || text.includes("标品管理") && text.includes("加载")) {
     return "platform_page_not_ready";
   }
+  if (text.includes("Shopswitchfailed") && text.includes("couldnotfind切换组织/店铺")) {
+    return "shop_switch_entry_unavailable";
+  }
   if (text.includes("contextwaslost") || text.includes("pagecontextwaslost") || text.includes("Targetclosed")) {
     return "page_context_lost";
   }
@@ -117,7 +158,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   if (retryAttempt >= maxRetryAttempts) {
     return false;
   }
-  return ["platform_page_not_ready", "page_context_lost"].includes(errorClass);
+  return ["platform_page_not_ready", "page_context_lost", "shop_switch_entry_unavailable"].includes(errorClass);
 }
 
 export function evaluatePublishResult(input: PublishResultRuleInput): PublishResultRuleDecision {
