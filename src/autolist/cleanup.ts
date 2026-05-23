@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_ARCHIVE_ROOT } from "./archive-main-images.js";
+import { selectCleanupTargets } from "./cleanup-rules.js";
 import type { CleanupArtifact } from "./types.js";
 
 function pathContains(parent: string, child: string): boolean {
@@ -100,6 +101,7 @@ export function cleanupAfterPublish(options: {
   autoListingInputDir?: string;
   titleDir?: string;
   jimengImageDir?: string;
+  protectedAssetFiles?: string[];
   cleanupAfterPublish: boolean;
   simulateOnly: boolean;
 }): CleanupArtifact {
@@ -133,7 +135,10 @@ export function cleanupAfterPublish(options: {
       ? [options.sourceImagePath, ...(options.sourceAssetFiles || [])]
       : [])
   ];
-  const uniqueTargets = Array.from(new Set(targets.filter(Boolean)));
+  const uniqueTargets = selectCleanupTargets({
+    candidates: targets,
+    protectedPaths: options.protectedAssetFiles || []
+  });
   for (const target of uniqueTargets) {
     if (!target) {
       continue;

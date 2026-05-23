@@ -49,6 +49,17 @@ export function advanceTask(task: ImageTaskState, nextStatus: AutoListingStatus,
   return nextTask;
 }
 
+export function recordTaskProgress(task: ImageTaskState, step: AutoListingStatus, message: string): ImageTaskState {
+  const timestamp = nowIso();
+  const note = `${step}: ${message}`;
+  return {
+    ...task,
+    status: step,
+    lastUpdatedAt: timestamp,
+    notes: [...task.notes, note].slice(-25)
+  };
+}
+
 export function failTask(task: ImageTaskState, step: string, message: string): ImageTaskState {
   const timestamp = nowIso();
   const error: AutoListingTaskError = {

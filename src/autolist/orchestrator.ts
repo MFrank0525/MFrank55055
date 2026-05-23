@@ -19,7 +19,7 @@ import { distributeProductFoldersToShops } from "./shop-distribution.js";
 import { assertTitleDistributionTargets, distributeTitleSheets, generateTitleSheets } from "./title-sheets.js";
 import { resolveAutoListingJob } from "./config.js";
 import { assertRuleTextIntegrity } from "./rule-text.js";
-import { createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed, markRunPaused } from "./state-machine.js";
+import { createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed, markRunPaused, recordTaskProgress } from "./state-machine.js";
 import { logError, logInfo, setLogFile } from "../utils/logger.js";
 import type {
   AutoListingEvent,
@@ -103,6 +103,26 @@ function appendEvent(filePath: string, event: AutoListingEvent): void {
   fs.appendFileSync(filePath, `${JSON.stringify({ ...event, message: redactSensitiveText(event.message) })}\n`, "utf8");
 }
 
+function collectFeishuProductAssetFiles(feishuProductDataFile: string): string[] {
+  if (!feishuProductDataFile || !fs.existsSync(feishuProductDataFile)) {
+    return [];
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(feishuProductDataFile, "utf8")) as {
+      records?: Array<{
+        qualificationImages?: Array<{ localFile?: string }>;
+        whiteBackgroundImages?: Array<{ localFile?: string }>;
+      }>;
+    };
+    return (data.records || []).flatMap((record) => [
+      ...(record.whiteBackgroundImages || []).map((item) => item.localFile || ""),
+      ...(record.qualificationImages || []).map((item) => item.localFile || "")
+    ]).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 function isProductFullyProcessed(task: ImageTaskState): boolean {
   return task.status === "cleaned" || task.status === "done";
 }
@@ -168,6 +188,7 @@ async function executeTaskChain(
   pauseSignalFile: string,
   simulateOnly: boolean,
   resumeProductFolderNames: string[],
+  protectedCleanupAssetFiles: string[],
   manualReadMap: Map<string, ManualReadRecord>,
   onProgress?: (task: ImageTaskState) => void
 ): Promise<ImageTaskState> {
@@ -370,6 +391,8 @@ async function executeTaskChain(
         simulateOnly,
         onProgress: (message) => {
           appendEvent(eventFile, createEvent("info", step, message, current.taskId));
+          current = recordTaskProgress(current, step, message);
+          markProgress();
         }
       });
       current = {
@@ -617,6 +640,7 @@ async function executeTaskChain(
         ...(current.feishuProductRecord?.whiteBackgroundImages || []).map((item) => item.localFile || ""),
         ...(current.feishuProductRecord?.qualificationImages || []).map((item) => item.localFile || "")
       ].filter(Boolean);
+      const currentAssetSet = new Set(sourceAssetFiles.map((file) => path.resolve(file)));
       const cleanupArtifact = cleanupAfterPublish({
         distributedFolders: current.shopDistributionArtifact?.distributedFolders || [],
         titleWorkbookFiles: current.titleSheetArtifact?.generatedFiles.map((item) => item.workbookFile) || [],
@@ -631,6 +655,7 @@ async function executeTaskChain(
         autoListingInputDir: path.dirname(path.dirname(current.sourceImagePath)),
         titleDir,
         jimengImageDir: mainImageWorkDir,
+        protectedAssetFiles: protectedCleanupAssetFiles.filter((file) => !currentAssetSet.has(path.resolve(file))),
         cleanupAfterPublish: cleanupAfterPublishEnabled,
         cleanupSourceImageAfterPublish,
         simulateOnly
@@ -802,6 +827,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     }
 
     let workingState = state;
+    const protectedCleanupAssetFiles = collectFeishuProductAssetFiles(resolved.input.feishuProductDataFile);
     for (const task of workingState.tasks) {
       workingState = {
         ...workingState,
@@ -841,6 +867,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.pauseSignalFile,
           resolved.input.simulateOnly,
           resolved.input.resumeProductFolderNames,
+          protectedCleanupAssetFiles,
           manualReadMap,
           (updatedTask) => {
             workingState = {

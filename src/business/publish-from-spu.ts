@@ -1403,6 +1403,27 @@ async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): P
   }, kind);
 }
 
+async function waitForPlatformSpuQueryPageReady(page: Page, timeoutMs = 45000): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const ready = await page.evaluate(() => {
+      const bodyText = document.body.innerText || "";
+      const hasQueryControls = bodyText.includes("\u67e5\u8be2") && (bodyText.includes("SPU") || bodyText.includes("\u5e73\u53f0\u6807\u54c1"));
+      const visibleInputs = Array.from(document.querySelectorAll("input")).filter((input) => {
+        const rect = (input as HTMLElement).getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      const loadingText = bodyText.includes("\u52a0\u8f7d\u4e2d") || bodyText.includes("Loading");
+      return hasQueryControls && visibleInputs.length >= 2 && !loadingText;
+    }).catch(() => false);
+    if (ready) {
+      return true;
+    }
+    await page.waitForTimeout(1000);
+  }
+  return false;
+}
+
 async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, shopFolder?: string, retryNo = 0): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -1434,11 +1455,14 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       await page.waitForTimeout(800);
     }
 
-    const queryPageReady = await page.evaluate(() => {
-      const bodyText = document.body.innerText || "";
-      return bodyText.includes("\u67e5\u8be2") && (bodyText.includes("SPU") || bodyText.includes("\u5e73\u53f0\u6807\u54c1"));
-    });
+    const queryPageReady = await waitForPlatformSpuQueryPageReady(page);
     if (!queryPageReady) {
+      if (retryNo < 2) {
+        await savePageScreenshot(page, runtimeDir, `platform-spu-query-page-not-ready-retry-${retryNo + 1}.png`).catch(() => "");
+        await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+        await page.waitForTimeout(2000 + retryNo * 1000);
+        return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
+      }
       const error = new Error("Platform SPU query page was not ready after navigation.") as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-page-not-ready.png");
       throw error;

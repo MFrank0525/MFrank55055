@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
 import { clearCheckpoint, isStageCompleted, loadCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
-import { evaluatePublishResult } from "../business/publish-from-spu/publish-rules.js";
+import { evaluatePublishResult, shouldRetryPublishFailure } from "../business/publish-from-spu/publish-rules.js";
 import { logInfo } from "../utils/logger.js";
 import {
   extractWatermarkNo,
@@ -341,7 +341,7 @@ export async function publishDistributedProducts(options: {
       message: "Publish flow is running."
     });
 
-    const publishResult = await runPublishFromSpuJob(
+    let publishResult = await runPublishFromSpuJob(
       {
         shopFolder,
         productFolder,
@@ -361,8 +361,46 @@ export async function publishDistributedProducts(options: {
         runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey)
       }
     );
-    const resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
-    const decision = evaluatePublishResult(resultSummary);
+    let resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
+    let decision = evaluatePublishResult(resultSummary);
+    for (let retryAttempt = 0; !decision.safelyPublished && shouldRetryPublishFailure(decision.errorClass, retryAttempt); retryAttempt += 1) {
+      options.assertNotPaused?.();
+      logInfo(
+        `retrying publish after retryable system failure: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.errorClass}; attempt ${retryAttempt + 1}`
+      );
+      upsertPublishManifestEntry(options.runtimeDir, {
+        productFolder,
+        runtimeKey,
+        shopFolder,
+        watermarkNo: extractWatermarkNo(productFolder),
+        status: "pending",
+        finalVerifyStatus: "not_checked",
+        resultFile: publishResult.artifacts.resultFile,
+        message: `Retrying after ${decision.errorClass}: ${decision.issue}`
+      });
+      publishResult = await runPublishFromSpuJob(
+        {
+          shopFolder,
+          productFolder,
+          mode: "run_publish_flow",
+          metadata: {
+            brand: fields.brand,
+            spu: fields.spu,
+            title: fields.title,
+            shortTitle: fields.shortTitle,
+            modelSpec: fields.modelSpec || "盒装"
+          },
+          headless: false,
+          retryOnSystemError: true
+        },
+        {
+          runId: `auto-listing-${runtimeKey}-retry-${retryAttempt + 1}`,
+          runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey)
+        }
+      );
+      resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
+      decision = evaluatePublishResult(resultSummary);
+    }
 
     results.push({
       productFolder,

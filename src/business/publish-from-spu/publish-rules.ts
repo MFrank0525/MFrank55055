@@ -89,6 +89,9 @@ export function evaluatePublishSubmissionAfterAction(
 export function classifyPublishFailure(message: string): string {
   const text = normalizeVisibleText(message);
   if (!text) return "";
+  if (text.includes("PlatformSPUquerypagewasnotready") || text.includes("标品管理") && text.includes("加载")) {
+    return "platform_page_not_ready";
+  }
   if (text.includes("contextwaslost") || text.includes("pagecontextwaslost") || text.includes("Targetclosed")) {
     return "page_context_lost";
   }
@@ -108,6 +111,13 @@ export function classifyPublishFailure(message: string): string {
     return "spu_query_or_match_failed";
   }
   return "unknown_publish_failure";
+}
+
+export function shouldRetryPublishFailure(errorClass: string, retryAttempt: number, maxRetryAttempts = 2): boolean {
+  if (retryAttempt >= maxRetryAttempts) {
+    return false;
+  }
+  return ["platform_page_not_ready", "page_context_lost"].includes(errorClass);
 }
 
 export function evaluatePublishResult(input: PublishResultRuleInput): PublishResultRuleDecision {

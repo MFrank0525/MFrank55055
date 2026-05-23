@@ -36,6 +36,8 @@ These files are rules-facing records. Browser actions may produce raw screenshot
 7. All resume jobs must narrow `resumeProductFolderNames` to the intended remaining product folders.
 8. A product folder may be skipped only when `publish-manifest.json` or a compatible `result.json` has a safe published decision from `publish-rules.ts`.
 9. Failed entries must keep an `errorClass` so the next optimization can target the failure category instead of replaying the whole flow.
+10. Doudian backend page readiness failures such as platform SPU query page still loading, browser context loss, or target page loss are retryable system failures. Store that classification in `publish-rules.ts`; action code may wait, reload, and retry, but it must not mark the product safely published.
+11. Business validation failures such as missing required fields, image slot validation, shop mismatch, or SPU row mismatch are not retryable system failures unless a rule explicitly classifies them as such.
 
 ## Root Cause First
 

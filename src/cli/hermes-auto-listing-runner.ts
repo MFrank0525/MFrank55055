@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 
 interface RunnerJob {
   pid: number;
@@ -206,6 +207,7 @@ function summarizeState(runtimeDir: string | undefined): Record<string, unknown>
     runId?: string;
     status?: string;
     tasks?: Array<{
+      taskId?: string;
       sourceImageName?: string;
       status?: string;
       error?: { step?: string; message?: string };
@@ -216,11 +218,13 @@ function summarizeState(runtimeDir: string | undefined): Record<string, unknown>
   }
   const tasks = state.tasks || [];
   const currentTask = tasks.find((task) => task.status !== "done" && task.status !== "cleaned") || tasks[tasks.length - 1];
+  const latestProgress = readLatestTaskProgressEvent(path.join(runtimeDir, "events.ndjson"), currentTask?.taskId);
   return {
     stateFile,
     runId: state.runId || path.basename(runtimeDir),
     status: state.status,
-    currentTask
+    currentTask,
+    latestProgress
   };
 }
 
@@ -343,7 +347,10 @@ function existingStatus(): Record<string, unknown> {
     summary:
       publishProgress?.progressText ||
       (state
-        ? `任务${resolvedStatus === "running" ? "正在运行" : "已结束"}，当前阶段：${String(state.status || "unknown")}`
+        ? `任务${resolvedStatus === "running" ? "正在运行" : "已结束"}，当前阶段：${String((state.latestProgress as Record<string, unknown> | undefined)?.step || (state.currentTask as Record<string, unknown> | undefined)?.status || state.status || "unknown")}` +
+          ((state.latestProgress as Record<string, unknown> | undefined)?.message
+            ? `，最新进度：${String((state.latestProgress as Record<string, unknown>).message)}`
+            : "")
         : running
           ? "任务正在运行，尚未写入发布进度。"
           : "任务进程已退出，查看 result 字段确认最终结果。"),
@@ -377,9 +384,15 @@ function formatStatusText(status: Record<string, unknown>): string {
     lines.push(`发布：${String(progress.safelyPublished ?? 0)}/${String(progress.total ?? "?")}，失败 ${String(progress.failed ?? 0)}，待处理 ${String(progress.pending ?? 0)}`);
   } else if (state) {
     const currentTask = state.currentTask as Record<string, unknown> | undefined;
+    const latestProgress = state.latestProgress as Record<string, unknown> | undefined;
     lines.push(`运行批次：${String(state.runId || path.basename(String(status.activeRuntimeDir || "")) || "unknown")}`);
     if (currentTask?.sourceImageName) {
-      lines.push(`当前商品：${String(currentTask.sourceImageName)}（${String(currentTask.status || "unknown")}）`);
+      lines.push(
+        `当前商品：${String(currentTask.sourceImageName)}（${String(latestProgress?.step || currentTask.status || "unknown")}）`
+      );
+    }
+    if (latestProgress?.message) {
+      lines.push(`最新进度：${String(latestProgress.message)}`);
     }
   } else if (result) {
     lines.push(`最近结果：${String(result.status || "unknown")}，批次 ${String(result.runId || "unknown")}`);
