@@ -11,6 +11,7 @@ import {
 } from "../dist/src/autolist/audit-rules.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import { createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
+import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-from-spu/asset-rules.js";
 import {
   classifyPublishFailure,
   evaluatePublishCreatePageReadiness,
@@ -128,6 +129,39 @@ assert.deepEqual(cleanupTargets.sort(), [
   "/work/input/auto-listing/feishu-images/product-1.png",
   "/work/input/auto-listing/qualifications/product-1-cert.png"
 ]);
+
+const sameSpuFolderMatch = resolveFeishuAssetRecordForFolder({
+  folderSearchParts: [
+    "延草纲目舒奈美医用医用重组Ⅲ型人源化胶原蛋白软膏水印01",
+    "医用修复乳液豆包0120260524-144025.xlsx",
+    "湘械注准20222141001-医用修复乳液-资质图片-01.png"
+  ],
+  records: [
+    {
+      recordId: "rec-lotion",
+      spu: "湘械注准20222141001",
+      brand: "舒奈美",
+      userCognitionName: "医用修复乳液",
+      genericName: "舒奈美医用医用重组Ⅲ型人源化胶原蛋白软膏",
+      shortTitle: "SNM胶原蛋白乳液",
+      whiteBackgroundImages: [{ name: "湘械注准20222141001-医用修复乳液-白底图-01.png" }],
+      qualificationImages: [{ name: "湘械注准20222141001-医用修复乳液-资质图片-01.png" }]
+    },
+    {
+      recordId: "rec-cream",
+      spu: "湘械注准20222141001",
+      brand: "舒奈美",
+      userCognitionName: "医用修复霜",
+      genericName: "舒奈美医用医用重组Ⅲ型人源化胶原蛋白软膏",
+      shortTitle: "SNM胶原蛋白面霜",
+      whiteBackgroundImages: [{ name: "湘械注准20222141001-医用修复霜-白底图-01.jpg" }],
+      qualificationImages: [{ name: "湘械注准20222141001-医用修复霜-资质图片-01.png" }]
+    }
+  ]
+});
+
+assert.equal(sameSpuFolderMatch.issue, "");
+assert.equal(sameSpuFolderMatch.record?.recordId, "rec-lotion");
 
 function record(recordId, whiteImage, qualificationImage) {
   return {

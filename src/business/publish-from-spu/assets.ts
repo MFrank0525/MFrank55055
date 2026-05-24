@@ -8,6 +8,7 @@ import {
   REQUIRED_MAIN_IMAGE_RATIO,
   REQUIRED_MAIN_IMAGE_RATIO_TOLERANCE
 } from "./constants.js";
+import { resolveFeishuAssetRecordForFolder } from "./asset-rules.js";
 import type { ImageDimensions, ProductAssets } from "./types.js";
 
 function sortZh(items: string[]): string[] {
@@ -94,10 +95,6 @@ function isWhiteBackgroundImageFile(name: string): boolean {
   return /\u767d\u5e95\u56fe|\u767d\u5e95/i.test(name) && isImageFile(name);
 }
 
-function normalizeText(value: string): string {
-  return value.replace(/\s+/g, "").replace(/[，,。、“”"'`·\-_/\\|:：;；()（）[\]【】]/g, "").toLowerCase();
-}
-
 function readFeishuProductsData(): any[] {
   const dataFile = path.resolve(process.cwd(), "data", "feishu", "products.json");
   if (!fs.existsSync(dataFile)) {
@@ -169,28 +166,14 @@ function getFeishuWhiteBackgroundImages(productFolder: string): string[] {
     return sortByFileRule(folderWhiteImages).slice(0, 1);
   }
 
-  const folderSearchText = normalizeText(
-    [
-      path.basename(productFolder),
-      ...fs.readdirSync(productFolder).filter((name) => name.toLowerCase().endsWith(".xlsx"))
-    ].join(" ")
-  );
-  const matchedRecords = readFeishuProductsData()
-    .map((record) => {
-      const keys = [record?.spu, record?.userCognitionName, record?.genericName, `${record?.brand || ""}${record?.genericName || ""}`]
-        .map((item) => normalizeText(String(item || "")))
-        .filter(Boolean);
-      const score = keys.reduce((best, key) => (folderSearchText.includes(key) ? Math.max(best, key.length) : best), 0);
-      return { record, score };
-    })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score);
-  const bestScore = matchedRecords[0]?.score || 0;
-  const bestRecords = matchedRecords.filter((item) => item.score === bestScore);
-  if (bestRecords.length > 1) {
-    throw new Error(`Multiple Feishu product records match product folder: ${productFolder}`);
+  const matchDecision = resolveFeishuAssetRecordForFolder({
+    folderSearchParts: [path.basename(productFolder), ...fs.readdirSync(productFolder)],
+    records: readFeishuProductsData()
+  });
+  if (matchDecision.issue && !matchDecision.record) {
+    throw new Error(`${matchDecision.issue}: ${productFolder}`);
   }
-  const matchedRecord = bestRecords[0]?.record;
+  const matchedRecord = matchDecision.record;
   const recordWhiteImages = Array.isArray(matchedRecord?.whiteBackgroundImages)
     ? matchedRecord.whiteBackgroundImages
         .map((attachment: any) => String(attachment?.localFile || ""))
