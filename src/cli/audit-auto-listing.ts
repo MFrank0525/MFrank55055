@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { auditAutoListingContinuity, auditMainImageGeneration, auditPublishCoverage } from "../autolist/audit-rules.js";
+import { auditAutoListingContinuity, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
@@ -153,14 +153,17 @@ function printIssueLines(lines: string[], label: string, issues: Array<{ code: s
 
 function printText(input: {
   continuity: ReturnType<typeof auditAutoListingContinuity>;
+  feishuBatch: ReturnType<typeof summarizeFeishuBatchProgress>;
   generation: ReturnType<typeof auditMainImageGeneration>;
   publish: ReturnType<typeof auditPublishCoverage>;
   context: Record<string, string | number | undefined>;
 }): void {
   const ok = mergeAuditResults([input.continuity, input.generation, input.publish]);
+  const batchStatus = input.feishuBatch.batchComplete ? "完成" : "待继续";
   const lines = [
     `自动上架审计：${ok ? "通过" : "失败"}`,
     `连续性：飞书产品 ${input.continuity.summary.recordCount}，已处理 ${input.continuity.summary.processedRecordCount}，待处理 ${input.continuity.summary.pendingRecordCount}`,
+    `飞书批次状态：${batchStatus}`,
     `生图：审计任务 ${input.generation.summary.auditedTaskCount}，生成图片 ${input.generation.summary.generatedImageCount}/${input.generation.summary.expectedImageCount}`,
     `发布：审计任务 ${input.publish.summary.auditedTaskCount}，安全发布 ${input.publish.summary.safelyPublishedCount}/${input.publish.summary.expectedPublishCount}`,
     `本地素材文件：${input.continuity.summary.existingFileCount}`,
@@ -196,6 +199,10 @@ async function main(): Promise<void> {
     existingFiles,
     discoveredRunImageCount
   });
+  const feishuBatch = summarizeFeishuBatchProgress({
+    records,
+    processedImages
+  });
   const generation = auditMainImageGeneration({
     tasks: state?.tasks || [],
     existingFiles,
@@ -220,6 +227,7 @@ async function main(): Promise<void> {
     runtimeRootDir: resolved.runtimeRootDir,
     runStatus: state?.status,
     runId: state?.runId,
+    feishuBatch,
     continuity,
     generation,
     publish
@@ -230,6 +238,7 @@ async function main(): Promise<void> {
   } else {
     printText({
       continuity,
+      feishuBatch,
       generation,
       publish,
       context: {

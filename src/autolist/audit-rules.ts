@@ -37,6 +37,19 @@ export interface AutoListingContinuityAuditResult {
   warnings: AutoListingAuditIssue[];
 }
 
+export interface FeishuBatchProgressInput {
+  records: FeishuProductRecord[];
+  processedImages: Iterable<string>;
+}
+
+export interface FeishuBatchProgressSummary {
+  recordCount: number;
+  processedRecordCount: number;
+  pendingRecordCount: number;
+  pendingSourceImages: string[];
+  batchComplete: boolean;
+}
+
 export interface MainImageGenerationAuditInput {
   tasks: ImageTaskState[];
   existingFiles: Iterable<string>;
@@ -187,6 +200,32 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
     },
     errors,
     warnings
+  };
+}
+
+export function summarizeFeishuBatchProgress(input: FeishuBatchProgressInput): FeishuBatchProgressSummary {
+  const processedImages = new Set(Array.from(input.processedImages || []).filter(Boolean).map(normalizePath));
+  let processedRecordCount = 0;
+  const pendingSourceImages: string[] = [];
+
+  for (const record of input.records) {
+    if (isRecordProcessed(record, processedImages)) {
+      processedRecordCount += 1;
+      continue;
+    }
+    const sourceImage = localFiles(record.whiteBackgroundImages || [])[0];
+    if (sourceImage) {
+      pendingSourceImages.push(sourceImage);
+    }
+  }
+
+  const pendingRecordCount = input.records.length - processedRecordCount;
+  return {
+    recordCount: input.records.length,
+    processedRecordCount,
+    pendingRecordCount,
+    pendingSourceImages,
+    batchComplete: pendingRecordCount === 0
   };
 }
 

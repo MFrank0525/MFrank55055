@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { readProcessedImages } from "../autolist/file-batch.js";
+import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 
 interface RunnerJob {
@@ -299,6 +302,23 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
   };
 }
 
+function summarizeFeishuProgress(): Record<string, unknown> | undefined {
+  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  const feishuProductDataFile = job?.input ? path.resolve(rootDir, (job.input as { feishuProductDataFile?: string }).feishuProductDataFile || "data/feishu/products.json") : "";
+  const processedManifestFile = job?.input ? path.resolve(rootDir, (job.input as { processedImageManifest?: string }).processedImageManifest || "data/auto-listing/processed-images.json") : "";
+  if (!feishuProductDataFile || !fs.existsSync(feishuProductDataFile)) {
+    return undefined;
+  }
+  try {
+    return summarizeFeishuBatchProgress({
+      records: loadFeishuProductRecords(feishuProductDataFile),
+      processedImages: readProcessedImages(processedManifestFile)
+    }) as unknown as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
 function existingStatus(): Record<string, unknown> {
   const job = readJsonFile<RunnerJob>(jobFile);
   if (!job) {
@@ -320,9 +340,12 @@ function existingStatus(): Record<string, unknown> {
   const result = summarizeResult(resultFile);
   const runtimeDir = activeRuntimeDir || (typeof result?.runtimeDir === "string" ? result.runtimeDir : resultFile ? path.dirname(resultFile) : undefined);
   const publishProgress = summarizePublishProgress(runtimeDir);
+  const feishuProgress = summarizeFeishuProgress();
   const state = summarizeState(runtimeDir);
+  const batchComplete = feishuProgress ? feishuProgress.batchComplete === true : true;
   const completed =
     !running &&
+    batchComplete &&
     ((result?.ok === true && String(result.status || "") !== "failed") ||
       (state?.status === "completed") ||
       (publishProgress && publishProgress.total === publishProgress.safelyPublished && publishProgress.failed === 0));
@@ -332,7 +355,8 @@ function existingStatus(): Record<string, unknown> {
     ((result && result.ok === false) ||
       (state?.status === "failed") ||
       (publishProgress && Number(publishProgress.failed || 0) > 0));
-  const resolvedStatus = running ? "running" : completed ? "completed" : failed ? "failed" : "exited_unknown";
+  const hasPendingFeishuProducts = !running && !batchComplete;
+  const resolvedStatus = running ? "running" : completed ? "completed" : failed ? "failed" : hasPendingFeishuProducts ? "pending_products" : "exited_unknown";
   return {
     ok: true,
     status: resolvedStatus,
@@ -361,6 +385,7 @@ function existingStatus(): Record<string, unknown> {
     result,
     state,
     publishProgress,
+    feishuProgress,
     logTail: tailFile(job.logFile, 12)
   };
 }
@@ -382,6 +407,10 @@ function formatStatusText(status: Record<string, unknown>): string {
   }
   if (progress) {
     lines.push(`发布：${String(progress.safelyPublished ?? 0)}/${String(progress.total ?? "?")}，失败 ${String(progress.failed ?? 0)}，待处理 ${String(progress.pending ?? 0)}`);
+  }
+  const feishuProgress = status.feishuProgress as Record<string, unknown> | undefined;
+  if (feishuProgress) {
+    lines.push(`飞书批次：已处理 ${String(feishuProgress.processedRecordCount ?? "?")}/${String(feishuProgress.recordCount ?? "?")}，待处理 ${String(feishuProgress.pendingRecordCount ?? "?")}`);
   } else if (state) {
     const currentTask = state.currentTask as Record<string, unknown> | undefined;
     const latestProgress = state.latestProgress as Record<string, unknown> | undefined;
@@ -457,7 +486,11 @@ function shouldResumeCurrentFailure(): boolean {
 
   const resultFile = path.resolve(rootDir, resumeJob.resultFile);
   const result = readJsonFile<AutoListingResultFile>(resultFile);
-  return !result || (result.ok !== true && result.status !== "success");
+  const shouldResume = !result || (result.ok !== true && result.status !== "success");
+  if (!shouldResume && fs.existsSync(resumeJobFile)) {
+    fs.rmSync(resumeJobFile, { force: true });
+  }
+  return shouldResume;
 }
 
 function collectResumeProductFolderNames(task: NonNullable<AutoListingResultFile["tasks"]>[number]): string[] {

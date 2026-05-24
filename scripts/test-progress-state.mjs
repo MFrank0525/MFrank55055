@@ -5,6 +5,7 @@ import path from "node:path";
 import { readLatestTaskProgressEvent } from "../dist/src/autolist/progress-events.js";
 import {
   auditAutoListingContinuity,
+  summarizeFeishuBatchProgress,
   auditMainImageGeneration,
   auditPublishCoverage
 } from "../dist/src/autolist/audit-rules.js";
@@ -145,6 +146,26 @@ assert.equal(continuityOk.ok, true);
 assert.equal(continuityOk.summary.recordCount, 3);
 assert.equal(continuityOk.summary.processedRecordCount, 1);
 assert.equal(continuityOk.summary.pendingRecordCount, 2);
+
+const batchProgress = summarizeFeishuBatchProgress({
+  records: [
+    record("rec-1", "/work/input/auto-listing/feishu-images/product-1.png"),
+    record("rec-2", "/work/input/auto-listing/feishu-images/product-2.png"),
+    record("rec-3", "/work/input/auto-listing/feishu-images/product-3.png")
+  ],
+  processedImages: [
+    "/work/input/auto-listing/feishu-images/product-1.png",
+    "/work/input/auto-listing/feishu-images/product-2.png"
+  ]
+});
+
+assert.deepEqual(batchProgress, {
+  recordCount: 3,
+  processedRecordCount: 2,
+  pendingRecordCount: 1,
+  pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-3.png"],
+  batchComplete: false
+});
 
 const missingPendingAsset = auditAutoListingContinuity({
   records: [
