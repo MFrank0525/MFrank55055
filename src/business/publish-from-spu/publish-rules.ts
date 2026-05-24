@@ -41,6 +41,20 @@ export interface ShopSwitchMenuStateDecision {
   issue: string;
 }
 
+export interface PublishCreatePageHealthInput {
+  usable: boolean;
+  bodyTextLength: number;
+  sectionCount: number;
+  loading: boolean;
+  loginRequired: boolean;
+  bodyText?: string;
+}
+
+export interface PublishCreatePageReadinessDecision {
+  action: "ready" | "fail_login" | "wait_or_reload" | "reopen_from_platform_spu";
+  issue: string;
+}
+
 const SUBMISSION_SUCCESS_TEXTS = [
   "发布成功",
   "提交成功",
@@ -81,6 +95,23 @@ export function evaluateShopSwitchMenuState(input: ShopSwitchMenuStateInput): Sh
     action: "retry_menu",
     issue: "Shop switch entry is unavailable while current shop does not match target."
   };
+}
+
+export function evaluatePublishCreatePageReadiness(input: PublishCreatePageHealthInput): PublishCreatePageReadinessDecision {
+  const bodyText = normalizeVisibleText(input.bodyText || "").toLowerCase();
+  if (input.usable) {
+    return { action: "ready", issue: "" };
+  }
+  if (input.loginRequired) {
+    return { action: "fail_login", issue: "Doudian login is required before publishing can continue." };
+  }
+  if (bodyText.includes("spu信息填充失败") || bodyText.includes("spu填充失败") || bodyText.includes("信息填充失败")) {
+    return { action: "reopen_from_platform_spu", issue: "Publish create page reported SPU prefill failure." };
+  }
+  if (!input.loading && input.sectionCount === 0 && input.bodyTextLength > 0 && input.bodyTextLength <= 120) {
+    return { action: "reopen_from_platform_spu", issue: "Publish create page has no publish sections after SPU query." };
+  }
+  return { action: "wait_or_reload", issue: "Publish create page is not ready yet." };
 }
 
 export function isFreshPublishCreatePage(snapshot: PublishPageSnapshot): boolean {
@@ -127,6 +158,14 @@ export function evaluatePublishSubmissionAfterAction(
 export function classifyPublishFailure(message: string): string {
   const text = normalizeVisibleText(message);
   if (!text) return "";
+  if (
+    text.includes("Publishcreatepagedidnotbecomeready") ||
+    text.includes("spu信息填充失败") ||
+    text.includes("spu填充失败") ||
+    text.includes("信息填充失败")
+  ) {
+    return "platform_spu_prefill_failed";
+  }
   if (text.includes("PlatformSPUquerypagewasnotready") || text.includes("标品管理") && text.includes("加载")) {
     return "platform_page_not_ready";
   }
@@ -158,7 +197,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   if (retryAttempt >= maxRetryAttempts) {
     return false;
   }
-  return ["platform_page_not_ready", "page_context_lost", "shop_switch_entry_unavailable"].includes(errorClass);
+  return ["platform_page_not_ready", "platform_spu_prefill_failed", "page_context_lost", "shop_switch_entry_unavailable"].includes(errorClass);
 }
 
 export function evaluatePublishResult(input: PublishResultRuleInput): PublishResultRuleDecision {

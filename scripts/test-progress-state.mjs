@@ -13,6 +13,7 @@ import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import { createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import {
   classifyPublishFailure,
+  evaluatePublishCreatePageReadiness,
   evaluateShopSwitchMenuState,
   shouldRetryPublishFailure
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
@@ -60,6 +61,27 @@ assert.equal(pageNotReadyClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 0), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 2), false);
 assert.equal(shouldRetryPublishFailure("validation_blocked", 0), false);
+
+const spuPrefillFailedClass = classifyPublishFailure(
+  "Publish create page did not become ready after network/page-content recovery. sections=0; textLength=67; loading=false; body=spu信息填充失败"
+);
+assert.equal(spuPrefillFailedClass, "platform_spu_prefill_failed");
+assert.equal(shouldRetryPublishFailure(spuPrefillFailedClass, 0), true);
+
+assert.deepEqual(
+  evaluatePublishCreatePageReadiness({
+    usable: false,
+    bodyTextLength: 67,
+    sectionCount: 0,
+    loading: false,
+    loginRequired: false,
+    bodyText: "商品发布 spu信息填充失败"
+  }),
+  {
+    action: "reopen_from_platform_spu",
+    issue: "Publish create page reported SPU prefill failure."
+  }
+);
 
 const shopSwitchMissingClass = classifyPublishFailure("Shop switch failed: could not find 切换组织/店铺 for 延草纲目康复理疗专营店");
 assert.equal(shopSwitchMissingClass, "shop_switch_entry_unavailable");

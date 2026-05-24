@@ -34,6 +34,7 @@ import {
   evaluateForbiddenGraphicSections,
   evaluatePriceInventoryCompletion,
   evaluatePublishCheckResult,
+  evaluatePublishCreatePageReadiness,
   evaluatePublishSubmission,
   evaluatePublishSubmissionAfterAction,
   evaluateServiceCompletion
@@ -41,6 +42,13 @@ import {
 import { makePublishActionResult } from "./publish-from-spu/publish-actions.js";
 
 export type { PublishFromSpuJobInput, PublishFromSpuJobOptions, PublishFromSpuJobResult } from "./publish-from-spu/types.js";
+
+class PublishCreatePageReopenRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PublishCreatePageReopenRequiredError";
+  }
+}
 
 function normalizeMatchText(value: string): string {
   return value.replace(/\s+/g, "").trim().toLowerCase();
@@ -6349,9 +6357,10 @@ async function getPublishCreatePageHealth(page: Page): Promise<{
   sectionCount: number;
   loading: boolean;
   loginRequired: boolean;
+  bodyText: string;
 }> {
   if (page.isClosed() || !page.url().includes("/ffa/g/create")) {
-    return { usable: false, bodyTextLength: 0, sectionCount: 0, loading: false, loginRequired: false };
+    return { usable: false, bodyTextLength: 0, sectionCount: 0, loading: false, loginRequired: false, bodyText: "" };
   }
   return page.evaluate(() => {
     const bodyText = document.body.innerText || "";
@@ -6373,7 +6382,8 @@ async function getPublishCreatePageHealth(page: Page): Promise<{
       bodyTextLength: normalized.length,
       sectionCount,
       loading,
-      loginRequired
+      loginRequired,
+      bodyText: normalized.slice(0, 300)
     };
   });
 }
@@ -6395,13 +6405,18 @@ async function waitForPublishCreatePageReady(
       bodyTextLength: 0,
       sectionCount: 0,
       loading: false,
-      loginRequired: false
+      loginRequired: false,
+      bodyText: ""
     }));
-    if (health.usable) {
+    const readiness = evaluatePublishCreatePageReadiness(health);
+    if (readiness.action === "ready") {
       return;
     }
-    if (health.loginRequired) {
-      throw new Error("Doudian login is required before publishing can continue.");
+    if (readiness.action === "fail_login") {
+      throw new Error(readiness.issue);
+    }
+    if (readiness.action === "reopen_from_platform_spu") {
+      throw new PublishCreatePageReopenRequiredError(readiness.issue);
     }
     await savePageScreenshot(page, runtimeDir, `${label}-publish-page-not-ready-${attempt + 1}.png`).catch(() => "");
     if (attempt < maxAttempts - 1) {
@@ -6414,7 +6429,7 @@ async function waitForPublishCreatePageReady(
       continue;
     }
     throw new Error(
-      `Publish create page did not become ready after network/page-content recovery. sections=${health.sectionCount}; textLength=${health.bodyTextLength}; loading=${health.loading}`
+      `Publish create page did not become ready after network/page-content recovery. sections=${health.sectionCount}; textLength=${health.bodyTextLength}; loading=${health.loading}; body=${health.bodyText}`
     );
   }
 }
@@ -7349,7 +7364,8 @@ async function runPublishFlow(
   shopFolder: string,
   publishPageUrl?: string,
   stopBeforePublish = false,
-  graphicResetAttempt = 0
+  graphicResetAttempt = 0,
+  createPageResetAttempt = 0
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -7414,8 +7430,36 @@ async function runPublishFlow(
     await closeCreatePagesExcept(context, [page]);
     await closeExtraPages(context, [page]);
     await page.bringToFront();
-    await gotoWithTolerance(page, createPageUrl, 3500);
-    await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "publish-initial");
+    try {
+      await gotoWithTolerance(page, createPageUrl, 3500);
+      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "publish-initial");
+    } catch (error) {
+      if (error instanceof PublishCreatePageReopenRequiredError && createPageResetAttempt < 2) {
+        logWarn(`Publish create page was unusable after SPU query; reopening from platform SPU. issue=${error.message}`);
+        await closeCreatePagesExcept(context, []).catch(() => {});
+        await context.browser()?.close().catch(() => {});
+        const retryResult = await runPublishFlow(
+          runtimeDir,
+          metadata,
+          assets,
+          shopFolder,
+          undefined,
+          stopBeforePublish,
+          graphicResetAttempt,
+          createPageResetAttempt + 1
+        );
+        return {
+          ...retryResult,
+          screenshotFiles: [...screenshotFiles, ...retryResult.screenshotFiles],
+          stages: [
+            ...stages,
+            { step: "reopen_publish_page_after_spu_prefill_failure", status: "completed" },
+            ...retryResult.stages
+          ]
+        };
+      }
+      throw error;
+    }
     if (!shopVerifiedBeforeCreatePage) {
       await ensureShopContext(page, runtimeDir, shopFolder);
     }
