@@ -306,6 +306,13 @@ assert.equal(migrateLegacyProcessedImagesToBatch(legacyManifest, repeatedBatchAF
 assert.equal(readProcessedImages(legacyManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/legacy-product.png"), true);
 assert.equal(readProcessedImages(legacyManifest, repeatedBatchBFingerprint).has("/work/input/auto-listing/feishu-images/legacy-product.png"), false);
 
+const appendMigratedManifest = path.join(tempDir, "append-migrated-processed-images.json");
+appendProcessedImages(appendMigratedManifest, ["/work/input/auto-listing/feishu-images/current-batch-first.png"]);
+appendProcessedImages(appendMigratedManifest, ["/work/input/auto-listing/feishu-images/current-batch-second.png"], repeatedBatchAFingerprint);
+assert.equal(readProcessedImages(appendMigratedManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/current-batch-first.png"), true);
+assert.equal(readProcessedImages(appendMigratedManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/current-batch-second.png"), true);
+assert.equal(readProcessedImages(appendMigratedManifest, repeatedBatchBFingerprint).has("/work/input/auto-listing/feishu-images/current-batch-first.png"), false);
+
 assert.equal(
   shouldContinueFeishuBatchAfterChildExit({
     exitCode: 0,

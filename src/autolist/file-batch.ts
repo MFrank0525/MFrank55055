@@ -137,7 +137,9 @@ export function appendProcessedImages(manifestFile: string, imagePaths: string[]
     ? {
         version: 2,
         currentBatchFingerprint: batchFingerprint,
-        batches: {},
+        batches: {
+          [batchFingerprint]: parsed.map(normalizePath)
+        },
         legacyImages: parsed.map(normalizePath)
       }
     : {
