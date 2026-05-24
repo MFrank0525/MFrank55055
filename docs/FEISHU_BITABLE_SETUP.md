@@ -159,10 +159,10 @@ npm run auto-listing:hermes-status
 飞书产品执行顺序：
 
 - 自动上架严格按照 `data/feishu/products.json` 的记录顺序执行，也就是飞书视图导出的产品顺序。
-- 默认 Mac Feishu job 的 `maxImagesPerRun=0`，表示飞书里有多少条产品记录就上架多少条。
+- 默认 Mac Feishu job 的 `maxImagesPerRun=0`，表示飞书当前批次里有多少条产品记录就上架多少条。
 - 每条记录使用它绑定的第一张已下载 `产品白底图` 作为图生图参考源；如果缺失或本地文件不存在，流程会直接报配置缺口。
-- 已处理过的源图会写入 `data/auto-listing/processed-images.json`，下次自动跳过。
-- 所有飞书记录都处理完成后，项目自动停止运行。
+- 已处理过的源图会按飞书批次写入 `data/auto-listing/processed-images.json`，同一批中断恢复时自动跳过；飞书更新为新批次后，即使产品或源图路径与旧批次重复，也按新批次继续执行。
+- 所有飞书记录都处理完成后，Hermes 会刷新飞书表格；如果发现新批次，继续上架新批次；如果没有新批次，项目自动停止运行。
 
 产品类目规则：
 
@@ -199,7 +199,7 @@ npm run audit:auto-listing
 `audit:auto-listing` 是只读审计命令，不会启动 Hermes、不会调用飞书下载、不会发布商品。它会检查：
 
 - `data/feishu/products.json` 里的产品总数和待处理数量。
-- `data/auto-listing/processed-images.json` 里的已完成源图。
+- `data/auto-listing/processed-images.json` 里当前飞书批次的已完成源图。
 - `input/auto-listing/feishu-images` 和 `input/auto-listing/qualifications` 是否仍保留待处理产品素材。
 - 最新运行如果还在进行，当前发现的任务数是否少于应处理的待处理产品数。
 - 已完成主图生成阶段的任务是否满足类目计划：每个 Word 提示词 4 张，医疗器械/保健食品总计 20 张，非处方药总计 12 张。

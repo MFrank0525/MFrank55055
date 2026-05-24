@@ -6,6 +6,7 @@ import { generateMainImageAssets } from "./jimeng-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, filterPendingImages } from "./file-batch.js";
 import { collectFeishuProductAssetFiles } from "./audit-rules.js";
+import { buildFeishuBatchFingerprint } from "./feishu-batch-rules.js";
 import { loadFeishuProductRecords, loadFeishuProductRuntimeRecord, resolveFeishuProductSourceImages } from "./feishu-products.js";
 import { getProductCategoryPlan } from "./product-category.js";
 import { enrichDistributedTitleSheets } from "./metadata.js";
@@ -695,6 +696,10 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   const runId = path.basename(resolved.runtimeDir);
   const startedAt = new Date().toISOString();
   const logFile = path.join(resolved.runtimeDir, "logs", "run.log");
+  const feishuBatchFingerprint =
+    resolved.input.feishuProductDataFile && fs.existsSync(resolved.input.feishuProductDataFile)
+      ? buildFeishuBatchFingerprint(loadFeishuProductRecords(resolved.input.feishuProductDataFile))
+      : undefined;
   const discoveredImages =
     resolved.input.resumeSourceImagePath
       ? [resolved.input.resumeSourceImagePath]
@@ -702,13 +707,15 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
         ? filterPendingImages(
             resolveFeishuProductSourceImages(resolved.input.feishuProductDataFile),
             resolved.processedImageManifest,
-            resolved.input.maxImagesPerRun
+            resolved.input.maxImagesPerRun,
+            feishuBatchFingerprint
           )
         : discoverPendingImages(
             resolved.input.feishuImageDir,
             resolved.input.imageExtensions,
             resolved.processedImageManifest,
-            resolved.input.maxImagesPerRun
+            resolved.input.maxImagesPerRun,
+            feishuBatchFingerprint
           );
   const resumeFilteredDiscoveredImages = filterResumeSourceImage(discoveredImages, resolved.input.resumeSourceImagePath);
   const shouldAllowRecoveredTask = resolved.input.startStep !== "source_images_discovered";
@@ -885,7 +892,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
         };
         persistState(resolved.stateFile, workingState);
         if (!resolved.input.simulateOnly && isProductFullyProcessed(completedTask)) {
-          appendProcessedImages(resolved.processedImageManifest, [task.sourceImagePath]);
+          appendProcessedImages(resolved.processedImageManifest, [task.sourceImagePath], feishuBatchFingerprint);
         }
         writeJson(
           resolved.manualsReadFile,

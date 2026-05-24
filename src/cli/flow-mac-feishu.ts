@@ -1,6 +1,9 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
+import { migrateLegacyProcessedImagesToBatch } from "../autolist/file-batch.js";
+import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 
 interface FlowArgs {
   real: boolean;
@@ -21,6 +24,8 @@ interface AutoListingJobSummary {
     simulateOnly?: boolean;
     imageGenerationProvider?: string;
     imageGenerationConfigFile?: string;
+    feishuProductDataFile?: string;
+    processedImageManifest?: string;
   };
 }
 
@@ -94,6 +99,19 @@ function printExternalCostSummary(jobFile: string, real: boolean): void {
   }
 }
 
+function migrateLegacyProcessedManifestForCurrentCache(jobFile: string): void {
+  const job = loadJobSummary(jobFile);
+  const feishuProductDataFile = path.resolve(job.input?.feishuProductDataFile || "./data/feishu/products.json");
+  const processedImageManifest = path.resolve(job.input?.processedImageManifest || "./data/auto-listing/processed-images.json");
+  if (!fs.existsSync(feishuProductDataFile)) {
+    return;
+  }
+  const fingerprint = buildFeishuBatchFingerprint(loadFeishuProductRecords(feishuProductDataFile));
+  if (migrateLegacyProcessedImagesToBatch(processedImageManifest, fingerprint)) {
+    console.log(`Migrated legacy processed-image manifest to current Feishu batch: ${fingerprint}`);
+  }
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   const jobFile = args.real
@@ -123,6 +141,7 @@ function main(): void {
         ]
       : ["run", "doctor:auto-listing", "--", "--image-generation-provider", "openai-compatible"]
   );
+  migrateLegacyProcessedManifestForCurrentCache(jobFile);
   runStep("Feishu assets", "npm", [
     "run",
     "feishu:assets",

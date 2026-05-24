@@ -12,8 +12,11 @@ import {
 } from "../dist/src/autolist/audit-rules.js";
 import {
   shouldContinueFeishuBatchAfterChildExit,
+  shouldContinueFeishuAfterBatchRefresh,
   shouldPreferActiveTaskStateSummary
 } from "../dist/src/autolist/batch-continuation-rules.js";
+import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
+import { appendProcessedImages, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import {
   resolveImageDownloadTimeoutMs,
@@ -273,6 +276,35 @@ assert.deepEqual(batchProgress, {
   batchComplete: false
 });
 
+const repeatedProductManifest = path.join(tempDir, "processed-images.json");
+const repeatedBatchA = [
+  record("rec-batch-a", "/work/input/auto-listing/feishu-images/same-product.png")
+];
+const repeatedBatchB = [
+  record("rec-batch-b", "/work/input/auto-listing/feishu-images/same-product.png")
+];
+const repeatedBatchAFingerprint = buildFeishuBatchFingerprint(repeatedBatchA);
+const repeatedBatchBFingerprint = buildFeishuBatchFingerprint(repeatedBatchB);
+
+assert.notEqual(repeatedBatchAFingerprint, repeatedBatchBFingerprint);
+appendProcessedImages(repeatedProductManifest, ["/work/input/auto-listing/feishu-images/same-product.png"], repeatedBatchAFingerprint);
+assert.equal(readProcessedImages(repeatedProductManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/same-product.png"), true);
+assert.equal(readProcessedImages(repeatedProductManifest, repeatedBatchBFingerprint).has("/work/input/auto-listing/feishu-images/same-product.png"), false);
+
+const repeatedBatchProgress = summarizeFeishuBatchProgress({
+  records: repeatedBatchB,
+  processedImages: readProcessedImages(repeatedProductManifest, repeatedBatchBFingerprint)
+});
+assert.equal(repeatedBatchProgress.processedRecordCount, 0);
+assert.equal(repeatedBatchProgress.pendingRecordCount, 1);
+assert.equal(repeatedBatchProgress.batchComplete, false);
+
+const legacyManifest = path.join(tempDir, "legacy-processed-images.json");
+appendProcessedImages(legacyManifest, ["/work/input/auto-listing/feishu-images/legacy-product.png"]);
+assert.equal(migrateLegacyProcessedImagesToBatch(legacyManifest, repeatedBatchAFingerprint), true);
+assert.equal(readProcessedImages(legacyManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/legacy-product.png"), true);
+assert.equal(readProcessedImages(legacyManifest, repeatedBatchBFingerprint).has("/work/input/auto-listing/feishu-images/legacy-product.png"), false);
+
 assert.equal(
   shouldContinueFeishuBatchAfterChildExit({
     exitCode: 0,
@@ -291,6 +323,33 @@ assert.equal(
   shouldContinueFeishuBatchAfterChildExit({
     exitCode: 0,
     batchComplete: true
+  }),
+  false
+);
+assert.equal(
+  shouldContinueFeishuAfterBatchRefresh({
+    exitCode: 0,
+    currentBatchComplete: true,
+    refreshedBatchChanged: true,
+    refreshedBatchComplete: false
+  }),
+  true
+);
+assert.equal(
+  shouldContinueFeishuAfterBatchRefresh({
+    exitCode: 0,
+    currentBatchComplete: true,
+    refreshedBatchChanged: false,
+    refreshedBatchComplete: false
+  }),
+  false
+);
+assert.equal(
+  shouldContinueFeishuAfterBatchRefresh({
+    exitCode: 0,
+    currentBatchComplete: true,
+    refreshedBatchChanged: true,
+    refreshedBatchComplete: true
   }),
   false
 );

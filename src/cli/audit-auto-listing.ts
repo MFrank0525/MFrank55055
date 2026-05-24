@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { auditAutoListingContinuity, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
@@ -181,7 +182,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const resolved = resolveFromJob(args.jobFile);
   const records = loadFeishuProductRecords(resolved.feishuProductDataFile);
-  const processedImages = readProcessedImages(resolved.processedImageManifest);
+  const batchFingerprint = buildFeishuBatchFingerprint(records);
+  const processedImages = readProcessedImages(resolved.processedImageManifest, batchFingerprint);
   const existingFiles = [
     ...listFilesRecursive(resolved.feishuImageDir),
     ...listFilesRecursive(resolved.qualificationDir),

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { shouldPreferActiveTaskStateSummary } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
@@ -312,9 +313,11 @@ function summarizeFeishuProgress(): Record<string, unknown> | undefined {
     return undefined;
   }
   try {
+    const records = loadFeishuProductRecords(feishuProductDataFile);
+    const batchFingerprint = buildFeishuBatchFingerprint(records);
     return summarizeFeishuBatchProgress({
-      records: loadFeishuProductRecords(feishuProductDataFile),
-      processedImages: readProcessedImages(processedManifestFile)
+      records,
+      processedImages: readProcessedImages(processedManifestFile, batchFingerprint)
     }) as unknown as Record<string, unknown>;
   } catch {
     return undefined;
