@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { readLatestTaskProgressEvent } from "../dist/src/autolist/progress-events.js";
+import { buildFeishuSellingPointText } from "../dist/src/autolist/selling-point-rules.js";
 import {
   auditAutoListingContinuity,
   summarizeFeishuBatchProgress,
@@ -47,6 +48,22 @@ const saved = recordTaskProgress(updated, "main_images_generated", "Prompt 2/5: 
 assert.equal(saved.status, "main_images_generated");
 assert.equal(saved.notes.at(-1), "main_images_generated: Prompt 2/5: Image 4: saved generated-04.png.");
 assert.ok(saved.notes.length <= 25);
+
+assert.equal(
+  buildFeishuSellingPointText({
+    userCognitionName: "医用芦荟凝胶",
+    brandedGenericName: "延草纲目医用聚乙二醇护创敷料",
+    sellingPointText: "120g/盒，官方正品，二类医疗器械认证"
+  }),
+  "120g/盒，官方正品，二类医疗器械认证"
+);
+assert.ok(
+  !buildFeishuSellingPointText({
+    userCognitionName: "医用芦荟凝胶",
+    brandedGenericName: "延草纲目医用聚乙二醇护创敷料",
+    sellingPointText: "120g/盒，官方正品，二类医疗器械认证"
+  }).startsWith("医用芦荟凝胶,延草纲目医用聚乙二醇护创敷料")
+);
 
 const resumedState = applyResumeTaskId(createRunState("resume-run", ["/tmp/product-2.png"]), "image-002");
 assert.equal(resumedState.tasks[0].taskId, "image-002");

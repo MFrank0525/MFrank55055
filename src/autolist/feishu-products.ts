@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sanitizeFeishuProductRecord } from "../feishu/product-records.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
+import { buildFeishuSellingPointText } from "./selling-point-rules.js";
 import type { SellingPointArtifact } from "./types.js";
 
 interface FeishuProductPayload {
@@ -47,14 +48,11 @@ function assertRecordReady(record: FeishuProductRecord): void {
 }
 
 function buildSellingPointText(record: FeishuProductRecord): string {
-  return [
-    record.userCognitionName,
-    `${record.brand}${record.genericName}`,
-    record.sellingPointText
-  ]
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .join(",");
+  return buildFeishuSellingPointText({
+    userCognitionName: record.userCognitionName,
+    brandedGenericName: `${record.brand}${record.genericName}`,
+    sellingPointText: record.sellingPointText
+  });
 }
 
 function writeFeishuSellingPointArtifact(runtimeDir: string, taskId: string, record: FeishuProductRecord): SellingPointArtifact {
