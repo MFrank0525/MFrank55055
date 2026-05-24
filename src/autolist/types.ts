@@ -63,6 +63,7 @@ export interface AutoListingJobInput {
   titleCount?: number;
   maxImagesPerRun?: number;
   resumeSourceImagePath?: string;
+  resumeTaskId?: string;
   resumeProductFolderNames?: string[];
   simulateOnly?: boolean;
   clearTestOutputsBeforeRun?: boolean;

@@ -35,6 +35,23 @@ export function createRunState(runId: string, imagePaths: string[]): AutoListing
   };
 }
 
+export function applyResumeTaskId(state: AutoListingRunState, resumeTaskId: string): AutoListingRunState {
+  const normalizedTaskId = resumeTaskId.trim();
+  if (!normalizedTaskId || state.tasks.length !== 1) {
+    return state;
+  }
+  return {
+    ...state,
+    currentTaskId: normalizedTaskId,
+    tasks: [
+      {
+        ...state.tasks[0],
+        taskId: normalizedTaskId
+      }
+    ]
+  };
+}
+
 export function advanceTask(task: ImageTaskState, nextStatus: AutoListingStatus, note?: string): ImageTaskState {
   const timestamp = nowIso();
   const nextTask: ImageTaskState = {

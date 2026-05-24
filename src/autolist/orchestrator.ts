@@ -20,7 +20,7 @@ import { distributeProductFoldersToShops } from "./shop-distribution.js";
 import { assertTitleDistributionTargets, distributeTitleSheets, generateTitleSheets } from "./title-sheets.js";
 import { resolveAutoListingJob } from "./config.js";
 import { assertRuleTextIntegrity } from "./rule-text.js";
-import { createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed, markRunPaused, recordTaskProgress } from "./state-machine.js";
+import { applyResumeTaskId, createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed, markRunPaused, recordTaskProgress } from "./state-machine.js";
 import { logError, logInfo, setLogFile } from "../utils/logger.js";
 import type {
   AutoListingEvent,
@@ -746,7 +746,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     manualsRead: []
   };
 
-  const state = createRunState(runId, effectiveImages);
+  const state = applyResumeTaskId(createRunState(runId, effectiveImages), resolved.input.resumeTaskId);
   result.tasks = state.tasks;
   const manualReadMap = new Map<string, ManualReadRecord>();
 

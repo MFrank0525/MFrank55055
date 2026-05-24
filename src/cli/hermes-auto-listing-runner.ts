@@ -24,6 +24,7 @@ interface AutoListingJobFile {
     startStep?: string;
     endStep?: string;
     resumeSourceImagePath?: string;
+    resumeTaskId?: string;
     resumeProductFolderNames?: string[];
     maxImagesPerRun?: number;
     clearTestOutputsBeforeRun?: boolean;
@@ -558,6 +559,7 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
       startStep: failedStep,
       endStep: "done",
       resumeSourceImagePath: failedTask.sourceImagePath,
+      resumeTaskId: failedTask.taskId,
       resumeProductFolderNames: collectResumeProductFolderNames(failedTask),
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false

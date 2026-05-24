@@ -210,6 +210,7 @@ function writeResumeJob(options: {
       ...options.sourceJob.input,
       startStep,
       resumeSourceImagePath: task.sourceImagePath,
+      resumeTaskId: task.taskId,
       resumeProductFolderNames: collectResumeProductFolderNames(task),
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
@@ -244,6 +245,7 @@ async function main(): Promise<void> {
             resumeJobFile: path.resolve(resumeOutFile),
             runId: resumeJob.runId,
             startStep: resumeJob.input.startStep,
+            resumeTaskId: resumeJob.input.resumeTaskId,
             resumeSourceImagePath: resumeJob.input.resumeSourceImagePath
           },
           null,

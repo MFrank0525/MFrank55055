@@ -68,6 +68,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     titleCount: input.titleCount ?? 20,
     maxImagesPerRun: input.maxImagesPerRun ?? 0,
     resumeSourceImagePath: input.resumeSourceImagePath ? path.resolve(input.resumeSourceImagePath) : "",
+    resumeTaskId: input.resumeTaskId || "",
     resumeProductFolderNames: input.resumeProductFolderNames || [],
     simulateOnly: input.simulateOnly ?? true,
     clearTestOutputsBeforeRun: input.clearTestOutputsBeforeRun ?? false,

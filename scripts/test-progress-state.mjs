@@ -18,7 +18,7 @@ import {
   resolveImageDownloadTimeoutMs,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
-import { createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
+import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
 import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-from-spu/asset-rules.js";
 import {
@@ -45,6 +45,10 @@ const saved = recordTaskProgress(updated, "main_images_generated", "Prompt 2/5: 
 assert.equal(saved.status, "main_images_generated");
 assert.equal(saved.notes.at(-1), "main_images_generated: Prompt 2/5: Image 4: saved generated-04.png.");
 assert.ok(saved.notes.length <= 25);
+
+const resumedState = applyResumeTaskId(createRunState("resume-run", ["/tmp/product-2.png"]), "image-002");
+assert.equal(resumedState.tasks[0].taskId, "image-002");
+assert.equal(resumedState.currentTaskId, "image-002");
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "auto-listing-progress-"));
 const eventsFile = path.join(tempDir, "events.ndjson");
