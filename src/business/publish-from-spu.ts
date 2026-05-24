@@ -38,7 +38,8 @@ import {
   evaluatePublishCreatePageReadiness,
   evaluatePublishSubmission,
   evaluatePublishSubmissionAfterAction,
-  evaluateServiceCompletion
+  evaluateServiceCompletion,
+  isUploadPlaceholderGraphicContext
 } from "./publish-from-spu/publish-rules.js";
 import { makePublishActionResult } from "./publish-from-spu/publish-actions.js";
 
@@ -5049,7 +5050,7 @@ async function purgeForbiddenGraphicSectionsSafe(page: Page): Promise<string[]> 
 
 async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string): Promise<number> {
   return page.evaluate(
-    ({ targetSection, sectionLabels }) => {
+    ({ targetSection, sectionLabels, uploadPlaceholderPattern }) => {
       const labels = Array.from(document.querySelectorAll("body *"))
         .map((el) => el as HTMLElement)
         .map((el) => {
@@ -5092,12 +5093,22 @@ async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string
           ?.top || current.bottom + 500;
       const effectiveNextTop = nextTop;
 
+      const isUploadPlaceholderContext = (el: HTMLElement): boolean => {
+        const context = [el.textContent || "", el.parentElement?.textContent || "", el.closest("div")?.textContent || ""]
+          .join(" ")
+          .replace(/\s+/g, "");
+        return !context.includes("\u5220\u9664") && new RegExp(uploadPlaceholderPattern).test(context);
+      };
+
       const imageLike = Array.from(document.querySelectorAll("img, [style*='background-image']"))
         .map((el) => el as HTMLElement)
         .map((el) => {
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
           if (rect.width < 40 || rect.height < 40 || style.display === "none" || style.visibility === "hidden") {
+            return null;
+          }
+          if (isUploadPlaceholderContext(el)) {
             return null;
           }
           return {
@@ -5111,7 +5122,7 @@ async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string
 
       return Array.from(new Set(imageLike.map((item) => item!.key))).length;
     },
-    { targetSection: sectionName, sectionLabels: GRAPHIC_SECTION_LABELS }
+    { targetSection: sectionName, sectionLabels: GRAPHIC_SECTION_LABELS, uploadPlaceholderPattern: "\u4e0a\u4f20(?:\u767d\u5e95\u56fe|\u4e3b\u56fe|\u8f85\u52a9\u56fe)" }
   );
 }
 
@@ -5194,7 +5205,7 @@ async function getGraphicSectionPreviewRectsStrict(
   sectionName: string
 ): Promise<Array<{ x: number; y: number; width: number; height: number }>> {
   return page.evaluate(
-    ({ targetSection, sectionLabels }) => {
+    ({ targetSection, sectionLabels, uploadPlaceholderPattern }) => {
       const labels = Array.from(document.querySelectorAll("body *"))
         .map((el) => el as HTMLElement)
         .map((el) => {
@@ -5237,12 +5248,22 @@ async function getGraphicSectionPreviewRectsStrict(
           ?.top || current.bottom + 500;
       const effectiveNextTop = nextTop;
 
+      const isUploadPlaceholderContext = (el: HTMLElement): boolean => {
+        const context = [el.textContent || "", el.parentElement?.textContent || "", el.closest("div")?.textContent || ""]
+          .join(" ")
+          .replace(/\s+/g, "");
+        return !context.includes("\u5220\u9664") && new RegExp(uploadPlaceholderPattern).test(context);
+      };
+
       return Array.from(document.querySelectorAll("img, [style*='background-image']"))
         .map((el) => el as HTMLElement)
         .map((el) => {
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
           if (rect.width < 40 || rect.height < 40 || style.display === "none" || style.visibility === "hidden") {
+            return null;
+          }
+          if (isUploadPlaceholderContext(el)) {
             return null;
           }
           if (rect.top < current.top - 20 || rect.top > effectiveNextTop - 10 || rect.left <= current.left) {
@@ -5252,7 +5273,7 @@ async function getGraphicSectionPreviewRectsStrict(
         })
         .filter(Boolean) as Array<{ x: number; y: number; width: number; height: number }>;
     },
-    { targetSection: sectionName, sectionLabels: GRAPHIC_SECTION_LABELS }
+    { targetSection: sectionName, sectionLabels: GRAPHIC_SECTION_LABELS, uploadPlaceholderPattern: "\u4e0a\u4f20(?:\u767d\u5e95\u56fe|\u4e3b\u56fe|\u8f85\u52a9\u56fe)" }
   );
 }
 

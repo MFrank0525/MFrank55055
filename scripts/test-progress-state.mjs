@@ -31,6 +31,7 @@ import {
   classifyPublishFailure,
   evaluateDetailImageCompletion,
   evaluatePublishCreatePageReadiness,
+  isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
   shouldRetryPublishFailure
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
@@ -108,6 +109,9 @@ assert.deepEqual(
   }),
   { passed: true, issue: "" }
 );
+assert.equal(isUploadPlaceholderGraphicContext("白底图 + 上传白底图"), true);
+assert.equal(isUploadPlaceholderGraphicContext("主图3:4 + 上传辅助图"), true);
+assert.equal(isUploadPlaceholderGraphicContext("白底图 删除 预览图片"), false);
 const duplicateDetailCheck = evaluateDetailImageCompletion({
   filledFromMain: true,
   qualificationImageCount: 4,

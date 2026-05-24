@@ -227,6 +227,17 @@ export function evaluateForbiddenGraphicSections(remainingSections: string[]): P
     : { passed: true, issue: "" };
 }
 
+export function isUploadPlaceholderGraphicContext(value: string): boolean {
+  const text = normalizeVisibleText(value);
+  if (!text) {
+    return false;
+  }
+  if (text.includes("删除")) {
+    return false;
+  }
+  return /上传(?:白底图|主图|辅助图)/.test(text);
+}
+
 export function evaluateDetailImageCompletion(input: {
   filledFromMain: boolean;
   qualificationImageCount: number;
