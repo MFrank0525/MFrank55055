@@ -3,6 +3,7 @@ import path from "node:path";
 import { sanitizeFileName } from "../doubao/paths.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
+import { resolveImageDownloadTimeoutMs, shouldRetryImageGenerationWithPolicyPrompt } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { shopCodeFromFolder } from "./product-category.js";
 import { buildMainImageEditInstruction } from "./rule-text.js";
@@ -199,7 +200,10 @@ function normalizeImageGenerationError(message: string): Error {
 }
 
 function isContentPolicyError(message: string): boolean {
-  return /content[_ -]?policy|policy[_ -]?violation|safety|unsafe|moderation|violat/i.test(message);
+  return shouldRetryImageGenerationWithPolicyPrompt({
+    responseOk: false,
+    responseText: message
+  });
 }
 
 function isTransientImageProviderStatus(status: number): boolean {
@@ -349,14 +353,25 @@ function getImageExtensionFromContentType(contentType: string): string {
   return ".png";
 }
 
-async function downloadGeneratedImage(url: string, targetFile: string, apiKey: string): Promise<void> {
-  const response = await fetch(url, { headers: url.includes("/v1/") ? { Authorization: "Bearer " + apiKey } : undefined });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw normalizeImageGenerationError("Image download failed with HTTP " + response.status + ": " + (text || response.statusText));
+async function downloadGeneratedImage(url: string, targetFile: string, apiKey: string, timeoutMs: number): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), resolveImageDownloadTimeoutMs(timeoutMs));
+  try {
+    const response = await fetch(url, {
+      headers: url.includes("/v1/") ? { Authorization: "Bearer " + apiKey } : undefined,
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw normalizeImageGenerationError("Image download failed with HTTP " + response.status + ": " + (text || response.statusText));
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(targetFile, buffer);
+  } catch (error) {
+    throw normalizeImageGenerationError("Image download failed: " + (error instanceof Error ? error.message : String(error)));
+  } finally {
+    clearTimeout(timer);
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(targetFile, buffer);
 }
 
 function extractGeneratedImageItems(payload: any, text: string): any[] {
@@ -377,6 +392,7 @@ async function saveGeneratedImageItem(options: {
   targetDir: string;
   index: number;
   apiKey: string;
+  timeoutMs: number;
 }): Promise<{ file: string; submitId: string } | null> {
   const baseName = "generated-" + String(options.index).padStart(2, "0");
   if (typeof options.item?.b64_json === "string" && options.item.b64_json.trim()) {
@@ -386,7 +402,7 @@ async function saveGeneratedImageItem(options: {
   }
   if (typeof options.item?.url === "string" && options.item.url.trim()) {
     const targetFile = path.join(options.targetDir, baseName + getImageExtensionFromContentType(options.item.url));
-    await downloadGeneratedImage(options.item.url, targetFile, options.apiKey);
+    await downloadGeneratedImage(options.item.url, targetFile, options.apiKey, options.timeoutMs);
     return { file: targetFile, submitId: String(options.payload?.created || "") };
   }
   return null;
@@ -501,6 +517,34 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const buildPromptForImageIndex = (imageIndex: number): string =>
     [options.promptText, buildImageVariationInstruction(imageIndex)].join("\n");
 
+  const sendPolicyPromptRetry = async (
+    imageIndex: number,
+    currentPromptText: string,
+    requestSummaryFactory: (currentPromptText: string) => Record<string, unknown>,
+    label: string
+  ): Promise<{ response: Response; text: string; promptText: string }> => {
+    const nextPromptText = buildPolicyCompatibleImageEditPrompt(options.promptText, imageIndex);
+    const policyRetrySummary = requestSummaryFactory(nextPromptText);
+    writeImageGenerationJsonLog(
+      path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-" + label + "-policy-retry.json"),
+      policyRetrySummary
+    );
+    let result =
+      mode === "edits"
+        ? await sendRequestWithTransportRetries(imageIndex, label + "-policy-retry", () => buildEditFormData(true, nextPromptText))
+        : await sendRequestWithTransportRetries(imageIndex, label + "-policy-retry", () => JSON.stringify(buildGenerationJsonBody(nextPromptText)), "application/json");
+    if (!result.response.ok && mode === "edits" && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(result.text)) {
+      const retrySummary = { ...policyRetrySummary };
+      delete retrySummary.response_format;
+      writeImageGenerationJsonLog(
+        path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-" + label + "-policy-retry-no-response-format.json"),
+        retrySummary
+      );
+      result = await sendRequestWithTransportRetries(imageIndex, label + "-policy-response-format-retry", () => buildEditFormData(false, nextPromptText));
+    }
+    return { ...result, promptText: nextPromptText || currentPromptText };
+  };
+
   const generated: Array<{ file: string; submitId: string }> = [];
   for (let imageIndex = 1; imageIndex <= count; imageIndex += 1) {
     let promptText = buildPromptForImageIndex(imageIndex);
@@ -543,26 +587,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
         ({ response, text } = await sendRequestWithTransportRetries(imageIndex, "response-format-retry", () => JSON.stringify(retryBody), "application/json"));
       }
     }
-    if (!response.ok && isContentPolicyError(text)) {
-      promptText = buildPolicyCompatibleImageEditPrompt(options.promptText, imageIndex);
-      const policyRetrySummary = buildRequestSummary(promptText);
-      writeImageGenerationJsonLog(
-        path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-policy-retry.json"),
-        policyRetrySummary
-      );
-      ({ response, text } =
-        mode === "edits"
-          ? await sendRequestWithTransportRetries(imageIndex, "policy-retry", () => buildEditFormData(true, promptText))
-          : await sendRequestWithTransportRetries(imageIndex, "policy-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
-      if (!response.ok && mode === "edits" && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(text)) {
-        const retrySummary = { ...policyRetrySummary };
-        delete retrySummary.response_format;
-        writeImageGenerationJsonLog(
-          path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-policy-retry-no-response-format.json"),
-          retrySummary
-        );
-        ({ response, text } = await sendRequestWithTransportRetries(imageIndex, "policy-response-format-retry", () => buildEditFormData(false, promptText)));
-      }
+    if (shouldRetryImageGenerationWithPolicyPrompt({ responseOk: response.ok, responseText: text })) {
+      ({ response, text, promptText } = await sendPolicyPromptRetry(imageIndex, promptText, buildRequestSummary, "initial"));
     }
     for (let attempt = 1; !response.ok && isTransientImageProviderStatus(response.status) && attempt <= maxTransientRetries; attempt += 1) {
       writeImageGenerationTextLog(
@@ -611,6 +637,9 @@ async function generateWithOpenAiCompatibleProvider(options: {
         mode === "edits"
           ? await sendRequestWithTransportRetries(imageIndex, "empty-data-retry", () => buildEditFormData(true, promptText))
           : await sendRequestWithTransportRetries(imageIndex, "empty-data-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
+      if (shouldRetryImageGenerationWithPolicyPrompt({ responseOk: response.ok, responseText: text })) {
+        ({ response, text, promptText } = await sendPolicyPromptRetry(imageIndex, promptText, buildRequestSummary, "empty-data-retry-" + retryNo));
+      }
       if (!response.ok) {
         writeImageGenerationTextLog(
           path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-empty-data-retry-http-error-" + retryNo + ".json"),
@@ -624,7 +653,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
       payload,
       targetDir: options.downloadDir,
       index: imageIndexOffset + imageIndex,
-      apiKey: config.apiKey || ""
+      apiKey: config.apiKey || "",
+      timeoutMs
     });
     if (!saved) {
       throw normalizeImageGenerationError("Image generation returned no downloadable image payloads: " + text.slice(0, 500));

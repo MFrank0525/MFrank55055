@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { shouldPreferActiveTaskStateSummary } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
@@ -342,6 +343,11 @@ function existingStatus(): Record<string, unknown> {
   const publishProgress = summarizePublishProgress(runtimeDir);
   const feishuProgress = summarizeFeishuProgress();
   const state = summarizeState(runtimeDir);
+  const preferStateSummary = shouldPreferActiveTaskStateSummary({
+    running,
+    stateHasActiveTask: Boolean(state),
+    publishProgressAvailable: Boolean(publishProgress)
+  });
   const batchComplete = feishuProgress ? feishuProgress.batchComplete === true : true;
   const completed =
     !running &&
@@ -357,6 +363,12 @@ function existingStatus(): Record<string, unknown> {
       (publishProgress && Number(publishProgress.failed || 0) > 0));
   const hasPendingFeishuProducts = !running && !batchComplete;
   const resolvedStatus = running ? "running" : completed ? "completed" : failed ? "failed" : hasPendingFeishuProducts ? "pending_products" : "exited_unknown";
+  const stateSummary = state
+    ? `任务${resolvedStatus === "running" ? "正在运行" : "已结束"}，当前阶段：${String((state.latestProgress as Record<string, unknown> | undefined)?.step || (state.currentTask as Record<string, unknown> | undefined)?.status || state.status || "unknown")}` +
+      ((state.latestProgress as Record<string, unknown> | undefined)?.message
+        ? `，最新进度：${String((state.latestProgress as Record<string, unknown>).message)}`
+        : "")
+    : undefined;
   return {
     ok: true,
     status: resolvedStatus,
@@ -367,15 +379,10 @@ function existingStatus(): Record<string, unknown> {
     logFile: job.logFile,
     jobFile,
     activeRuntimeDir,
-    statusSource: publishProgress ? "publish-manifest" : state ? "state" : "result-log",
+    statusSource: preferStateSummary ? "state" : publishProgress ? "publish-manifest" : state ? "state" : "result-log",
     summary:
-      publishProgress?.progressText ||
-      (state
-        ? `任务${resolvedStatus === "running" ? "正在运行" : "已结束"}，当前阶段：${String((state.latestProgress as Record<string, unknown> | undefined)?.step || (state.currentTask as Record<string, unknown> | undefined)?.status || state.status || "unknown")}` +
-          ((state.latestProgress as Record<string, unknown> | undefined)?.message
-            ? `，最新进度：${String((state.latestProgress as Record<string, unknown>).message)}`
-            : "")
-        : running
+      (preferStateSummary ? stateSummary : publishProgress?.progressText || stateSummary) ||
+      (running
           ? "任务正在运行，尚未写入发布进度。"
           : "任务进程已退出，查看 result 字段确认最终结果。"),
     resultNote:

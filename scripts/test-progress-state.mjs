@@ -9,8 +9,15 @@ import {
   auditMainImageGeneration,
   auditPublishCoverage
 } from "../dist/src/autolist/audit-rules.js";
-import { shouldContinueFeishuBatchAfterChildExit } from "../dist/src/autolist/batch-continuation-rules.js";
+import {
+  shouldContinueFeishuBatchAfterChildExit,
+  shouldPreferActiveTaskStateSummary
+} from "../dist/src/autolist/batch-continuation-rules.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
+import {
+  resolveImageDownloadTimeoutMs,
+  shouldRetryImageGenerationWithPolicyPrompt
+} from "../dist/src/autolist/image-generation-rules.js";
 import { createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
 import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-from-spu/asset-rules.js";
@@ -243,6 +250,30 @@ assert.equal(
   shouldContinueFeishuBatchAfterChildExit({
     exitCode: 0,
     batchComplete: true
+  }),
+  false
+);
+assert.equal(
+  shouldPreferActiveTaskStateSummary({
+    running: true,
+    stateHasActiveTask: true,
+    publishProgressAvailable: true
+  }),
+  true
+);
+assert.equal(resolveImageDownloadTimeoutMs(180000), 180000);
+assert.equal(resolveImageDownloadTimeoutMs(10000), 30000);
+assert.equal(
+  shouldRetryImageGenerationWithPolicyPrompt({
+    responseOk: false,
+    responseText: '{"error":{"code":"content_policy_violation"}}'
+  }),
+  true
+);
+assert.equal(
+  shouldRetryImageGenerationWithPolicyPrompt({
+    responseOk: false,
+    responseText: '{"error":{"code":"billing"}}'
   }),
   false
 );
