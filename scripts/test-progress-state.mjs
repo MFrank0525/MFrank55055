@@ -9,6 +9,7 @@ import {
   auditMainImageGeneration,
   auditPublishCoverage
 } from "../dist/src/autolist/audit-rules.js";
+import { shouldContinueFeishuBatchAfterChildExit } from "../dist/src/autolist/batch-continuation-rules.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import { createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
@@ -223,6 +224,28 @@ assert.deepEqual(batchProgress, {
   pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-3.png"],
   batchComplete: false
 });
+
+assert.equal(
+  shouldContinueFeishuBatchAfterChildExit({
+    exitCode: 0,
+    batchComplete: false
+  }),
+  true
+);
+assert.equal(
+  shouldContinueFeishuBatchAfterChildExit({
+    exitCode: 1,
+    batchComplete: false
+  }),
+  false
+);
+assert.equal(
+  shouldContinueFeishuBatchAfterChildExit({
+    exitCode: 0,
+    batchComplete: true
+  }),
+  false
+);
 
 const exactSixtyTitle = "标".repeat(60);
 const exactSixtyTitleDecision = normalizeDoubaoGeneratedTitleForDoudian(exactSixtyTitle);

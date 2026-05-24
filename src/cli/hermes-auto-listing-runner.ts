@@ -566,15 +566,15 @@ function selectCommand(): { command: string; args: string[]; mode: RunnerJob["mo
   const resumeJob = ensureResumeJobFromLatestFailure();
   if (resumeJob) {
     return {
-      command: "npm",
-      args: ["run", "business:auto-listing", "--", "--job", resumeJobFile, "--allow-real"],
+      command: "node",
+      args: ["dist/src/cli/hermes-auto-listing-supervisor.js", "--initial", "resume"],
       mode: "resume-real-job",
       expectedResultFile: resumeJob?.resultFile ? path.resolve(rootDir, resumeJob.resultFile) : undefined
     };
   }
   return {
     command: "node",
-    args: ["dist/src/cli/flow-mac-feishu.js", "--real"],
+    args: ["dist/src/cli/hermes-auto-listing-supervisor.js", "--initial", "full"],
     mode: "full-real-flow"
   };
 }
