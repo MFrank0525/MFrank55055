@@ -4,7 +4,7 @@ import { formatTimestamp, sanitizeFileName } from "../doubao/paths.js";
 import { runDoubaoJob } from "../doubao/run.js";
 import { readManualTextBlock } from "./operation-manual.js";
 import { getProductCategoryPlan } from "./product-category.js";
-import { normalizeDoubaoGeneratedTitleForDoudian } from "./title-rules.js";
+import { assertGeneratedTitlesBelongToProduct, normalizeDoubaoGeneratedTitleForDoudian } from "./title-rules.js";
 import { writeSimpleWorkbook } from "./xlsx-lite.js";
 import type { TitleSheetArtifact, TitleSheetFile } from "./types.js";
 
@@ -256,6 +256,11 @@ export async function generateTitleSheetsFromDoubao(options: {
   const existingCsvFile = findLatestExistingTitleCsv(outputDir, options.titleCount);
   if (existingCsvFile) {
     const titles = readTitlesFromCsv(existingCsvFile).slice(0, options.titleCount);
+    assertGeneratedTitlesBelongToProduct({
+      titles,
+      genericName,
+      productCategory: options.productCategory
+    });
     return {
       generatedFiles: buildTitleWorkbookFiles({
         titleDir: options.titleDir,
@@ -288,6 +293,11 @@ export async function generateTitleSheetsFromDoubao(options: {
   if (titles.length < options.titleCount) {
     throw new Error(`Doubao title generation returned ${titles.length} titles, expected ${options.titleCount}.`);
   }
+  assertGeneratedTitlesBelongToProduct({
+    titles,
+    genericName,
+    productCategory: options.productCategory
+  });
 
   return {
     generatedFiles: buildTitleWorkbookFiles({

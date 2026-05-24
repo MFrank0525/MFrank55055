@@ -439,7 +439,7 @@ async function executeTaskChain(
         productCategory: current.feishuProductRecord?.productCategory,
         titleCount: effectiveTitleCount,
         simulateOnly,
-        runtimeDir
+        runtimeDir: path.join(runtimeDir, "tasks", current.taskId)
       });
       current = {
         ...current,

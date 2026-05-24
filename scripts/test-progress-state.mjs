@@ -20,6 +20,7 @@ import {
 } from "../dist/src/autolist/image-generation-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
+import { assertGeneratedTitlesBelongToProduct } from "../dist/src/autolist/title-rules.js";
 import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-from-spu/asset-rules.js";
 import {
   classifyPublishFailure,
@@ -295,6 +296,23 @@ assert.equal(overSixtyTitleDecision.title, "留".repeat(60));
 assert.equal(overSixtyTitleDecision.changed, true);
 assert.equal(overSixtyTitleDecision.originalLength, 65);
 assert.equal(overSixtyTitleDecision.maxLength, 60);
+
+assert.doesNotThrow(() =>
+  assertGeneratedTitlesBelongToProduct({
+    titles: ["官方正品补水保湿医用聚乙二醇护创敷料延草纲目"],
+    genericName: "医用聚乙二醇护创敷料",
+    productCategory: "医疗器械"
+  })
+);
+assert.throws(
+  () =>
+    assertGeneratedTitlesBelongToProduct({
+      titles: ["官方正品补水保湿舒奈美医用医用重组Ⅲ型人源化胶原蛋白软膏延草纲目"],
+      genericName: "医用聚乙二醇护创敷料",
+      productCategory: "医疗器械"
+    }),
+  /do not match current product genericName/
+);
 
 const missingPendingAsset = auditAutoListingContinuity({
   records: [
