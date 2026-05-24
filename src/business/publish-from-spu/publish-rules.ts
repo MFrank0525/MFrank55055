@@ -245,6 +245,12 @@ export function evaluateDetailImageCompletion(input: {
       issue: `Detail image count did not reach expected count. expected=${input.expectedDetailCount}; actual=${input.finalDetailCount}`
     };
   }
+  if (input.finalDetailCount > input.expectedDetailCount) {
+    return {
+      passed: false,
+      issue: `Detail image count exceeded expected count. expected=${input.expectedDetailCount}; actual=${input.finalDetailCount}`
+    };
+  }
   return { passed: true, issue: "" };
 }
 

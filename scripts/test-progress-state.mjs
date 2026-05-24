@@ -24,6 +24,7 @@ import { assertGeneratedTitlesBelongToProduct } from "../dist/src/autolist/title
 import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-from-spu/asset-rules.js";
 import {
   classifyPublishFailure,
+  evaluateDetailImageCompletion,
   evaluatePublishCreatePageReadiness,
   evaluateShopSwitchMenuState,
   shouldRetryPublishFailure
@@ -76,6 +77,24 @@ assert.equal(pageNotReadyClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 0), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 2), false);
 assert.equal(shouldRetryPublishFailure("validation_blocked", 0), false);
+
+assert.deepEqual(
+  evaluateDetailImageCompletion({
+    filledFromMain: true,
+    qualificationImageCount: 4,
+    finalDetailCount: 9,
+    expectedDetailCount: 9
+  }),
+  { passed: true, issue: "" }
+);
+const duplicateDetailCheck = evaluateDetailImageCompletion({
+  filledFromMain: true,
+  qualificationImageCount: 4,
+  finalDetailCount: 13,
+  expectedDetailCount: 9
+});
+assert.equal(duplicateDetailCheck.passed, false);
+assert.match(duplicateDetailCheck.issue, /exceeded expected count/);
 
 const spuPrefillFailedClass = classifyPublishFailure(
   "Publish create page did not become ready after network/page-content recovery. sections=0; textLength=67; loading=false; body=spu信息填充失败"

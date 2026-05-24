@@ -31,6 +31,7 @@ import type {
 import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
 import {
   evaluateShopSwitchMenuState,
+  evaluateDetailImageCompletion,
   evaluateForbiddenGraphicSections,
   evaluatePriceInventoryCompletion,
   evaluatePublishCheckResult,
@@ -5799,28 +5800,29 @@ async function ensureDetailImagesFromMainThenQualifications(
   }
 
   const expectedDetailCount = countAfterFillFromMain + assets.detailImages.length;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const detailCompleted = await uploadQualificationImagesToDetailSection(page, assets, filledFromMain, expectedDetailCount).catch(() => false);
-    const finalCount = await waitForPreviewCount(page, () => countDetailImagePreviews(page), expectedDetailCount, 25000);
-    if (detailCompleted && finalCount >= expectedDetailCount) {
-      return {
-        completed: true,
-        filledFromMain,
-        group: filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages:existingWithQualifications",
-        issue: ""
-      };
-    }
-    await savePageScreenshot(page, runtimeDir, `publish-page-detail-qualification-upload-retry-${attempt + 1}.png`).catch(() => "");
-    await page.waitForTimeout(1200);
+  const detailCompleted = await uploadQualificationImagesToDetailSection(page, assets, filledFromMain, expectedDetailCount).catch(() => false);
+  const finalCount = await waitForPreviewCount(page, () => countDetailImagePreviews(page), expectedDetailCount, 60000);
+  const detailRule = evaluateDetailImageCompletion({
+    filledFromMain,
+    qualificationImageCount: assets.detailImages.length,
+    finalDetailCount: finalCount,
+    expectedDetailCount
+  });
+  if (detailCompleted && detailRule.passed) {
+    return {
+      completed: true,
+      filledFromMain,
+      group: filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages:existingWithQualifications",
+      issue: ""
+    };
   }
 
-  const finalCount = await countDetailImagePreviews(page).catch(() => 0);
   await savePageScreenshot(page, runtimeDir, "publish-page-detail-qualification-upload-failed.png").catch(() => "");
   return {
     completed: false,
     filledFromMain,
     group: "",
-    issue: `Detail images did not reach expected count after fill-from-main plus Feishu qualifications. expected=${expectedDetailCount}; actual=${finalCount}; qualificationImages=${assets.detailImages.length}`
+    issue: detailRule.issue || `Detail images did not reach expected count after fill-from-main plus Feishu qualifications. expected=${expectedDetailCount}; actual=${finalCount}; qualificationImages=${assets.detailImages.length}`
   };
 }
 
