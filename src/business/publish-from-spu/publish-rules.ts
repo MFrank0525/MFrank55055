@@ -175,6 +175,9 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("contextwaslost") || text.includes("pagecontextwaslost") || text.includes("Targetclosed")) {
     return "page_context_lost";
   }
+  if (text.includes("Remotedebuggingbrowserdidnotbecomeready") || text.includes("connectEPERM127.0.0.1")) {
+    return "browser_remote_debugging_unavailable";
+  }
   if (text.includes("freshcreatepage") || text.includes("空白") || text.includes("0/60")) {
     return "fresh_create_after_submit";
   }
@@ -197,7 +200,13 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   if (retryAttempt >= maxRetryAttempts) {
     return false;
   }
-  return ["platform_page_not_ready", "platform_spu_prefill_failed", "page_context_lost", "shop_switch_entry_unavailable"].includes(errorClass);
+  return [
+    "platform_page_not_ready",
+    "platform_spu_prefill_failed",
+    "page_context_lost",
+    "shop_switch_entry_unavailable",
+    "browser_remote_debugging_unavailable"
+  ].includes(errorClass);
 }
 
 export function evaluatePublishResult(input: PublishResultRuleInput): PublishResultRuleDecision {

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
@@ -85,6 +85,51 @@ async function canConnectOverCdp(port = activeRemoteDebuggingPort): Promise<bool
   }
 }
 
+function normalizeUserDataDirArg(userDataDir: string): string {
+  return `--user-data-dir=${userDataDir}`;
+}
+
+function killRemoteDebuggingBrowserProcesses(userDataDir: string, port?: number): number[] {
+  if (process.platform === "win32") {
+    return [];
+  }
+  const result = spawnSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" });
+  if (result.status !== 0 || !result.stdout) {
+    return [];
+  }
+  const userDataArg = normalizeUserDataDirArg(userDataDir);
+  const portArg = port ? `--remote-debugging-port=${port}` : "--remote-debugging-port=";
+  const killed: number[] = [];
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const match = line.trim().match(/^(\d+)\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+    const pid = Number(match[1]);
+    const command = match[2];
+    if (!Number.isInteger(pid) || pid <= 0 || !command.includes(userDataArg) || !command.includes(portArg)) {
+      continue;
+    }
+    try {
+      process.kill(pid, "SIGTERM");
+      killed.push(pid);
+    } catch {
+      // Process may have already exited.
+    }
+  }
+  return killed;
+}
+
+async function waitForDebugEndpointClosed(port: number, timeoutMs = 5000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (!(await isDebugEndpointReady(port))) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 async function ensureRemoteBrowser(userDataDir: string): Promise<void> {
   for (const port of REMOTE_DEBUGGING_PORTS) {
     const endpointReady = await isDebugEndpointReady(port);
@@ -95,6 +140,11 @@ async function ensureRemoteBrowser(userDataDir: string): Promise<void> {
     }
     if (endpointReady) {
       logWarn(`remote debugging endpoint on port ${port} is reachable but not Playwright-compatible; trying another port`);
+      const killed = killRemoteDebuggingBrowserProcesses(userDataDir, port);
+      if (killed.length) {
+        logWarn(`terminated stale remote debugging browser process(es) on port ${port}: ${killed.join(", ")}`);
+        await waitForDebugEndpointClosed(port);
+      }
     }
   }
 
@@ -129,6 +179,16 @@ async function ensureRemoteBrowser(userDataDir: string): Promise<void> {
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      try {
+        process.kill(child.pid || 0, "SIGTERM");
+      } catch {
+        // Child may have already exited.
+      }
+      const killed = killRemoteDebuggingBrowserProcesses(userDataDir, port);
+      if (killed.length) {
+        logWarn(`cleaned failed remote debugging browser process(es) on port ${port}: ${killed.join(", ")}`);
+        await waitForDebugEndpointClosed(port);
+      }
     }
   }
   throw lastError || new Error("Remote debugging browser did not become ready in time.");

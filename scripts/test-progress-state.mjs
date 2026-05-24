@@ -146,6 +146,10 @@ const shopSwitchMissingClass = classifyPublishFailure("Shop switch failed: could
 assert.equal(shopSwitchMissingClass, "shop_switch_entry_unavailable");
 assert.equal(shouldRetryPublishFailure(shopSwitchMissingClass, 0), true);
 
+const remoteDebuggingUnavailableClass = classifyPublishFailure("Remote debugging browser did not become ready in time.");
+assert.equal(remoteDebuggingUnavailableClass, "browser_remote_debugging_unavailable");
+assert.equal(shouldRetryPublishFailure(remoteDebuggingUnavailableClass, 0), true);
+
 const alreadyInTargetShop = evaluateShopSwitchMenuState({
   expectedShopName: "延草纲目康复理疗专营店",
   currentShopName: "延草纲目康复理疗专营店",
