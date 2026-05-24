@@ -4,6 +4,7 @@ import { formatTimestamp, sanitizeFileName } from "../doubao/paths.js";
 import { runDoubaoJob } from "../doubao/run.js";
 import { readManualTextBlock } from "./operation-manual.js";
 import { getProductCategoryPlan } from "./product-category.js";
+import { normalizeDoubaoGeneratedTitleForDoudian } from "./title-rules.js";
 import { writeSimpleWorkbook } from "./xlsx-lite.js";
 import type { TitleSheetArtifact, TitleSheetFile } from "./types.js";
 
@@ -150,48 +151,6 @@ function cleanGeneratedTitle(value: string): string {
     .join("");
 }
 
-function titleLength(title: string): number {
-  return Array.from(title).length;
-}
-
-function validateGeneratedTitles(titles: string[], productCategory: string | undefined, genericName: string): void {
-  const plan = getProductCategoryPlan(productCategory);
-  const forbiddenWords = ["抖音", "热销", "买送", "炎症", "草本", "草药", "治病"];
-  const errors: string[] = [];
-
-  titles.forEach((title, index) => {
-    const label = String(index + 1).padStart(2, "0");
-    if (title !== cleanGeneratedTitle(title)) {
-      errors.push(`${label} contains numbering, whitespace, or punctuation`);
-    }
-    if (titleLength(title) !== plan.titleCharacterCount) {
-      errors.push(`${label} length=${titleLength(title)}, expected=${plan.titleCharacterCount}`);
-    }
-    if (/\s/.test(title)) {
-      errors.push(`${label} contains whitespace`);
-    }
-    const forbidden = forbiddenWords.find((word) => title.includes(word));
-    if (forbidden) {
-      errors.push(`${label} contains forbidden word: ${forbidden}`);
-    }
-    if (plan.titleRule === "otc_drug") {
-      if (!/^(医用级|正品|官方正品)/.test(title)) {
-        errors.push(`${label} missing OTC prefix`);
-      }
-      if (!title.endsWith(genericName)) {
-        errors.push(`${label} missing OTC suffix: ${genericName}`);
-      }
-    }
-    if (plan.titleRule === "health_food" && /^(医用级|正品|官方正品)/.test(title)) {
-      errors.push(`${label} health food title uses fixed prefix`);
-    }
-  });
-
-  if (errors.length > 0) {
-    throw new Error(`Doubao title validation failed: ${errors.join(" | ")}`);
-  }
-}
-
 function findLatestExistingTitleCsv(outputDir: string, titleCount: number): string {
   if (!fs.existsSync(outputDir)) {
     return "";
@@ -212,13 +171,14 @@ function buildTitleWorkbookFiles(options: {
   timestamp: string;
 }): TitleSheetFile[] {
   return options.titles.map((title, index) => {
+    const normalized = normalizeDoubaoGeneratedTitleForDoudian(title);
     const workbookFile = path.join(
       options.titleDir,
       `${sanitizeFileName(`${options.productName}豆包${String(index + 1).padStart(2, "0")}${options.timestamp}`)}.xlsx`
     );
-    writeSimpleWorkbook(workbookFile, buildWorkbookRows(title));
+    writeSimpleWorkbook(workbookFile, buildWorkbookRows(normalized.title));
     return {
-      title,
+      title: normalized.title,
       workbookFile
     };
   });
@@ -254,13 +214,14 @@ export async function generateTitleSheets(options: {
   const timestamp = formatTimestamp();
   const titles = buildSimulatedTitles(productName, options.titleCount);
   const generatedFiles: TitleSheetFile[] = titles.map((title, index) => {
+    const normalized = normalizeDoubaoGeneratedTitleForDoudian(title);
     const workbookFile = path.join(
       titleOutputDir,
       `${sanitizeFileName(`${productName}豆包${String(index + 1).padStart(2, "0")}${timestamp}`)}.xlsx`
     );
-    writeSimpleWorkbook(workbookFile, buildWorkbookRows(title));
+    writeSimpleWorkbook(workbookFile, buildWorkbookRows(normalized.title));
     return {
-      title,
+      title: normalized.title,
       workbookFile
     };
   });

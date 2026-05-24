@@ -11,6 +11,7 @@ import {
 } from "../dist/src/autolist/audit-rules.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import { createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
+import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
 import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-from-spu/asset-rules.js";
 import {
   classifyPublishFailure,
@@ -222,6 +223,20 @@ assert.deepEqual(batchProgress, {
   pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-3.png"],
   batchComplete: false
 });
+
+const exactSixtyTitle = "标".repeat(60);
+const exactSixtyTitleDecision = normalizeDoubaoGeneratedTitleForDoudian(exactSixtyTitle);
+assert.equal(exactSixtyTitleDecision.title, exactSixtyTitle);
+assert.equal(exactSixtyTitleDecision.changed, false);
+assert.equal(exactSixtyTitleDecision.originalLength, 60);
+assert.equal(exactSixtyTitleDecision.maxLength, 60);
+
+const overSixtyTitle = `${"删".repeat(5)}${"留".repeat(60)}`;
+const overSixtyTitleDecision = normalizeDoubaoGeneratedTitleForDoudian(overSixtyTitle);
+assert.equal(overSixtyTitleDecision.title, "留".repeat(60));
+assert.equal(overSixtyTitleDecision.changed, true);
+assert.equal(overSixtyTitleDecision.originalLength, 65);
+assert.equal(overSixtyTitleDecision.maxLength, 60);
 
 const missingPendingAsset = auditAutoListingContinuity({
   records: [
