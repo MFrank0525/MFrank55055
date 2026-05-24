@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { runAutoListingJob } from "../autolist/orchestrator.js";
-import { AUTO_LISTING_STEPS, normalizeAutoListingStep } from "../autolist/types.js";
+import { inferResumeStartStepForTask } from "../autolist/resume-rules.js";
+import { AUTO_LISTING_STEPS } from "../autolist/types.js";
 import type { AutoListingJobFile, AutoListingRunState, AutoListingStep, ImageTaskState } from "../autolist/types.js";
 
 interface AutoListingCliArgs {
@@ -112,34 +113,6 @@ function selectResumeTask(state: AutoListingRunState): ImageTaskState {
   return pending;
 }
 
-function inferResumeStartStep(task: ImageTaskState): AutoListingStep {
-  if (task.status === "failed") {
-    const failedStep = task.error?.step;
-    if (failedStep && (AUTO_LISTING_STEPS as readonly string[]).includes(failedStep)) {
-      return failedStep as AutoListingStep;
-    }
-    if (/image generation|generated main image|main image|data items|downloadable image/i.test(task.error?.message || "")) {
-      return "main_images_generated";
-    }
-    if (task.deepseekArtifact?.wordFiles?.length || task.deepseekArtifact?.prompts?.length) {
-      return "main_images_generated";
-    }
-    if (task.sellingPointArtifact?.sellingPointText) {
-      return "poster_prompts_generated";
-    }
-    return "source_images_discovered";
-  }
-  const normalizedStatus = normalizeAutoListingStep(task.status as any);
-  if (normalizedStatus === "source_images_discovered") {
-    return "source_images_discovered";
-  }
-  const currentIndex = AUTO_LISTING_STEPS.indexOf(normalizedStatus);
-  if (currentIndex < 0) {
-    return "source_images_discovered";
-  }
-  return AUTO_LISTING_STEPS[Math.min(currentIndex + 1, AUTO_LISTING_STEPS.length - 1)];
-}
-
 function listFilesRecursive(dir: string): string[] {
   if (!fs.existsSync(dir)) {
     return [];
@@ -161,6 +134,9 @@ function listFilesRecursive(dir: string): string[] {
 }
 
 function inferResumeStartStepFromDisk(task: ImageTaskState, runtimeDir: string, fallback: AutoListingStep): AutoListingStep {
+  if (fallback === "published") {
+    return fallback;
+  }
   const taskDir = path.join(runtimeDir, "tasks", task.taskId);
   const files = listFilesRecursive(taskDir);
   if (files.some((file) => file.includes(`${path.sep}staged${path.sep}`) && /\.(png|jpe?g|webp)$/i.test(file))) {
@@ -200,7 +176,7 @@ function writeResumeJob(options: {
 }): AutoListingJobFile {
   const task = selectResumeTask(options.state);
   const runtimeDir = path.dirname(path.resolve(options.stateFile));
-  const startStep = inferResumeStartStepFromDisk(task, runtimeDir, inferResumeStartStep(task));
+  const startStep = inferResumeStartStepFromDisk(task, runtimeDir, inferResumeStartStepForTask(task));
   const resumeJob: AutoListingJobFile = {
     ...options.sourceJob,
     runtimeDir,

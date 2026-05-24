@@ -22,6 +22,7 @@ import {
   resolveImageDownloadTimeoutMs,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
+import { inferResumeStartStepForTask } from "../dist/src/autolist/resume-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
 import { assertGeneratedTitlesBelongToProduct } from "../dist/src/autolist/title-rules.js";
@@ -480,6 +481,26 @@ const generationOk = auditMainImageGeneration({
 assert.equal(generationOk.ok, true);
 assert.equal(generationOk.summary.auditedTaskCount, 1);
 assert.equal(generationOk.summary.generatedImageCount, 8);
+
+assert.equal(
+  inferResumeStartStepForTask({
+    status: "shop_distributed",
+    generatedProductFolders: ["/work/shop/product-1"],
+    shopDistributionArtifact: { distributedFolders: ["/work/shop/product-1"], simulated: false }
+  }),
+  "published"
+);
+assert.equal(
+  inferResumeStartStepForTask({
+    status: "failed",
+    error: {
+      step: "titles_generated",
+      message: "Refusing to generate paid titles while product folders already contain workbook(s): /work/shop/product-1 -> title.xlsx"
+    },
+    generatedProductFolders: ["/work/shop/product-1"]
+  }),
+  "published"
+);
 
 const generationMissingPromptImage = auditMainImageGeneration({
   tasks: [taskWithMainImages(completeGeneratedFiles.slice(0, 7))],
