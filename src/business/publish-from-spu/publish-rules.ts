@@ -29,6 +29,11 @@ export interface PublishRuleCheck {
   issue: string;
 }
 
+export interface DetailUploadOutcomeRuleInput {
+  uploadActionCompleted: boolean;
+  detailRule: PublishRuleCheck;
+}
+
 export interface MedicalDeviceCertificateUploadRuleInput {
   categoryText: string;
   selectedCertificateCount: number;
@@ -283,6 +288,13 @@ export function evaluateDetailImageCompletion(input: {
     };
   }
   return { passed: true, issue: "" };
+}
+
+export function evaluateDetailUploadOutcome(input: DetailUploadOutcomeRuleInput): PublishRuleCheck {
+  if (input.detailRule.passed) {
+    return { passed: true, issue: "" };
+  }
+  return input.detailRule;
 }
 
 export function evaluateMedicalDeviceCertificateUploadRule(

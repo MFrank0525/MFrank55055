@@ -32,6 +32,7 @@ import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
 import {
   evaluateShopSwitchMenuState,
   evaluateDetailImageCompletion,
+  evaluateDetailUploadOutcome,
   evaluateForbiddenGraphicSections,
   evaluateMedicalDeviceCertificateUploadRule,
   evaluatePriceInventoryCompletion,
@@ -6000,7 +6001,11 @@ async function ensureDetailImagesFromMainThenQualifications(
     finalDetailCount: finalCount,
     expectedDetailCount
   });
-  if (detailCompleted && detailRule.passed) {
+  const detailOutcome = evaluateDetailUploadOutcome({
+    uploadActionCompleted: detailCompleted,
+    detailRule
+  });
+  if (detailOutcome.passed) {
     return {
       completed: true,
       filledFromMain,
@@ -6014,7 +6019,7 @@ async function ensureDetailImagesFromMainThenQualifications(
     completed: false,
     filledFromMain,
     group: "",
-    issue: detailRule.issue || `Detail images did not reach expected count after fill-from-main plus Feishu qualifications. expected=${expectedDetailCount}; actual=${finalCount}; qualificationImages=${assets.detailImages.length}`
+    issue: detailOutcome.issue || `Detail images did not reach expected count after fill-from-main plus Feishu qualifications. expected=${expectedDetailCount}; actual=${finalCount}; qualificationImages=${assets.detailImages.length}`
   };
 }
 
