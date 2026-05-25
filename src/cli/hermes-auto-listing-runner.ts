@@ -5,6 +5,7 @@ import { shouldPreferActiveTaskStateSummary } from "../autolist/batch-continuati
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
+import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 
@@ -27,6 +28,8 @@ interface AutoListingJobFile {
     resumeSourceImagePath?: string;
     resumeTaskId?: string;
     resumeProductFolderNames?: string[];
+    imageGenerationConfigFile?: string;
+    imageGenerationProvider?: string;
     maxImagesPerRun?: number;
     clearTestOutputsBeforeRun?: boolean;
   };
@@ -574,24 +577,87 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
   return resumeJob;
 }
 
-function selectCommand(): { command: string; args: string[]; mode: RunnerJob["mode"]; expectedResultFile?: string } {
+function resolveImageGenerationConfigFile(job: AutoListingJobFile | undefined): string {
+  return path.resolve(rootDir, job?.input?.imageGenerationConfigFile || "input/image-generation.config.json");
+}
+
+function readImageGenerationApiUrl(configFile: string): string | undefined {
+  if (!fs.existsSync(configFile)) {
+    return undefined;
+  }
+  const parsed = JSON.parse(fs.readFileSync(configFile, "utf8")) as { apiUrl?: string };
+  return parsed.apiUrl;
+}
+
+async function probeImageGenerationEndpoint(apiUrl: string): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(apiUrl, {
+      method: "HEAD",
+      signal: controller.signal
+    });
+    const evaluation = evaluateImageGenerationEndpointProbe({
+      status: response.status,
+      statusText: response.statusText
+    });
+    if (!evaluation.passed) {
+      throw new Error(evaluation.issue);
+    }
+  } catch (error) {
+    const cause = error instanceof Error ? ((error as Error & { cause?: { code?: string } }).cause?.code || "") : "";
+    const evaluation = evaluateImageGenerationEndpointProbe({
+      errorName: error instanceof Error ? error.name : "Error",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorCauseCode: cause
+    });
+    throw new Error(
+      evaluation.issue +
+        "。请在非沙盒、可访问外网的环境启动真实上架流程，避免图片生成阶段反复 fetch failed。"
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function assertRealFlowNetworkPreflight(imageGenerationConfigFile: string | undefined): Promise<void> {
+  if (!imageGenerationConfigFile) {
+    return;
+  }
+  const apiUrl = readImageGenerationApiUrl(imageGenerationConfigFile);
+  if (!apiUrl) {
+    return;
+  }
+  await probeImageGenerationEndpoint(apiUrl);
+}
+
+function selectCommand(): {
+  command: string;
+  args: string[];
+  mode: RunnerJob["mode"];
+  expectedResultFile?: string;
+  imageGenerationConfigFile?: string;
+} {
   const resumeJob = ensureResumeJobFromLatestFailure();
   if (resumeJob) {
     return {
       command: "node",
       args: ["dist/src/cli/hermes-auto-listing-supervisor.js", "--initial", "resume"],
       mode: "resume-real-job",
-      expectedResultFile: resumeJob?.resultFile ? path.resolve(rootDir, resumeJob.resultFile) : undefined
+      expectedResultFile: resumeJob?.resultFile ? path.resolve(rootDir, resumeJob.resultFile) : undefined,
+      imageGenerationConfigFile: resolveImageGenerationConfigFile(resumeJob)
     };
   }
+  const fullJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   return {
     command: "node",
     args: ["dist/src/cli/hermes-auto-listing-supervisor.js", "--initial", "full"],
-    mode: "full-real-flow"
+    mode: "full-real-flow",
+    imageGenerationConfigFile: resolveImageGenerationConfigFile(fullJob)
   };
 }
 
-function start(dryRun: boolean, text: boolean): void {
+async function start(dryRun: boolean, text: boolean): Promise<void> {
   fs.mkdirSync(controlDir, { recursive: true });
   const current = readJsonFile<RunnerJob>(jobFile);
   if (current && isPidRunning(current.pid)) {
@@ -632,6 +698,8 @@ function start(dryRun: boolean, text: boolean): void {
     return;
   }
 
+  await assertRealFlowNetworkPreflight(selected.imageGenerationConfigFile);
+
   const logFd = fs.openSync(logFile, "a");
   const child = spawn(selected.command, selected.args, {
     cwd: rootDir,
@@ -670,11 +738,11 @@ function start(dryRun: boolean, text: boolean): void {
   console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   const text = rest.includes("--text");
   if (command === "start") {
-    start(rest.includes("--dry-run"), text);
+    await start(rest.includes("--dry-run"), text);
     return;
   }
   if (command === "status") {
@@ -691,7 +759,7 @@ function main(): void {
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);

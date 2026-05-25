@@ -19,6 +19,7 @@ import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-r
 import { appendProcessedImages, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import {
+  evaluateImageGenerationEndpointProbe,
   resolveImageDownloadTimeoutMs,
   resolveImageGenerationTransportRetryPolicy,
   shouldRetryImageGenerationWithPolicyPrompt
@@ -389,6 +390,21 @@ assert.deepEqual(resolveImageGenerationTransportRetryPolicy(2), {
   delayMs: [3000, 6000, 12000, 24000, 45000, 45000, 45000, 45000]
 });
 assert.equal(resolveImageGenerationTransportRetryPolicy(10).maxRetries, 10);
+assert.deepEqual(evaluateImageGenerationEndpointProbe({ status: 404, statusText: "Not Found" }), {
+  passed: true,
+  issue: ""
+});
+assert.deepEqual(
+  evaluateImageGenerationEndpointProbe({
+    errorName: "TypeError",
+    errorMessage: "fetch failed",
+    errorCauseCode: "ENOTFOUND"
+  }),
+  {
+    passed: false,
+    issue: "Image generation endpoint is not reachable from this Node runtime: TypeError: fetch failed; cause=ENOTFOUND"
+  }
+);
 assert.equal(
   shouldRetryImageGenerationWithPolicyPrompt({
     responseOk: false,
