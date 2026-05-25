@@ -2674,6 +2674,48 @@ async function isPublishSectionContentVisible(page: Page, text: string): Promise
   }, text);
 }
 
+async function isPublishSectionContentPresent(page: Page, text: string): Promise<boolean> {
+  return page.evaluate((targetText) => {
+    const markersBySection: Record<string, string[]> = {
+      "\u57fa\u7840\u4fe1\u606f": [
+        "\u5546\u54c1\u6807\u9898",
+        "\u5bfc\u8d2d\u77ed\u6807\u9898",
+        "\u5546\u54c1\u7c7b\u76ee",
+        "\u7c7b\u76ee\u5c5e\u6027",
+        "\u54c1\u724c",
+        "\u533b\u7597\u5668\u68b0\u5907\u6848/\u6ce8\u518c\u53f7",
+        "\u77ed\u6807\u9898",
+        "\u578b\u53f7\u89c4\u683c"
+      ],
+      "\u56fe\u6587\u4fe1\u606f": ["\u4e3b\u56fe", "\u767d\u5e95\u56fe", "\u5546\u54c1\u8be6\u60c5"],
+      "\u4ef7\u683c\u5e93\u5b58": ["\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "\u5546\u54c1\u89c4\u683c"],
+      "\u670d\u52a1\u4e0e\u5c65\u7ea6": ["\u8fd0\u8d39\u6a21\u677f", "\u552e\u540e\u670d\u52a1", "\u552e\u540e\u653f\u7b56"],
+      "\u5176\u4ed6\u4fe1\u606f": ["\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1", "\u5176\u4ed6\u4fe1\u606f"]
+    };
+    const markers = markersBySection[targetText] || [targetText];
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    return Array.from(document.querySelectorAll("body *"))
+      .map((el) => {
+        const node = el as HTMLElement;
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const text = normalize(node.innerText || node.textContent || "");
+        if (
+          !text ||
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          rect.left <= 250 ||
+          style.display === "none" ||
+          style.visibility === "hidden"
+        ) {
+          return false;
+        }
+        return markers.some((marker) => text.includes(marker));
+      })
+      .some(Boolean);
+  }, text);
+}
+
 async function scrollPublishSectionContentIntoView(page: Page, text: string): Promise<boolean> {
   return page.evaluate((targetText) => {
     const markersBySection: Record<string, string[]> = {
@@ -2888,6 +2930,9 @@ async function ensurePublishSectionTab(page: Page, text: string): Promise<void> 
   }
 
   const activeTab = await readActivePublishSectionTab(page).catch(() => "");
+  if (activeTab === text && (await isPublishSectionContentPresent(page, text).catch(() => false))) {
+    return;
+  }
   throw new Error(`Failed to activate publish section tab: expected=${text}; actual=${activeTab || "<unknown>"}`);
 }
 
