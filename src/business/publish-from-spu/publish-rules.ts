@@ -122,6 +122,15 @@ export function evaluateShopSwitchMenuState(input: ShopSwitchMenuStateInput): Sh
 
 export function evaluatePublishCreatePageReadiness(input: PublishCreatePageHealthInput): PublishCreatePageReadinessDecision {
   const bodyText = normalizeVisibleText(input.bodyText || "").toLowerCase();
+  if (
+    bodyText.includes("数据异常请刷新重试") ||
+    bodyText.includes("数据异常") && bodyText.includes("刷新重试") ||
+    bodyText.includes("网络异常") ||
+    bodyText.includes("系统繁忙") ||
+    bodyText.includes("请稍后重试")
+  ) {
+    return { action: "wait_or_reload", issue: "Publish create page reported recoverable data/network error." };
+  }
   if (input.usable) {
     return { action: "ready", issue: "" };
   }

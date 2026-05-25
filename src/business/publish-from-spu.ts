@@ -6775,6 +6775,12 @@ async function getPublishCreatePageHealth(page: Page): Promise<{
     const normalized = bodyText.replace(/\s+/g, "");
     const sectionCount = ["基础信息", "图文信息", "价格库存", "服务与履约"].filter((text) => normalized.includes(text)).length;
     const hasPublishAction = normalized.includes("发布商品") || normalized.includes("填写检查");
+    const recoverablePageError =
+      normalized.includes("数据异常请刷新重试") ||
+      (normalized.includes("数据异常") && normalized.includes("刷新重试")) ||
+      normalized.includes("网络异常") ||
+      normalized.includes("系统繁忙") ||
+      normalized.includes("请稍后重试");
     const loginRequired =
       (normalized.includes("扫码登录") && normalized.includes("抖店App")) ||
       normalized.includes("打开抖店App扫码登录") ||
@@ -6782,11 +6788,9 @@ async function getPublishCreatePageHealth(page: Page): Promise<{
     const loading =
       normalized.includes("加载中") ||
       normalized.includes("努力加载") ||
-      normalized.includes("网络异常") ||
-      normalized.includes("系统繁忙") ||
-      normalized.includes("请稍后重试");
+      recoverablePageError;
     return {
-      usable: sectionCount >= 2 && hasPublishAction && !loginRequired,
+      usable: sectionCount >= 2 && hasPublishAction && !loginRequired && !recoverablePageError,
       bodyTextLength: normalized.length,
       sectionCount,
       loading,
