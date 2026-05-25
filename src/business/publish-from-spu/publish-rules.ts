@@ -29,6 +29,17 @@ export interface PublishRuleCheck {
   issue: string;
 }
 
+export interface MedicalDeviceCertificateUploadRuleInput {
+  categoryText: string;
+  selectedCertificateCount: number;
+  qualificationImageCount: number;
+}
+
+export interface MedicalDeviceCertificateUploadRuleDecision {
+  action: "not_required" | "leave_existing_certificate" | "upload_first_qualification_image" | "blocked_missing_qualification_image";
+  issue: string;
+}
+
 export interface ShopSwitchMenuStateInput {
   expectedShopName: string;
   currentShopName: string;
@@ -272,6 +283,25 @@ export function evaluateDetailImageCompletion(input: {
     };
   }
   return { passed: true, issue: "" };
+}
+
+export function evaluateMedicalDeviceCertificateUploadRule(
+  input: MedicalDeviceCertificateUploadRuleInput
+): MedicalDeviceCertificateUploadRuleDecision {
+  const categoryText = normalizeVisibleText(input.categoryText);
+  if (!categoryText.includes("医疗器械")) {
+    return { action: "not_required", issue: "" };
+  }
+  if (input.selectedCertificateCount > 0) {
+    return { action: "leave_existing_certificate", issue: "" };
+  }
+  if (input.qualificationImageCount <= 0) {
+    return {
+      action: "blocked_missing_qualification_image",
+      issue: "Medical device certificate slot is empty but no Feishu qualification image is available."
+    };
+  }
+  return { action: "upload_first_qualification_image", issue: "" };
 }
 
 export function evaluatePriceInventoryCompletion(input: {

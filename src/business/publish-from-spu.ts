@@ -33,6 +33,7 @@ import {
   evaluateShopSwitchMenuState,
   evaluateDetailImageCompletion,
   evaluateForbiddenGraphicSections,
+  evaluateMedicalDeviceCertificateUploadRule,
   evaluatePriceInventoryCompletion,
   evaluatePublishCheckResult,
   evaluatePublishCreatePageReadiness,
@@ -4450,7 +4451,7 @@ async function collectFileInputs(page: Page): Promise<
       })();
       const sectionLabel = (() => {
         const normalize = (value: string): string => value.trim().replace(/\s+/g, " ");
-        const markers = ["主图3:4", "主图", "白底图", "商品详情", "详情页"];
+        const markers = ["主图3:4", "主图", "白底图", "商品详情", "详情页", "医疗器械注册证", "医疗器械生产许可证", "赠品资质", "质检报告"];
         const labels = Array.from(document.querySelectorAll("body *"))
           .map((node) => node as HTMLElement)
           .map((node) => {
@@ -4497,7 +4498,11 @@ async function collectFileInputs(page: Page): Promise<
           "\u8be6\u60c5\u9875",
           "\u5bbd\u5ea6620",
           "\u4e0a\u4f20\u56fe\u7247",
-          "\u4e0a\u4f20\u4e3b\u56fe"
+          "\u4e0a\u4f20\u4e3b\u56fe",
+          "\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1",
+          "\u533b\u7597\u5668\u68b0\u751f\u4ea7\u8bb8\u53ef\u8bc1",
+          "\u8d60\u54c1\u8d44\u8d28",
+          "\u8d28\u68c0\u62a5\u544a"
         ];
         let node: HTMLElement | null = el.parentElement;
         let best = "";
@@ -4585,6 +4590,26 @@ function scoreDetailGraphicInput(input: { parentText: string; multiple: boolean;
   return score;
 }
 
+function scoreMedicalDeviceCertificateInput(input: { parentText: string; multiple: boolean; sectionLabel?: string }): number {
+  const text = input.parentText;
+  let score = 0;
+  if (input.sectionLabel === "\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1") score += 1000;
+  if (
+    input.sectionLabel === "\u533b\u7597\u5668\u68b0\u751f\u4ea7\u8bb8\u53ef\u8bc1" ||
+    input.sectionLabel === "\u8d60\u54c1\u8d44\u8d28" ||
+    input.sectionLabel === "\u8d28\u68c0\u62a5\u544a"
+  ) {
+    score -= 1000;
+  }
+  if (text.includes("\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1")) score += 220;
+  if (text.includes("\u9009\u62e9\u5df2\u6709\u8d44\u8d28")) score += 120;
+  if (/0\/20|\d+\/20/.test(text)) score += 80;
+  if (text.includes("\u533b\u7597\u5668\u68b0\u751f\u4ea7\u8bb8\u53ef\u8bc1")) score -= 300;
+  if (text.includes("\u8d60\u54c1\u8d44\u8d28") || text.includes("\u8d28\u68c0\u62a5\u544a")) score -= 260;
+  if (text.includes("\u5546\u54c1\u8be6\u60c5") || text.includes("\u5546\u8be6\u56fe\u7247")) score -= 220;
+  return score;
+}
+
 async function uploadFilesToInput(
   page: Page,
   input: { index: number; multiple: boolean },
@@ -4596,6 +4621,152 @@ async function uploadFilesToInput(
   }
   await page.locator("input[type='file']").nth(input.index).setInputFiles(selectedFiles);
   return selectedFiles.length;
+}
+
+async function readMedicalDeviceCertificateState(page: Page): Promise<{
+  fieldVisible: boolean;
+  categoryText: string;
+  selectedCertificateCount: number;
+  sectionText: string;
+}> {
+  return page.evaluate(() => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const visibleItems = Array.from(document.querySelectorAll("body *"))
+      .map((el) => {
+        const node = el as HTMLElement;
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const text = normalize(node.innerText || node.textContent || "");
+        if (!text || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        return { node, text, rect };
+      })
+      .filter(Boolean) as Array<{ node: HTMLElement; text: string; rect: DOMRect }>;
+
+    const mainItems = visibleItems.filter((item) => item.rect.left > 250);
+    const categoryText =
+      mainItems.find((item) => item.text.includes("商品类目") && item.text.includes("医疗器械"))?.text ||
+      mainItems.find((item) => item.text.includes("医疗器械及保健用品"))?.text ||
+      "";
+    const label = mainItems
+      .filter((item) => item.text === "*医疗器械注册证" || item.text === "医疗器械注册证" || item.text.includes("*医疗器械注册证"))
+      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
+    if (!label) {
+      return {
+        fieldVisible: false,
+        categoryText,
+        selectedCertificateCount: 0,
+        sectionText: ""
+      };
+    }
+
+    const nextTop =
+      mainItems
+        .filter(
+          (item) =>
+            ["医疗器械生产许可证", "赠品资质", "质检报告", "支持达人带货"].some((marker) => item.text.includes(marker)) &&
+            item.rect.top > label.rect.top + 20
+        )
+        .sort((a, b) => a.rect.top - b.rect.top)[0]?.rect.top || label.rect.bottom + 220;
+    const sectionText = normalize(
+      mainItems
+        .filter((item) => item.rect.top >= label.rect.top - 8 && item.rect.top < nextTop)
+        .map((item) => item.text)
+        .join(" ")
+    );
+    const countMatch = sectionText.match(/(\d+)\s*\/\s*20/);
+    const selectedCertificateCount = countMatch ? Number(countMatch[1]) : 0;
+    return {
+      fieldVisible: true,
+      categoryText,
+      selectedCertificateCount,
+      sectionText
+    };
+  });
+}
+
+async function ensureMedicalDeviceCertificateFromFirstQualification(
+  page: Page,
+  runtimeDir: string,
+  assets: ProductAssets
+): Promise<{ completed: boolean; configuredField: string; issue: string; screenshotFile: string }> {
+  await ensurePublishSectionTab(page, "\u5176\u4ed6\u4fe1\u606f");
+  await page.waitForTimeout(900);
+  await dismissTransientOverlays(page);
+
+  const beforeState = await readMedicalDeviceCertificateState(page);
+  const decision = evaluateMedicalDeviceCertificateUploadRule({
+    categoryText: beforeState.categoryText || (beforeState.fieldVisible ? "\u533b\u7597\u5668\u68b0" : beforeState.sectionText),
+    selectedCertificateCount: beforeState.selectedCertificateCount,
+    qualificationImageCount: assets.detailImages.length
+  });
+
+  if (decision.action === "not_required") {
+    return { completed: true, configuredField: "", issue: "", screenshotFile: "" };
+  }
+  if (!beforeState.fieldVisible) {
+    const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-medical-device-certificate-missing.png").catch(() => "");
+    return {
+      completed: false,
+      configuredField: "",
+      issue: "Medical device category requires 医疗器械注册证, but the upload field was not visible.",
+      screenshotFile
+    };
+  }
+  if (decision.action === "leave_existing_certificate") {
+    const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-medical-device-certificate-existing.png");
+    return {
+      completed: true,
+      configuredField: "medicalDeviceCertificate",
+      issue: "",
+      screenshotFile
+    };
+  }
+  if (decision.action === "blocked_missing_qualification_image") {
+    const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-medical-device-certificate-no-qualification.png").catch(() => "");
+    return {
+      completed: false,
+      configuredField: "",
+      issue: decision.issue,
+      screenshotFile
+    };
+  }
+
+  const inputs = await collectFileInputs(page);
+  const certificateInput =
+    pickBestSectionFileInput(inputs, "\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1", scoreMedicalDeviceCertificateInput) ||
+    pickBestFileInput(inputs, scoreMedicalDeviceCertificateInput);
+  if (!certificateInput) {
+    const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-medical-device-certificate-input-missing.png").catch(() => "");
+    return {
+      completed: false,
+      configuredField: "",
+      issue: "Medical device certificate upload input was not found.",
+      screenshotFile
+    };
+  }
+
+  await uploadFilesToInput(page, certificateInput, assets.detailImages.slice(0, 1));
+  await page.waitForTimeout(2600);
+  await dismissTransientOverlays(page);
+  const finalState = await readMedicalDeviceCertificateState(page);
+  const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-medical-device-certificate-uploaded.png");
+  if (finalState.selectedCertificateCount > 0) {
+    return {
+      completed: true,
+      configuredField: "medicalDeviceCertificate",
+      issue: "",
+      screenshotFile
+    };
+  }
+
+  return {
+    completed: false,
+    configuredField: "",
+    issue: `Medical device certificate upload did not reach a filled state. before=${beforeState.selectedCertificateCount}; after=${finalState.selectedCertificateCount}`,
+    screenshotFile
+  };
 }
 
 async function uploadDetailImagesByInputCapability(
@@ -7665,6 +7836,23 @@ async function runPublishFlow(
     }
     stages.push({ step: "apply_fixed_publish_settings", status: "completed" });
 
+    const medicalCertificateResult = await ensureMedicalDeviceCertificateFromFirstQualification(
+      page,
+      runtimeDir,
+      assets
+    );
+    if (medicalCertificateResult.screenshotFile) {
+      screenshotFiles.push(medicalCertificateResult.screenshotFile);
+    }
+    if (!medicalCertificateResult.completed) {
+      stages.push({ step: "apply_medical_device_certificate", status: "failed" });
+      throw new Error(`Sequential publish flow stopped: 其他信息模块未完成。${medicalCertificateResult.issue}`);
+    }
+    if (medicalCertificateResult.configuredField) {
+      configuredFields.push(medicalCertificateResult.configuredField);
+    }
+    stages.push({ step: "apply_medical_device_certificate", status: "completed" });
+
     const preCheckForbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
       page,
       runtimeDir,
@@ -7698,6 +7886,9 @@ async function runPublishFlow(
         return false;
       }
       if (field === "\u8fd0\u8d39\u6a21\u677f" && freightTemplateName) {
+        return false;
+      }
+      if (field === "\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1" && completedFieldSet.has("medicalDeviceCertificate")) {
         return false;
       }
       return true;
