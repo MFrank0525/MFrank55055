@@ -3,7 +3,11 @@ import path from "node:path";
 import { sanitizeFileName } from "../doubao/paths.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
-import { resolveImageDownloadTimeoutMs, shouldRetryImageGenerationWithPolicyPrompt } from "./image-generation-rules.js";
+import {
+  resolveImageDownloadTimeoutMs,
+  resolveImageGenerationTransportRetryPolicy,
+  shouldRetryImageGenerationWithPolicyPrompt
+} from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { shopCodeFromFolder } from "./product-category.js";
 import { buildMainImageEditInstruction } from "./rule-text.js";
@@ -425,6 +429,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const responseFormat = config.responseFormat || "b64_json";
   const timeoutMs = Math.max(30000, config.timeoutMs || 180000);
   const maxTransientRetries = Math.max(0, config.maxTransientRetries ?? 3);
+  const transportRetryPolicy = resolveImageGenerationTransportRetryPolicy(config.maxTransientRetries);
   const sendRequest = async (requestBody: BodyInit, contentType?: string): Promise<{ response: Response; text: string }> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -457,10 +462,11 @@ async function generateWithOpenAiCompatibleProvider(options: {
         return await sendRequest(requestBodyFactory(), contentType);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (!isTransientImageProviderErrorMessage(message) || attempt >= maxTransientRetries) {
+        if (!isTransientImageProviderErrorMessage(message) || attempt >= transportRetryPolicy.maxRetries) {
           throw error;
         }
         const retryNo = attempt + 1;
+        const nextDelayMs = transportRetryPolicy.delayMs[attempt] || transportRetryPolicy.delayMs.at(-1) || 45000;
         writeImageGenerationJsonLog(
           path.join(
             options.downloadDir,
@@ -469,13 +475,13 @@ async function generateWithOpenAiCompatibleProvider(options: {
           {
             label,
             retryNo,
-            maxTransientRetries,
+            maxTransientRetries: transportRetryPolicy.maxRetries,
             error: message,
-            nextDelayMs: 3000 * retryNo
+            nextDelayMs
           }
         );
-        options.onProgress?.(`Image ${imageIndex}: transient transport error during ${label}; retry ${retryNo}/${maxTransientRetries}.`);
-        await sleep(3000 * retryNo);
+        options.onProgress?.(`Image ${imageIndex}: transient transport error during ${label}; retry ${retryNo}/${transportRetryPolicy.maxRetries}.`);
+        await sleep(nextDelayMs);
       }
     }
   };

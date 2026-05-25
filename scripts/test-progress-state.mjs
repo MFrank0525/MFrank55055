@@ -20,6 +20,7 @@ import { appendProcessedImages, migrateLegacyProcessedImagesToBatch, readProcess
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import {
   resolveImageDownloadTimeoutMs,
+  resolveImageGenerationTransportRetryPolicy,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
 import { inferResumeStartStepForTask } from "../dist/src/autolist/resume-rules.js";
@@ -379,6 +380,15 @@ assert.equal(
 );
 assert.equal(resolveImageDownloadTimeoutMs(180000), 180000);
 assert.equal(resolveImageDownloadTimeoutMs(10000), 30000);
+assert.deepEqual(resolveImageGenerationTransportRetryPolicy(undefined), {
+  maxRetries: 8,
+  delayMs: [3000, 6000, 12000, 24000, 45000, 45000, 45000, 45000]
+});
+assert.deepEqual(resolveImageGenerationTransportRetryPolicy(2), {
+  maxRetries: 8,
+  delayMs: [3000, 6000, 12000, 24000, 45000, 45000, 45000, 45000]
+});
+assert.equal(resolveImageGenerationTransportRetryPolicy(10).maxRetries, 10);
 assert.equal(
   shouldRetryImageGenerationWithPolicyPrompt({
     responseOk: false,
