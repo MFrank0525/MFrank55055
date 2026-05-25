@@ -4080,7 +4080,11 @@ async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, op
             absTop: rect.top + window.scrollY,
             absBottom: rect.bottom + window.scrollY,
             absRight: rect.right + window.scrollX,
-            score: (text === targetFieldLabel || text === `*${targetFieldLabel}` ? 1000 : 0) - text.length
+            score:
+              (text === targetFieldLabel || text === `*${targetFieldLabel}` ? 1000 : 0) +
+              (text.startsWith("*") ? 200 : 0) +
+              (rect.left > 250 ? 500 : -500) -
+              text.length
           };
         })
         .filter(Boolean)
@@ -4146,7 +4150,11 @@ async function isRadioOptionSelectedNearFieldLabel(page: Page, fieldLabel: strin
             absTop: rect.top + window.scrollY,
             absBottom: rect.bottom + window.scrollY,
             absRight: rect.right + window.scrollX,
-            score: (text === targetFieldLabel || text === `*${targetFieldLabel}` ? 1000 : 0) - text.length
+            score:
+              (text === targetFieldLabel || text === `*${targetFieldLabel}` ? 1000 : 0) +
+              (text.startsWith("*") ? 200 : 0) +
+              (rect.left > 250 ? 500 : -500) -
+              text.length
           };
         })
         .filter(Boolean)
