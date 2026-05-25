@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DEFAULT_ARCHIVE_ROOT } from "./archive-main-images.js";
 import { selectCleanupTargets } from "./cleanup-rules.js";
+import { selectMaintenanceResidueTargets } from "./maintenance-rules.js";
 import type { CleanupArtifact } from "./types.js";
 
 function pathContains(parent: string, child: string): boolean {
@@ -86,6 +87,17 @@ function collectGeneratedResumeJobTargets(autoListingInputDir?: string): string[
     .map((entry) => path.join(autoListingInputDir, entry.name));
 }
 
+function collectGeneratedMaintenanceResidueTargets(autoListingInputDir?: string): string[] {
+  if (!autoListingInputDir || !fs.existsSync(autoListingInputDir)) {
+    return [];
+  }
+  const candidates = fs
+    .readdirSync(autoListingInputDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.generated\.json$/i.test(entry.name))
+    .map((entry) => path.join(autoListingInputDir, entry.name));
+  return selectMaintenanceResidueTargets({ filePaths: candidates }).map((target) => target.filePath);
+}
+
 export function cleanupAfterPublish(options: {
   distributedFolders: string[];
   titleWorkbookFiles: string[];
@@ -128,7 +140,8 @@ export function cleanupAfterPublish(options: {
           ...collectDirectoryChildren(options.titleDir),
           ...collectDirectoryChildren(options.jimengImageDir),
           ...collectShopRootStaleTargets(options.shopRootDir),
-          ...collectGeneratedResumeJobTargets(options.autoListingInputDir)
+          ...collectGeneratedResumeJobTargets(options.autoListingInputDir),
+          ...collectGeneratedMaintenanceResidueTargets(options.autoListingInputDir)
         ]
       : []),
     ...(!options.simulateOnly && options.cleanupSourceImageAfterPublish
