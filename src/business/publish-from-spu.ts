@@ -5096,7 +5096,14 @@ async function countGraphicSectionPreviews(page: Page, sectionName: string): Pro
       .map((el) => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
-        if (rect.width < 40 || rect.height < 40 || style.display === "none" || style.visibility === "hidden") {
+        if (
+          rect.width < 40 ||
+          rect.height < 40 ||
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.position === "fixed" ||
+          style.position === "sticky"
+        ) {
           return null;
         }
         return {
@@ -5141,7 +5148,14 @@ async function countGraphicSectionPreviewsSafe(page: Page, sectionName: string):
       .map((el) => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
-        if (rect.width < 40 || rect.height < 40 || style.display === "none" || style.visibility === "hidden") {
+        if (
+          rect.width < 40 ||
+          rect.height < 40 ||
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.position === "fixed" ||
+          style.position === "sticky"
+        ) {
           return null;
         }
         return {
@@ -5189,7 +5203,14 @@ async function getGraphicSectionPreviewRects(
       .map((el) => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
-        if (rect.width < 40 || rect.height < 40 || style.display === "none" || style.visibility === "hidden") {
+        if (
+          rect.width < 40 ||
+          rect.height < 40 ||
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.position === "fixed" ||
+          style.position === "sticky"
+        ) {
           return null;
         }
         if (rect.top < current.bottom - 20 || rect.top > nextTop - 10 || rect.left <= current.left) {
@@ -5275,7 +5296,14 @@ async function getGraphicSectionPreviewRectsSafe(
       .map((el) => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
-        if (rect.width < 40 || rect.height < 40 || style.display === "none" || style.visibility === "hidden") {
+        if (
+          rect.width < 40 ||
+          rect.height < 40 ||
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.position === "fixed" ||
+          style.position === "sticky"
+        ) {
           return null;
         }
         if (rect.top < current.bottom - 20 || rect.top > nextTop - 10 || rect.left <= current.left) {
@@ -5442,7 +5470,14 @@ async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string
         .map((el) => {
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
-          if (rect.width < 40 || rect.height < 40 || style.display === "none" || style.visibility === "hidden") {
+          if (
+            rect.width < 40 ||
+            rect.height < 40 ||
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.position === "fixed" ||
+            style.position === "sticky"
+          ) {
             return null;
           }
           if (isUploadPlaceholderContext(el)) {
@@ -5597,7 +5632,14 @@ async function getGraphicSectionPreviewRectsStrict(
         .map((el) => {
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
-          if (rect.width < 40 || rect.height < 40 || style.display === "none" || style.visibility === "hidden") {
+          if (
+            rect.width < 40 ||
+            rect.height < 40 ||
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.position === "fixed" ||
+            style.position === "sticky"
+          ) {
             return null;
           }
           if (isUploadPlaceholderContext(el)) {
@@ -5773,6 +5815,8 @@ async function clearWhiteBackgroundPreviewsStrict(page: Page, maxAttempts = 10):
             rect.height < 40 ||
             style.display === "none" ||
             style.visibility === "hidden" ||
+            style.position === "fixed" ||
+            style.position === "sticky" ||
             rect.top < label.rect.top - 20 ||
             rect.top >= nextTop - 10 ||
             rect.left <= label.rect.left
