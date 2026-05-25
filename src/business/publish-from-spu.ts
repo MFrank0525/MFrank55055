@@ -40,9 +40,10 @@ import {
   evaluatePublishCreatePageReadiness,
   evaluatePublishSubmission,
   evaluatePublishSubmissionAfterAction,
-  evaluateServiceCompletion,
+  evaluateServiceFulfillmentCompletion,
   isUploadPlaceholderGraphicContext
 } from "./publish-from-spu/publish-rules.js";
+import type { ServiceFulfillmentState } from "./publish-from-spu/publish-rules.js";
 import { makePublishActionResult } from "./publish-from-spu/publish-actions.js";
 
 export type { PublishFromSpuJobInput, PublishFromSpuJobOptions, PublishFromSpuJobResult } from "./publish-from-spu/types.js";
@@ -4052,6 +4053,204 @@ function isConcreteFreightTemplateName(value: string): boolean {
   return true;
 }
 
+function configuredFieldsFromServiceFulfillmentState(state: ServiceFulfillmentState): string[] {
+  return [
+    state.shippingModeSelected ? "shippingMode" : "",
+    state.shippingTimeSelected ? "shippingTime" : "",
+    state.productStatusSelected ? "productStatus" : "",
+    state.freightTemplateName ? "freightTemplate" : ""
+  ].filter(Boolean);
+}
+
+async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, optionText: string): Promise<boolean> {
+  return page.evaluate(
+    ({ fieldLabel: targetFieldLabel, optionText: targetOptionText }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
+      const field = elements
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const text = normalize(el.innerText || el.textContent || "");
+          if (!text || !text.includes(targetFieldLabel) || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+            return null;
+          }
+          return {
+            rect,
+            absTop: rect.top + window.scrollY,
+            absBottom: rect.bottom + window.scrollY,
+            absRight: rect.right + window.scrollX,
+            score: (text === targetFieldLabel || text === `*${targetFieldLabel}` ? 1000 : 0) - text.length
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
+      if (!field) {
+        return false;
+      }
+
+      const candidate = elements
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const text = normalize(el.innerText || el.textContent || "");
+          if (text !== targetOptionText || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+            return null;
+          }
+          const absTop = rect.top + window.scrollY;
+          const absLeft = rect.left + window.scrollX;
+          if (absTop < field.absTop - 30 || absTop > field.absBottom + 90 || absLeft < field.absRight - 20) {
+            return null;
+          }
+          const label = (el.closest("label") || el) as HTMLElement;
+          const labelText = normalize(label.innerText || label.textContent || "");
+          const marker = [String(label.className || ""), label.getAttribute("role") || "", label.tagName].join(" ").toLowerCase();
+          return {
+            el: label,
+            score:
+              (labelText === targetOptionText ? 300 : 0) +
+              (marker.includes("radio") ? 200 : 0) -
+              Math.abs(absTop - field.absTop) -
+              Math.abs(absLeft - field.absRight) / 10
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
+      if (!candidate) {
+        return false;
+      }
+      candidate.el.scrollIntoView({ block: "center", inline: "center" });
+      candidate.el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      candidate.el.click();
+      return true;
+    },
+    { fieldLabel, optionText }
+  );
+}
+
+async function isRadioOptionSelectedNearFieldLabel(page: Page, fieldLabel: string, optionText: string): Promise<boolean> {
+  return page.evaluate(
+    ({ fieldLabel: targetFieldLabel, optionText: targetOptionText }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
+      const field = elements
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const text = normalize(el.innerText || el.textContent || "");
+          if (!text || !text.includes(targetFieldLabel) || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+            return null;
+          }
+          return {
+            rect,
+            absTop: rect.top + window.scrollY,
+            absBottom: rect.bottom + window.scrollY,
+            absRight: rect.right + window.scrollX,
+            score: (text === targetFieldLabel || text === `*${targetFieldLabel}` ? 1000 : 0) - text.length
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
+      if (!field) {
+        return false;
+      }
+
+      const candidate = elements
+        .map((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const text = normalize(el.innerText || el.textContent || "");
+          if (text !== targetOptionText || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+            return null;
+          }
+          const absTop = rect.top + window.scrollY;
+          const absLeft = rect.left + window.scrollX;
+          if (absTop < field.absTop - 30 || absTop > field.absBottom + 90 || absLeft < field.absRight - 20) {
+            return null;
+          }
+          const label = (el.closest("label") || el) as HTMLElement;
+          const input = label.querySelector("input") as HTMLInputElement | null;
+          const marker = [
+            String(label.className || ""),
+            label.getAttribute("role") || "",
+            label.getAttribute("aria-checked") || "",
+            String(el.className || "")
+          ]
+            .join(" ")
+            .toLowerCase();
+          const selected =
+            input?.checked === true ||
+            label.getAttribute("aria-checked") === "true" ||
+            /\bchecked\b|selected|active/.test(marker);
+          return {
+            selected,
+            score:
+              (marker.includes("radio") ? 200 : 0) -
+              Math.abs(absTop - field.absTop) -
+              Math.abs(absLeft - field.absRight) / 10
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
+      return candidate?.selected === true;
+    },
+    { fieldLabel, optionText }
+  );
+}
+
+async function ensureRadioOptionNearFieldLabel(page: Page, fieldLabel: string, optionText: string): Promise<boolean> {
+  if (await isRadioOptionSelectedNearFieldLabel(page, fieldLabel, optionText).catch(() => false)) {
+    return true;
+  }
+  if (await clickRadioOptionNearFieldLabel(page, fieldLabel, optionText).catch(() => false)) {
+    await page.waitForTimeout(500);
+  }
+  return isRadioOptionSelectedNearFieldLabel(page, fieldLabel, optionText).catch(() => false);
+}
+
+async function readServiceFulfillmentState(page: Page, freightTemplateName: string): Promise<ServiceFulfillmentState> {
+  const shippingModeSelected =
+    (await isRadioOptionSelectedNearFieldLabel(page, "\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27").catch(() => false)) ||
+    (await isRadioSelectedByLabel(page, "\u73b0\u8d27").catch(() => false));
+  const shippingTimeSelected =
+    (await isRadioOptionSelectedNearFieldLabel(page, "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "48\u5c0f\u65f6").catch(() => false)) ||
+    (await isRadioSelectedByLabel(page, "48\u5c0f\u65f6").catch(() => false));
+  const productStatusSelected =
+    (await isRadioOptionSelectedNearFieldLabel(page, "\u5546\u54c1\u72b6\u6001", "\u4e0a\u67b6").catch(() => false)) ||
+    (await isRadioSelectedByLabel(page, "\u4e0a\u67b6").catch(() => false));
+  const selectedFreight = isConcreteFreightTemplateName(freightTemplateName)
+    ? freightTemplateName
+    : await readLabeledSelectValue(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => "");
+  return {
+    shippingModeSelected,
+    shippingTimeSelected,
+    productStatusSelected,
+    freightTemplateName: isConcreteFreightTemplateName(selectedFreight) ? selectedFreight : ""
+  };
+}
+
+async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
+  configuredFields: string[];
+  freightTemplateName: string;
+  serviceState: ServiceFulfillmentState;
+}> {
+  await ensureRadioOptionNearFieldLabel(page, "\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27");
+  await ensureRadioOptionNearFieldLabel(page, "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "48\u5c0f\u65f6");
+  await ensureServiceSectionReady(page);
+
+  const freightTemplateName = await chooseKeywordFreightTemplate(page, FIXED_FREIGHT_TEMPLATE_KEYWORD);
+  await ensureRadioOptionNearFieldLabel(page, "\u5546\u54c1\u72b6\u6001", "\u4e0a\u67b6");
+  await clickRadioByLabel(page, "\u4e0a\u67b6").catch(() => false);
+  await page.waitForTimeout(500);
+
+  const serviceState = await readServiceFulfillmentState(page, freightTemplateName);
+  return {
+    configuredFields: configuredFieldsFromServiceFulfillmentState(serviceState),
+    freightTemplateName: serviceState.freightTemplateName,
+    serviceState
+  };
+}
+
 async function applyFixedPublishSettings(
   runtimeDir: string,
   publishPageUrl: string,
@@ -4062,6 +4261,7 @@ async function applyFixedPublishSettings(
   screenshotFile: string;
   configuredFields: string[];
   freightTemplateName: string;
+  serviceState: ServiceFulfillmentState;
 }> {
   const context = await launchPersistentBrowser();
   try {
@@ -4078,38 +4278,16 @@ async function applyFixedPublishSettings(
     await ensureServiceSectionReady(page);
 
     try {
-      const configuredFields: string[] = [];
-
-      if (
-        (await clickVisibleText(page, "\u73B0\u8D27\u53D1\u8D27\u6A21\u5F0F")) ||
-        (await clickRadioByLabel(page, "\u73B0\u8D27")) ||
-        (await isRadioSelectedByLabel(page, "\u73B0\u8D27").catch(() => false))
-      ) {
-        configuredFields.push("shippingMode");
-        await page.waitForTimeout(500);
-      }
-      if (await clickVisibleText(page, "48\u5C0F\u65F6")) {
-        configuredFields.push("shippingTime");
-        await page.waitForTimeout(500);
-      }
-
-      const freightTemplateName = await chooseKeywordFreightTemplate(page, FIXED_FREIGHT_TEMPLATE_KEYWORD);
-      if (isConcreteFreightTemplateName(freightTemplateName)) {
-        configuredFields.push("freightTemplate");
-      }
-
-      if (await clickRadioByLabel(page, "\u4E0A\u67B6")) {
-        configuredFields.push("productStatus");
-        await page.waitForTimeout(500);
-      }
+      const settingsResult = await applyServiceFulfillmentSettingsOnPage(page);
 
       const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-fixed-settings.png");
       return {
         pageUrl: page.url(),
         pageTitle: await page.title(),
         screenshotFile,
-        configuredFields,
-        freightTemplateName: isConcreteFreightTemplateName(freightTemplateName) ? freightTemplateName : ""
+        configuredFields: settingsResult.configuredFields,
+        freightTemplateName: settingsResult.freightTemplateName,
+        serviceState: settingsResult.serviceState
       };
     } catch (error) {
       const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-fixed-settings-failed.png").catch(() => "");
@@ -4134,6 +4312,7 @@ async function applyFixedPublishSettingsOnPage(
   screenshotFile: string;
   configuredFields: string[];
   freightTemplateName: string;
+  serviceState: ServiceFulfillmentState;
 }> {
   await page.bringToFront();
   await page.waitForTimeout(1200);
@@ -4153,38 +4332,16 @@ async function applyFixedPublishSettingsOnPage(
   );
   await ensureServiceSectionReady(page);
 
-  const configuredFields: string[] = [];
-
-  if (
-    (await clickVisibleText(page, "\u73B0\u8D27\u53D1\u8D27\u6A21\u5F0F")) ||
-    (await clickRadioByLabel(page, "\u73B0\u8D27")) ||
-    (await isRadioSelectedByLabel(page, "\u73B0\u8D27").catch(() => false))
-  ) {
-    configuredFields.push("shippingMode");
-    await page.waitForTimeout(500);
-  }
-  if (await clickVisibleText(page, "48\u5C0F\u65F6")) {
-    configuredFields.push("shippingTime");
-    await page.waitForTimeout(500);
-  }
-
-  const freightTemplateName = await chooseKeywordFreightTemplate(page, FIXED_FREIGHT_TEMPLATE_KEYWORD);
-  if (isConcreteFreightTemplateName(freightTemplateName)) {
-    configuredFields.push("freightTemplate");
-  }
-
-  if (await clickRadioByLabel(page, "\u4E0A\u67B6")) {
-    configuredFields.push("productStatus");
-    await page.waitForTimeout(500);
-  }
+  const settingsResult = await applyServiceFulfillmentSettingsOnPage(page);
 
   const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
   return {
     pageUrl: page.url(),
     pageTitle: await page.title(),
     screenshotFile,
-    configuredFields,
-    freightTemplateName: isConcreteFreightTemplateName(freightTemplateName) ? freightTemplateName : ""
+    configuredFields: settingsResult.configuredFields,
+    freightTemplateName: settingsResult.freightTemplateName,
+    serviceState: settingsResult.serviceState
   };
 }
 
@@ -7832,9 +7989,7 @@ async function runPublishFlow(
     screenshotFiles.push(settingsResult.screenshotFile);
     configuredFields.push(...settingsResult.configuredFields);
     freightTemplateName = settingsResult.freightTemplateName;
-    const serviceRequiredFields = ["shippingMode", "shippingTime", "productStatus", "freightTemplate"];
-    const missingServiceFields = serviceRequiredFields.filter((field) => !configuredFields.includes(field));
-    const serviceRule = evaluateServiceCompletion({ freightTemplateName, missingFields: missingServiceFields });
+    const serviceRule = evaluateServiceFulfillmentCompletion(settingsResult.serviceState);
     if (!serviceRule.passed) {
       stages.push({ step: "apply_fixed_publish_settings", status: "failed" });
       throw new Error(`Sequential publish flow stopped: 服务与履约模块未完成。${serviceRule.issue}`);

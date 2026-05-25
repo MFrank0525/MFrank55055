@@ -29,6 +29,13 @@ export interface PublishRuleCheck {
   issue: string;
 }
 
+export interface ServiceFulfillmentState {
+  shippingModeSelected: boolean;
+  shippingTimeSelected: boolean;
+  productStatusSelected: boolean;
+  freightTemplateName: string;
+}
+
 export interface DetailUploadOutcomeRuleInput {
   uploadActionCompleted: boolean;
   detailRule: PublishRuleCheck;
@@ -350,6 +357,19 @@ export function evaluateServiceCompletion(input: { freightTemplateName: string; 
     };
   }
   return { passed: true, issue: "" };
+}
+
+export function evaluateServiceFulfillmentCompletion(input: ServiceFulfillmentState): PublishRuleCheck {
+  const missingFields = [
+    input.shippingModeSelected ? "" : "shippingMode",
+    input.shippingTimeSelected ? "" : "shippingTime",
+    input.productStatusSelected ? "" : "productStatus",
+    input.freightTemplateName ? "" : "freightTemplate"
+  ].filter(Boolean);
+  return evaluateServiceCompletion({
+    freightTemplateName: input.freightTemplateName,
+    missingFields
+  });
 }
 
 export function evaluatePublishCheckResult(input: {
