@@ -149,7 +149,8 @@ export async function runDoubaoJob(jobInput: DoubaoJobInput): Promise<DoubaoRunR
         rawFileOut: rawFile,
         waitMs: job.captureWaitMs,
         conversationUrl: job.conversationUrl,
-        mode: "titles"
+        mode: "titles",
+        titleCount: job.titleCount
       });
       logInfo(`captured response for image ${index + 1}`);
 

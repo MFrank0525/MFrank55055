@@ -43,7 +43,8 @@ function isLikelyTitle(value: string): boolean {
 
 function extractContinuousNumberSequence(text: string, titleCount: number): TitleRow[] {
   const normalized = text.replace(/\r/g, "\n");
-  const matcher = /(\d{1,3})\s+([\s\S]*?)(?=(\d{1,3})\s+|$)/g;
+  const marker = String.raw`(?<!\d)0?(\d{1,3})\s*[、,，.．:：)）\]\】\s]+`;
+  const matcher = new RegExp(marker + String.raw`([\s\S]*?)(?=` + marker + String.raw`|$)`, "g");
   const tokens: TitleRow[] = [];
   let match: RegExpExecArray | null;
 

@@ -38,6 +38,12 @@ import {
   evaluateShopSwitchMenuState,
   shouldRetryPublishFailure
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
+import {
+  looksLikeDoubaoTitleResponse,
+  isRetryableDoubaoCaptureError,
+  resolveDoubaoCaptureRetryPolicy
+} from "../dist/src/doubao/capture-rules.js";
+import { saveTitlesFromRaw } from "../dist/src/doubao/save.js";
 
 const state = createRunState("test-run", ["/tmp/product.png"]);
 const task = state.tasks[0];
@@ -56,6 +62,28 @@ const saved = recordTaskProgress(updated, "main_images_generated", "Prompt 2/5: 
 assert.equal(saved.status, "main_images_generated");
 assert.equal(saved.notes.at(-1), "main_images_generated: Prompt 2/5: Image 4: saved generated-04.png.");
 assert.ok(saved.notes.length <= 25);
+assert.deepEqual(resolveDoubaoCaptureRetryPolicy("titles"), {
+  maxAttempts: 4,
+  delayMs: [30000, 60000, 90000]
+});
+assert.equal(isRetryableDoubaoCaptureError("Doubao title response was not found in the latest visible answer."), true);
+assert.equal(isRetryableDoubaoCaptureError("Doubao conversation page not found"), false);
+const inlineDoubaoTitles = Array.from({ length: 20 }, (_, index) => {
+  const no = String(index + 1).padStart(2, "0");
+  return `${no}、医用透明质酸钠液体敷料延草纲目测试内容`;
+}).join("");
+assert.equal(looksLikeDoubaoTitleResponse(inlineDoubaoTitles, 20), true);
+const inlineTitleDir = fs.mkdtempSync(path.join(os.tmpdir(), "doubao-inline-titles-"));
+const inlineRawFile = path.join(inlineTitleDir, "raw.txt");
+fs.writeFileSync(inlineRawFile, inlineDoubaoTitles, "utf8");
+assert.equal(
+  saveTitlesFromRaw({
+    rawFile: inlineRawFile,
+    outputDir: inlineTitleDir,
+    titleCount: 20
+  }).titleCount,
+  20
+);
 
 assert.equal(
   buildFeishuSellingPointText({

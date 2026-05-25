@@ -22,6 +22,7 @@ export interface CaptureConversationOptions {
   waitMs?: number;
   conversationUrl?: string;
   mode?: "titles" | "selling_points" | "latest";
+  titleCount?: number;
 }
 
 export interface CaptureConversationResult {
