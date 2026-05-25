@@ -21,6 +21,7 @@ import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import {
   evaluateImageGenerationEndpointProbe,
   resolveImageDownloadTimeoutMs,
+  resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
@@ -390,6 +391,42 @@ assert.deepEqual(resolveImageGenerationTransportRetryPolicy(2), {
   delayMs: [3000, 6000, 12000, 24000, 45000, 45000, 45000, 45000]
 });
 assert.equal(resolveImageGenerationTransportRetryPolicy(10).maxRetries, 10);
+assert.deepEqual(
+  resolveImageGenerationHttpRetryPolicy({
+    status: 503,
+    responseText: '{"error":{"message":"system memory overloaded (current: 93.6%, threshold: 90%)","code":"system_memory_overloaded"}}',
+    configuredMaxRetries: undefined
+  }),
+  {
+    maxRetries: 8,
+    delayMs: [60000, 90000, 120000, 180000, 240000, 300000, 300000, 300000],
+    reason: "provider_resource_overloaded"
+  }
+);
+assert.deepEqual(
+  resolveImageGenerationHttpRetryPolicy({
+    status: 503,
+    responseText: '{"error":{"message":"temporary unavailable"}}',
+    configuredMaxRetries: undefined
+  }),
+  {
+    maxRetries: 8,
+    delayMs: [60000, 90000, 120000, 180000, 240000, 300000, 300000, 300000],
+    reason: "provider_gateway_unavailable"
+  }
+);
+assert.deepEqual(
+  resolveImageGenerationHttpRetryPolicy({
+    status: 500,
+    responseText: '{"error":{"message":"temporary unavailable"}}',
+    configuredMaxRetries: undefined
+  }),
+  {
+    maxRetries: 3,
+    delayMs: [3000, 6000, 9000],
+    reason: "http_transient"
+  }
+);
 assert.deepEqual(evaluateImageGenerationEndpointProbe({ status: 404, statusText: "Not Found" }), {
   passed: true,
   issue: ""

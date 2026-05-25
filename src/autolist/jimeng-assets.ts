@@ -5,6 +5,7 @@ import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import {
   resolveImageDownloadTimeoutMs,
+  resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "./image-generation-rules.js";
@@ -596,13 +597,20 @@ async function generateWithOpenAiCompatibleProvider(options: {
     if (shouldRetryImageGenerationWithPolicyPrompt({ responseOk: response.ok, responseText: text })) {
       ({ response, text, promptText } = await sendPolicyPromptRetry(imageIndex, promptText, buildRequestSummary, "initial"));
     }
-    for (let attempt = 1; !response.ok && isTransientImageProviderStatus(response.status) && attempt <= maxTransientRetries; attempt += 1) {
+    const httpRetryPolicy = resolveImageGenerationHttpRetryPolicy({
+      status: response.status,
+      responseText: text,
+      configuredMaxRetries: config.maxTransientRetries
+    });
+    for (let attempt = 1; !response.ok && isTransientImageProviderStatus(response.status) && attempt <= httpRetryPolicy.maxRetries; attempt += 1) {
       writeImageGenerationTextLog(
         path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-transient-" + attempt + ".json"),
         text
       );
-      options.onProgress?.(`Image ${imageIndex}: transient HTTP ${response.status}; retry ${attempt}/${maxTransientRetries}.`);
-      await sleep(3000 * attempt);
+      options.onProgress?.(
+        `Image ${imageIndex}: transient HTTP ${response.status} (${httpRetryPolicy.reason}); retry ${attempt}/${httpRetryPolicy.maxRetries}.`
+      );
+      await sleep(httpRetryPolicy.delayMs[attempt - 1] || httpRetryPolicy.delayMs.at(-1) || 3000 * attempt);
       ({ response, text } =
         mode === "edits"
           ? await sendRequestWithTransportRetries(imageIndex, "http-transient-retry", () => buildEditFormData(true, promptText))
