@@ -16,7 +16,7 @@ export interface ImageGenerationHttpRetryPolicyInput {
 export interface ImageGenerationHttpRetryPolicy {
   maxRetries: number;
   delayMs: number[];
-  reason: "http_transient" | "provider_resource_overloaded" | "provider_gateway_unavailable";
+  reason: "http_transient" | "provider_resource_overloaded" | "provider_gateway_unavailable" | "provider_upstream_failed";
 }
 
 export interface ImageGenerationEndpointProbe {
@@ -53,6 +53,13 @@ export function resolveImageGenerationHttpRetryPolicy(input: ImageGenerationHttp
       maxRetries: longMaxRetries,
       delayMs: longDelayMs,
       reason: "provider_gateway_unavailable"
+    };
+  }
+  if (/do_request_failed|upstream error|upstream.*failed/i.test(input.responseText)) {
+    return {
+      maxRetries: longMaxRetries,
+      delayMs: longDelayMs,
+      reason: "provider_upstream_failed"
     };
   }
   const maxRetries = Math.max(0, input.configuredMaxRetries ?? 3);

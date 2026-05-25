@@ -418,6 +418,18 @@ assert.deepEqual(
 assert.deepEqual(
   resolveImageGenerationHttpRetryPolicy({
     status: 500,
+    responseText: '{"error":{"message":"upstream error: do request failed (request id: 202605250701525013041518268d9d621y2kdZ5)","code":"do_request_failed"}}',
+    configuredMaxRetries: undefined
+  }),
+  {
+    maxRetries: 8,
+    delayMs: [60000, 90000, 120000, 180000, 240000, 300000, 300000, 300000],
+    reason: "provider_upstream_failed"
+  }
+);
+assert.deepEqual(
+  resolveImageGenerationHttpRetryPolicy({
+    status: 500,
     responseText: '{"error":{"message":"temporary unavailable"}}',
     configuredMaxRetries: undefined
   }),

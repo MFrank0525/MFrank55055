@@ -71,7 +71,7 @@
 17. 产品包装保真优先级高于背景创意：输入参考图里的产品必须作为锁定主体，禁止根据文字重新绘制包装，禁止改写包装文字，禁止改变盒子和管体的数量、形状、颜色、角度关系和主要标识。
 18. 同一份 Word 文档生成 4 张图片时，4 张图背景风格需要相近，但标题文字排版、字号大小、卖点布局、产品站位、放置角度、光影层次必须有变化，尽可能保证每张图都不一样。
 19. OpenAI-compatible provider 第一次必须发送用户确认过的完整提示词；只有接口明确返回 `content_policy_violation`、`policy_violation`、`safety`、`moderation` 等内容策略拦截时，才允许自动重试一版平台兼容提示词。兼容提示词只做合规降级：保留输入参考图产品主体、主标题、副标题、使用步骤图示、适用部位图示、传统电商海报风格和 4 张差异化要求；去掉功效承诺、治疗暗示、夸大宣传和医学诊断表达。每次策略重试必须写入 `request-XX-policy-retry.json` 方便复盘。
-20. OpenAI-compatible provider 遇到 `429/500/502/503/504` 时视为中转站临时故障，必须自动退避重试并写入 `response-XX-transient-N.json`；普通 `429/500` 临时 HTTP 故障最多短退避 3 次。若返回内容包含 `system_memory_overloaded`、`memory overloaded`、`resource overloaded` 或 `server overloaded`，或状态码为 `502/503/504` 网关侧不可用，必须执行 8 次长退避重试（60s、90s、120s、180s、240s、300s、300s、300s），不能因为短时间网关过载直接停止整批上架。遇到 `fetch failed`、网络断开、socket reset、timeout、`UND_ERR_*` 等传输层瞬断时，也必须自动退避重试至少 8 次，并写入 `response-XX-transport-transient-N.json`。流程重跑时如果当前轮已经有水印暂存图，只补齐缺失数量，不重复消费额度重生已暂存图片。
+20. OpenAI-compatible provider 遇到 `429/500/502/503/504` 时视为中转站临时故障，必须自动退避重试并写入 `response-XX-transient-N.json`；普通 `429/500` 临时 HTTP 故障最多短退避 3 次。若返回内容包含 `system_memory_overloaded`、`memory overloaded`、`resource overloaded`、`server overloaded`、`do_request_failed`、`upstream error`，或状态码为 `502/503/504` 网关侧不可用，必须执行 8 次长退避重试（60s、90s、120s、180s、240s、300s、300s、300s），不能因为短时间网关过载或上游请求失败直接停止整批上架。遇到 `fetch failed`、网络断开、socket reset、timeout、`UND_ERR_*` 等传输层瞬断时，也必须自动退避重试至少 8 次，并写入 `response-XX-transport-transient-N.json`。流程重跑时如果当前轮已经有水印暂存图，只补齐缺失数量，不重复消费额度重生已暂存图片。
 21. 每个产品完成上架后，必须把无水印原始主图归档到 `/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><用户认知名>/`；时间前缀精确到分钟，例如 `202605201106宝元堂筋骨康凝胶`；归档完成后才允许删除运行目录。
 
 ## 失败条件
