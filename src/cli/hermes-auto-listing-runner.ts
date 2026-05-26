@@ -1,7 +1,11 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { shouldPreferActiveTaskStateSummary } from "../autolist/batch-continuation-rules.js";
+import {
+  isHermesSupervisorProcessCommand,
+  selectHermesStatusResultFile,
+  shouldPreferActiveTaskStateSummary
+} from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
@@ -107,6 +111,17 @@ function readJsonFile<T>(file: string): T | undefined {
   return JSON.parse(fs.readFileSync(file, "utf8")) as T;
 }
 
+function readProcessCommand(pid: number | undefined): string | undefined {
+  if (!pid || !Number.isInteger(pid) || pid <= 0) {
+    return undefined;
+  }
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+  if (result.status !== 0) {
+    return undefined;
+  }
+  return result.stdout.trim() || undefined;
+}
+
 function isPidRunning(pid: number | undefined): boolean {
   if (!pid || !Number.isInteger(pid) || pid <= 0) {
     return false;
@@ -117,6 +132,17 @@ function isPidRunning(pid: number | undefined): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+function isRunnerJobRunning(job: RunnerJob): boolean {
+  if (!isPidRunning(job.pid)) {
+    return false;
+  }
+  const command = readProcessCommand(job.pid);
+  if (!command) {
+    return true;
+  }
+  return isHermesSupervisorProcessCommand(command);
 }
 
 function timestampForFile(date = new Date()): string {
@@ -152,6 +178,13 @@ function findActiveRuntimeDirFromLog(logFile: string | undefined): string | unde
     }
   }
   return undefined;
+}
+
+function fileMtimeMs(file: string | undefined): number | undefined {
+  if (!file || !fs.existsSync(file)) {
+    return undefined;
+  }
+  return fs.statSync(file).mtimeMs;
 }
 
 function findLatestResultFile(): string | undefined {
@@ -341,12 +374,27 @@ function existingStatus(): Record<string, unknown> {
       publishProgress: summarizePublishProgress(latestRuntimeDir)
     };
   }
-  const running = isPidRunning(job.pid);
-  const activeRuntimeDir = running ? findActiveRuntimeDirFromLog(job.logFile) : undefined;
+  const running = isRunnerJobRunning(job);
+  const activeRuntimeDir = findActiveRuntimeDirFromLog(job.logFile);
   const activeResultFile = activeRuntimeDir ? path.join(activeRuntimeDir, "result.json") : undefined;
-  const resultFile = job.expectedResultFile || (activeResultFile && fs.existsSync(activeResultFile) ? activeResultFile : running ? undefined : findLatestResultFile());
+  const latestResultFile = running ? undefined : findLatestResultFile();
+  const resultFile = selectHermesStatusResultFile({
+    running,
+    expected: {
+      resultFile: job.expectedResultFile,
+      mtimeMs: fileMtimeMs(job.expectedResultFile)
+    },
+    log: {
+      resultFile: activeResultFile && fs.existsSync(activeResultFile) ? activeResultFile : undefined,
+      mtimeMs: fileMtimeMs(activeResultFile)
+    },
+    latest: {
+      resultFile: latestResultFile,
+      mtimeMs: fileMtimeMs(latestResultFile)
+    }
+  });
   const result = summarizeResult(resultFile);
-  const runtimeDir = activeRuntimeDir || (typeof result?.runtimeDir === "string" ? result.runtimeDir : resultFile ? path.dirname(resultFile) : undefined);
+  const runtimeDir = typeof result?.runtimeDir === "string" ? result.runtimeDir : activeRuntimeDir || (resultFile ? path.dirname(resultFile) : undefined);
   const publishProgress = summarizePublishProgress(runtimeDir);
   const feishuProgress = summarizeFeishuProgress();
   const state = summarizeState(runtimeDir);
@@ -660,7 +708,7 @@ function selectCommand(): {
 async function start(dryRun: boolean, text: boolean): Promise<void> {
   fs.mkdirSync(controlDir, { recursive: true });
   const current = readJsonFile<RunnerJob>(jobFile);
-  if (current && isPidRunning(current.pid)) {
+  if (current && isRunnerJobRunning(current)) {
     const status = existingStatus();
     const result = {
       ok: true,

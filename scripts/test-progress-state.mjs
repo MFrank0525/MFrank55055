@@ -13,7 +13,9 @@ import {
 import {
   shouldContinueFeishuBatchAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
-  shouldPreferActiveTaskStateSummary
+  shouldPreferActiveTaskStateSummary,
+  selectHermesStatusResultFile,
+  isHermesSupervisorProcessCommand
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { appendProcessedImages, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
@@ -419,6 +421,29 @@ assert.deepEqual(resolveImageGenerationTransportRetryPolicy(2), {
   delayMs: [3000, 6000, 12000, 24000, 45000, 45000, 45000, 45000]
 });
 assert.equal(resolveImageGenerationTransportRetryPolicy(10).maxRetries, 10);
+assert.equal(
+  selectHermesStatusResultFile({
+    running: false,
+    expected: { resultFile: "old-resume-result.json", mtimeMs: 100 },
+    log: { resultFile: "new-supervisor-child-result.json", mtimeMs: 300 },
+    latest: { resultFile: "latest-result.json", mtimeMs: 200 }
+  }),
+  "new-supervisor-child-result.json"
+);
+assert.equal(
+  selectHermesStatusResultFile({
+    running: true,
+    expected: { resultFile: "old-resume-result.json", mtimeMs: 100 },
+    log: { resultFile: "active-child-result.json", mtimeMs: 300 },
+    latest: { resultFile: "latest-result.json", mtimeMs: 400 }
+  }),
+  "active-child-result.json"
+);
+assert.equal(
+  isHermesSupervisorProcessCommand("node dist/src/cli/hermes-auto-listing-supervisor.js --initial full"),
+  true
+);
+assert.equal(isHermesSupervisorProcessCommand("/usr/bin/yes 9485"), false);
 assert.deepEqual(
   resolveImageGenerationHttpRetryPolicy({
     status: 503,
