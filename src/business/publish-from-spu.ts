@@ -41,6 +41,7 @@ import {
   evaluatePublishSubmission,
   evaluatePublishSubmissionAfterAction,
   evaluateServiceFulfillmentCompletion,
+  evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext
 } from "./publish-from-spu/publish-rules.js";
 import type { ServiceFulfillmentState } from "./publish-from-spu/publish-rules.js";
@@ -3968,6 +3969,165 @@ async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {
   }, FIXED_SPEC_VALUES);
 }
 
+async function countVisibleBlankSpecValueInputs(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const labels = Array.from(document.querySelectorAll("body *"))
+      .map((el) => el as HTMLElement)
+      .map((el) => {
+        const text = (el.textContent || "").trim();
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        if (!text || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        return { text, top: rect.top, bottom: rect.bottom };
+      })
+      .filter(Boolean) as Array<{ text: string; top: number; bottom: number }>;
+
+    const specLabel = labels.find((item) => item.text === "\u5546\u54c1\u89c4\u683c");
+    const priceLabel = labels.find((item) => item.text === "\u4ef7\u683c\u4e0e\u5e93\u5b58" && (!specLabel || item.top > specLabel.top));
+    const topBound = specLabel ? specLabel.bottom - 30 : 160;
+    const bottomBound = priceLabel ? priceLabel.top - 6 : window.innerHeight + 1200;
+
+    return Array.from(document.querySelectorAll("input"))
+      .map((el) => el as HTMLInputElement)
+      .filter((input) => {
+        const rect = input.getBoundingClientRect();
+        const style = window.getComputedStyle(input);
+        const placeholder = (input.getAttribute("placeholder") || "").trim();
+        const context = [
+          placeholder,
+          input.parentElement?.textContent || "",
+          input.parentElement?.parentElement?.textContent || "",
+          input.closest("div")?.textContent || ""
+        ]
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        return (
+          rect.width > 120 &&
+          rect.height > 0 &&
+          rect.top >= topBound &&
+          rect.top <= bottomBound &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          !input.disabled &&
+          !input.readOnly &&
+          !input.value.trim() &&
+          (placeholder.includes("\u8bf7\u8f93\u5165\u89c4\u683c\u503c") || context.includes("\u8bf7\u8f93\u5165\u89c4\u683c\u503c"))
+        );
+      }).length;
+  });
+}
+
+async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
+  const target = await page.evaluate(() => {
+    const labels = Array.from(document.querySelectorAll("body *"))
+      .map((el) => el as HTMLElement)
+      .map((el) => {
+        const text = (el.textContent || "").trim();
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        if (!text || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        return { text, top: rect.top, bottom: rect.bottom };
+      })
+      .filter(Boolean) as Array<{ text: string; top: number; bottom: number }>;
+
+    const specLabel = labels.find((item) => item.text === "\u5546\u54c1\u89c4\u683c");
+    const priceLabel = labels.find((item) => item.text === "\u4ef7\u683c\u4e0e\u5e93\u5b58" && (!specLabel || item.top > specLabel.top));
+    const topBound = specLabel ? specLabel.bottom - 30 : 160;
+    const bottomBound = priceLabel ? priceLabel.top - 6 : window.innerHeight + 1200;
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+
+    const blankInput = Array.from(document.querySelectorAll("input"))
+      .map((el) => el as HTMLInputElement)
+      .find((input) => {
+        const rect = input.getBoundingClientRect();
+        const style = window.getComputedStyle(input);
+        const placeholder = normalize(input.getAttribute("placeholder") || "");
+        const context = normalize(
+          [
+            placeholder,
+            input.parentElement?.textContent || "",
+            input.parentElement?.parentElement?.textContent || "",
+            input.closest("div")?.textContent || ""
+          ].join(" ")
+        );
+        return (
+          rect.width > 120 &&
+          rect.height > 0 &&
+          rect.top >= topBound &&
+          rect.top <= bottomBound &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          !input.disabled &&
+          !input.readOnly &&
+          !input.value.trim() &&
+          (placeholder.includes("\u8bf7\u8f93\u5165\u89c4\u683c\u503c") || context.includes("\u8bf7\u8f93\u5165\u89c4\u683c\u503c"))
+        );
+      });
+    if (!blankInput) {
+      return null;
+    }
+
+    const inputRect = blankInput.getBoundingClientRect();
+    const candidates = Array.from(document.querySelectorAll("button, [role='button'], svg"))
+      .map((el) => el as HTMLElement)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const text = normalize(el.innerText || el.textContent || el.getAttribute("aria-label") || "");
+        if (
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          rect.left < inputRect.right - 12 ||
+          rect.left > inputRect.right + 120 ||
+          Math.abs(rect.top + rect.height / 2 - (inputRect.top + inputRect.height / 2)) > 34 ||
+          text.includes("\u89c4\u683c\u9884\u89c8") ||
+          text.includes("\u5b58\u50a8\u6a21\u677f")
+        ) {
+          return null;
+        }
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+          distance: Math.abs(rect.left - inputRect.right) + Math.abs(rect.top - inputRect.top)
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (a?.distance || 0) - (b?.distance || 0)) as Array<{ x: number; y: number; distance: number }>;
+
+    return candidates[0] || null;
+  });
+
+  if (!target) {
+    return false;
+  }
+  await page.mouse.click(target.x, target.y, { delay: 80 });
+  await page.waitForTimeout(500);
+  return true;
+}
+
+async function removeBlankSpecValueInputsFromTemplate(page: Page): Promise<number> {
+  let removed = 0;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const blankCount = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
+    if (!blankCount) {
+      return removed;
+    }
+    const removedOne = await removeOneBlankSpecValueInput(page).catch(() => false);
+    if (!removedOne) {
+      return removed;
+    }
+    removed += 1;
+  }
+  return removed;
+}
+
 async function fillMissingSpecValuesStrict(page: Page): Promise<number> {
   const existingValues = await readCurrentSpecValuesStrict(page);
   const normalizedExisting = new Set(existingValues.map((value) => value.replace(/\s+/g, "")));
@@ -4047,10 +4207,18 @@ async function applySpecTemplateWithVerificationOnPage(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title).catch(() => selectedTemplate);
     await page.waitForTimeout(600);
+    await removeBlankSpecValueInputsFromTemplate(page).catch(() => 0);
 
     const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
     const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-    if (filledValues.length >= FIXED_SPEC_VALUES.length || visiblePriceRows >= FIXED_SPEC_VALUES.length) {
+    const blankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
+    const rule = evaluateSpecTemplateCompletion({
+      filledSpecValues: filledValues.length,
+      expectedSpecValues: FIXED_SPEC_VALUES.length,
+      priceRows: visiblePriceRows,
+      blankSpecValueInputs
+    });
+    if (rule.passed) {
       return {
         selectedTemplate: selectedTemplate || keyword,
         filledValues,
@@ -4061,13 +4229,17 @@ async function applySpecTemplateWithVerificationOnPage(
 
   const finalValues = await readCurrentSpecValuesStrict(page).catch(() => []);
   const finalVisiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
+  const finalBlankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
+  const finalRule = evaluateSpecTemplateCompletion({
+    filledSpecValues: finalValues.length,
+    expectedSpecValues: FIXED_SPEC_VALUES.length,
+    priceRows: finalVisiblePriceRows,
+    blankSpecValueInputs: finalBlankSpecValueInputs
+  });
   return {
     selectedTemplate,
     filledValues: finalValues,
-    issue:
-      finalValues.length >= FIXED_SPEC_VALUES.length || finalVisiblePriceRows >= FIXED_SPEC_VALUES.length
-        ? ""
-        : `Spec values were incomplete after template apply. expected=${FIXED_SPEC_VALUES.length}; actual=${finalValues.length}; priceRows=${finalVisiblePriceRows}; keyword=${keyword}`
+    issue: finalRule.passed ? "" : `${finalRule.issue}; keyword=${keyword}`
   };
 }
 

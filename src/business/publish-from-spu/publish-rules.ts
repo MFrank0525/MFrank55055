@@ -29,6 +29,13 @@ export interface PublishRuleCheck {
   issue: string;
 }
 
+export interface SpecTemplateCompletionRuleInput {
+  filledSpecValues: number;
+  expectedSpecValues: number;
+  priceRows: number;
+  blankSpecValueInputs: number;
+}
+
 export interface ServiceFulfillmentState {
   shippingModeSelected: boolean;
   shippingTimeSelected: boolean;
@@ -351,6 +358,22 @@ export function evaluatePriceInventoryCompletion(input: {
     };
   }
   return { passed: true, issue: "" };
+}
+
+export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRuleInput): PublishRuleCheck {
+  if (input.blankSpecValueInputs > 0) {
+    return {
+      passed: false,
+      issue: `Spec template left ${input.blankSpecValueInputs} blank required spec value input(s).`
+    };
+  }
+  if (input.filledSpecValues >= input.expectedSpecValues || input.priceRows >= input.expectedSpecValues) {
+    return { passed: true, issue: "" };
+  }
+  return {
+    passed: false,
+    issue: `Spec values were incomplete after template apply. expected=${input.expectedSpecValues}; actual=${input.filledSpecValues}; priceRows=${input.priceRows}`
+  };
 }
 
 export function evaluateServiceCompletion(input: { freightTemplateName: string; missingFields: string[] }): PublishRuleCheck {

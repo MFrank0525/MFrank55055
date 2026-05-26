@@ -37,6 +37,7 @@ import {
   classifyPublishFailure,
   evaluateDetailImageCompletion,
   evaluatePublishCreatePageReadiness,
+  evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
   shouldRetryPublishFailure
@@ -533,6 +534,27 @@ assert.deepEqual(
     passed: false,
     issue: "Image generation endpoint is not reachable from this Node runtime: TypeError: fetch failed; cause=ENOTFOUND"
   }
+);
+assert.deepEqual(
+  evaluateSpecTemplateCompletion({
+    filledSpecValues: 4,
+    expectedSpecValues: 4,
+    priceRows: 4,
+    blankSpecValueInputs: 1
+  }),
+  {
+    passed: false,
+    issue: "Spec template left 1 blank required spec value input(s)."
+  }
+);
+assert.deepEqual(
+  evaluateSpecTemplateCompletion({
+    filledSpecValues: 0,
+    expectedSpecValues: 4,
+    priceRows: 4,
+    blankSpecValueInputs: 0
+  }),
+  { passed: true, issue: "" }
 );
 assert.equal(
   shouldRetryImageGenerationWithPolicyPrompt({
