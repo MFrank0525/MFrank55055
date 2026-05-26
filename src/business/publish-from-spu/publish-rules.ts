@@ -223,7 +223,14 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("contextwaslost") || text.includes("pagecontextwaslost") || text.includes("Targetclosed")) {
     return "page_context_lost";
   }
-  if (text.includes("Remotedebuggingbrowserdidnotbecomeready") || text.includes("connectEPERM127.0.0.1")) {
+  if (
+    text.includes("Remotedebuggingbrowserdidnotbecomeready") ||
+    text.includes("connectEPERM127.0.0.1") ||
+    text.includes("connectOverCDP") ||
+    text.includes("Browser.setDownloadBehavior") ||
+    text.includes("Browsercontextmanagementisnotsupported") ||
+    text.includes("devtools/browser")
+  ) {
     return "browser_remote_debugging_unavailable";
   }
   if (text.includes("freshcreatepage") || text.includes("空白") || text.includes("0/60")) {
@@ -370,7 +377,10 @@ export function evaluatePriceInventoryCompletion(input: {
 }
 
 export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRuleInput): PublishRuleCheck {
-  if (input.filledSpecValues >= input.expectedSpecValues && input.priceRows >= input.expectedSpecValues) {
+  if (input.priceRows >= input.expectedSpecValues) {
+    return { passed: true, issue: "" };
+  }
+  if (input.filledSpecValues >= input.expectedSpecValues) {
     return { passed: true, issue: "" };
   }
   if (input.blankSpecValueInputs > 0) {
@@ -378,9 +388,6 @@ export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRule
       passed: false,
       issue: `Spec template left ${input.blankSpecValueInputs} blank required spec value input(s).`
     };
-  }
-  if (input.filledSpecValues >= input.expectedSpecValues || input.priceRows >= input.expectedSpecValues) {
-    return { passed: true, issue: "" };
   }
   return {
     passed: false,

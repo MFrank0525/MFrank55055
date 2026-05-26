@@ -29,6 +29,17 @@ assert.deepEqual(
   evaluateSpecTemplateCompletion({
     filledSpecValues: 3,
     expectedSpecValues: 4,
+    priceRows: 4,
+    blankSpecValueInputs: 1
+  }),
+  { passed: true, issue: "" },
+  "template-generated price rows are the authoritative signal; blank placeholder spec inputs must not block"
+);
+
+assert.deepEqual(
+  evaluateSpecTemplateCompletion({
+    filledSpecValues: 3,
+    expectedSpecValues: 4,
     priceRows: 3,
     blankSpecValueInputs: 1
   }),

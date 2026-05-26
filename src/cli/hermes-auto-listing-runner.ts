@@ -270,6 +270,33 @@ function summarizeState(runtimeDir: string | undefined): Record<string, unknown>
   };
 }
 
+function summarizeLatestPublishArtifact(runtimeDir: string, runtimeKey: string | undefined): Record<string, unknown> | undefined {
+  if (!runtimeKey) {
+    return undefined;
+  }
+  const publishDir = path.join(runtimeDir, "publish", runtimeKey);
+  const screenshotsDir = path.join(publishDir, "screenshots");
+  const candidates = [path.join(publishDir, "result.json"), path.join(publishDir, "publish-checkpoint.json")];
+  if (fs.existsSync(screenshotsDir)) {
+    for (const file of fs.readdirSync(screenshotsDir)) {
+      candidates.push(path.join(screenshotsDir, file));
+    }
+  }
+  const existing = candidates
+    .filter((file) => fs.existsSync(file))
+    .map((file) => ({ file, mtimeMs: fs.statSync(file).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const latest = existing[0];
+  if (!latest) {
+    return undefined;
+  }
+  return {
+    file: latest.file,
+    name: path.basename(latest.file),
+    updatedAt: new Date(latest.mtimeMs).toISOString()
+  };
+}
+
 function summarizePublishProgress(runtimeDir: string | undefined): Record<string, unknown> | undefined {
   if (!runtimeDir) {
     return undefined;
@@ -306,10 +333,12 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
         : undefined;
     })();
   const latestPublished = safelyPublished.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
+  const latestArtifact = summarizeLatestPublishArtifact(runtimeDir, activeEntry?.runtimeKey);
   const progressText =
     `发布进度 ${safelyPublished.length}/${total || "?"}` +
     (activeEntry?.productFolder ? `，当前/下一项：${path.basename(activeEntry.productFolder)}` : "") +
-    (latestPublished?.productFolder ? `，最近完成：${path.basename(latestPublished.productFolder)}` : "");
+    (latestPublished?.productFolder ? `，最近完成：${path.basename(latestPublished.productFolder)}` : "") +
+    (latestArtifact?.name ? `，最近产物：${String(latestArtifact.name)}` : "");
 
   return {
     manifestFile,
@@ -330,6 +359,7 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
           updatedAt: activeEntry.updatedAt
         }
       : undefined,
+    latestArtifact,
     latestPublished: latestPublished
       ? {
           productFolder: latestPublished.productFolder,
@@ -403,6 +433,15 @@ function existingStatus(): Record<string, unknown> {
     stateHasActiveTask: Boolean(state),
     publishProgressAvailable: Boolean(publishProgress)
   });
+  const latestArtifactUpdatedAt = (publishProgress?.latestArtifact as Record<string, unknown> | undefined)?.updatedAt;
+  const activePublishUpdatedAt = (publishProgress?.active as Record<string, unknown> | undefined)?.updatedAt;
+  const latestStateProgressAt = (state?.latestProgress as Record<string, unknown> | undefined)?.timestamp;
+  const publishProgressHasNewerActive =
+    Boolean(activePublishUpdatedAt) &&
+    (!latestStateProgressAt || Date.parse(String(activePublishUpdatedAt)) > Date.parse(String(latestStateProgressAt)));
+  const publishProgressHasNewerArtifact =
+    Boolean(latestArtifactUpdatedAt) &&
+    (!latestStateProgressAt || Date.parse(String(latestArtifactUpdatedAt)) > Date.parse(String(latestStateProgressAt)));
   const batchComplete = feishuProgress ? feishuProgress.batchComplete === true : true;
   const completed =
     !running &&
@@ -434,9 +473,9 @@ function existingStatus(): Record<string, unknown> {
     logFile: job.logFile,
     jobFile,
     activeRuntimeDir,
-    statusSource: preferStateSummary ? "state" : publishProgress ? "publish-manifest" : state ? "state" : "result-log",
+    statusSource: publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary ? (publishProgress ? "publish-manifest" : state ? "state" : "result-log") : "state",
     summary:
-      (preferStateSummary ? stateSummary : publishProgress?.progressText || stateSummary) ||
+      (publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary ? publishProgress?.progressText || stateSummary : stateSummary) ||
       (running
           ? "任务正在运行，尚未写入发布进度。"
           : "任务进程已退出，查看 result 字段确认最终结果。"),

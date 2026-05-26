@@ -186,6 +186,12 @@ const remoteDebuggingUnavailableClass = classifyPublishFailure("Remote debugging
 assert.equal(remoteDebuggingUnavailableClass, "browser_remote_debugging_unavailable");
 assert.equal(shouldRetryPublishFailure(remoteDebuggingUnavailableClass, 0), true);
 
+const cdpContextManagementClass = classifyPublishFailure(
+  "browserType.connectOverCDP: Protocol error (Browser.setDownloadBehavior): Browser context management is not supported."
+);
+assert.equal(cdpContextManagementClass, "browser_remote_debugging_unavailable");
+assert.equal(shouldRetryPublishFailure(cdpContextManagementClass, 0), true);
+
 const alreadyInTargetShop = evaluateShopSwitchMenuState({
   expectedShopName: "延草纲目康复理疗专营店",
   currentShopName: "延草纲目康复理疗专营店",
@@ -543,10 +549,16 @@ assert.deepEqual(
     priceRows: 4,
     blankSpecValueInputs: 1
   }),
-  {
-    passed: false,
-    issue: "Spec template left 1 blank required spec value input(s)."
-  }
+  { passed: true, issue: "" }
+);
+assert.deepEqual(
+  evaluateSpecTemplateCompletion({
+    filledSpecValues: 3,
+    expectedSpecValues: 4,
+    priceRows: 4,
+    blankSpecValueInputs: 1
+  }),
+  { passed: true, issue: "" }
 );
 assert.deepEqual(
   evaluateSpecTemplateCompletion({

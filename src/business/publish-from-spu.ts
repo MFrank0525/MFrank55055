@@ -5338,7 +5338,7 @@ async function findDeleteControlNearPreviewSafe(
   preview: { x: number; y: number; width: number; height: number }
 ): Promise<{ x: number; y: number } | null> {
   return page.evaluate((target) => {
-    const candidates = Array.from(document.querySelectorAll("div, span, button, a, [role='button'], i, svg"))
+    const candidates = Array.from(document.querySelectorAll("div, span, button, a, [role='button'], i, svg, use, path"))
       .map((el) => el as HTMLElement)
       .map((el) => {
         const rect = el.getBoundingClientRect();
@@ -5350,13 +5350,15 @@ async function findDeleteControlNearPreviewSafe(
           el.textContent || "",
           el.getAttribute("aria-label") || "",
           el.getAttribute("title") || "",
+          el.getAttribute("href") || "",
+          el.getAttribute("xlink:href") || "",
           String(el.className || "")
         ].join(" ");
         const normalizedMarker = marker.replace(/\s+/g, "").toLowerCase();
         const centerX = rect.x + rect.width / 2;
         const centerY = rect.y + rect.height / 2;
         const horizontallyAligned = centerX >= target.x - 30 && centerX <= target.x + target.width + 140;
-        const belowPreview = centerY >= target.y + target.height - 10 && centerY <= target.y + target.height + 110;
+        const belowPreview = centerY >= target.y + target.height - 30 && centerY <= target.y + target.height + 110;
         const upperFallback = centerY >= target.y - 120 && centerY <= target.y + 50;
 
         if (!horizontallyAligned || (!belowPreview && !upperFallback)) {
@@ -5364,8 +5366,8 @@ async function findDeleteControlNearPreviewSafe(
         }
 
         const hasDeleteText = normalizedMarker.includes("删除");
-        const hasDeleteSemantics = /(delete|remove|trash|icon-delete|icon-trash|semi-icon-close|close)/.test(normalizedMarker);
-        const looksLikeActionControl = /(actionafter|preview-button|material-button|icon|删除)/.test(normalizedMarker);
+        const hasDeleteSemantics = /(delete|remove|trash|shanchu|icon-delete|icon-trash|semi-icon-close|close)/.test(normalizedMarker);
+        const looksLikeActionControl = /(actionafter|preview-button|material-button|icon|shanchu|删除)/.test(normalizedMarker);
         if ((!hasDeleteText && !hasDeleteSemantics) || !looksLikeActionControl) {
           return null;
         }
@@ -5724,11 +5726,10 @@ async function purgeForbiddenGraphicSectionsStrict(page: Page): Promise<string[]
       await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
       await page.waitForTimeout(250);
       const deleteControl = await findDeleteControlNearPreviewSafe(page, target);
-      if (deleteControl) {
-        await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
-      } else {
-        await page.mouse.click(target.x + target.width - 10, target.y + 10, { delay: 60 }).catch(() => {});
+      if (!deleteControl) {
+        break;
       }
+      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
 
       await page.waitForTimeout(500);
       await clickConfirmIfVisibleStrict(page);
@@ -5766,11 +5767,10 @@ async function clearGraphicSectionPreviewsStrict(page: Page, sectionName: string
     await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2).catch(() => {});
     await page.waitForTimeout(250);
     const deleteControl = await findDeleteControlNearPreviewSafe(page, target).catch(() => null);
-    if (deleteControl) {
-      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
-    } else {
-      await page.mouse.click(target.x + target.width - 10, target.y + 10, { delay: 60 }).catch(() => {});
+    if (!deleteControl) {
+      break;
     }
+    await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
 
     await page.waitForTimeout(500);
     await clickConfirmIfVisibleStrict(page);
@@ -5961,6 +5961,20 @@ async function verifyForbiddenGraphicSectionsEmptyOnPage(
   return { remainingSections, screenshotFile };
 }
 
+async function repairForbiddenGraphicSectionsBeforePublish(
+  page: Page,
+  runtimeDir: string,
+  screenshotFileName: string
+): Promise<{ removedSections: string[]; remainingSections: string[]; screenshotFile: string }> {
+  const repairResult = await enforceForbiddenGraphicSectionsEmpty(page, runtimeDir, screenshotFileName);
+  const remainingSections = await listRemainingForbiddenGraphicSections(page);
+  return {
+    removedSections: repairResult.removedSections,
+    remainingSections,
+    screenshotFile: repairResult.screenshotFile
+  };
+}
+
 async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
   await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
   const detailSectionVisible =
@@ -6030,67 +6044,6 @@ async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
     }
   }
   return false;
-}
-
-async function clickSmartCropForMain34Section(page: Page, expectedCount: number): Promise<boolean> {
-  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
-  await scrollGraphicSectionIntoView(page, "\u4e3b\u56fe3:4").catch(() => false);
-  await page.waitForTimeout(800);
-  await dismissTransientOverlays(page);
-
-  if ((await countMain34Previews(page)) >= expectedCount) {
-    return true;
-  }
-
-  const clickCrop = async (): Promise<boolean> =>
-    page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const nodes = Array.from(document.querySelectorAll("button, a, span, div"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = normalize(el.textContent || "");
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (
-          text !== "\u4ece1:1\u4e3b\u56fe\u667a\u80fd\u88c1\u526a" ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden"
-        ) {
-          return null;
-        }
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a!.y - b!.y);
-
-    const target = nodes[0];
-    if (!target) {
-      return false;
-    }
-    const clickable = document.elementFromPoint(target.x, target.y) as HTMLElement | null;
-    clickable?.click();
-    return Boolean(clickable);
-  });
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const clicked = await clickCrop().catch(() => false);
-    if (!clicked) {
-      return false;
-    }
-    await page.waitForTimeout(3200);
-    await dismissTransientOverlays(page);
-    if ((await countMain34Previews(page)) >= expectedCount) {
-      return true;
-    }
-    if (attempt === 0) {
-      await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe3:4").catch(() => 0);
-      await page.waitForTimeout(800);
-    }
-  }
-
-  return (await countMain34Previews(page)) >= expectedCount;
 }
 
 async function uploadQualificationImagesToDetailSection(
@@ -6252,46 +6205,6 @@ async function ensureDetailImagesFromMainThenQualifications(
   };
 }
 
-async function uploadMissingMain34ImagesToSection(page: Page, assets: ProductAssets): Promise<boolean> {
-  const expectedCount = assets.mainImages.length;
-  let currentCount = await countMain34Previews(page).catch(() => 0);
-  if (currentCount >= expectedCount) {
-    return true;
-  }
-
-  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
-  await scrollGraphicSectionIntoView(page, "\u4e3b\u56fe3:4").catch(() => false);
-  await page.waitForTimeout(800);
-  await dismissTransientOverlays(page);
-
-  for (let index = currentCount; index < expectedCount; index += 1) {
-    const inputs = await collectFileInputs(page);
-    const main34Input = pickBestSectionFileInput(inputs, "\u4e3b\u56fe3:4", (input) => {
-      let score = 0;
-      if (input.sectionLabel === "\u4e3b\u56fe3:4") score += 1000;
-      if (input.parentText.includes("\u4e3b\u56fe3:4")) score += 160;
-      if (input.parentText.includes("\u4e0a\u4f20\u8f85\u52a9\u56fe")) score += 80;
-      if (input.sectionLabel === "\u4e3b\u56fe" || input.sectionLabel === "\u767d\u5e95\u56fe") score -= 1000;
-      if (input.parentText.includes("\u767d\u5e95\u56fe") || input.parentText.includes("\u5546\u54c1\u8be6\u60c5")) score -= 300;
-      return score;
-    });
-    if (!main34Input) {
-      break;
-    }
-
-    await uploadFilesToInput(page, main34Input, assets.mainImages.slice(index, index + 1));
-    await page.waitForTimeout(1600);
-    await dismissTransientOverlays(page);
-    const nextCount = await countMain34Previews(page).catch(() => currentCount);
-    if (nextCount <= currentCount) {
-      break;
-    }
-    currentCount = nextCount;
-  }
-
-  return (await countMain34Previews(page).catch(() => 0)) >= expectedCount;
-}
-
 async function uploadWhiteBackgroundImage(page: Page, assets: ProductAssets): Promise<boolean> {
   if (!assets.whiteBackgroundImages.length) {
     return false;
@@ -6403,6 +6316,32 @@ function graphicUploadGroupsComplete(uploadedGroups: string[]): boolean {
       item === "detailImages:existingWithQualifications"
   );
   return uploadedGroups.includes("mainImages") && uploadedGroups.includes("optionalGraphicSectionsCleared") && detailDone;
+}
+
+async function resetGraphicModuleOnPage(page: Page, runtimeDir: string, screenshotFileName: string): Promise<string> {
+  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
+  await dismissTransientOverlays(page);
+
+  const mainCount = await countMainImagePreviews(page).catch(() => 0);
+  if (mainCount > 0) {
+    await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, mainCount + 3)).catch(() => 0);
+    await page.waitForTimeout(800);
+  }
+
+  await enforceForbiddenGraphicSectionsEmpty(page, runtimeDir, screenshotFileName.replace(/\.png$/, "-forbidden.png")).catch(() => ({
+    removedSections: [],
+    remainingSections: [],
+    screenshotFile: ""
+  }));
+
+  const detailCount = await countDetailImagePreviews(page).catch(() => 0);
+  if (detailCount > 0) {
+    await clearDetailImagePreviewsStrict(page, Math.max(12, detailCount + 3)).catch(() => 0);
+    await page.waitForTimeout(800);
+  }
+
+  await dismissTransientOverlays(page);
+  return savePageScreenshot(page, runtimeDir, screenshotFileName);
 }
 
 async function uploadProductImages(
@@ -7960,28 +7899,27 @@ async function runPublishFlow(
     for (let specAttempt = 0; specAttempt < 2; specAttempt += 1) {
       await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-before-images-${specAttempt + 1}`);
       await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_graphic_module");
-      const imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
+      let imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
       screenshotFiles.push(imageResult.screenshotFile);
       uploadedGroups = imageResult.uploadedGroups;
       uploadIssue = imageResult.uploadIssue;
       if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
-        stages.push({ step: "upload_product_images", status: "failed" });
         if (graphicResetAttempt < 1) {
           logWarn(
-            `Graphic module did not reach a clean completed state; reopening from platform SPU instead of repairing the current create page. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
+            `Graphic module did not reach a clean completed state; resetting the current graphic module before retry. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
           );
-          await context.browser()?.close().catch(() => {});
-          const retryResult = await runPublishFlow(runtimeDir, metadata, assets, shopFolder, undefined, stopBeforePublish, graphicResetAttempt + 1);
-          return {
-            ...retryResult,
-            screenshotFiles: [...screenshotFiles, ...retryResult.screenshotFiles],
-            stages: [
-              ...stages,
-              { step: "reopen_publish_page_after_graphic_failure", status: "completed" },
-              ...retryResult.stages
-            ]
-          };
+          screenshotFiles.push(
+            await resetGraphicModuleOnPage(page, runtimeDir, "publish-page-graphic-module-reset-before-retry.png")
+          );
+          stages.push({ step: "reset_graphic_module_after_upload_failure", status: "completed" });
+          imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded-after-reset.png");
+          screenshotFiles.push(imageResult.screenshotFile);
+          uploadedGroups = imageResult.uploadedGroups;
+          uploadIssue = imageResult.uploadIssue;
         }
+      }
+      if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
+        stages.push({ step: "upload_product_images", status: "failed" });
         throw new Error(
           `Sequential publish flow stopped: 图文信息模块未完成。${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
         );
@@ -8120,9 +8058,21 @@ async function runPublishFlow(
     const preForbiddenRule = evaluateForbiddenGraphicSections(preCheckForbiddenResult.remainingSections);
     if (!preForbiddenRule.passed) {
       stages.push({ step: "pre_publish_forbidden_graphic_check", status: "failed" });
-      throw new Error(`Sequential publish flow stopped: 发布前白底图/3:4主图仍未清空。${preForbiddenRule.issue}`);
+      const repairResult = await repairForbiddenGraphicSectionsBeforePublish(
+        page,
+        runtimeDir,
+        "publish-page-forbidden-graphic-sections-repaired-before-check.png"
+      );
+      screenshotFiles.push(repairResult.screenshotFile);
+      const repairedRule = evaluateForbiddenGraphicSections(repairResult.remainingSections);
+      if (!repairedRule.passed) {
+        stages.push({ step: "pre_publish_forbidden_graphic_repair", status: "failed" });
+        throw new Error(`Sequential publish flow stopped: 发布前白底图/3:4主图仍未清空。${repairedRule.issue}`);
+      }
+      stages.push({ step: "pre_publish_forbidden_graphic_repair", status: "completed" });
+    } else {
+      stages.push({ step: "pre_publish_forbidden_graphic_check", status: "completed" });
     }
-    stages.push({ step: "pre_publish_forbidden_graphic_check", status: "completed" });
 
     const checkResult = await runPublishCheckOnPage(page, runtimeDir, "publish-page-fill-check.png");
     screenshotFiles.push(checkResult.screenshotFile);
@@ -8181,9 +8131,21 @@ async function runPublishFlow(
       const finalForbiddenRule = evaluateForbiddenGraphicSections(finalForbiddenResult.remainingSections);
       if (!finalForbiddenRule.passed) {
         stages.push({ step: "final_forbidden_graphic_check", status: "failed" });
-        throw new Error(`Sequential publish flow stopped: 提交前白底图/3:4主图仍未清空。${finalForbiddenRule.issue}`);
+        const repairResult = await repairForbiddenGraphicSectionsBeforePublish(
+          page,
+          runtimeDir,
+          "publish-page-forbidden-graphic-sections-repaired-before-submit.png"
+        );
+        screenshotFiles.push(repairResult.screenshotFile);
+        const repairedRule = evaluateForbiddenGraphicSections(repairResult.remainingSections);
+        if (!repairedRule.passed) {
+          stages.push({ step: "final_forbidden_graphic_repair", status: "failed" });
+          throw new Error(`Sequential publish flow stopped: 提交前白底图/3:4主图仍未清空。${repairedRule.issue}`);
+        }
+        stages.push({ step: "final_forbidden_graphic_repair", status: "completed" });
+      } else {
+        stages.push({ step: "final_forbidden_graphic_check", status: "completed" });
       }
-      stages.push({ step: "final_forbidden_graphic_check", status: "completed" });
 
       const publishResult = await clickPublishProductOnPage(page, runtimeDir, "publish-page-published.png");
       if (publishResult.screenshotFile) {
@@ -8348,28 +8310,27 @@ async function runGraphicFlow(
 
     await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "graphic-before-images");
     await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_graphic_module");
-    const imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
+    let imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
     screenshotFiles.push(imageResult.screenshotFile);
     uploadedGroups = imageResult.uploadedGroups;
     uploadIssue = imageResult.uploadIssue;
     if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
-      stages.push({ step: "upload_product_images", status: "failed" });
       if (graphicResetAttempt < 1) {
         logWarn(
-          `Graphic module did not reach a clean completed state; reopening from platform SPU instead of repairing the current create page. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
+          `Graphic module did not reach a clean completed state; resetting the current graphic module before retry. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
         );
-        await context.browser()?.close().catch(() => {});
-        const retryResult = await runGraphicFlow(runtimeDir, metadata, assets, shopFolder, undefined, graphicResetAttempt + 1);
-        return {
-          ...retryResult,
-          screenshotFiles: [...screenshotFiles, ...retryResult.screenshotFiles],
-          stages: [
-            ...stages,
-            { step: "reopen_publish_page_after_graphic_failure", status: "completed" },
-            ...retryResult.stages
-          ]
-        };
+        screenshotFiles.push(
+          await resetGraphicModuleOnPage(page, runtimeDir, "publish-page-graphic-module-reset-before-retry.png")
+        );
+        stages.push({ step: "reset_graphic_module_after_upload_failure", status: "completed" });
+        imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded-after-reset.png");
+        screenshotFiles.push(imageResult.screenshotFile);
+        uploadedGroups = imageResult.uploadedGroups;
+        uploadIssue = imageResult.uploadIssue;
       }
+    }
+    if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
+      stages.push({ step: "upload_product_images", status: "failed" });
       throw new Error(`Graphic flow stopped: 图文信息模块未完成。${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`);
     }
     stages.push({ step: "upload_product_images", status: "completed" });

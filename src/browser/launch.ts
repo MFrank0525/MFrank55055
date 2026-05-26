@@ -77,9 +77,12 @@ async function waitForDebugEndpoint(port = activeRemoteDebuggingPort, timeoutMs 
 
 async function canConnectOverCdp(port = activeRemoteDebuggingPort): Promise<boolean> {
   try {
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    await browser.close();
-    return true;
+    const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+    if (!response.ok) {
+      return false;
+    }
+    const version = (await response.json().catch(() => undefined)) as { webSocketDebuggerUrl?: string; Browser?: string } | undefined;
+    return Boolean(version?.webSocketDebuggerUrl && String(version.Browser || "").toLowerCase().includes("chrome"));
   } catch {
     return false;
   }
@@ -130,8 +133,11 @@ async function waitForDebugEndpointClosed(port: number, timeoutMs = 5000): Promi
   }
 }
 
-async function ensureRemoteBrowser(userDataDir: string): Promise<void> {
+async function ensureRemoteBrowser(userDataDir: string, excludedPorts = new Set<number>()): Promise<void> {
   for (const port of REMOTE_DEBUGGING_PORTS) {
+    if (excludedPorts.has(port)) {
+      continue;
+    }
     const endpointReady = await isDebugEndpointReady(port);
     const cdpUsable = await canConnectOverCdp(port);
     if (cdpUsable) {
@@ -151,6 +157,9 @@ async function ensureRemoteBrowser(userDataDir: string): Promise<void> {
   const executable = getBrowserExecutable();
   let lastError: Error | null = null;
   for (const port of REMOTE_DEBUGGING_PORTS) {
+    if (excludedPorts.has(port)) {
+      continue;
+    }
     if (await isDebugEndpointReady(port)) {
       logWarn(`remote debugging port ${port} is already occupied by an incompatible browser; skipping launch on this port`);
       continue;
@@ -196,6 +205,24 @@ async function ensureRemoteBrowser(userDataDir: string): Promise<void> {
 
 async function connectBrowser(): Promise<Browser> {
   return chromium.connectOverCDP(`http://127.0.0.1:${activeRemoteDebuggingPort}`);
+}
+
+async function connectBrowserWithRecovery(userDataDir: string): Promise<Browser> {
+  await ensureRemoteBrowser(userDataDir);
+  try {
+    return await connectBrowser();
+  } catch (error) {
+    const failedPort = activeRemoteDebuggingPort;
+    const message = error instanceof Error ? error.message : String(error);
+    logWarn(`remote debugging browser connection failed on port ${failedPort}; restarting browser before retry: ${message}`);
+    const killed = killRemoteDebuggingBrowserProcesses(userDataDir, activeRemoteDebuggingPort);
+    if (killed.length) {
+      logWarn(`terminated stale remote debugging browser process(es) on port ${failedPort}: ${killed.join(", ")}`);
+      await waitForDebugEndpointClosed(activeRemoteDebuggingPort);
+    }
+    await ensureRemoteBrowser(userDataDir, new Set([failedPort]));
+    return connectBrowser();
+  }
 }
 
 function pageMatchesWorkspace(page: Page, key: WorkspacePageKey): boolean {
@@ -244,14 +271,14 @@ export async function getWorkspacePage(context: BrowserContext, key: WorkspacePa
 }
 
 export async function launchPersistentBrowser(): Promise<BrowserContext> {
+  let browser: Browser;
   try {
-    await ensureRemoteBrowser(getUserDataDir());
+    browser = await connectBrowserWithRecovery(getUserDataDir());
   } catch (error) {
     logWarn(`primary browser profile failed, retrying fallback profile: ${(error as Error).message}`);
-    await ensureRemoteBrowser(getFallbackUserDataDir());
+    browser = await connectBrowserWithRecovery(getFallbackUserDataDir());
   }
 
-  const browser = await connectBrowser();
   const existingContext = browser.contexts()[0];
   if (existingContext) {
     await installGptPlusQuotaGuard(existingContext);
