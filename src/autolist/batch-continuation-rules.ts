@@ -41,6 +41,34 @@ export function shouldResumeInterruptedTaskInPlace(input: InterruptedTaskResumeI
   return !["done", "cleaned", "failed"].includes(input.taskStatus || "");
 }
 
+export type HermesHistoricalResultSuppressionInput = {
+  running: boolean;
+  publishProgressAvailable: boolean;
+  resultOk?: boolean;
+  resultStatus?: string;
+};
+
+export function shouldSuppressHistoricalResultInHermesStatus(input: HermesHistoricalResultSuppressionInput): boolean {
+  if (!input.running || !input.publishProgressAvailable) {
+    return false;
+  }
+  return input.resultOk === false || input.resultStatus === "failed";
+}
+
+export type HermesStateCurrentTaskSuppressionInput = {
+  running: boolean;
+  publishProgressAvailable: boolean;
+  latestProgressStep?: string;
+  currentTaskStatus?: string;
+};
+
+export function shouldSuppressStateCurrentTaskInHermesStatus(input: HermesStateCurrentTaskSuppressionInput): boolean {
+  if (!input.running || !input.publishProgressAvailable) {
+    return false;
+  }
+  return Boolean(input.latestProgressStep && input.currentTaskStatus && input.latestProgressStep !== input.currentTaskStatus);
+}
+
 export type FeishuBatchRefreshContinuationInput = {
   exitCode: number | null;
   currentBatchComplete: boolean;

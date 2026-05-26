@@ -18,7 +18,9 @@ import {
   selectHermesStatusResultFile,
   isHermesSupervisorProcessCommand,
   shouldResumeFeishuBatchAfterRetryableChildFailure,
-  shouldResumeInterruptedTaskInPlace
+  shouldResumeInterruptedTaskInPlace,
+  shouldSuppressHistoricalResultInHermesStatus,
+  shouldSuppressStateCurrentTaskInHermesStatus
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -584,6 +586,42 @@ assert.equal(
     taskStatus: "done",
     sourceImageExists: true,
     reusableRawImageCount: 20
+  }),
+  false
+);
+assert.equal(
+  shouldSuppressHistoricalResultInHermesStatus({
+    running: true,
+    publishProgressAvailable: true,
+    resultOk: false,
+    resultStatus: "failed"
+  }),
+  true
+);
+assert.equal(
+  shouldSuppressHistoricalResultInHermesStatus({
+    running: false,
+    publishProgressAvailable: true,
+    resultOk: false,
+    resultStatus: "failed"
+  }),
+  false
+);
+assert.equal(
+  shouldSuppressStateCurrentTaskInHermesStatus({
+    running: true,
+    publishProgressAvailable: true,
+    latestProgressStep: "published",
+    currentTaskStatus: "source_images_discovered"
+  }),
+  true
+);
+assert.equal(
+  shouldSuppressStateCurrentTaskInHermesStatus({
+    running: true,
+    publishProgressAvailable: false,
+    latestProgressStep: "main_images_generated",
+    currentTaskStatus: "main_images_generated"
   }),
   false
 );

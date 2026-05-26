@@ -5,7 +5,9 @@ import {
   isHermesSupervisorProcessCommand,
   selectHermesStatusResultFile,
   shouldPreferActiveTaskStateSummary,
-  shouldResumeInterruptedTaskInPlace
+  shouldResumeInterruptedTaskInPlace,
+  shouldSuppressHistoricalResultInHermesStatus,
+  shouldSuppressStateCurrentTaskInHermesStatus
 } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
@@ -540,6 +542,26 @@ function existingStatus(): Record<string, unknown> {
       (publishProgress && Number(publishProgress.failed || 0) > 0));
   const hasPendingFeishuProducts = !running && !batchComplete;
   const resolvedStatus = running ? "running" : completed ? "completed" : failed ? "failed" : hasPendingFeishuProducts ? "pending_products" : "exited_unknown";
+  const suppressHistoricalResult = shouldSuppressHistoricalResultInHermesStatus({
+    running,
+    publishProgressAvailable: Boolean(publishProgress),
+    resultOk: typeof result?.ok === "boolean" ? result.ok : undefined,
+    resultStatus: typeof result?.status === "string" ? result.status : undefined
+  });
+  const suppressStateCurrentTask = shouldSuppressStateCurrentTaskInHermesStatus({
+    running,
+    publishProgressAvailable: Boolean(publishProgress),
+    latestProgressStep: String((state?.latestProgress as Record<string, unknown> | undefined)?.step || ""),
+    currentTaskStatus: String((state?.currentTask as Record<string, unknown> | undefined)?.status || "")
+  });
+  const statusState =
+    state && suppressStateCurrentTask
+      ? {
+          ...state,
+          currentTask: undefined,
+          note: "运行中发布进度以 publishProgress 为准；state.currentTask 来自旧任务状态，已从状态载荷中隐藏以避免误判。"
+        }
+      : state;
   const stateSummary = state
     ? `任务${resolvedStatus === "running" ? "正在运行" : "已结束"}，当前阶段：${String((state.latestProgress as Record<string, unknown> | undefined)?.step || (state.currentTask as Record<string, unknown> | undefined)?.status || state.status || "unknown")}` +
       ((state.latestProgress as Record<string, unknown> | undefined)?.message
@@ -564,10 +586,10 @@ function existingStatus(): Record<string, unknown> {
           : "任务进程已退出，查看 result 字段确认最终结果。"),
     resultNote:
       running && publishProgress
-        ? "进程仍在运行时 result.json 可能保留上一次失败内容；实时进度以 publishProgress/publish-manifest 为准。"
+        ? "进程仍在运行时历史 result.json 可能保留上一次失败内容；实时进度以 publishProgress/publish-manifest 为准，历史失败 result 已从状态载荷中隐藏。"
         : undefined,
-    result,
-    state,
+    result: suppressHistoricalResult ? undefined : result,
+    state: statusState,
     publishProgress,
     feishuProgress,
     logTail: tailFile(job.logFile, 12).map(compactStatusLine)
