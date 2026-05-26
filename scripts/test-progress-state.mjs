@@ -36,6 +36,7 @@ import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-
 import {
   classifyPublishFailure,
   evaluateDetailImageCompletion,
+  evaluatePriceInventoryEntryRule,
   evaluatePublishCreatePageReadiness,
   evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext,
@@ -555,6 +556,15 @@ assert.deepEqual(
     blankSpecValueInputs: 0
   }),
   { passed: true, issue: "" }
+);
+assert.deepEqual(
+  evaluatePriceInventoryEntryRule({
+    specIssue: "Spec module error detected: 该项为必填，请输入"
+  }),
+  {
+    action: "block_until_spec_template_complete",
+    issue: "Spec module error detected: 该项为必填，请输入"
+  }
 );
 assert.equal(
   shouldRetryImageGenerationWithPolicyPrompt({

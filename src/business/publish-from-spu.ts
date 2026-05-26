@@ -35,6 +35,7 @@ import {
   evaluateDetailUploadOutcome,
   evaluateForbiddenGraphicSections,
   evaluateMedicalDeviceCertificateUploadRule,
+  evaluatePriceInventoryEntryRule,
   evaluatePriceInventoryCompletion,
   evaluatePublishCheckResult,
   evaluatePublishCreatePageReadiness,
@@ -4021,7 +4022,7 @@ async function countVisibleBlankSpecValueInputs(page: Page): Promise<number> {
 }
 
 async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
-  const target = await page.evaluate(() => {
+  const clicked = await page.evaluate(() => {
     const labels = Array.from(document.querySelectorAll("body *"))
       .map((el) => el as HTMLElement)
       .map((el) => {
@@ -4073,11 +4074,6 @@ async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
     }
 
     const inputRect = blankInput.getBoundingClientRect();
-    const fallbackDeletePoint = {
-      x: Math.min(window.innerWidth - 80, inputRect.right + 24),
-      y: inputRect.top + inputRect.height / 2,
-      distance: 9999
-    };
     const candidates = Array.from(document.querySelectorAll("button, [role='button'], svg"))
       .map((el) => el as HTMLElement)
       .map((el) => {
@@ -4098,8 +4094,7 @@ async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
           return null;
         }
         return {
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
+          element: el,
           distance:
             Math.abs(rect.left - inputRect.right) +
             Math.abs(rect.top - inputRect.top) +
@@ -4107,15 +4102,20 @@ async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
         };
       })
       .filter(Boolean)
-      .sort((a, b) => (a?.distance || 0) - (b?.distance || 0)) as Array<{ x: number; y: number; distance: number }>;
+      .sort((a, b) => (a?.distance || 0) - (b?.distance || 0)) as Array<{ element: HTMLElement; distance: number }>;
 
-    return fallbackDeletePoint || candidates[0] || null;
+    const target = candidates[0]?.element;
+    if (!target) {
+      return false;
+    }
+    const clickable = (target.closest("button, [role='button']") as HTMLElement | null) || target.parentElement || target;
+    clickable.click();
+    return true;
   });
 
-  if (!target) {
+  if (!clicked) {
     return false;
   }
-  await page.mouse.click(target.x, target.y, { delay: 80 });
   await page.waitForTimeout(500);
   return true;
 }
@@ -8203,7 +8203,8 @@ async function runPublishFlow(
         specIssue = `Spec module error detected: ${specModuleError}`;
       }
 
-      if (specIssue && specAttempt === 0) {
+      const priceEntryRule = evaluatePriceInventoryEntryRule({ specIssue });
+      if (priceEntryRule.action === "block_until_spec_template_complete" && specAttempt === 0) {
         await gotoWithTolerance(page, createPageUrl, 3500);
         await verifyCategoryRegistrationGateOnPage(
           page,
@@ -8228,6 +8229,9 @@ async function runPublishFlow(
           filledFields.push(...refillResult.filledFields);
         }
         continue;
+      }
+      if (priceEntryRule.action === "block_until_spec_template_complete") {
+        break;
       }
 
       const priceInventoryResult = await applyPriceInventoryOnPage(page, runtimeDir, "publish-page-price-inventory-filled.png");

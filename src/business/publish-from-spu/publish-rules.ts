@@ -36,6 +36,15 @@ export interface SpecTemplateCompletionRuleInput {
   blankSpecValueInputs: number;
 }
 
+export interface PriceInventoryEntryRuleInput {
+  specIssue: string;
+}
+
+export interface PriceInventoryEntryRuleDecision {
+  action: "apply_price_inventory" | "block_until_spec_template_complete";
+  issue: string;
+}
+
 export interface ServiceFulfillmentState {
   shippingModeSelected: boolean;
   shippingTimeSelected: boolean;
@@ -374,6 +383,16 @@ export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRule
     passed: false,
     issue: `Spec values were incomplete after template apply. expected=${input.expectedSpecValues}; actual=${input.filledSpecValues}; priceRows=${input.priceRows}`
   };
+}
+
+export function evaluatePriceInventoryEntryRule(input: PriceInventoryEntryRuleInput): PriceInventoryEntryRuleDecision {
+  if (input.specIssue) {
+    return {
+      action: "block_until_spec_template_complete",
+      issue: input.specIssue
+    };
+  }
+  return { action: "apply_price_inventory", issue: "" };
 }
 
 export function evaluateServiceCompletion(input: { freightTemplateName: string; missingFields: string[] }): PublishRuleCheck {
