@@ -225,6 +225,8 @@
 25. 产品文件夹名如果只包含通用名称，动作层必须把文件夹内 Excel 文件名、资质图片名等可见文件名一并交给规则层判断；规则层仍无法唯一匹配时才允许失败。
 26. Hermes supervisor 可能在同一日志中连续执行 resume 子流程和 full-real-flow 子流程。状态汇报选择结果文件时，规则层必须优先使用该日志中最新 run 的 `result.json`，不能固定使用启动时写入的旧 `expectedResultFile`，否则会把新批次失败误报成上一单完成。
 27. Hermes job 里的 PID 只能作为候选信号。动作层必须读取该 PID 的真实命令并确认它仍是 `hermes-auto-listing-supervisor`；如果 PID 不存在或已被其他进程复用，状态层必须按已退出处理。
+28. 同一飞书批次未完成时，任何 full-real-flow 接力都必须锁定并复用当前 `data/feishu/products.json` 缓存，禁止重新执行 `feishu:assets --cleanup-stale-assets` 覆盖旧批次素材。只有当前缓存批次 `pending=0` 后，才允许刷新飞书表格发现新批次。
+29. 用户手动重新启动 full-real-flow 时也必须先审计当前缓存批次。如果当前缓存还有待处理产品，即使飞书在线表格已经更新，也必须先跑完缓存批次，不能把新批次插队到旧批次之前。
 
 ## 推荐执行顺序
 

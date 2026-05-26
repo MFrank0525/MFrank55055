@@ -1,14 +1,18 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { shouldRefreshFeishuAssetsBeforeFullFlow } from "../autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
-import { migrateLegacyProcessedImagesToBatch } from "../autolist/file-batch.js";
+import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 
 interface FlowArgs {
   real: boolean;
   configFile: string;
   imageGenerationConfigFile: string;
+  skipFeishuAssetsRefresh: boolean;
+  continuationReason: "initial_full" | "same_batch_pending" | "new_batch_after_refresh";
 }
 
 interface LocalFeishuConfig {
@@ -34,7 +38,13 @@ function parseArgs(argv: string[]): FlowArgs {
   return {
     real: argv.includes("--real"),
     configFile: configIndex >= 0 ? argv[configIndex + 1] || "./input/feishu-bitable.config.json" : "./input/feishu-bitable.config.json",
-    imageGenerationConfigFile: "./input/image-generation.config.json"
+    imageGenerationConfigFile: "./input/image-generation.config.json",
+    skipFeishuAssetsRefresh: argv.includes("--skip-feishu-assets-refresh"),
+    continuationReason: argv.includes("--same-batch-pending")
+      ? "same_batch_pending"
+      : argv.includes("--new-batch-after-refresh")
+        ? "new_batch_after_refresh"
+        : "initial_full"
   };
 }
 
@@ -112,6 +122,22 @@ function migrateLegacyProcessedManifestForCurrentCache(jobFile: string): void {
   }
 }
 
+function readCurrentBatchComplete(jobFile: string): boolean | undefined {
+  const job = loadJobSummary(jobFile);
+  const feishuProductDataFile = path.resolve(job.input?.feishuProductDataFile || "./data/feishu/products.json");
+  const processedImageManifest = path.resolve(job.input?.processedImageManifest || "./data/auto-listing/processed-images.json");
+  if (!fs.existsSync(feishuProductDataFile)) {
+    return undefined;
+  }
+  const records = loadFeishuProductRecords(feishuProductDataFile);
+  const fingerprint = buildFeishuBatchFingerprint(records);
+  const progress = summarizeFeishuBatchProgress({
+    records,
+    processedImages: readProcessedImages(processedImageManifest, fingerprint)
+  });
+  return progress.batchComplete;
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   const jobFile = args.real
@@ -142,16 +168,28 @@ function main(): void {
       : ["run", "doctor:auto-listing", "--", "--image-generation-provider", "openai-compatible"]
   );
   migrateLegacyProcessedManifestForCurrentCache(jobFile);
-  runStep("Feishu assets", "npm", [
-    "run",
-    "feishu:assets",
-    "--",
-    "--config",
-    args.configFile,
-    "--out",
-    "./data/feishu/products.json",
-    "--cleanup-stale-assets"
-  ], feishuEnv);
+  const currentBatchComplete = readCurrentBatchComplete(jobFile);
+  const shouldRefreshFeishuAssets =
+    !args.skipFeishuAssetsRefresh &&
+    shouldRefreshFeishuAssetsBeforeFullFlow({
+      continuationReason: args.continuationReason,
+      currentBatchComplete
+    });
+  if (!shouldRefreshFeishuAssets) {
+    console.log("\n== Feishu assets ==");
+    console.log("Skipped Feishu assets refresh; continuing with the locked current Feishu cache.");
+  } else {
+    runStep("Feishu assets", "npm", [
+      "run",
+      "feishu:assets",
+      "--",
+      "--config",
+      args.configFile,
+      "--out",
+      "./data/feishu/products.json",
+      "--cleanup-stale-assets"
+    ], feishuEnv);
+  }
   runStep("Auto-listing", "npm", [
     "run",
     "business:auto-listing",

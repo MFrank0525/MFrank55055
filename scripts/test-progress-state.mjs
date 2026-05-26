@@ -13,6 +13,7 @@ import {
 import {
   shouldContinueFeishuBatchAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
+  shouldRefreshFeishuAssetsBeforeFullFlow,
   shouldPreferActiveTaskStateSummary,
   selectHermesStatusResultFile,
   isHermesSupervisorProcessCommand
@@ -399,6 +400,32 @@ assert.equal(
     currentBatchComplete: true,
     refreshedBatchChanged: true,
     refreshedBatchComplete: true
+  }),
+  false
+);
+assert.equal(
+  shouldRefreshFeishuAssetsBeforeFullFlow({
+    continuationReason: "same_batch_pending"
+  }),
+  false
+);
+assert.equal(
+  shouldRefreshFeishuAssetsBeforeFullFlow({
+    continuationReason: "new_batch_after_refresh"
+  }),
+  false
+);
+assert.equal(
+  shouldRefreshFeishuAssetsBeforeFullFlow({
+    continuationReason: "initial_full",
+    currentBatchComplete: true
+  }),
+  true
+);
+assert.equal(
+  shouldRefreshFeishuAssetsBeforeFullFlow({
+    continuationReason: "initial_full",
+    currentBatchComplete: false
   }),
   false
 );

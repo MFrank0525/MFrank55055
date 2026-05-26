@@ -4,7 +4,9 @@ import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import {
   shouldContinueFeishuAfterBatchRefresh,
-  shouldContinueFeishuBatchAfterChildExit
+  shouldContinueFeishuBatchAfterChildExit,
+  shouldRefreshFeishuAssetsBeforeFullFlow,
+  type FullFlowContinuationReason
 } from "../autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
@@ -160,18 +162,31 @@ function runResume(): number | null {
   ]);
 }
 
-function runFullFlow(): number | null {
-  return runChild("full-real-flow", "node", ["dist/src/cli/flow-mac-feishu.js", "--real"]);
+function runFullFlow(reason: FullFlowContinuationReason): number | null {
+  const args = ["dist/src/cli/flow-mac-feishu.js", "--real"];
+  if (!shouldRefreshFeishuAssetsBeforeFullFlow({ continuationReason: reason })) {
+    args.push("--skip-feishu-assets-refresh");
+  }
+  if (reason === "same_batch_pending") {
+    args.push("--same-batch-pending");
+  }
+  if (reason === "new_batch_after_refresh") {
+    args.push("--new-batch-after-refresh");
+  }
+  return runChild("full-real-flow", "node", args);
 }
 
 function main(): void {
   let nextMode: InitialMode | "" = parseInitialMode(process.argv.slice(2));
+  let fullFlowReason: FullFlowContinuationReason = "initial_full";
   while (nextMode) {
-    const exitCode = nextMode === "resume" ? runResume() : runFullFlow();
+    const exitCode = nextMode === "resume" ? runResume() : runFullFlow(fullFlowReason);
+    fullFlowReason = "initial_full";
     const currentBatch = readBatchProgress();
     if (shouldContinueFeishuBatchAfterChildExit({ exitCode, batchComplete: currentBatch.batchComplete })) {
-      console.log("Feishu batch still has pending products after a successful child run; continuing full real flow.");
+      console.log("Feishu batch still has pending products after a successful child run; continuing full real flow with the locked current Feishu cache.");
       nextMode = "full";
+      fullFlowReason = "same_batch_pending";
       continue;
     }
 
@@ -190,6 +205,7 @@ function main(): void {
       })) {
         console.log("Feishu table has a new batch after refresh; continuing full real flow.");
         nextMode = "full";
+        fullFlowReason = "new_batch_after_refresh";
         continue;
       }
     }

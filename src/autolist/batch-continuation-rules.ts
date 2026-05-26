@@ -18,6 +18,20 @@ export function shouldContinueFeishuAfterBatchRefresh(input: FeishuBatchRefreshC
   return input.exitCode === 0 && input.currentBatchComplete && input.refreshedBatchChanged && !input.refreshedBatchComplete;
 }
 
+export type FullFlowContinuationReason = "initial_full" | "same_batch_pending" | "new_batch_after_refresh";
+
+export type FullFlowFeishuRefreshInput = {
+  continuationReason: FullFlowContinuationReason;
+  currentBatchComplete?: boolean;
+};
+
+export function shouldRefreshFeishuAssetsBeforeFullFlow(input: FullFlowFeishuRefreshInput): boolean {
+  if (input.currentBatchComplete === false) {
+    return false;
+  }
+  return input.continuationReason === "initial_full";
+}
+
 export type ActiveTaskStatusSummaryInput = {
   running: boolean;
   stateHasActiveTask: boolean;
