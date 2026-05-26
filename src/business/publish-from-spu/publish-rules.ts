@@ -370,6 +370,9 @@ export function evaluatePriceInventoryCompletion(input: {
 }
 
 export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRuleInput): PublishRuleCheck {
+  if (input.filledSpecValues >= input.expectedSpecValues && input.priceRows >= input.expectedSpecValues) {
+    return { passed: true, issue: "" };
+  }
   if (input.blankSpecValueInputs > 0) {
     return {
       passed: false,

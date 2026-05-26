@@ -8,7 +8,6 @@ import { classifyAssets, validateMainImageAspectRatio } from "./publish-from-spu
 import {
   FIXED_FREIGHT_TEMPLATE_KEYWORD,
   FIXED_PRICES,
-  FIXED_SPEC_NAME,
   FIXED_SPEC_VALUES,
   FIXED_STOCK,
   FORBIDDEN_GRAPHIC_SECTION_LABELS,
@@ -1918,7 +1917,18 @@ async function findShortTitleInputCenter(page: Page): Promise<{ x: number; y: nu
 
 async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
   return page.evaluate(() => {
-    const fields = Array.from(document.querySelectorAll("input, textarea"))
+    const collectFields = (): Array<{
+      input: HTMLInputElement | HTMLTextAreaElement;
+      type: string;
+      placeholder: string;
+      value: string;
+      className: string;
+      ancestors: string[];
+      x: number;
+      y: number;
+      width: number;
+    }> =>
+      Array.from(document.querySelectorAll("input, textarea"))
       .map((el) => {
         const input = el as HTMLInputElement | HTMLTextAreaElement;
         const rect = input.getBoundingClientRect();
@@ -1932,6 +1942,7 @@ async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: num
           node = node.parentElement;
         }
         return {
+          input,
           type: input.getAttribute("type") || "",
           placeholder: input.getAttribute("placeholder") || "",
           value: "value" in input ? String(input.value || "") : "",
@@ -1943,6 +1954,7 @@ async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: num
         };
       })
       .filter(Boolean) as Array<{
+        input: HTMLInputElement | HTMLTextAreaElement;
         type: string;
         placeholder: string;
         value: string;
@@ -1953,7 +1965,7 @@ async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: num
         width: number;
       }>;
 
-    const target = fields.find(
+    let target = collectFields().find(
       (field) =>
         field.type === "text" &&
         field.placeholder === "\u8BF7\u8F93\u5165" &&
@@ -1961,7 +1973,23 @@ async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: num
         field.ancestors.some((item) => item.includes("\u578B\u53F7\u89C4\u683C")) &&
         field.width > 180
     );
-    return target ? { x: target.x, y: target.y } : null;
+    if (!target) {
+      return null;
+    }
+    const fieldRoot = target.input.closest('[attr-field-id="\u578B\u53F7\u89C4\u683C"]') || target.input;
+    fieldRoot.scrollIntoView({ block: "center", inline: "nearest" });
+    target = collectFields().find(
+      (field) =>
+        field.type === "text" &&
+        field.placeholder === "\u8BF7\u8F93\u5165" &&
+        !field.className.includes("disabled") &&
+        field.ancestors.some((item) => item.includes("\u578B\u53F7\u89C4\u683C")) &&
+        field.width > 180
+    );
+    if (!target || target.y < 120 || target.y > window.innerHeight - 80) {
+      return null;
+    }
+    return { x: target.x, y: target.y };
   });
 }
 
@@ -2164,6 +2192,65 @@ function diffUnexpectedBasicFieldChanges(before: BasicFieldSnapshot[], after: Ba
     .map((item) => item.label || item.key);
 }
 
+async function readBasicPublishCompletionOnPage(
+  page: Page,
+  metadata: { title?: string; shortTitle?: string; modelSpec?: string }
+): Promise<{ missingFields: string[]; fieldValues: Record<string, string> }> {
+  return page.evaluate((expected) => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const readField = (fieldId: string): { value: string; hasRequiredError: boolean } => {
+      const root = document.querySelector(`[attr-field-id="${fieldId}"]`) as HTMLElement | null;
+      if (!root) {
+        return { value: "", hasRequiredError: true };
+      }
+      const input = root.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null;
+      const value = normalize(input?.value || "");
+      const text = normalize(root.innerText || root.textContent || "");
+      return {
+        value,
+        hasRequiredError: text.includes("\u8be5\u9879\u4e3a\u5fc5\u586b\uff0c\u8bf7\u8f93\u5165")
+      };
+    };
+
+    const title = readField("\u5546\u54c1\u6807\u9898");
+    const shortTitle = readField("\u5bfc\u8d2d\u77ed\u6807\u9898");
+    const modelSpec = readField("\u578b\u53f7\u89c4\u683c");
+    const missingFields = [
+      expected.title && (!title.value || title.hasRequiredError) ? "title" : "",
+      expected.shortTitle && (!shortTitle.value || shortTitle.hasRequiredError) ? "shortTitle" : "",
+      expected.modelSpec && (!modelSpec.value || !modelSpec.value.includes(expected.modelSpec) || modelSpec.hasRequiredError)
+        ? "modelSpec"
+        : ""
+    ].filter(Boolean);
+
+    return {
+      missingFields,
+      fieldValues: {
+        title: title.value,
+        shortTitle: shortTitle.value,
+        modelSpec: modelSpec.value
+      }
+    };
+  }, metadata);
+}
+
+async function assertBasicPublishCompletionOnPage(
+  page: Page,
+  runtimeDir: string,
+  metadata: { title?: string; shortTitle?: string; modelSpec?: string },
+  gateName: string
+): Promise<void> {
+  const completion = await readBasicPublishCompletionOnPage(page, metadata);
+  if (completion.missingFields.length) {
+    const screenshotFile = await savePageScreenshot(page, runtimeDir, `publish-page-basic-gate-${gateName}.png`).catch(() => "");
+    throw new Error(
+      `Basic info gate failed before ${gateName}: missing=${completion.missingFields.join(", ")}; values=${JSON.stringify(
+        completion.fieldValues
+      )}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
+    );
+  }
+}
+
 async function fillBasicPublishPage(
   runtimeDir: string,
   publishPageUrl: string,
@@ -2215,6 +2302,8 @@ async function fillBasicPublishPage(
           "publish-page-category-registration-mismatch.png"
         );
       }
+      await clickVisibleText(page, "\u5c55\u5f00\u66f4\u591a").catch(() => false);
+      await page.waitForTimeout(500);
       const modelSpecCenter = await findModelSpecInputCenter(page);
       if (!modelSpecCenter) {
         throw new Error("Model spec input not found on publish page.");
@@ -2288,11 +2377,15 @@ async function fillBasicPublishPageOnPage(
           "publish-page-category-registration-mismatch.png"
         );
       }
+      await clickVisibleText(page, "\u5c55\u5f00\u66f4\u591a").catch(() => false);
+      await page.waitForTimeout(500);
       const modelSpecCenter = await findModelSpecInputCenter(page);
       if (modelSpecCenter) {
         await clearAndTypeAtCenter(page, modelSpecCenter, metadata.modelSpec);
         filledFields.push("modelSpec");
         await page.waitForTimeout(400);
+      } else {
+        throw new Error("Model spec input not found on publish page.");
       }
     }
 
@@ -2663,7 +2756,8 @@ async function isPublishSectionContentVisible(page: Page, text: string): Promise
         return (
           rect.width > 0 &&
           rect.height > 0 &&
-          rect.top >= 120 &&
+          rect.left >= 420 &&
+          rect.top >= 240 &&
           rect.top <= window.innerHeight - 40 &&
           style.display !== "none" &&
           style.visibility !== "hidden"
@@ -2706,7 +2800,8 @@ async function isPublishSectionContentPresent(page: Page, text: string): Promise
           !text ||
           rect.width <= 0 ||
           rect.height <= 0 ||
-          rect.left <= 250 ||
+          rect.left < 420 ||
+          rect.top < 240 ||
           style.display === "none" ||
           style.visibility === "hidden"
         ) {
@@ -2748,6 +2843,8 @@ async function scrollPublishSectionContentIntoView(page: Page, text: string): Pr
           !text ||
           rect.width <= 0 ||
           rect.height <= 0 ||
+          rect.left < 420 ||
+          rect.top < 240 ||
           style.display === "none" ||
           style.visibility === "hidden" ||
           !markers.some((marker) => text.includes(marker))
@@ -2932,7 +3029,7 @@ async function ensurePublishSectionTab(page: Page, text: string): Promise<void> 
   }
 
   const activeTab = await readActivePublishSectionTab(page).catch(() => "");
-  if (activeTab === text && (await isPublishSectionContentPresent(page, text).catch(() => false))) {
+  if (activeTab === text) {
     return;
   }
   throw new Error(`Failed to activate publish section tab: expected=${text}; actual=${activeTab || "<unknown>"}`);
@@ -3806,77 +3903,6 @@ async function chooseKeywordFreightTemplate(page: Page, keyword: string): Promis
   );
 }
 
-function getSpecTemplateKeyword(title?: string): string {
-  return /涔呭厜灏忔辰/.test(title || "") ? "涔呭厜灏忔辰" : "涔颁簩閫佷竴";
-}
-
-async function chooseSpecTemplateOnPage(page: Page, title?: string): Promise<string> {
-  const keyword = getSpecTemplateKeyword(title);
-  const opened = await page.evaluate(() => {
-    const inputs = Array.from(document.querySelectorAll("input[type='search']"))
-      .map((el) => el as HTMLInputElement)
-      .map((input) => {
-        const rect = input.getBoundingClientRect();
-        const parentText = (input.parentElement?.parentElement?.textContent || "").trim();
-        if (rect.width <= 0 || rect.height <= 0) {
-          return null;
-        }
-        return {
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2,
-          parentText
-        };
-      })
-      .filter(Boolean)
-      .find((item) => item!.y > 2480 && item!.y < 2560 && item!.x > 900 && item!.parentText.includes("一键复用规格信息"));
-
-    if (!inputs) {
-      return false;
-    }
-    const target = document.elementFromPoint(inputs.x, inputs.y) as HTMLElement | null;
-    target?.click();
-    return true;
-  });
-
-  if (!opened) {
-    throw new Error("Spec template dropdown could not be opened.");
-  }
-  await page.waitForTimeout(1000);
-
-  const picked = await page.evaluate((targetKeyword) => {
-    const candidates = Array.from(document.querySelectorAll("body *"))
-      .map((el) => {
-        const text = (el.textContent || "").trim();
-        if (!text || !text.includes(targetKeyword)) {
-          return null;
-        }
-        const htmlEl = el as HTMLElement;
-        const rect = htmlEl.getBoundingClientRect();
-        const style = window.getComputedStyle(htmlEl);
-        if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.display === "none") {
-          return null;
-        }
-        return {
-          text,
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2,
-          score: text === targetKeyword ? 10 : text.includes(targetKeyword) ? 8 : 0
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-    return candidates[0] || null;
-  }, keyword);
-
-  if (!picked) {
-    throw new Error(`No visible spec template matched keyword: ${keyword}`);
-  }
-
-  await page.mouse.click(picked.x, picked.y, { delay: 90 });
-  await page.waitForTimeout(1200);
-  return picked.text;
-}
-
 function resolveSpecTemplateKeyword(title?: string): string {
   return (title || "").includes(SPEC_TEMPLATE_KEYWORD_JIUGUANG)
     ? SPEC_TEMPLATE_KEYWORD_JIUGUANG
@@ -3899,45 +3925,6 @@ async function chooseDynamicSpecTemplateOnPage(page: Page, title?: string): Prom
     throw new Error(`No visible spec template matched keyword: ${keyword}`);
   }
   return selectedValue;
-}
-
-async function fillMissingSpecValuesOnPage(page: Page): Promise<number> {
-  const existingTexts = await page.evaluate(() => (document.body.innerText || "").replace(/\s+/g, ""));
-  const missingValues = FIXED_SPEC_VALUES.filter((value) => !existingTexts.includes(value.replace(/\s+/g, "")));
-  if (!missingValues.length) {
-    return 0;
-  }
-
-  const inputs = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll("input"))
-      .map((el) => el as HTMLInputElement)
-      .map((input) => {
-        const rect = input.getBoundingClientRect();
-        if (
-          rect.width <= 120 ||
-          rect.height <= 0 ||
-          input.disabled ||
-          input.readOnly ||
-          input.type !== "text" ||
-          (input.placeholder || "") !== "请输入规格值"
-        ) {
-          return null;
-        }
-        return {
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2
-        };
-      })
-      .filter(Boolean) as Array<{ x: number; y: number }>;
-  });
-
-  const fillCount = Math.min(inputs.length, missingValues.length);
-  for (let index = 0; index < fillCount; index += 1) {
-    await clearAndTypeAtCenter(page, inputs[index], missingValues[index]);
-    await page.keyboard.press("Enter").catch(() => {});
-    await page.waitForTimeout(300);
-  }
-  return fillCount;
 }
 
 async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {
@@ -4023,6 +4010,25 @@ async function countVisibleBlankSpecValueInputs(page: Page): Promise<number> {
 
 async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
   const clicked = await page.evaluate(() => {
+    const findClosestRowContainer = (input: HTMLInputElement): HTMLElement => {
+      let current: HTMLElement | null = input;
+      for (let depth = 0; current && depth < 8; depth += 1) {
+        const textInputCount = Array.from(current.querySelectorAll("input"))
+          .map((el) => el as HTMLInputElement)
+          .filter((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            const type = (candidate.getAttribute("type") || "text").toLowerCase();
+            return rect.width > 80 && rect.height > 0 && !["hidden", "checkbox", "radio", "file"].includes(type);
+          }).length;
+        const actionCount = current.querySelectorAll("button, [role='button'], svg").length;
+        if (textInputCount === 1 && actionCount > 0) {
+          return current;
+        }
+        current = current.parentElement;
+      }
+      return input.parentElement || input;
+    };
+
     const labels = Array.from(document.querySelectorAll("body *"))
       .map((el) => el as HTMLElement)
       .map((el) => {
@@ -4074,20 +4080,39 @@ async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
     }
 
     const inputRect = blankInput.getBoundingClientRect();
-    const candidates = Array.from(document.querySelectorAll("button, [role='button'], svg"))
+    const rowContainer = findClosestRowContainer(blankInput);
+    const rowRect = rowContainer.getBoundingClientRect();
+    const rowCandidates = Array.from(rowContainer.querySelectorAll("button, [role='button'], svg"));
+    const candidates = (rowCandidates.length ? rowCandidates : Array.from(document.querySelectorAll("button, [role='button'], svg")))
       .map((el) => el as HTMLElement)
       .map((el) => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
         const text = normalize(el.innerText || el.textContent || el.getAttribute("aria-label") || "");
+        const marker = normalize(
+          [
+            text,
+            el.getAttribute("class") || "",
+            el.getAttribute("aria-label") || "",
+            el.closest("button, [role='button']")?.getAttribute("class") || "",
+            el.closest("button, [role='button']")?.getAttribute("aria-label") || ""
+          ].join(" ")
+        ).toLowerCase();
         if (
           rect.width <= 0 ||
           rect.height <= 0 ||
           style.display === "none" ||
           style.visibility === "hidden" ||
-          rect.left < inputRect.right - 12 ||
-          rect.left > inputRect.right + 120 ||
-          Math.abs(rect.top + rect.height / 2 - (inputRect.top + inputRect.height / 2)) > 34 ||
+          rect.top < rowRect.top - 12 ||
+          rect.bottom > rowRect.bottom + 12 ||
+          rect.left < inputRect.right - 20 ||
+          rect.left > inputRect.right + 180 ||
+          Math.abs(rect.top + rect.height / 2 - (inputRect.top + inputRect.height / 2)) > 28 ||
+          marker.includes("add") ||
+          marker.includes("plus") ||
+          marker.includes("\u6dfb\u52a0") ||
+          marker.includes("\u4e0b\u79fb") ||
+          marker.includes("\u4e0a\u79fb") ||
           text.includes("\u89c4\u683c\u9884\u89c8") ||
           text.includes("\u5b58\u50a8\u6a21\u677f")
         ) {
@@ -4096,8 +4121,8 @@ async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
         return {
           element: el,
           distance:
-            Math.abs(rect.left - inputRect.right) +
-            Math.abs(rect.top - inputRect.top) +
+            Math.min(Math.abs(rect.right - inputRect.left), Math.abs(rect.left - inputRect.right)) +
+            Math.abs(rect.top + rect.height / 2 - (inputRect.top + inputRect.height / 2)) +
             (el.tagName.toLowerCase() === "button" || el.getAttribute("role") === "button" ? -20 : 0)
         };
       })
@@ -4136,75 +4161,6 @@ async function removeBlankSpecValueInputsFromTemplate(page: Page): Promise<numbe
   return removed;
 }
 
-async function fillMissingSpecValuesStrict(page: Page): Promise<number> {
-  const existingValues = await readCurrentSpecValuesStrict(page);
-  const normalizedExisting = new Set(existingValues.map((value) => value.replace(/\s+/g, "")));
-  const missingValues = FIXED_SPEC_VALUES.filter((value) => !normalizedExisting.has(value.replace(/\s+/g, "")));
-  if (!missingValues.length) {
-    return 0;
-  }
-
-  const inputs = await page.evaluate(() => {
-    const labels = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = (el.textContent || "").trim();
-        const rect = el.getBoundingClientRect();
-        if (!text || rect.width <= 0 || rect.height <= 0) {
-          return null;
-        }
-        return { text, top: rect.top, bottom: rect.bottom };
-      })
-      .filter(Boolean) as Array<{ text: string; top: number; bottom: number }>;
-
-    const specLabel = labels.find((item) => item.text === "\u5546\u54c1\u89c4\u683c");
-    const priceLabel = labels.find((item) => item.text === "\u4ef7\u683c\u4e0e\u5e93\u5b58" && (!specLabel || item.top > specLabel.top));
-    const topBound = specLabel ? specLabel.bottom - 20 : 200;
-    const bottomBound = priceLabel ? priceLabel.top - 10 : window.innerHeight + 1200;
-
-    return Array.from(document.querySelectorAll("input"))
-      .map((el) => el as HTMLInputElement)
-      .filter((input) => {
-        const rect = input.getBoundingClientRect();
-        if (
-          rect.width <= 120 ||
-          rect.height <= 0 ||
-          rect.top < topBound ||
-          rect.top > bottomBound ||
-          input.disabled ||
-          input.readOnly ||
-          !["text", "search"].includes(input.type || "text")
-        ) {
-          return false;
-        }
-        const context = [
-          input.value || "",
-          input.placeholder || "",
-          input.parentElement?.textContent || "",
-          input.parentElement?.parentElement?.textContent || "",
-          input.closest("div")?.textContent || ""
-        ]
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        return !(context.includes("\u4e00\u952e\u590d\u7528\u89c4\u683c\u4fe1\u606f") || context.includes("\u89c4\u683c\u6a21\u677f"));
-      })
-      .map((input) => {
-        const rect = input.getBoundingClientRect();
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-      })
-      .sort((a, b) => a.y - b.y || a.x - b.x) as Array<{ x: number; y: number }>;
-  });
-
-  const fillCount = Math.min(inputs.length, missingValues.length);
-  for (let index = 0; index < fillCount; index += 1) {
-    await clearAndTypeAtCenter(page, inputs[index], missingValues[index]);
-    await page.keyboard.press("Enter").catch(() => {});
-    await page.waitForTimeout(300);
-  }
-  return fillCount;
-}
-
 async function applySpecTemplateWithVerificationOnPage(
   page: Page,
   title?: string
@@ -4215,23 +4171,25 @@ async function applySpecTemplateWithVerificationOnPage(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title).catch(() => selectedTemplate);
     await page.waitForTimeout(600);
-    await removeBlankSpecValueInputsFromTemplate(page).catch(() => 0);
 
     const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
     const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
     const blankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
-    const rule = evaluateSpecTemplateCompletion({
+    const initialRule = evaluateSpecTemplateCompletion({
       filledSpecValues: filledValues.length,
       expectedSpecValues: FIXED_SPEC_VALUES.length,
       priceRows: visiblePriceRows,
       blankSpecValueInputs
     });
-    if (rule.passed) {
+    if (initialRule.passed) {
       return {
         selectedTemplate: selectedTemplate || keyword,
         filledValues,
         issue: ""
       };
+    }
+    if (initialRule.issue.includes("blank required spec value")) {
+      await removeBlankSpecValueInputsFromTemplate(page).catch(() => 0);
     }
   }
 
@@ -4254,10 +4212,32 @@ async function applySpecTemplateWithVerificationOnPage(
 async function readSpecModuleErrorOnPage(page: Page): Promise<string> {
   return page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const bodyText = normalize(document.body.innerText || "");
     const knownErrors = ["规格值不能重复", "该项为必填，请输入", "请选择规格类型", "暂无选项"];
-    const matched = knownErrors.find((item) => bodyText.includes(item));
-    return matched || "";
+    const visibleItems = Array.from(document.querySelectorAll("body *"))
+      .map((el) => el as HTMLElement)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const text = normalize(el.innerText || el.textContent || "");
+        if (!text || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        return { rect, text };
+      })
+      .filter(Boolean) as Array<{ rect: DOMRect; text: string }>;
+    const specLabel = visibleItems
+      .filter((item) => item.text === "\u5546\u54c1\u89c4\u683c")
+      .sort((a, b) => a.rect.top - b.rect.top)[0];
+    const priceLabel = visibleItems
+      .filter((item) => item.text === "\u4ef7\u683c\u4e0e\u5e93\u5b58" && (!specLabel || item.rect.top > specLabel.rect.top))
+      .sort((a, b) => a.rect.top - b.rect.top)[0];
+    const topBound = specLabel ? specLabel.rect.top - 20 : 160;
+    const bottomBound = priceLabel ? priceLabel.rect.top - 8 : topBound + 520;
+    const moduleText = visibleItems
+      .filter((item) => item.rect.left >= 420 && item.rect.top >= topBound && item.rect.top <= bottomBound)
+      .map((item) => item.text)
+      .join(" ");
+    return knownErrors.find((item) => moduleText.includes(item)) || "";
   });
 }
 
@@ -4576,201 +4556,6 @@ async function applyFixedPublishSettingsOnPage(
     freightTemplateName: settingsResult.freightTemplateName,
     serviceState: settingsResult.serviceState
   };
-}
-
-async function ensureSpecEditorVisible(page: Page): Promise<boolean> {
-  const existingEditor = page.locator(".style_skuNameBox__mC883").first();
-  if (await existingEditor.count()) {
-    return true;
-  }
-
-  const addButton = page.getByText(/\u6DFB\u52A0\u89C4\u683C\u7C7B\u578B/).first();
-  if (!(await addButton.count())) {
-    return false;
-  }
-
-  const clicked = await addButton.click({ timeout: 3000 }).then(() => true).catch(() => false);
-  if (!clicked) {
-    return false;
-  }
-  await page.waitForTimeout(1000);
-  return (await existingEditor.count()) > 0;
-}
-
-async function readSpecTypeOptions(page: Page): Promise<{ options: string[]; empty: boolean }> {
-  const select = page.locator(".style_skuNameBox__mC883 .ecom-g-select").first();
-  if (!(await select.count())) {
-    return { options: [], empty: false };
-  }
-
-  await select.click({ timeout: 3000 }).catch(() => {});
-  await page.waitForTimeout(1200);
-
-  return page.evaluate(() => {
-    const listbox = document.querySelector("[id^='rc_select_'][id$='_list']");
-    if (!listbox) {
-      return { options: [], empty: false };
-    }
-
-    const text = (listbox.textContent || "").trim();
-    const optionTexts = Array.from(listbox.querySelectorAll(".ecom-g-select-item-option, [role='option']"))
-      .map((el) => (el.textContent || "").trim())
-      .filter(Boolean);
-
-    return {
-      options: Array.from(new Set(optionTexts)),
-      empty: text.includes("\u6682\u65E0\u6570\u636E")
-    };
-  });
-}
-
-async function openSpecTypeDropdown(page: Page): Promise<boolean> {
-  const opened = await page.evaluate(() => {
-    const labels = Array.from(document.querySelectorAll("body *"));
-    const title = labels.find((el) => ((el.textContent || "").trim() === "鍟嗗搧瑙勬牸")) as HTMLElement | undefined;
-    if (!title) {
-      return false;
-    }
-    const rect = title.getBoundingClientRect();
-    const clickX = rect.x + 170;
-    const clickY = rect.y + 12;
-    const target = document.elementFromPoint(clickX, clickY) as HTMLElement | null;
-    target?.click();
-    return true;
-  });
-  if (opened) {
-    await page.waitForTimeout(800);
-  }
-  return opened;
-}
-
-async function clickCreateSpecType(page: Page): Promise<boolean> {
-  if (await clickVisibleText(page, "鍒涘缓绫诲瀷")) {
-    await page.waitForTimeout(800);
-    return true;
-  }
-  return false;
-}
-
-async function fillSpecEditorText(page: Page, value: string): Promise<boolean> {
-  const filled = await page.evaluate((nextValue) => {
-    const inputs = Array.from(document.querySelectorAll("input"))
-      .map((el) => el as HTMLInputElement)
-      .filter((input) => {
-        const rect = input.getBoundingClientRect();
-        return (
-          rect.width > 100 &&
-          rect.height > 20 &&
-          rect.y > 2480 &&
-          rect.y < 2760 &&
-          !input.disabled &&
-          !input.readOnly &&
-          (input.type === "text" || input.type === "search")
-        );
-      })
-      .sort((a, b) => {
-        const ra = a.getBoundingClientRect();
-        const rb = b.getBoundingClientRect();
-        return ra.y - rb.y || ra.x - rb.x;
-      });
-
-    const target = inputs[0];
-    if (!target) {
-      return false;
-    }
-
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-    target.focus();
-    setter?.call(target, "");
-    target.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
-    setter?.call(target, nextValue);
-    target.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
-    target.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
-  }, value);
-
-  if (filled) {
-    await page.waitForTimeout(500);
-  }
-  return filled;
-}
-
-async function saveSpecEditorValue(page: Page): Promise<void> {
-  await page.keyboard.press("Enter").catch(() => {});
-  await page.waitForTimeout(600);
-}
-
-async function createFixedSpecTypeAndValues(page: Page): Promise<{ ok: boolean; issue: string }> {
-  if (!(await openSpecTypeDropdown(page))) {
-    return { ok: false, issue: "Spec type dropdown could not be opened." };
-  }
-  if (!(await clickCreateSpecType(page))) {
-    return { ok: false, issue: "Create spec type action was not found in the dropdown." };
-  }
-  if (!(await fillSpecEditorText(page, FIXED_SPEC_NAME))) {
-    return { ok: false, issue: "Spec name input was not found after clicking create type." };
-  }
-  await saveSpecEditorValue(page);
-
-  for (const specValue of FIXED_SPEC_VALUES) {
-    if (!(await fillSpecEditorText(page, specValue))) {
-      return { ok: false, issue: `Spec value input was not found for value: ${specValue}` };
-    }
-    await saveSpecEditorValue(page);
-  }
-
-  return { ok: true, issue: "" };
-}
-
-async function applyFixedSpecs(
-  runtimeDir: string,
-  publishPageUrl: string,
-  title?: string
-): Promise<{
-  pageUrl: string;
-  pageTitle: string;
-  screenshotFile: string;
-  configuredFields: string[];
-  specTypeOptions: string[];
-  specIssue: string;
-}> {
-  const context = await launchPersistentBrowser();
-  try {
-    const page = context.pages().find((item) => !item.isClosed()) || (await context.newPage());
-    attachSafeDialogHandler(page);
-    await page.bringToFront();
-    await gotoWithTolerance(page, publishPageUrl, 3500);
-    await page.mouse.wheel(0, 2300).catch(() => {});
-    await page.waitForTimeout(1000);
-
-    const configuredFields: string[] = [];
-    let specIssue = "";
-    let specTypeOptions: string[] = [];
-
-    const specApplyResult = await applySpecTemplateWithVerificationOnPage(page, title);
-    if (!specApplyResult.selectedTemplate && specApplyResult.issue) {
-      specIssue = specApplyResult.issue;
-    } else if (specApplyResult.issue) {
-      specIssue = specApplyResult.issue;
-      specTypeOptions = specApplyResult.selectedTemplate ? [specApplyResult.selectedTemplate] : [];
-      configuredFields.push("specTemplate");
-    } else {
-      specTypeOptions = specApplyResult.selectedTemplate ? [specApplyResult.selectedTemplate] : [];
-      configuredFields.push("specTemplate");
-    }
-
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-spec-editor.png");
-    return {
-      pageUrl: page.url(),
-      pageTitle: await page.title(),
-      screenshotFile,
-      configuredFields,
-      specTypeOptions,
-      specIssue
-    };
-  } finally {
-    await context.browser()?.close().catch(() => {});
-  }
 }
 
 async function applyFixedSpecsOnPage(
@@ -6164,6 +5949,16 @@ async function enforceForbiddenGraphicSectionsEmpty(
     remainingSections: await listRemainingForbiddenGraphicSections(page),
     screenshotFile
   };
+}
+
+async function verifyForbiddenGraphicSectionsEmptyOnPage(
+  page: Page,
+  runtimeDir: string,
+  screenshotFileName: string
+): Promise<{ remainingSections: string[]; screenshotFile: string }> {
+  const remainingSections = await listRemainingForbiddenGraphicSections(page);
+  const screenshotFile = await savePageScreenshot(page, runtimeDir, screenshotFileName);
+  return { remainingSections, screenshotFile };
 }
 
 async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
@@ -8138,6 +7933,7 @@ async function runPublishFlow(
             throw new Error(`基础信息模块缺失字段: ${missingBasicFields.join(", ")}`);
           }
         }
+        await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "after_basic_fill");
         stages.push({ step: "fill_basic_publish_page", status: "completed" });
         basicInfoCompleted = true;
         break;
@@ -8163,6 +7959,7 @@ async function runPublishFlow(
     let priceInventoryCompleted = false;
     for (let specAttempt = 0; specAttempt < 2; specAttempt += 1) {
       await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-before-images-${specAttempt + 1}`);
+      await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_graphic_module");
       const imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
       screenshotFiles.push(imageResult.screenshotFile);
       uploadedGroups = imageResult.uploadedGroups;
@@ -8191,6 +7988,21 @@ async function runPublishFlow(
       }
       if (specAttempt === 0) {
         stages.push({ step: "upload_product_images", status: "completed" });
+      }
+
+      const graphicForbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+        page,
+        runtimeDir,
+        "publish-page-forbidden-graphic-sections-after-images.png"
+      );
+      screenshotFiles.push(graphicForbiddenResult.screenshotFile);
+      const graphicForbiddenRule = evaluateForbiddenGraphicSections(graphicForbiddenResult.remainingSections);
+      if (!graphicForbiddenRule.passed) {
+        stages.push({ step: "graphic_forbidden_sections", status: "failed" });
+        throw new Error(`Sequential publish flow stopped: 图文信息模块未完成。${graphicForbiddenRule.issue}`);
+      }
+      if (specAttempt === 0) {
+        stages.push({ step: "graphic_forbidden_sections", status: "completed" });
       }
 
       const specResult = await applyFixedSpecsOnPage(page, runtimeDir, "publish-page-spec-editor.png", metadata.title);
@@ -8234,6 +8046,7 @@ async function runPublishFlow(
         break;
       }
 
+      await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_price_inventory_module");
       const priceInventoryResult = await applyPriceInventoryOnPage(page, runtimeDir, "publish-page-price-inventory-filled.png");
       screenshotFiles.push(priceInventoryResult.screenshotFile);
       filledPriceRows = priceInventoryResult.filledRows;
@@ -8298,7 +8111,7 @@ async function runPublishFlow(
     }
     stages.push({ step: "apply_medical_device_certificate", status: "completed" });
 
-    const preCheckForbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+    const preCheckForbiddenResult = await verifyForbiddenGraphicSectionsEmptyOnPage(
       page,
       runtimeDir,
       "publish-page-forbidden-graphic-sections-before-check.png"
@@ -8359,7 +8172,7 @@ async function runPublishFlow(
     stages.push({ step: "run_publish_check", status: "completed" });
 
     if (!stopBeforePublish) {
-      const finalForbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
+      const finalForbiddenResult = await verifyForbiddenGraphicSectionsEmptyOnPage(
         page,
         runtimeDir,
         "publish-page-forbidden-graphic-sections-before-submit.png"
@@ -8510,6 +8323,7 @@ async function runGraphicFlow(
             throw new Error(`基础信息模块缺失字段: ${missingBasicFields.join(", ")}`);
           }
         }
+        await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "after_basic_fill");
         stages.push({ step: "fill_basic_publish_page", status: "completed" });
         basicInfoCompleted = true;
         break;
@@ -8533,6 +8347,7 @@ async function runGraphicFlow(
     }
 
     await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "graphic-before-images");
+    await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_graphic_module");
     const imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
     screenshotFiles.push(imageResult.screenshotFile);
     uploadedGroups = imageResult.uploadedGroups;
@@ -8963,7 +8778,6 @@ export async function runPublishFromSpuJob(
           specTemplateRule: "\u6807\u9898\u542b\u201c\u4e45\u5149\u5c0f\u6cfd\u201d\u5219\u9009\u62e9\u540d\u79f0\u5305\u542b\u201c\u4e45\u5149\u5c0f\u6cfd\u201d\u7684\u89c4\u683c\u6a21\u677f\uff0c\u5426\u5219\u9009\u62e9\u540d\u79f0\u5305\u542b\u201c\u4e70\u4e8c\u9001\u4e00\u201d\u7684\u89c4\u683c\u6a21\u677f",
           specModuleRule:
             "\u5546\u54c1\u89c4\u683c\u5b50\u6a21\u5757\u91cc\u7684\u89c4\u683c\u540d\u548c\u89c4\u683c\u503c\u4e0d\u5141\u8bb8\u7f16\u8f91\uff0c\u5b8c\u5168\u4f9d\u8d56\u89c4\u683c\u6a21\u677f\u7684\u8bbe\u7f6e\uff1b\u5982\u679c\u5546\u54c1\u89c4\u683c\u6a21\u5757\u62a5\u9519\u6216\u51fa\u73b0\u7ea2\u5b57\u63d0\u9192\uff0c\u5fc5\u987b\u5237\u65b0\u5f53\u524d\u53d1\u5e03\u9875\uff0c\u4ece\u57fa\u7840\u4fe1\u606f\u5f00\u59cb\u6309\u987a\u5e8f\u91cd\u65b0\u6267\u884c",
-          specName: FIXED_SPEC_NAME,
           specValues: FIXED_SPEC_VALUES,
           priceRows: FIXED_PRICES,
           stockRows: [FIXED_STOCK, FIXED_STOCK, FIXED_STOCK, FIXED_STOCK]
