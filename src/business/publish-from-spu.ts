@@ -4109,7 +4109,7 @@ async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
       .filter(Boolean)
       .sort((a, b) => (a?.distance || 0) - (b?.distance || 0)) as Array<{ x: number; y: number; distance: number }>;
 
-    return candidates[0] || fallbackDeletePoint;
+    return fallbackDeletePoint || candidates[0] || null;
   });
 
   if (!target) {
