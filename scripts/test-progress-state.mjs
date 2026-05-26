@@ -19,6 +19,7 @@ import {
   isHermesSupervisorProcessCommand
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
+import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
 import { appendProcessedImages, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import {
@@ -326,6 +327,29 @@ assert.deepEqual(batchProgress, {
   pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-3.png"],
   batchComplete: false
 });
+
+const pendingFeishuSourceImages = resolvePendingFeishuProductSourceImagesFromRecords({
+  records: [
+    record("rec-1", "/work/input/auto-listing/feishu-images/product-1.png"),
+    record("rec-2", "/work/input/auto-listing/feishu-images/product-2.png")
+  ],
+  processedImages: ["/work/input/auto-listing/feishu-images/product-1.png"],
+  fileExists: (filePath) => filePath.endsWith("product-2.png")
+});
+assert.deepEqual(pendingFeishuSourceImages, [path.resolve("/work/input/auto-listing/feishu-images/product-2.png")]);
+
+assert.throws(
+  () =>
+    resolvePendingFeishuProductSourceImagesFromRecords({
+      records: [
+        record("rec-1", "/work/input/auto-listing/feishu-images/product-1.png"),
+        record("rec-2", "/work/input/auto-listing/feishu-images/product-2.png")
+      ],
+      processedImages: ["/work/input/auto-listing/feishu-images/product-1.png"],
+      fileExists: () => false
+    }),
+  /Feishu product row 2 \(rec-2\) white background image was missing/
+);
 
 const repeatedProductManifest = path.join(tempDir, "processed-images.json");
 const repeatedBatchA = [

@@ -227,6 +227,7 @@
 27. Hermes job 里的 PID 只能作为候选信号。动作层必须读取该 PID 的真实命令并确认它仍是 `hermes-auto-listing-supervisor`；如果 PID 不存在或已被其他进程复用，状态层必须按已退出处理。
 28. 同一飞书批次未完成时，任何 full-real-flow 接力都必须锁定并复用当前 `data/feishu/products.json` 缓存，禁止重新执行 `feishu:assets --cleanup-stale-assets` 覆盖旧批次素材。只有当前缓存批次 `pending=0` 后，才允许刷新飞书表格发现新批次。
 29. 用户手动重新启动 full-real-flow 时也必须先审计当前缓存批次。如果当前缓存还有待处理产品，即使飞书在线表格已经更新，也必须先跑完缓存批次，不能把新批次插队到旧批次之前。
+30. 同批次接力解析飞书素材时，必须先读取 `processedImageManifest` 并排除已处理记录，再校验未处理记录的白底图/资质图是否存在；已处理记录完成清理后本地素材缺失是正常状态，不能阻塞后续未处理记录。
 
 ## 推荐执行顺序
 

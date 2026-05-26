@@ -14,6 +14,13 @@ export interface FeishuProductRuntimeRecord {
   sellingPointArtifact: SellingPointArtifact;
 }
 
+export interface PendingFeishuProductSourceImageInput {
+  records: FeishuProductRecord[];
+  processedImages?: Iterable<string>;
+  maxImagesPerRun?: number;
+  fileExists?: (filePath: string) => boolean;
+}
+
 function normalize(value: string): string {
   return value.replace(/\s+/g, "").replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
 }
@@ -87,21 +94,35 @@ function attachmentLocalFiles(record: FeishuProductRecord): string[] {
 }
 
 export function resolveFeishuProductSourceImages(productDataFile: string): string[] {
-  const records = readPayload(productDataFile);
-  return records.map((record, index) => {
+  return resolvePendingFeishuProductSourceImagesFromRecords({
+    records: readPayload(productDataFile)
+  });
+}
+
+export function resolvePendingFeishuProductSourceImagesFromRecords(input: PendingFeishuProductSourceImageInput): string[] {
+  const processedImages = new Set(Array.from(input.processedImages || []).filter(Boolean).map((filePath) => path.resolve(filePath)));
+  const exists = input.fileExists || fs.existsSync;
+  const pendingImages: string[] = [];
+
+  input.records.forEach((record, index) => {
     const sourceImage = attachmentLocalFiles(record)[0];
+    if (sourceImage && processedImages.has(path.resolve(sourceImage))) {
+      return;
+    }
     if (!sourceImage) {
       throw new Error(
         `Feishu product row ${index + 1} (${record.recordId || "unknown"}) has no downloaded white background image.`
       );
     }
-    if (!fs.existsSync(sourceImage)) {
+    if (!exists(sourceImage)) {
       throw new Error(
         `Feishu product row ${index + 1} (${record.recordId || "unknown"}) white background image was missing: ${sourceImage}`
       );
     }
-    return sourceImage;
+    pendingImages.push(sourceImage);
   });
+
+  return input.maxImagesPerRun && input.maxImagesPerRun > 0 ? pendingImages.slice(0, input.maxImagesPerRun) : pendingImages;
 }
 
 function matchRecordByImage(records: FeishuProductRecord[], imagePath: string): FeishuProductRecord | null {

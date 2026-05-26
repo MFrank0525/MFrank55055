@@ -4,10 +4,14 @@ import { generatePosterPromptsWithDeepSeek } from "./deepseek-prompts.js";
 import { writeDeepSeekPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateMainImageAssets } from "./jimeng-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
-import { appendProcessedImages, discoverPendingImages, filterPendingImages } from "./file-batch.js";
+import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
 import { collectFeishuProductAssetFiles } from "./audit-rules.js";
 import { buildFeishuBatchFingerprint } from "./feishu-batch-rules.js";
-import { loadFeishuProductRecords, loadFeishuProductRuntimeRecord, resolveFeishuProductSourceImages } from "./feishu-products.js";
+import {
+  loadFeishuProductRecords,
+  loadFeishuProductRuntimeRecord,
+  resolvePendingFeishuProductSourceImagesFromRecords
+} from "./feishu-products.js";
 import { getProductCategoryPlan } from "./product-category.js";
 import { enrichDistributedTitleSheets } from "./metadata.js";
 import { cleanupAfterPublish } from "./cleanup.js";
@@ -700,16 +704,19 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     resolved.input.feishuProductDataFile && fs.existsSync(resolved.input.feishuProductDataFile)
       ? buildFeishuBatchFingerprint(loadFeishuProductRecords(resolved.input.feishuProductDataFile))
       : undefined;
+  const feishuProductRecords =
+    resolved.input.feishuProductDataFile && fs.existsSync(resolved.input.feishuProductDataFile)
+      ? loadFeishuProductRecords(resolved.input.feishuProductDataFile)
+      : [];
   const discoveredImages =
     resolved.input.resumeSourceImagePath
       ? [resolved.input.resumeSourceImagePath]
       : resolved.input.feishuProductDataFile
-        ? filterPendingImages(
-            resolveFeishuProductSourceImages(resolved.input.feishuProductDataFile),
-            resolved.processedImageManifest,
-            resolved.input.maxImagesPerRun,
-            feishuBatchFingerprint
-          )
+        ? resolvePendingFeishuProductSourceImagesFromRecords({
+            records: feishuProductRecords,
+            processedImages: readProcessedImages(resolved.processedImageManifest, feishuBatchFingerprint),
+            maxImagesPerRun: resolved.input.maxImagesPerRun
+          })
         : discoverPendingImages(
             resolved.input.feishuImageDir,
             resolved.input.imageExtensions,

@@ -5,11 +5,14 @@ const read = (file) => fs.readFileSync(file, "utf8");
 
 const docs = [
   read("docs/auto-listing/steps/10-publish.md"),
+  read("docs/auto-listing/steps/11-cleanup.md"),
   read("docs/PUBLISH_FLOW_SOP.md"),
   read("docs/auto-listing/stability-checklist.md")
 ].join("\n");
 const publishSource = read("src/business/publish-from-spu.ts");
 const publishRulesSource = read("src/business/publish-from-spu/publish-rules.ts");
+const orchestratorSource = read("src/autolist/orchestrator.ts");
+const feishuProductsSource = read("src/autolist/feishu-products.ts");
 const progressTestSource = read("scripts/test-progress-state.mjs");
 const specTestSource = read("scripts/test-spec-template-rule.mjs");
 const moduleTestSource = read("scripts/test-publish-module-sequence-rule.mjs");
@@ -49,6 +52,13 @@ const closures = [
     rules: ["evaluatePublishCreatePageReadiness", "classifyPublishFailure"],
     actions: ["waitForPublishCreatePageReady"],
     tests: ["evaluatePublishCreatePageReadiness"]
+  },
+  {
+    name: "same-batch continuation ignores cleaned assets for already processed Feishu rows",
+    docs: ["processedImageManifest", "已处理行的白底图和资质图允许被清理删除", "不能阻塞后续未处理记录"],
+    rules: ["resolvePendingFeishuProductSourceImagesFromRecords", "processedImages"],
+    actions: ["readProcessedImages", "resolvePendingFeishuProductSourceImagesFromRecords"],
+    tests: ["pendingFeishuSourceImages", "white background image was missing"]
   }
 ];
 
@@ -58,13 +68,17 @@ for (const closure of closures) {
   }
   for (const marker of closure.rules) {
     assert.match(
-      publishRulesSource + publishSource,
+      publishRulesSource + publishSource + orchestratorSource + feishuProductsSource,
       new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
       `${closure.name}: missing rule marker ${marker}`
     );
   }
   for (const marker of closure.actions) {
-    assert.match(publishSource, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${closure.name}: missing action marker ${marker}`);
+    assert.match(
+      publishSource + orchestratorSource + feishuProductsSource,
+      new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      `${closure.name}: missing action marker ${marker}`
+    );
   }
   for (const marker of closure.tests) {
     assert.match(
