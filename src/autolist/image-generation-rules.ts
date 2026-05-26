@@ -2,6 +2,10 @@ export function resolveImageDownloadTimeoutMs(requestTimeoutMs: number | undefin
   return Math.max(30000, requestTimeoutMs || 180000);
 }
 
+export function resolveImageGenerationRequestDeadlineMs(requestTimeoutMs: number | undefined): number {
+  return Math.max(60000, resolveImageDownloadTimeoutMs(requestTimeoutMs) + 30000);
+}
+
 export interface ImageGenerationTransportRetryPolicy {
   maxRetries: number;
   delayMs: number[];

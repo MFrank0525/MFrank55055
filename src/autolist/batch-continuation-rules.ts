@@ -7,6 +7,40 @@ export function shouldContinueFeishuBatchAfterChildExit(input: FeishuBatchContin
   return input.exitCode === 0 && !input.batchComplete;
 }
 
+export type FeishuBatchRetryAfterFailureInput = {
+  exitCode: number | null;
+  batchComplete: boolean;
+  retryableFailureMessage?: string;
+  recoveryAttempts: number;
+  maxRecoveryAttempts: number;
+};
+
+export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
+  if (input.exitCode === 0 || input.batchComplete || input.recoveryAttempts >= input.maxRecoveryAttempts) {
+    return false;
+  }
+  return /image generation|main image|timed out|timeout|fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|no progress|watchdog|product folders already contain workbook/i.test(
+    input.retryableFailureMessage || ""
+  );
+}
+
+export type InterruptedTaskResumeInput = {
+  runStatus?: string;
+  taskStatus?: string;
+  sourceImageExists: boolean;
+  reusableRawImageCount: number;
+};
+
+export function shouldResumeInterruptedTaskInPlace(input: InterruptedTaskResumeInput): boolean {
+  if (!input.sourceImageExists || input.reusableRawImageCount <= 0) {
+    return false;
+  }
+  if (input.runStatus === "completed") {
+    return false;
+  }
+  return !["done", "cleaned", "failed"].includes(input.taskStatus || "");
+}
+
 export type FeishuBatchRefreshContinuationInput = {
   exitCode: number | null;
   currentBatchComplete: boolean;

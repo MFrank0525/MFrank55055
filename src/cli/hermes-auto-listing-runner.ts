@@ -4,7 +4,8 @@ import path from "node:path";
 import {
   isHermesSupervisorProcessCommand,
   selectHermesStatusResultFile,
-  shouldPreferActiveTaskStateSummary
+  shouldPreferActiveTaskStateSummary,
+  shouldResumeInterruptedTaskInPlace
 } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
@@ -12,6 +13,7 @@ import { readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
+import { inferResumeStartStepForTask } from "../autolist/resume-rules.js";
 
 interface RunnerJob {
   pid: number;
@@ -71,6 +73,30 @@ interface AutoListingResultFile {
   error?: {
     message?: string;
   };
+}
+
+interface AutoListingStateFile {
+  runId?: string;
+  status?: string;
+  tasks?: Array<{
+    taskId?: string;
+    sourceImageName?: string;
+    sourceImagePath?: string;
+    status?: string;
+    generatedProductFolders?: string[];
+    mainImageArtifact?: {
+      generatedFiles?: Array<{
+        productFolder?: string;
+      }>;
+    };
+    shopDistributionArtifact?: {
+      distributedFolders?: string[];
+    };
+    error?: {
+      step?: string;
+      message?: string;
+    };
+  }>;
 }
 
 interface PublishManifestFile {
@@ -166,6 +192,58 @@ function tailFile(file: string, maxLines: number): string[] {
   return lines.filter(Boolean).slice(-maxLines);
 }
 
+function compactStatusLine(line: string): string {
+  const compact = line.replace(/\s+/g, " ").trim();
+  const workbookCount = (compact.match(/\.xlsx\b/gi) || []).length;
+  if (workbookCount > 2 && /product folders already contain workbook/i.test(compact)) {
+    return `标题 workbook 已存在 ${workbookCount} 个；续跑应跳过标题生成并从发布阶段继续，原始路径列表已压缩。`;
+  }
+  return compact.length > 500 ? `${compact.slice(0, 500)}... [truncated]` : compact;
+}
+
+function compactStatusValue(value: string | undefined): string | undefined {
+  return value ? compactStatusLine(value) : value;
+}
+
+function compactErrorObject<T extends { message?: string } | undefined>(error: T): T {
+  if (!error?.message) {
+    return error;
+  }
+  return {
+    ...error,
+    message: compactStatusLine(error.message)
+  };
+}
+
+function compactProductFolders(folders: string[] | undefined): Record<string, unknown> {
+  const values = folders || [];
+  return {
+    generatedProductFolderCount: values.length,
+    generatedProductFolders: values.slice(0, 3)
+  };
+}
+
+function compactTaskForStatus<
+  T extends {
+    sourceImageName?: string;
+    sourceImagePath?: string;
+    status?: string;
+    generatedProductFolders?: string[];
+    error?: { step?: string; message?: string };
+  }
+>(task: T | undefined): Record<string, unknown> | undefined {
+  if (!task) {
+    return undefined;
+  }
+  return {
+    sourceImageName: task.sourceImageName,
+    sourceImagePath: task.sourceImagePath,
+    status: task.status,
+    ...compactProductFolders(task.generatedProductFolders),
+    error: compactErrorObject(task.error)
+  };
+}
+
 function findActiveRuntimeDirFromLog(logFile: string | undefined): string | undefined {
   if (!logFile || !fs.existsSync(logFile)) {
     return undefined;
@@ -233,9 +311,9 @@ function summarizeResult(resultFile: string | undefined): Record<string, unknown
     products: tasks.map((task) => ({
       sourceImageName: task.sourceImageName,
       status: task.status,
-      generatedProductFolders: task.generatedProductFolders || []
+      ...compactProductFolders(task.generatedProductFolders)
     })),
-    error: failedTask?.error || result.error,
+    error: compactErrorObject(failedTask?.error || result.error),
     discoveredImages: result.discoveredImages || []
   };
 }
@@ -265,8 +343,13 @@ function summarizeState(runtimeDir: string | undefined): Record<string, unknown>
     stateFile,
     runId: state.runId || path.basename(runtimeDir),
     status: state.status,
-    currentTask,
-    latestProgress
+    currentTask: compactTaskForStatus(currentTask),
+    latestProgress: latestProgress
+      ? {
+          ...latestProgress,
+          message: compactStatusValue(latestProgress.message)
+        }
+      : undefined
   };
 }
 
@@ -460,7 +543,7 @@ function existingStatus(): Record<string, unknown> {
   const stateSummary = state
     ? `任务${resolvedStatus === "running" ? "正在运行" : "已结束"}，当前阶段：${String((state.latestProgress as Record<string, unknown> | undefined)?.step || (state.currentTask as Record<string, unknown> | undefined)?.status || state.status || "unknown")}` +
       ((state.latestProgress as Record<string, unknown> | undefined)?.message
-        ? `，最新进度：${String((state.latestProgress as Record<string, unknown>).message)}`
+        ? `，最新进度：${compactStatusValue(String((state.latestProgress as Record<string, unknown>).message))}`
         : "")
     : undefined;
   return {
@@ -487,7 +570,7 @@ function existingStatus(): Record<string, unknown> {
     state,
     publishProgress,
     feishuProgress,
-    logTail: tailFile(job.logFile, 12)
+    logTail: tailFile(job.logFile, 12).map(compactStatusLine)
   };
 }
 
@@ -522,14 +605,14 @@ function formatStatusText(status: Record<string, unknown>): string {
       );
     }
     if (latestProgress?.message) {
-      lines.push(`最新进度：${String(latestProgress.message)}`);
+      lines.push(`最新进度：${compactStatusValue(String(latestProgress.message))}`);
     }
   } else if (result) {
     lines.push(`最近结果：${String(result.status || "unknown")}，批次 ${String(result.runId || "unknown")}`);
   }
   if (logTail.length) {
     lines.push("最近日志：");
-    lines.push(...logTail.slice(-4));
+    lines.push(...logTail.slice(-4).map(compactStatusLine));
   }
   return lines.join("\n");
 }
@@ -591,6 +674,14 @@ function shouldResumeCurrentFailure(): boolean {
   if (!shouldResume && fs.existsSync(resumeJobFile)) {
     fs.rmSync(resumeJobFile, { force: true });
   }
+  const failedTask = (result?.tasks || []).find((task) => task.status === "failed" || task.error);
+  if (shouldResume && failedTask) {
+    const expectedStartStep = inferResumeStartStepForTask(failedTask);
+    if (startStep !== expectedStartStep) {
+      fs.rmSync(resumeJobFile, { force: true });
+      return false;
+    }
+  }
   return shouldResume;
 }
 
@@ -608,6 +699,85 @@ function collectResumeProductFolderNames(task: NonNullable<AutoListingResultFile
   );
 }
 
+function listStateFilesNewestFirst(): string[] {
+  const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
+  if (!fs.existsSync(runsDir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(runsDir)
+    .map((runId) => path.join(runsDir, runId, "state.json"))
+    .filter((file) => fs.existsSync(file))
+    .map((file) => ({ file, mtimeMs: fs.statSync(file).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .map((item) => item.file);
+}
+
+function countReusableRawImages(runtimeDir: string, taskId: string | undefined): number {
+  if (!taskId) {
+    return 0;
+  }
+  const taskDir = path.join(runtimeDir, "tasks", taskId);
+  if (!fs.existsSync(taskDir)) {
+    return 0;
+  }
+  let count = 0;
+  const pending = [taskDir];
+  while (pending.length > 0) {
+    const currentDir = pending.pop() as string;
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(fullPath);
+        continue;
+      }
+      if (currentDir.includes(path.sep + "raw") && /^generated-\d+.*\.(png|jpg|jpeg|webp)$/i.test(entry.name)) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+function findLatestInterruptedStateForResume(): { stateFile: string; runtimeDir: string; state: AutoListingStateFile; task: NonNullable<AutoListingStateFile["tasks"]>[number]; reusableRawImageCount: number } | undefined {
+  const candidates: Array<{
+    stateFile: string;
+    runtimeDir: string;
+    state: AutoListingStateFile;
+    task: NonNullable<AutoListingStateFile["tasks"]>[number];
+    reusableRawImageCount: number;
+    mtimeMs: number;
+  }> = [];
+  for (const stateFile of listStateFilesNewestFirst()) {
+    const state = readJsonFile<AutoListingStateFile>(stateFile);
+    const runtimeDir = path.dirname(stateFile);
+    const task = (state?.tasks || []).find((item) => item.status !== "done" && item.status !== "cleaned" && item.status !== "failed");
+    if (!state || !task?.sourceImagePath) {
+      continue;
+    }
+    const sourceImageExists = fs.existsSync(path.resolve(rootDir, task.sourceImagePath));
+    const reusableRawImageCount = countReusableRawImages(runtimeDir, task.taskId);
+    if (
+      shouldResumeInterruptedTaskInPlace({
+        runStatus: state.status,
+        taskStatus: task.status,
+        sourceImageExists,
+        reusableRawImageCount
+      })
+    ) {
+      candidates.push({
+        stateFile,
+        runtimeDir,
+        state,
+        task,
+        reusableRawImageCount,
+        mtimeMs: fs.statSync(stateFile).mtimeMs
+      });
+    }
+  }
+  return candidates.sort((a, b) => b.reusableRawImageCount - a.reusableRawImageCount || b.mtimeMs - a.mtimeMs)[0];
+}
+
 function findLatestFailedResultForResume(): { resultFile: string; result: AutoListingResultFile } | undefined {
   for (const resultFile of listResultFilesNewestFirst()) {
     const result = readJsonFile<AutoListingResultFile>(resultFile);
@@ -623,25 +793,49 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
 }
 
 function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
-  const latest = findLatestFailedResultForResume();
   if (shouldResumeCurrentFailure()) {
-    const currentResume = readJsonFile<AutoListingJobFile>(resumeJobFile);
-    const currentResultFile = currentResume?.resultFile ? path.resolve(rootDir, currentResume.resultFile) : "";
-    if (!latest || currentResultFile === path.resolve(rootDir, latest.resultFile)) {
-      return currentResume;
-    }
+    return readJsonFile<AutoListingJobFile>(resumeJobFile);
+  }
+
+  const latest = findLatestFailedResultForResume();
+
+  const sourceJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  if (!sourceJob?.input) {
+    return undefined;
   }
 
   if (!latest) {
-    return undefined;
+    const interrupted = findLatestInterruptedStateForResume();
+    if (!interrupted?.task.sourceImagePath) {
+      return undefined;
+    }
+    const resumeJob: AutoListingJobFile = {
+      ...sourceJob,
+      runtimeDir: interrupted.runtimeDir,
+      resultFile: path.join(interrupted.runtimeDir, "result.json"),
+      runId: interrupted.state.runId || path.basename(interrupted.runtimeDir),
+      input: {
+        ...sourceJob.input,
+        startStep: interrupted.task.status || "source_images_discovered",
+        endStep: "done",
+        resumeSourceImagePath: interrupted.task.sourceImagePath,
+        resumeTaskId: interrupted.task.taskId,
+        resumeProductFolderNames: collectResumeProductFolderNames(interrupted.task),
+        maxImagesPerRun: 1,
+        clearTestOutputsBeforeRun: false
+      }
+    };
+    fs.mkdirSync(path.dirname(resumeJobFile), { recursive: true });
+    fs.writeFileSync(resumeJobFile, JSON.stringify(resumeJob, null, 2) + "\n", "utf8");
+    return resumeJob;
   }
-  const sourceJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+
   const failedTask = (latest.result.tasks || []).find((task) => task.status === "failed" || task.error);
-  if (!sourceJob?.input || !failedTask?.sourceImagePath) {
+  if (!failedTask?.sourceImagePath) {
     return undefined;
   }
 
-  const failedStep = failedTask.error?.step || "source_images_discovered";
+  const failedStep = inferResumeStartStepForTask(failedTask);
   const resumeJob: AutoListingJobFile = {
     ...sourceJob,
     runtimeDir: latest.result.runtimeDir || path.dirname(latest.resultFile),

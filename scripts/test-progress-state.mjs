@@ -16,7 +16,9 @@ import {
   shouldRefreshFeishuAssetsBeforeFullFlow,
   shouldPreferActiveTaskStateSummary,
   selectHermesStatusResultFile,
-  isHermesSupervisorProcessCommand
+  isHermesSupervisorProcessCommand,
+  shouldResumeFeishuBatchAfterRetryableChildFailure,
+  shouldResumeInterruptedTaskInPlace
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -25,6 +27,7 @@ import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import {
   evaluateImageGenerationEndpointProbe,
   resolveImageDownloadTimeoutMs,
+  resolveImageGenerationRequestDeadlineMs,
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   shouldRetryImageGenerationWithPolicyPrompt
@@ -50,6 +53,18 @@ import {
   resolveDoubaoCaptureRetryPolicy
 } from "../dist/src/doubao/capture-rules.js";
 import { saveTitlesFromRaw } from "../dist/src/doubao/save.js";
+
+const hermesRunnerSource = fs.readFileSync("src/cli/hermes-auto-listing-runner.ts", "utf8");
+assert.match(
+  hermesRunnerSource,
+  /inferResumeStartStepForTask/,
+  "Hermes runner must use resume-rules when building resume jobs so recoverable title-folder states resume at publish"
+);
+assert.match(
+  hermesRunnerSource,
+  /compactStatusLine/,
+  "Hermes text status must compact very long log/error lines before returning them to Feishu"
+);
 
 const state = createRunState("test-run", ["/tmp/product.png"]);
 const task = state.tasks[0];
@@ -471,6 +486,8 @@ assert.equal(
 );
 assert.equal(resolveImageDownloadTimeoutMs(180000), 180000);
 assert.equal(resolveImageDownloadTimeoutMs(10000), 30000);
+assert.equal(resolveImageGenerationRequestDeadlineMs(180000), 210000);
+assert.equal(resolveImageGenerationRequestDeadlineMs(10000), 60000);
 assert.deepEqual(resolveImageGenerationTransportRetryPolicy(undefined), {
   maxRetries: 8,
   delayMs: [3000, 6000, 12000, 24000, 45000, 45000, 45000, 45000]
@@ -503,6 +520,73 @@ assert.equal(
   true
 );
 assert.equal(isHermesSupervisorProcessCommand("/usr/bin/yes 9485"), false);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: "Image generation request timed out. The provider did not respond in time.",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: "validation failed",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  false
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: "Refusing to generate paid titles while product folders already contain workbook(s): /work/shop/product-1 -> title.xlsx",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 124,
+    batchComplete: false,
+    retryableFailureMessage: "child made no progress before watchdog timeout",
+    recoveryAttempts: 3,
+    maxRecoveryAttempts: 3
+  }),
+  false
+);
+assert.equal(
+  shouldResumeInterruptedTaskInPlace({
+    runStatus: "running",
+    taskStatus: "main_images_generated",
+    sourceImageExists: true,
+    reusableRawImageCount: 7
+  }),
+  true
+);
+assert.equal(
+  shouldResumeInterruptedTaskInPlace({
+    runStatus: "running",
+    taskStatus: "main_images_generated",
+    sourceImageExists: true,
+    reusableRawImageCount: 0
+  }),
+  false
+);
+assert.equal(
+  shouldResumeInterruptedTaskInPlace({
+    runStatus: "completed",
+    taskStatus: "done",
+    sourceImageExists: true,
+    reusableRawImageCount: 20
+  }),
+  false
+);
 assert.deepEqual(
   resolveImageGenerationHttpRetryPolicy({
     status: 503,

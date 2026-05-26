@@ -5,6 +5,7 @@ import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import {
   resolveImageDownloadTimeoutMs,
+  resolveImageGenerationRequestDeadlineMs,
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   shouldRetryImageGenerationWithPolicyPrompt
@@ -429,27 +430,41 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const imageIndexOffset = generatedImageIndexOffset(options.downloadDir);
   const responseFormat = config.responseFormat || "b64_json";
   const timeoutMs = Math.max(30000, config.timeoutMs || 180000);
+  const requestDeadlineMs = resolveImageGenerationRequestDeadlineMs(timeoutMs);
   const maxTransientRetries = Math.max(0, config.maxTransientRetries ?? 3);
   const transportRetryPolicy = resolveImageGenerationTransportRetryPolicy(config.maxTransientRetries);
   const sendRequest = async (requestBody: BodyInit, contentType?: string): Promise<{ response: Response; text: string }> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let deadlineTimer: NodeJS.Timeout | undefined;
     try {
-      const response = await fetch(config.apiUrl, {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + config.apiKey,
-          ...(contentType ? { "Content-Type": contentType } : {})
-        },
-        body: requestBody,
-        signal: controller.signal
+      const request = (async () => {
+        const response = await fetch(config.apiUrl, {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + config.apiKey,
+            ...(contentType ? { "Content-Type": contentType } : {})
+          },
+          body: requestBody,
+          signal: controller.signal
+        });
+        const text = await response.text();
+        return { response, text };
+      })();
+      const deadline = new Promise<never>((_, reject) => {
+        deadlineTimer = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`image generation request exceeded hard deadline ${requestDeadlineMs}ms`));
+        }, requestDeadlineMs);
       });
-      const text = await response.text();
-      return { response, text };
+      return await Promise.race([request, deadline]);
     } catch (error) {
       throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
     } finally {
       clearTimeout(timer);
+      if (deadlineTimer) {
+        clearTimeout(deadlineTimer);
+      }
     }
   };
   const sendRequestWithTransportRetries = async (
