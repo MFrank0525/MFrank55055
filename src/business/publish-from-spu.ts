@@ -4073,6 +4073,11 @@ async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
     }
 
     const inputRect = blankInput.getBoundingClientRect();
+    const fallbackDeletePoint = {
+      x: Math.min(window.innerWidth - 80, inputRect.right + 24),
+      y: inputRect.top + inputRect.height / 2,
+      distance: 9999
+    };
     const candidates = Array.from(document.querySelectorAll("button, [role='button'], svg"))
       .map((el) => el as HTMLElement)
       .map((el) => {
@@ -4095,13 +4100,16 @@ async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
         return {
           x: rect.left + rect.width / 2,
           y: rect.top + rect.height / 2,
-          distance: Math.abs(rect.left - inputRect.right) + Math.abs(rect.top - inputRect.top)
+          distance:
+            Math.abs(rect.left - inputRect.right) +
+            Math.abs(rect.top - inputRect.top) +
+            (el.tagName.toLowerCase() === "button" || el.getAttribute("role") === "button" ? -20 : 0)
         };
       })
       .filter(Boolean)
       .sort((a, b) => (a?.distance || 0) - (b?.distance || 0)) as Array<{ x: number; y: number; distance: number }>;
 
-    return candidates[0] || null;
+    return candidates[0] || fallbackDeletePoint;
   });
 
   if (!target) {
