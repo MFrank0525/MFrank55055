@@ -19,6 +19,7 @@ import {
   isHermesSupervisorProcessCommand,
   shouldResumeFeishuBatchAfterRetryableChildFailure,
   shouldResumeInterruptedTaskInPlace,
+  resolveDefaultRetryableChildFailureRecoveryAttempts,
   shouldSuppressHistoricalResultInHermesStatus,
   shouldSuppressStateCurrentTaskInHermesStatus
 } from "../dist/src/autolist/batch-continuation-rules.js";
@@ -562,6 +563,7 @@ assert.equal(
   }),
   false
 );
+assert.equal(resolveDefaultRetryableChildFailureRecoveryAttempts(), 12);
 assert.equal(
   shouldResumeInterruptedTaskInPlace({
     runStatus: "running",

@@ -15,6 +15,10 @@ export type FeishuBatchRetryAfterFailureInput = {
   maxRecoveryAttempts: number;
 };
 
+export function resolveDefaultRetryableChildFailureRecoveryAttempts(): number {
+  return 12;
+}
+
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
   if (input.exitCode === 0 || input.batchComplete || input.recoveryAttempts >= input.maxRecoveryAttempts) {
     return false;

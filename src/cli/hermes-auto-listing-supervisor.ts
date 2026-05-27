@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import {
+  resolveDefaultRetryableChildFailureRecoveryAttempts,
   shouldContinueFeishuAfterBatchRefresh,
   shouldContinueFeishuBatchAfterChildExit,
   shouldResumeFeishuBatchAfterRetryableChildFailure,
@@ -36,7 +37,10 @@ const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
 const childStallExitCode = 124;
 const childStallTimeoutMs = Math.max(180000, Number(process.env.AUTO_LISTING_CHILD_STALL_TIMEOUT_MS || 12 * 60 * 1000));
-const maxChildRecoveryAttempts = Math.max(0, Number(process.env.AUTO_LISTING_CHILD_RECOVERY_ATTEMPTS || 3));
+const maxChildRecoveryAttempts = Math.max(
+  0,
+  Number(process.env.AUTO_LISTING_CHILD_RECOVERY_ATTEMPTS || resolveDefaultRetryableChildFailureRecoveryAttempts())
+);
 
 function readJsonFile<T>(file: string): T | undefined {
   if (!fs.existsSync(file)) {
