@@ -21,13 +21,17 @@ import {
   shouldResumeInterruptedTaskInPlace,
   resolveDefaultRetryableChildFailureRecoveryAttempts,
   resolveHermesProgressAgeSeconds,
+  resolveHermesEffectiveProgressTimestamp,
+  resolveHermesFeishuProgressDisplayMode,
+  resolveHermesStartAfterFeishuRefresh,
   selectHermesStatusRuntimeDir,
   shouldSuppressHistoricalResultInHermesStatus,
-  shouldSuppressStateCurrentTaskInHermesStatus
+  shouldSuppressStateCurrentTaskInHermesStatus,
+  shouldResumeHistoricalFailureForCurrentFeishuBatch
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
-import { appendProcessedImages, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
+import { appendProcessedImages, clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
 import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
 import {
   evaluateImageGenerationEndpointProbe,
@@ -60,6 +64,8 @@ import {
 import { saveTitlesFromRaw } from "../dist/src/doubao/save.js";
 
 const hermesRunnerSource = fs.readFileSync("src/cli/hermes-auto-listing-runner.ts", "utf8");
+const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
+const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 assert.match(
   hermesRunnerSource,
   /inferResumeStartStepForTask/,
@@ -69,6 +75,46 @@ assert.match(
   hermesRunnerSource,
   /compactStatusLine/,
   "Hermes text status must compact very long log/error lines before returning them to Feishu"
+);
+assert.match(
+  hermesRunnerSource,
+  /shouldResumeSourceImageForCurrentFeishuBatch/,
+  "Hermes runner must delegate stale resume-job filtering to a current-Feishu-batch resume guard"
+);
+assert.match(
+  hermesRunnerSource,
+  /shouldResumeHistoricalFailureForCurrentFeishuBatch/,
+  "Hermes runner must use the rule-layer guard before resuming historical failures"
+);
+assert.match(
+  hermesRunnerSource,
+  /resolveHermesStartAfterFeishuRefresh/,
+  "Hermes start must use the rule-layer decision after refreshing a completed Feishu batch"
+);
+assert.match(
+  hermesRunnerSource,
+  /rerun_confirmation_required/,
+  "Hermes start must ask for confirmation instead of rerunning a completed unchanged Feishu batch"
+);
+assert.match(
+  hermesRunnerSource,
+  /--rerun-current-batch/,
+  "Hermes start must require an explicit rerun flag before clearing completed batch progress"
+);
+assert.match(
+  publishSource,
+  /onProgress\?/,
+  "Publish stage must emit per-product progress callbacks instead of only updating publish-manifest"
+);
+assert.match(
+  orchestratorSource,
+  /recordTaskProgress\(current, step, message\)/,
+  "Orchestrator must record publish progress callback messages into state for Feishu node-level reporting"
+);
+assert.match(
+  orchestratorSource,
+  /appendEvent\(eventFile, createEvent\("info", step, message, current\.taskId\)\)/,
+  "Orchestrator must append publish progress callback messages to events.ndjson for Hermes status"
 );
 
 const state = createRunState("test-run", ["/tmp/product.png"]);
@@ -406,6 +452,9 @@ appendProcessedImages(appendMigratedManifest, ["/work/input/auto-listing/feishu-
 assert.equal(readProcessedImages(appendMigratedManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/current-batch-first.png"), true);
 assert.equal(readProcessedImages(appendMigratedManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/current-batch-second.png"), true);
 assert.equal(readProcessedImages(appendMigratedManifest, repeatedBatchBFingerprint).has("/work/input/auto-listing/feishu-images/current-batch-first.png"), false);
+assert.equal(clearProcessedImagesForBatch(appendMigratedManifest, repeatedBatchAFingerprint), true);
+assert.equal(readProcessedImages(appendMigratedManifest, repeatedBatchAFingerprint).size, 0);
+assert.equal(clearProcessedImagesForBatch(appendMigratedManifest, repeatedBatchAFingerprint), false);
 
 assert.equal(
   shouldContinueFeishuBatchAfterChildExit({
@@ -598,6 +647,17 @@ assert.equal(
   }),
   undefined
 );
+assert.deepEqual(
+  resolveHermesEffectiveProgressTimestamp({
+    stateProgressTimestamp: "2026-05-27T10:20:41.000Z",
+    activePublishUpdatedAt: "2026-05-27T10:40:41.000Z",
+    latestArtifactUpdatedAt: "2026-05-27T10:43:37.000Z"
+  }),
+  {
+    timestamp: "2026-05-27T10:43:37.000Z",
+    source: "latest_publish_artifact"
+  }
+);
 assert.equal(
   shouldResumeInterruptedTaskInPlace({
     runStatus: "running",
@@ -624,6 +684,93 @@ assert.equal(
     reusableRawImageCount: 20
   }),
   false
+);
+assert.equal(
+  shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
+    pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-2.png"],
+    batchComplete: false
+  }),
+  true
+);
+assert.equal(
+  shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
+    pendingSourceImages: [],
+    batchComplete: true,
+    reusableArtifactCount: 0
+  }),
+  false
+);
+assert.equal(
+  shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
+    pendingSourceImages: [],
+    batchComplete: true,
+    reusableArtifactCount: 16
+  }),
+  true
+);
+assert.equal(
+  shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
+    pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-3.png"],
+    batchComplete: false,
+    reusableArtifactCount: 0
+  }),
+  false
+);
+assert.equal(
+  resolveHermesFeishuProgressDisplayMode({
+    running: true,
+    mode: "resume-real-job",
+    batchComplete: true,
+    activeResumeReusableArtifactCount: 16
+  }),
+  "resume_artifact_completion"
+);
+assert.equal(
+  resolveHermesFeishuProgressDisplayMode({
+    running: true,
+    mode: "resume-real-job",
+    batchComplete: true,
+    activeResumeReusableArtifactCount: 0
+  }),
+  "current_batch"
+);
+assert.equal(
+  resolveHermesFeishuProgressDisplayMode({
+    running: true,
+    mode: "full-real-flow",
+    batchComplete: false,
+    activeResumeReusableArtifactCount: 16
+  }),
+  "current_batch"
+);
+assert.equal(
+  resolveHermesStartAfterFeishuRefresh({
+    currentBatchComplete: true,
+    refreshedBatchChanged: true,
+    refreshedBatchComplete: false
+  }),
+  "start_new_or_pending_batch"
+);
+assert.equal(
+  resolveHermesStartAfterFeishuRefresh({
+    currentBatchComplete: true,
+    refreshedBatchChanged: false,
+    refreshedBatchComplete: true
+  }),
+  "require_rerun_confirmation"
+);
+assert.equal(
+  resolveHermesStartAfterFeishuRefresh({
+    currentBatchComplete: true,
+    refreshedBatchChanged: false,
+    refreshedBatchComplete: true,
+    forceRerunCurrentBatch: true
+  }),
+  "rerun_current_batch"
 );
 assert.equal(
   shouldSuppressHistoricalResultInHermesStatus({

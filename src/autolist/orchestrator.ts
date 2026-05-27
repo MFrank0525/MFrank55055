@@ -592,7 +592,12 @@ async function executeTaskChain(
         runtimeDir,
         distributedFolders: current.shopDistributionArtifact.distributedFolders,
         simulateOnly,
-        assertNotPaused: () => assertNotPaused(pauseSignalFile, current.taskId, step)
+        assertNotPaused: () => assertNotPaused(pauseSignalFile, current.taskId, step),
+        onProgress: (message) => {
+          appendEvent(eventFile, createEvent("info", step, message, current.taskId));
+          current = recordTaskProgress(current, step, message);
+          markProgress();
+        }
       });
       current = {
         ...current,

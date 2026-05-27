@@ -44,6 +44,18 @@ assert.match(
   /resetGraphicModuleOnPage/,
   "graphic upload failures must first reset the current graphic module instead of reopening from platform SPU"
 );
+for (const marker of [
+  'resetGraphicModuleOnPage(page, runtimeDir, "publish-page-graphic-module-reset-before-retry.png")'
+]) {
+  const resetStart = publishSource.indexOf(marker);
+  assert.notEqual(resetStart, -1, `graphic reset call not found: ${marker}`);
+  const resetWindow = publishSource.slice(Math.max(0, resetStart - 700), resetStart);
+  assert.match(
+    resetWindow,
+    /waitForPublishCreatePageReady/,
+    "graphic upload failure recovery must check/reload publish-page health before resetting the graphic module"
+  );
+}
 const deleteControlFinderSource = sliceFunction("findDeleteControlNearPreviewSafe");
 assert.match(
   deleteControlFinderSource,

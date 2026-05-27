@@ -51,6 +51,24 @@ export function readProcessedImages(manifestFile: string, batchFingerprint?: str
   return new Set((selectedBatch ? parsed.batches[selectedBatch] || [] : []).map(normalizePath));
 }
 
+export function clearProcessedImagesForBatch(manifestFile: string, batchFingerprint: string | undefined): boolean {
+  if (!batchFingerprint || !fs.existsSync(manifestFile)) {
+    return false;
+  }
+  const parsed = parseProcessedManifest(manifestFile);
+  if (Array.isArray(parsed)) {
+    return false;
+  }
+  const existing = parsed.batches[batchFingerprint] || [];
+  if (existing.length === 0) {
+    return false;
+  }
+  parsed.batches[batchFingerprint] = [];
+  parsed.currentBatchFingerprint = batchFingerprint;
+  fs.writeFileSync(manifestFile, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return true;
+}
+
 export function migrateLegacyProcessedImagesToBatch(manifestFile: string, batchFingerprint: string | undefined): boolean {
   if (!batchFingerprint) {
     return false;

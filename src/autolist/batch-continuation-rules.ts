@@ -45,6 +45,49 @@ export function shouldResumeInterruptedTaskInPlace(input: InterruptedTaskResumeI
   return !["done", "cleaned", "failed"].includes(input.taskStatus || "");
 }
 
+export type HistoricalFailureResumeInput = {
+  failedSourceImagePath?: string;
+  pendingSourceImages: string[];
+  batchComplete: boolean;
+  reusableArtifactCount?: number;
+};
+
+export function shouldResumeHistoricalFailureForCurrentFeishuBatch(input: HistoricalFailureResumeInput): boolean {
+  if (!input.failedSourceImagePath) {
+    return false;
+  }
+  if ((input.reusableArtifactCount || 0) > 0) {
+    return true;
+  }
+  if (input.batchComplete) {
+    return false;
+  }
+  return input.pendingSourceImages.includes(input.failedSourceImagePath);
+}
+
+export type HermesFeishuProgressDisplayInput = {
+  running: boolean;
+  mode?: string;
+  batchComplete: boolean;
+  activeResumeReusableArtifactCount: number;
+};
+
+export type HermesFeishuProgressDisplayMode = "current_batch" | "resume_artifact_completion";
+
+export function resolveHermesFeishuProgressDisplayMode(
+  input: HermesFeishuProgressDisplayInput
+): HermesFeishuProgressDisplayMode {
+  if (
+    input.running &&
+    input.mode === "resume-real-job" &&
+    input.batchComplete &&
+    input.activeResumeReusableArtifactCount > 0
+  ) {
+    return "resume_artifact_completion";
+  }
+  return "current_batch";
+}
+
 export type HermesProgressAgeInput = {
   nowIso: string;
   latestProgressTimestamp?: string;
@@ -60,6 +103,35 @@ export function resolveHermesProgressAgeSeconds(input: HermesProgressAgeInput): 
     return undefined;
   }
   return Math.max(0, Math.floor((nowMs - progressMs) / 1000));
+}
+
+export type HermesEffectiveProgressTimestampInput = {
+  stateProgressTimestamp?: string;
+  activePublishUpdatedAt?: string;
+  latestArtifactUpdatedAt?: string;
+  latestPublishedUpdatedAt?: string;
+};
+
+export type HermesEffectiveProgressTimestampResult = {
+  timestamp: string;
+  source: "state_progress" | "active_publish" | "latest_publish_artifact" | "latest_published";
+};
+
+export function resolveHermesEffectiveProgressTimestamp(
+  input: HermesEffectiveProgressTimestampInput
+): HermesEffectiveProgressTimestampResult | undefined {
+  const candidates = [
+    { timestamp: input.stateProgressTimestamp, source: "state_progress" as const },
+    { timestamp: input.activePublishUpdatedAt, source: "active_publish" as const },
+    { timestamp: input.latestArtifactUpdatedAt, source: "latest_publish_artifact" as const },
+    { timestamp: input.latestPublishedUpdatedAt, source: "latest_published" as const }
+  ]
+    .filter((candidate): candidate is HermesEffectiveProgressTimestampResult =>
+      Boolean(candidate.timestamp && Number.isFinite(Date.parse(candidate.timestamp)))
+    )
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+
+  return candidates[0];
 }
 
 export type HermesHistoricalResultSuppressionInput = {
@@ -107,6 +179,30 @@ export type FeishuBatchRefreshContinuationInput = {
 
 export function shouldContinueFeishuAfterBatchRefresh(input: FeishuBatchRefreshContinuationInput): boolean {
   return input.exitCode === 0 && input.currentBatchComplete && input.refreshedBatchChanged && !input.refreshedBatchComplete;
+}
+
+export type HermesStartAfterFeishuRefreshInput = {
+  currentBatchComplete: boolean;
+  refreshedBatchChanged: boolean;
+  refreshedBatchComplete: boolean;
+  forceRerunCurrentBatch?: boolean;
+};
+
+export type HermesStartAfterFeishuRefreshDecision =
+  | "start_new_or_pending_batch"
+  | "require_rerun_confirmation"
+  | "rerun_current_batch";
+
+export function resolveHermesStartAfterFeishuRefresh(
+  input: HermesStartAfterFeishuRefreshInput
+): HermesStartAfterFeishuRefreshDecision {
+  if (input.forceRerunCurrentBatch && input.currentBatchComplete && !input.refreshedBatchChanged) {
+    return "rerun_current_batch";
+  }
+  if (input.refreshedBatchChanged || !input.refreshedBatchComplete) {
+    return "start_new_or_pending_batch";
+  }
+  return "require_rerun_confirmation";
 }
 
 export type FullFlowContinuationReason = "initial_full" | "same_batch_pending" | "new_batch_after_refresh";

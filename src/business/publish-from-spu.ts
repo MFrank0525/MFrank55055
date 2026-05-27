@@ -7908,6 +7908,12 @@ async function runPublishFlow(
           logWarn(
             `Graphic module did not reach a clean completed state; resetting the current graphic module before retry. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
           );
+          await waitForPublishCreatePageReady(
+            page,
+            runtimeDir,
+            createPageUrl,
+            "publish-before-graphic-reset"
+          );
           screenshotFiles.push(
             await resetGraphicModuleOnPage(page, runtimeDir, "publish-page-graphic-module-reset-before-retry.png")
           );
@@ -8318,6 +8324,12 @@ async function runGraphicFlow(
       if (graphicResetAttempt < 1) {
         logWarn(
           `Graphic module did not reach a clean completed state; resetting the current graphic module before retry. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
+        );
+        await waitForPublishCreatePageReady(
+          page,
+          runtimeDir,
+          createPageUrl,
+          "graphic-before-graphic-reset"
         );
         screenshotFiles.push(
           await resetGraphicModuleOnPage(page, runtimeDir, "publish-page-graphic-module-reset-before-retry.png")

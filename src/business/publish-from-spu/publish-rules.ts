@@ -217,6 +217,9 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("PlatformSPUquerypagewasnotready") || text.includes("标品管理") && text.includes("加载")) {
     return "platform_page_not_ready";
   }
+  if (text.includes("Failedtoactivatepublishsectiontab") && text.includes("actual=<unknown>")) {
+    return "platform_page_not_ready";
+  }
   if (text.includes("Shopswitchfailed") && text.includes("couldnotfind切换组织/店铺")) {
     return "shop_switch_entry_unavailable";
   }

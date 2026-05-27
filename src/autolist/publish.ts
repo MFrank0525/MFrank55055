@@ -207,6 +207,7 @@ export async function publishDistributedProducts(options: {
   distributedFolders: string[];
   simulateOnly: boolean;
   assertNotPaused?: () => void;
+  onProgress?: (message: string) => void;
 }): Promise<PublishArtifact> {
   const orderedFolders = [...options.distributedFolders].sort((a, b) => {
     const shopDiff = path.dirname(a).localeCompare(path.dirname(b), "zh-CN");
@@ -329,7 +330,9 @@ export async function publishDistributedProducts(options: {
     const shopFolder = path.dirname(productFolder);
     const fields = readProductWorkbookFields(findWorkbookFile(productFolder));
     const runtimeKey = publishRuntimeKey(productFolder);
-    logInfo(`publishing product folder: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+    const startMessage = `Publishing product folder: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+    logInfo(startMessage.replace(/^Publishing/, "publishing"));
+    options.onProgress?.(startMessage);
     upsertPublishManifestEntry(options.runtimeDir, {
       productFolder,
       runtimeKey,
@@ -367,6 +370,9 @@ export async function publishDistributedProducts(options: {
       options.assertNotPaused?.();
       logInfo(
         `retrying publish after retryable system failure: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.errorClass}; attempt ${retryAttempt + 1}`
+      );
+      options.onProgress?.(
+        `Retrying publish for ${path.basename(productFolder)} (${path.basename(shopFolder)}): ${decision.errorClass}; attempt ${retryAttempt + 1}`
       );
       upsertPublishManifestEntry(options.runtimeDir, {
         productFolder,
@@ -426,6 +432,9 @@ export async function publishDistributedProducts(options: {
     const checkpointFile = path.join(options.runtimeDir, "publish", runtimeKey);
     if (!decision.safelyPublished) {
       logInfo(`publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`);
+      options.onProgress?.(
+        `Publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`
+      );
       clearCheckpoint(checkpointFile);
       return {
         preflightErrors: [],
@@ -435,6 +444,9 @@ export async function publishDistributedProducts(options: {
     }
     logInfo(
       `publish completed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.finalVerifyStatus}`
+    );
+    options.onProgress?.(
+      `Publish completed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.finalVerifyStatus}`
     );
     saveCheckpoint(checkpointFile, [{ step: "publish_flow", status: "completed" }]);
   }

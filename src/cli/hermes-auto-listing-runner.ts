@@ -3,17 +3,21 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   isHermesSupervisorProcessCommand,
+  resolveHermesEffectiveProgressTimestamp,
+  resolveHermesFeishuProgressDisplayMode,
   resolveHermesProgressAgeSeconds,
+  resolveHermesStartAfterFeishuRefresh,
   selectHermesStatusResultFile,
   selectHermesStatusRuntimeDir,
   shouldPreferActiveTaskStateSummary,
+  shouldResumeHistoricalFailureForCurrentFeishuBatch,
   shouldResumeInterruptedTaskInPlace,
   shouldSuppressHistoricalResultInHermesStatus,
   shouldSuppressStateCurrentTaskInHermesStatus
 } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
-import { readProcessedImages } from "../autolist/file-batch.js";
+import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
@@ -38,6 +42,8 @@ interface AutoListingJobFile {
     resumeSourceImagePath?: string;
     resumeTaskId?: string;
     resumeProductFolderNames?: string[];
+    feishuProductDataFile?: string;
+    processedImageManifest?: string;
     imageGenerationConfigFile?: string;
     imageGenerationProvider?: string;
     maxImagesPerRun?: number;
@@ -126,12 +132,21 @@ interface PublishPlanFile {
   }>;
 }
 
+interface LocalFeishuConfig {
+  auth?: {
+    appId?: string;
+    appSecret?: string;
+    tenantAccessToken?: string;
+  };
+}
+
 const rootDir = process.cwd();
 const controlDir = path.resolve(rootDir, "data/auto-listing/control");
 const jobFile = path.join(controlDir, "hermes-auto-listing-job.json");
 const pauseFile = path.join(controlDir, "pause.requested");
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu-real.json");
+const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
 const activeRunStartedPattern = /auto-listing run started:\s*([0-9]{8}-[0-9]{6})/;
 
 function readJsonFile<T>(file: string): T | undefined {
@@ -229,6 +244,7 @@ function compactProductFolders(folders: string[] | undefined): Record<string, un
 
 function compactTaskForStatus<
   T extends {
+    taskId?: string;
     sourceImageName?: string;
     sourceImagePath?: string;
     status?: string;
@@ -240,6 +256,7 @@ function compactTaskForStatus<
     return undefined;
   }
   return {
+    taskId: task.taskId,
     sourceImageName: task.sourceImageName,
     sourceImagePath: task.sourceImagePath,
     status: task.status,
@@ -464,21 +481,113 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
 
 function summarizeFeishuProgress(): Record<string, unknown> | undefined {
   const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
-  const feishuProductDataFile = job?.input ? path.resolve(rootDir, (job.input as { feishuProductDataFile?: string }).feishuProductDataFile || "data/feishu/products.json") : "";
-  const processedManifestFile = job?.input ? path.resolve(rootDir, (job.input as { processedImageManifest?: string }).processedImageManifest || "data/auto-listing/processed-images.json") : "";
+  const feishuProductDataFile = job?.input ? path.resolve(rootDir, job.input.feishuProductDataFile || "data/feishu/products.json") : "";
+  const processedManifestFile = job?.input ? path.resolve(rootDir, job.input.processedImageManifest || "data/auto-listing/processed-images.json") : "";
   if (!feishuProductDataFile || !fs.existsSync(feishuProductDataFile)) {
     return undefined;
   }
   try {
     const records = loadFeishuProductRecords(feishuProductDataFile);
     const batchFingerprint = buildFeishuBatchFingerprint(records);
-    return summarizeFeishuBatchProgress({
+    const progress = summarizeFeishuBatchProgress({
       records,
       processedImages: readProcessedImages(processedManifestFile, batchFingerprint)
     }) as unknown as Record<string, unknown>;
+    return {
+      ...progress,
+      batchFingerprint
+    };
   } catch {
     return undefined;
   }
+}
+
+function loadFeishuEnv(configFile: string): NodeJS.ProcessEnv {
+  if (!fs.existsSync(configFile)) {
+    return process.env;
+  }
+  const parsed = JSON.parse(fs.readFileSync(configFile, "utf8")) as LocalFeishuConfig;
+  if (!parsed.auth) {
+    return process.env;
+  }
+  return {
+    ...process.env,
+    FEISHU_APP_ID: parsed.auth.appId?.trim() || "",
+    FEISHU_APP_SECRET: parsed.auth.appSecret?.trim() || "",
+    FEISHU_TENANT_ACCESS_TOKEN: parsed.auth.tenantAccessToken?.trim() || ""
+  };
+}
+
+function migrateLegacyProcessedManifestForCurrentCache(): void {
+  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  const feishuProductDataFile = path.resolve(rootDir, job?.input?.feishuProductDataFile || "data/feishu/products.json");
+  const processedManifestFile = path.resolve(rootDir, job?.input?.processedImageManifest || "data/auto-listing/processed-images.json");
+  if (!fs.existsSync(feishuProductDataFile)) {
+    return;
+  }
+  const fingerprint = buildFeishuBatchFingerprint(loadFeishuProductRecords(feishuProductDataFile));
+  migrateLegacyProcessedImagesToBatch(processedManifestFile, fingerprint);
+}
+
+function runFeishuAssetsRefreshForStart(): number | null {
+  migrateLegacyProcessedManifestForCurrentCache();
+  const result = spawnSync("npm", [
+    "run",
+    "feishu:assets",
+    "--",
+    "--config",
+    "./input/feishu-bitable.config.json",
+    "--out",
+    "./data/feishu/products.json",
+    "--cleanup-stale-assets"
+  ], {
+    cwd: rootDir,
+    env: loadFeishuEnv(feishuConfigFile),
+    encoding: "utf8"
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+    throw new Error(`Feishu assets refresh failed before Hermes start: ${output || result.status || "unknown"}`);
+  }
+  return result.status;
+}
+
+function clearCurrentBatchProcessedImages(): boolean {
+  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  const progress = summarizeFeishuProgress();
+  const fingerprint = typeof progress?.batchFingerprint === "string" ? progress.batchFingerprint : "";
+  const processedManifestFile = path.resolve(rootDir, job?.input?.processedImageManifest || "data/auto-listing/processed-images.json");
+  return clearProcessedImagesForBatch(processedManifestFile, fingerprint);
+}
+
+function summarizeCurrentFeishuBatchForResume(): { batchComplete: boolean; pendingSourceImages: string[] } | undefined {
+  const progress = summarizeFeishuProgress();
+  if (!progress) {
+    return undefined;
+  }
+  const pendingSourceImages = Array.isArray(progress.pendingSourceImages)
+    ? progress.pendingSourceImages.map((sourceImagePath) => path.resolve(rootDir, String(sourceImagePath)))
+    : [];
+  return {
+    batchComplete: progress.batchComplete === true,
+    pendingSourceImages
+  };
+}
+
+function shouldResumeSourceImageForCurrentFeishuBatch(sourceImagePath: string | undefined, reusableArtifactCount = 0): boolean {
+  const batch = summarizeCurrentFeishuBatchForResume();
+  if (!batch) {
+    return true;
+  }
+  return shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    failedSourceImagePath: sourceImagePath ? path.resolve(rootDir, sourceImagePath) : undefined,
+    pendingSourceImages: batch.pendingSourceImages,
+    batchComplete: batch.batchComplete,
+    reusableArtifactCount
+  });
 }
 
 function existingStatus(): Record<string, unknown> {
@@ -524,6 +633,11 @@ function existingStatus(): Record<string, unknown> {
   const publishProgress = summarizePublishProgress(runtimeDir);
   const feishuProgress = summarizeFeishuProgress();
   const state = summarizeState(runtimeDir);
+  const currentTask = state?.currentTask as Record<string, unknown> | undefined;
+  const activeResumeReusableArtifactCount =
+    job.mode === "resume-real-job" && runtimeDir && currentTask?.taskId
+      ? countReusableRawImages(runtimeDir, String(currentTask.taskId))
+      : 0;
   const preferStateSummary = shouldPreferActiveTaskStateSummary({
     running,
     stateHasActiveTask: Boolean(state),
@@ -531,7 +645,23 @@ function existingStatus(): Record<string, unknown> {
   });
   const latestArtifactUpdatedAt = (publishProgress?.latestArtifact as Record<string, unknown> | undefined)?.updatedAt;
   const activePublishUpdatedAt = (publishProgress?.active as Record<string, unknown> | undefined)?.updatedAt;
+  const latestPublishedUpdatedAt = (publishProgress?.latestPublished as Record<string, unknown> | undefined)?.updatedAt;
   const latestStateProgressAt = (state?.latestProgress as Record<string, unknown> | undefined)?.timestamp;
+  const effectiveProgress = resolveHermesEffectiveProgressTimestamp({
+    stateProgressTimestamp: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined,
+    activePublishUpdatedAt: typeof activePublishUpdatedAt === "string" ? activePublishUpdatedAt : undefined,
+    latestArtifactUpdatedAt: typeof latestArtifactUpdatedAt === "string" ? latestArtifactUpdatedAt : undefined,
+    latestPublishedUpdatedAt: typeof latestPublishedUpdatedAt === "string" ? latestPublishedUpdatedAt : undefined
+  });
+  const progressHeartbeat = effectiveProgress
+    ? {
+        ...effectiveProgress,
+        ageSeconds: resolveHermesProgressAgeSeconds({
+          nowIso: new Date().toISOString(),
+          latestProgressTimestamp: effectiveProgress.timestamp
+        })
+      }
+    : undefined;
   const publishProgressHasNewerActive =
     Boolean(activePublishUpdatedAt) &&
     (!latestStateProgressAt || Date.parse(String(activePublishUpdatedAt)) > Date.parse(String(latestStateProgressAt)));
@@ -539,6 +669,12 @@ function existingStatus(): Record<string, unknown> {
     Boolean(latestArtifactUpdatedAt) &&
     (!latestStateProgressAt || Date.parse(String(latestArtifactUpdatedAt)) > Date.parse(String(latestStateProgressAt)));
   const batchComplete = feishuProgress ? feishuProgress.batchComplete === true : true;
+  const feishuProgressDisplayMode = resolveHermesFeishuProgressDisplayMode({
+    running,
+    mode: job.mode,
+    batchComplete,
+    activeResumeReusableArtifactCount
+  });
   const completed =
     !running &&
     batchComplete &&
@@ -572,6 +708,7 @@ function existingStatus(): Record<string, unknown> {
       ? {
           ...state,
           currentTask: undefined,
+          latestProgress: undefined,
           note: "运行中发布进度以 publishProgress 为准；state.currentTask 来自旧任务状态，已从状态载荷中隐藏以避免误判。"
         }
       : state;
@@ -603,8 +740,11 @@ function existingStatus(): Record<string, unknown> {
         : undefined,
     result: suppressHistoricalResult ? undefined : result,
     state: statusState,
+    progressHeartbeat,
     publishProgress,
     feishuProgress,
+    feishuProgressDisplayMode,
+    activeResumeReusableArtifactCount,
     logTail: tailFile(job.logFile, 12).map(compactStatusLine)
   };
 }
@@ -626,10 +766,24 @@ function formatStatusText(status: Record<string, unknown>): string {
   }
   if (progress) {
     lines.push(`发布：${String(progress.safelyPublished ?? 0)}/${String(progress.total ?? "?")}，失败 ${String(progress.failed ?? 0)}，待处理 ${String(progress.pending ?? 0)}`);
+    const latestArtifact = progress.latestArtifact as Record<string, unknown> | undefined;
+    if (latestArtifact?.name && latestArtifact?.updatedAt) {
+      lines.push(`最近发布产物：${String(latestArtifact.name)}（${String(latestArtifact.updatedAt)}）`);
+    }
+  }
+  const heartbeat = status.progressHeartbeat as Record<string, unknown> | undefined;
+  if (heartbeat?.timestamp) {
+    lines.push(`状态心跳：${String(heartbeat.timestamp)}，来源 ${String(heartbeat.source || "unknown")}，约 ${String(heartbeat.ageSeconds ?? "?")} 秒前`);
   }
   const feishuProgress = status.feishuProgress as Record<string, unknown> | undefined;
   if (feishuProgress) {
-    lines.push(`飞书批次：已处理 ${String(feishuProgress.processedRecordCount ?? "?")}/${String(feishuProgress.recordCount ?? "?")}，待处理 ${String(feishuProgress.pendingRecordCount ?? "?")}`);
+    if (status.feishuProgressDisplayMode === "resume_artifact_completion") {
+      lines.push(
+        `飞书批次：旧批次已完成 ${String(feishuProgress.processedRecordCount ?? "?")}/${String(feishuProgress.recordCount ?? "?")}；当前在收尾已有生图产物，完成后自动刷新新批次`
+      );
+    } else {
+      lines.push(`飞书批次：已处理 ${String(feishuProgress.processedRecordCount ?? "?")}/${String(feishuProgress.recordCount ?? "?")}，待处理 ${String(feishuProgress.pendingRecordCount ?? "?")}`);
+    }
   } else if (state) {
     const currentTask = state.currentTask as Record<string, unknown> | undefined;
     const latestProgress = state.latestProgress as Record<string, unknown> | undefined;
@@ -684,6 +838,12 @@ function formatStartText(result: Record<string, unknown>): string {
   if (status === "would_start") {
     return `将启动上架任务：${String(result.command || "")}`;
   }
+  if (status === "rerun_confirmation_required") {
+    return [
+      "当前飞书批次产品已全部上架完成，刷新后没有发现新的产品批次。",
+      "如需重新跑原批次，请确认后使用重跑当前批次入口；否则任务会停止等待你更新飞书表格。"
+    ].join("\n");
+  }
   return String(result.message || `上架启动命令已执行：${status}`);
 }
 
@@ -696,6 +856,14 @@ function shouldResumeCurrentFailure(): boolean {
 
   const resumeSourceImagePath = resumeJob?.input?.resumeSourceImagePath;
   if (!resumeSourceImagePath || !fs.existsSync(path.resolve(rootDir, resumeSourceImagePath))) {
+    return false;
+  }
+  const reusableRawImageCount = countReusableRawImages(
+    path.resolve(rootDir, resumeJob.runtimeDir || path.dirname(path.resolve(rootDir, resumeJob.resultFile || ""))),
+    resumeJob.input?.resumeTaskId
+  );
+  if (!shouldResumeSourceImageForCurrentFeishuBatch(resumeSourceImagePath, reusableRawImageCount)) {
+    fs.rmSync(resumeJobFile, { force: true });
     return false;
   }
 
@@ -792,6 +960,9 @@ function findLatestInterruptedStateForResume(): { stateFile: string; runtimeDir:
     }
     const sourceImageExists = fs.existsSync(path.resolve(rootDir, task.sourceImagePath));
     const reusableRawImageCount = countReusableRawImages(runtimeDir, task.taskId);
+    if (!shouldResumeSourceImageForCurrentFeishuBatch(task.sourceImagePath, reusableRawImageCount)) {
+      continue;
+    }
     if (
       shouldResumeInterruptedTaskInPlace({
         runStatus: state.status,
@@ -820,7 +991,14 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
       continue;
     }
     const failedTask = (result.tasks || []).find((task) => task.status === "failed" || task.error);
-    if (failedTask?.sourceImagePath && fs.existsSync(path.resolve(rootDir, failedTask.sourceImagePath))) {
+    if (
+      failedTask?.sourceImagePath &&
+      fs.existsSync(path.resolve(rootDir, failedTask.sourceImagePath)) &&
+      shouldResumeSourceImageForCurrentFeishuBatch(
+        failedTask.sourceImagePath,
+        countReusableRawImages(result.runtimeDir || path.dirname(resultFile), failedTask.taskId)
+      )
+    ) {
       return { resultFile, result };
     }
   }
@@ -973,7 +1151,7 @@ function selectCommand(): {
   };
 }
 
-async function start(dryRun: boolean, text: boolean): Promise<void> {
+async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boolean): Promise<void> {
   fs.mkdirSync(controlDir, { recursive: true });
   const current = readJsonFile<RunnerJob>(jobFile);
   if (current && isRunnerJobRunning(current)) {
@@ -998,6 +1176,30 @@ async function start(dryRun: boolean, text: boolean): Promise<void> {
   }
 
   const selected = selectCommand();
+  const beforeRefreshProgress = summarizeFeishuProgress();
+  if (!dryRun && selected.mode === "full-real-flow" && beforeRefreshProgress?.batchComplete === true) {
+    runFeishuAssetsRefreshForStart();
+    const afterRefreshProgress = summarizeFeishuProgress();
+    const decision = resolveHermesStartAfterFeishuRefresh({
+      currentBatchComplete: beforeRefreshProgress.batchComplete === true,
+      refreshedBatchChanged: beforeRefreshProgress.batchFingerprint !== afterRefreshProgress?.batchFingerprint,
+      refreshedBatchComplete: afterRefreshProgress?.batchComplete === true,
+      forceRerunCurrentBatch
+    });
+    if (decision === "require_rerun_confirmation") {
+      const result = {
+        ok: true,
+        status: "rerun_confirmation_required",
+        feishuProgress: afterRefreshProgress,
+        message: "当前飞书批次产品已全部上架完成；刷新后没有发现新的产品批次。确认要重新跑原批次后，再使用重跑当前批次入口。"
+      };
+      console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
+      return;
+    }
+    if (decision === "rerun_current_batch") {
+      clearCurrentBatchProcessedImages();
+    }
+  }
   const logFile = path.join(controlDir, `hermes-auto-listing-${timestampForFile()}.log`);
   if (dryRun) {
     const result = {
@@ -1058,7 +1260,7 @@ async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   const text = rest.includes("--text");
   if (command === "start") {
-    await start(rest.includes("--dry-run"), text);
+    await start(rest.includes("--dry-run"), text, rest.includes("--rerun-current-batch"));
     return;
   }
   if (command === "status") {
@@ -1071,7 +1273,7 @@ async function main(): Promise<void> {
     console.log(text ? String(result.message) : JSON.stringify(result, null, 2));
     return;
   }
-  throw new Error("Usage: hermes-auto-listing-runner <start|status|pause> [--dry-run] [--text]");
+  throw new Error("Usage: hermes-auto-listing-runner <start|status|pause> [--dry-run] [--text] [--rerun-current-batch]");
 }
 
 try {
