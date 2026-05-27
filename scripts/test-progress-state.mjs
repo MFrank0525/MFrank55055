@@ -20,6 +20,8 @@ import {
   shouldResumeFeishuBatchAfterRetryableChildFailure,
   shouldResumeInterruptedTaskInPlace,
   resolveDefaultRetryableChildFailureRecoveryAttempts,
+  resolveHermesProgressAgeSeconds,
+  selectHermesStatusRuntimeDir,
   shouldSuppressHistoricalResultInHermesStatus,
   shouldSuppressStateCurrentTaskInHermesStatus
 } from "../dist/src/autolist/batch-continuation-rules.js";
@@ -519,6 +521,24 @@ assert.equal(
   "active-child-result.json"
 );
 assert.equal(
+  selectHermesStatusRuntimeDir({
+    running: true,
+    activeRuntimeDir: "/runs/active",
+    resultRuntimeDir: "/runs/stale-result",
+    resultFile: "/runs/stale-result/result.json"
+  }),
+  "/runs/active"
+);
+assert.equal(
+  selectHermesStatusRuntimeDir({
+    running: false,
+    activeRuntimeDir: "/runs/old-active",
+    resultRuntimeDir: "/runs/latest-result",
+    resultFile: "/runs/latest-result/result.json"
+  }),
+  "/runs/latest-result"
+);
+assert.equal(
   isHermesSupervisorProcessCommand("node dist/src/cli/hermes-auto-listing-supervisor.js --initial full"),
   true
 );
@@ -565,6 +585,20 @@ assert.equal(
 );
 assert.equal(resolveDefaultRetryableChildFailureRecoveryAttempts(), 12);
 assert.equal(
+  resolveHermesProgressAgeSeconds({
+    nowIso: "2026-05-27T03:05:30.000Z",
+    latestProgressTimestamp: "2026-05-27T03:02:30.000Z"
+  }),
+  180
+);
+assert.equal(
+  resolveHermesProgressAgeSeconds({
+    nowIso: "bad-date",
+    latestProgressTimestamp: "2026-05-27T03:02:30.000Z"
+  }),
+  undefined
+);
+assert.equal(
   shouldResumeInterruptedTaskInPlace({
     runStatus: "running",
     taskStatus: "main_images_generated",
@@ -596,7 +630,20 @@ assert.equal(
     running: true,
     publishProgressAvailable: true,
     resultOk: false,
-    resultStatus: "failed"
+    resultStatus: "failed",
+    activeRuntimeDir: "/runs/active",
+    resultRuntimeDir: "/runs/stale-result"
+  }),
+  true
+);
+assert.equal(
+  shouldSuppressHistoricalResultInHermesStatus({
+    running: true,
+    publishProgressAvailable: false,
+    resultOk: false,
+    resultStatus: "failed",
+    activeRuntimeDir: "/runs/active",
+    resultRuntimeDir: "/runs/stale-result"
   }),
   true
 );
@@ -605,7 +652,9 @@ assert.equal(
     running: false,
     publishProgressAvailable: true,
     resultOk: false,
-    resultStatus: "failed"
+    resultStatus: "failed",
+    activeRuntimeDir: "/runs/active",
+    resultRuntimeDir: "/runs/stale-result"
   }),
   false
 );

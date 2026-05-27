@@ -45,15 +45,40 @@ export function shouldResumeInterruptedTaskInPlace(input: InterruptedTaskResumeI
   return !["done", "cleaned", "failed"].includes(input.taskStatus || "");
 }
 
+export type HermesProgressAgeInput = {
+  nowIso: string;
+  latestProgressTimestamp?: string;
+};
+
+export function resolveHermesProgressAgeSeconds(input: HermesProgressAgeInput): number | undefined {
+  if (!input.latestProgressTimestamp) {
+    return undefined;
+  }
+  const nowMs = Date.parse(input.nowIso);
+  const progressMs = Date.parse(input.latestProgressTimestamp);
+  if (!Number.isFinite(nowMs) || !Number.isFinite(progressMs)) {
+    return undefined;
+  }
+  return Math.max(0, Math.floor((nowMs - progressMs) / 1000));
+}
+
 export type HermesHistoricalResultSuppressionInput = {
   running: boolean;
   publishProgressAvailable: boolean;
   resultOk?: boolean;
   resultStatus?: string;
+  activeRuntimeDir?: string;
+  resultRuntimeDir?: string;
 };
 
 export function shouldSuppressHistoricalResultInHermesStatus(input: HermesHistoricalResultSuppressionInput): boolean {
-  if (!input.running || !input.publishProgressAvailable) {
+  if (!input.running) {
+    return false;
+  }
+  if (input.activeRuntimeDir && input.resultRuntimeDir && input.activeRuntimeDir !== input.resultRuntimeDir) {
+    return true;
+  }
+  if (!input.publishProgressAvailable) {
     return false;
   }
   return input.resultOk === false || input.resultStatus === "failed";
@@ -132,6 +157,20 @@ export function selectHermesStatusResultFile(input: HermesStatusResultSelectionI
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
   return candidates[0]?.resultFile || input.log?.resultFile || input.latest?.resultFile || input.expected?.resultFile;
+}
+
+export type HermesStatusRuntimeDirSelectionInput = {
+  running: boolean;
+  activeRuntimeDir?: string;
+  resultRuntimeDir?: string;
+  resultFile?: string;
+};
+
+export function selectHermesStatusRuntimeDir(input: HermesStatusRuntimeDirSelectionInput): string | undefined {
+  if (input.running && input.activeRuntimeDir) {
+    return input.activeRuntimeDir;
+  }
+  return input.resultRuntimeDir || (input.resultFile ? input.resultFile.replace(/\/result\.json$/, "") : undefined) || input.activeRuntimeDir;
 }
 
 export function isHermesSupervisorProcessCommand(command: string): boolean {

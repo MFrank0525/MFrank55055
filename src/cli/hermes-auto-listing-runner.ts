@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   isHermesSupervisorProcessCommand,
+  resolveHermesProgressAgeSeconds,
   selectHermesStatusResultFile,
+  selectHermesStatusRuntimeDir,
   shouldPreferActiveTaskStateSummary,
   shouldResumeInterruptedTaskInPlace,
   shouldSuppressHistoricalResultInHermesStatus,
@@ -349,6 +351,10 @@ function summarizeState(runtimeDir: string | undefined): Record<string, unknown>
     latestProgress: latestProgress
       ? {
           ...latestProgress,
+          ageSeconds: resolveHermesProgressAgeSeconds({
+            nowIso: new Date().toISOString(),
+            latestProgressTimestamp: latestProgress.timestamp
+          }),
           message: compactStatusValue(latestProgress.message)
         }
       : undefined
@@ -509,7 +515,12 @@ function existingStatus(): Record<string, unknown> {
     }
   });
   const result = summarizeResult(resultFile);
-  const runtimeDir = typeof result?.runtimeDir === "string" ? result.runtimeDir : activeRuntimeDir || (resultFile ? path.dirname(resultFile) : undefined);
+  const runtimeDir = selectHermesStatusRuntimeDir({
+    running,
+    activeRuntimeDir,
+    resultRuntimeDir: typeof result?.runtimeDir === "string" ? result.runtimeDir : undefined,
+    resultFile
+  });
   const publishProgress = summarizePublishProgress(runtimeDir);
   const feishuProgress = summarizeFeishuProgress();
   const state = summarizeState(runtimeDir);
@@ -546,7 +557,9 @@ function existingStatus(): Record<string, unknown> {
     running,
     publishProgressAvailable: Boolean(publishProgress),
     resultOk: typeof result?.ok === "boolean" ? result.ok : undefined,
-    resultStatus: typeof result?.status === "string" ? result.status : undefined
+    resultStatus: typeof result?.status === "string" ? result.status : undefined,
+    activeRuntimeDir,
+    resultRuntimeDir: typeof result?.runtimeDir === "string" ? result.runtimeDir : undefined
   });
   const suppressStateCurrentTask = shouldSuppressStateCurrentTaskInHermesStatus({
     running,
