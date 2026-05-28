@@ -17,7 +17,7 @@ const medicalTitles = buildTitlesFromFeishuKeywords({
 assert.equal(medicalTitles.length, 20);
 assert.equal(new Set(medicalTitles).size, 20);
 for (const title of medicalTitles) {
-  assert.equal(countTitleCharacters(title), 58);
+  assert.ok(countTitleCharacters(title) <= 58);
   assert.match(title, /^(医用级|正品|官方正品)/);
   assert.ok(title.endsWith("医用聚乙二醇润护敷料延草纲目"));
 }
@@ -31,7 +31,7 @@ const otcTitles = buildTitlesFromFeishuKeywords({
 });
 assert.equal(otcTitles.length, 12);
 for (const title of otcTitles) {
-  assert.equal(countTitleCharacters(title), 58);
+  assert.ok(countTitleCharacters(title) <= 58);
   assert.ok(title.endsWith("医用凡士林润唇软膏"));
   assert.ok(!title.endsWith("医用凡士林润唇软膏延草纲目"));
 }
@@ -45,6 +45,18 @@ const healthTitles = buildTitlesFromFeishuKeywords({
 });
 assert.equal(healthTitles.length, 20);
 for (const title of healthTitles) {
-  assert.equal(countTitleCharacters(title), 28);
+  assert.ok(countTitleCharacters(title) <= 28);
   assert.doesNotMatch(title, /^(医用级|正品|官方正品)/);
+}
+
+const shortTitles = buildTitlesFromFeishuKeywords({
+  keywordText: "蓝莓叶黄素,成人护眼,叶黄素酯",
+  brand: "延草纲目",
+  genericName: "蓝莓叶黄素酯片",
+  productCategory: "保健食品",
+  titleCount: 3
+});
+assert.equal(shortTitles.length, 3);
+for (const title of shortTitles) {
+  assert.ok(countTitleCharacters(title) <= 28);
 }

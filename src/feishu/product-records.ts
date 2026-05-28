@@ -10,6 +10,14 @@ function extractText(value: unknown): string {
     return String(value).trim();
   }
   if (Array.isArray(value)) {
+    if (
+      value.every((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).text === "string")
+    ) {
+      return value
+        .map((item) => String((item as Record<string, unknown>).text || ""))
+        .join("")
+        .trim();
+    }
     return value.map((item) => extractText(item)).filter(Boolean).join(",").trim();
   }
   if (typeof value === "object") {

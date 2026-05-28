@@ -30,69 +30,41 @@ function rotate<T>(items: T[], offset: number): T[] {
   return [...items.slice(normalized), ...items.slice(0, normalized)];
 }
 
-function findExactKeywordCombination(keywords: string[], targetLength: number): string[] {
-  if (targetLength < 0) {
+function totalTitleLength(tokens: string[]): number {
+  return tokens.reduce((sum, token) => sum + countTitleCharacters(token), 0);
+}
+
+function findBestKeywordCombination(keywords: string[], targetLength: number): string[] {
+  if (targetLength <= 0) {
     return [];
   }
-  if (targetLength === 0) {
-    return [""];
-  }
 
-  const greedy: string[] = [];
-  let greedyLength = 0;
-  for (let round = 0; round < Math.max(3, targetLength); round += 1) {
+  let best: string[] = [];
+  for (let offset = 0; offset < keywords.length; offset += 1) {
+    const ordered = rotate(keywords, offset);
+    const selected: string[] = [];
+    let currentLength = 0;
     let changed = false;
-    for (const keyword of keywords) {
-      const length = countTitleCharacters(keyword);
-      if (greedyLength + length > targetLength) {
-        continue;
+    do {
+      changed = false;
+      for (const keyword of ordered) {
+        const length = countTitleCharacters(keyword);
+        if (currentLength + length > targetLength) {
+          continue;
+        }
+        selected.push(keyword);
+        currentLength += length;
+        changed = true;
+        if (currentLength === targetLength) {
+          return selected;
+        }
       }
-      greedy.push(keyword);
-      greedyLength += length;
-      changed = true;
-      if (greedyLength === targetLength) {
-        return greedy;
-      }
-    }
-    if (!changed) {
-      break;
-    }
-  }
-
-  const bounded: Array<string[] | undefined> = Array.from({ length: targetLength + 1 });
-  bounded[0] = [];
-  for (const keyword of keywords) {
-    const length = countTitleCharacters(keyword);
-    for (let current = targetLength; current >= length; current -= 1) {
-      if (!bounded[current] && bounded[current - length]) {
-        bounded[current] = [...bounded[current - length]!, keyword];
-      }
+    } while (changed);
+    if (currentLength > totalTitleLength(best)) {
+      best = selected;
     }
   }
-  if (bounded[targetLength]) {
-    return bounded[targetLength]!.filter(Boolean);
-  }
-
-  const unbounded: Array<string[] | undefined> = Array.from({ length: targetLength + 1 });
-  unbounded[0] = [];
-  for (let current = 1; current <= targetLength; current += 1) {
-    for (const keyword of keywords) {
-      const length = countTitleCharacters(keyword);
-      const previous = current - length >= 0 ? unbounded[current - length] : undefined;
-      if (!previous) {
-        continue;
-      }
-      if (previous[previous.length - 1] === keyword) {
-        continue;
-      }
-      unbounded[current] = [...previous, keyword];
-      break;
-    }
-    if (unbounded[targetLength]) {
-      break;
-    }
-  }
-  return unbounded[targetLength] || [];
+  return best;
 }
 
 function resolveTitleShape(options: { brand: string; genericName: string; productCategory?: string; index: number }): {
@@ -136,13 +108,13 @@ export function buildTitlesFromFeishuKeywords(options: {
     const fixedLength = countTitleCharacters(shape.prefix) + countTitleCharacters(shape.suffix);
     const bodyLength = shape.targetLength - fixedLength;
     const ordered = rotate(index % 2 === 0 ? keywords : [...keywords].reverse(), index);
-    const bodyTokens = findExactKeywordCombination(ordered, bodyLength);
+    const bodyTokens = findBestKeywordCombination(ordered, bodyLength);
     if (!bodyTokens.length && bodyLength > 0) {
       continue;
     }
     const variedBodyTokens = index % 3 === 2 ? [...bodyTokens].reverse() : rotate(bodyTokens, index);
     const title = `${shape.prefix}${variedBodyTokens.join("")}${shape.suffix}`;
-    if (countTitleCharacters(title) !== shape.targetLength || seen.has(title)) {
+    if (countTitleCharacters(title) > shape.targetLength || seen.has(title)) {
       continue;
     }
     seen.add(title);
@@ -151,7 +123,7 @@ export function buildTitlesFromFeishuKeywords(options: {
 
   if (titles.length < options.titleCount) {
     throw new Error(
-      `Feishu 标题关键词 could only compose ${titles.length}/${options.titleCount} title(s) with exact category length. Add more varied keywords or adjust keyword lengths.`
+      `Feishu 标题关键词 could only compose ${titles.length}/${options.titleCount} title(s) without exceeding category length. Add more varied keywords.`
     );
   }
   assertGeneratedTitlesBelongToProduct({
