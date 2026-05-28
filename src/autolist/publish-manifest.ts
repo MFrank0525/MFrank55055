@@ -8,6 +8,10 @@ export interface PublishManifestEntry {
   runtimeKey: string;
   shopFolder: string;
   watermarkNo: number | null;
+  sourceImagePath?: string;
+  recordId?: string;
+  userCognitionName?: string;
+  genericName?: string;
   status: "pending" | "published" | "failed" | "skipped";
   finalVerifyStatus: PublishFinalVerifyStatus;
   resultFile?: string;
@@ -30,8 +34,36 @@ export interface PublishPlanItem {
   finalVerifyStatus?: PublishFinalVerifyStatus;
 }
 
+export interface PublishProductIdentity {
+  sourceImagePath?: string;
+  recordId?: string;
+  userCognitionName?: string;
+  genericName?: string;
+}
+
 const MANIFEST_FILE = "publish-manifest.json";
 const PLAN_FILE = "publish-plan.json";
+
+function normalizeIdentityText(value: string | undefined): string {
+  return String(value || "").replace(/\s+/g, "").trim();
+}
+
+function normalizeIdentityPath(value: string | undefined): string {
+  return value ? path.resolve(value) : "";
+}
+
+export function normalizePublishProductIdentity(identity: PublishProductIdentity | undefined): PublishProductIdentity | undefined {
+  if (!identity) {
+    return undefined;
+  }
+  const normalized: PublishProductIdentity = {
+    sourceImagePath: normalizeIdentityPath(identity.sourceImagePath),
+    recordId: normalizeIdentityText(identity.recordId),
+    userCognitionName: normalizeIdentityText(identity.userCognitionName),
+    genericName: normalizeIdentityText(identity.genericName)
+  };
+  return Object.values(normalized).some(Boolean) ? normalized : undefined;
+}
 
 export function extractWatermarkNo(productFolder: string): number | null {
   const match = path.basename(productFolder).match(/水印(\d{1,3})$/);
@@ -84,9 +116,39 @@ export function isManifestEntrySafelyPublished(entry: PublishManifestEntry | und
   return Boolean(entry && entry.status === "published" && ["publish_signal_confirmed", "list_verified"].includes(entry.finalVerifyStatus));
 }
 
+export function isManifestEntrySafelyPublishedForIdentity(
+  entry: PublishManifestEntry | undefined,
+  identity?: PublishProductIdentity
+): boolean {
+  if (!isManifestEntrySafelyPublished(entry)) {
+    return false;
+  }
+  const expected = normalizePublishProductIdentity(identity);
+  if (!expected) {
+    return true;
+  }
+  const actual = normalizePublishProductIdentity({
+    sourceImagePath: entry?.sourceImagePath,
+    recordId: entry?.recordId,
+    userCognitionName: entry?.userCognitionName,
+    genericName: entry?.genericName
+  });
+  if (!actual) {
+    return false;
+  }
+  if (expected.sourceImagePath && actual.sourceImagePath !== expected.sourceImagePath) {
+    return false;
+  }
+  if (expected.recordId && actual.recordId !== expected.recordId) {
+    return false;
+  }
+  return true;
+}
+
 export function upsertPublishManifestEntry(runtimeDir: string, entry: Omit<PublishManifestEntry, "updatedAt">): PublishManifest {
   const manifest = loadPublishManifest(runtimeDir);
-  const updated: PublishManifestEntry = { ...entry, updatedAt: new Date().toISOString() };
+  const identity = normalizePublishProductIdentity(entry);
+  const updated: PublishManifestEntry = { ...entry, ...identity, updatedAt: new Date().toISOString() };
   const existingIndex = manifest.entries.findIndex((item) => item.runtimeKey === updated.runtimeKey);
   if (existingIndex >= 0) {
     manifest.entries[existingIndex] = updated;

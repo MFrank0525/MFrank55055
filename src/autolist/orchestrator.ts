@@ -31,6 +31,7 @@ import { resolveAutoListingJob } from "./config.js";
 import { assertRuleTextIntegrity } from "./rule-text.js";
 import { applyResumeTaskId, createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed, markRunPaused, recordTaskProgress } from "./state-machine.js";
 import { logError, logInfo, setLogFile } from "../utils/logger.js";
+import type { PublishProductIdentity } from "./publish-manifest.js";
 import type {
   AutoListingEvent,
   AutoListingJobFile,
@@ -126,6 +127,15 @@ function collectProtectedCleanupAssetFiles(feishuProductDataFile: string): strin
 
 function isProductFullyProcessed(task: ImageTaskState): boolean {
   return task.status === "cleaned" || task.status === "done";
+}
+
+function buildPublishProductIdentity(task: ImageTaskState): PublishProductIdentity {
+  return {
+    sourceImagePath: task.sourceImagePath,
+    recordId: task.feishuProductRecord?.recordId,
+    userCognitionName: task.feishuProductRecord?.userCognitionName || task.sellingPointArtifact?.userCognitionName,
+    genericName: task.feishuProductRecord?.genericName || task.sellingPointArtifact?.brandedGenericName
+  };
 }
 
 function persistState(stateFile: string, state: AutoListingRunState): void {
@@ -651,6 +661,7 @@ async function executeTaskChain(
       const publishArtifact = await publishDistributedProducts({
         runtimeDir,
         distributedFolders: current.shopDistributionArtifact.distributedFolders,
+        productIdentity: buildPublishProductIdentity(current),
         simulateOnly,
         assertNotPaused: () => assertNotPaused(pauseSignalFile, current.taskId, step),
         onProgress: (message) => {

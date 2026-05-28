@@ -56,13 +56,13 @@ export function shouldResumeHistoricalFailureForCurrentFeishuBatch(input: Histor
   if (!input.failedSourceImagePath) {
     return false;
   }
+  if (!input.batchComplete) {
+    return input.pendingSourceImages[0] === input.failedSourceImagePath;
+  }
   if ((input.reusableArtifactCount || 0) > 0) {
     return true;
   }
-  if (input.batchComplete) {
-    return false;
-  }
-  return input.pendingSourceImages.includes(input.failedSourceImagePath);
+  return false;
 }
 
 export type HermesFeishuProgressDisplayInput = {

@@ -7,12 +7,14 @@ import { logInfo } from "../utils/logger.js";
 import {
   extractWatermarkNo,
   findPublishManifestEntry,
-  isManifestEntrySafelyPublished,
+  isManifestEntrySafelyPublishedForIdentity,
   loadPublishManifest,
+  normalizePublishProductIdentity,
   savePublishPlan,
   upsertPublishManifestEntry
 } from "./publish-manifest.js";
 import { readWorkbookRows } from "./xlsx-lite.js";
+import type { PublishProductIdentity } from "./publish-manifest.js";
 import type { PublishArtifact } from "./types.js";
 
 type ProductWorkbookFields = {
@@ -205,10 +207,13 @@ function readPublishResultSummary(resultFile: string): { ok?: boolean; status?: 
 export async function publishDistributedProducts(options: {
   runtimeDir: string;
   distributedFolders: string[];
+  productIdentity?: PublishProductIdentity;
   simulateOnly: boolean;
   assertNotPaused?: () => void;
   onProgress?: (message: string) => void;
 }): Promise<PublishArtifact> {
+  const productIdentity = normalizePublishProductIdentity(options.productIdentity);
+  const productIdentityFields = productIdentity || {};
   const orderedFolders = [...options.distributedFolders].sort((a, b) => {
     const shopDiff = path.dirname(a).localeCompare(path.dirname(b), "zh-CN");
     if (shopDiff !== 0) {
@@ -221,18 +226,18 @@ export async function publishDistributedProducts(options: {
   const plan = orderedFolders.map((productFolder) => {
     const runtimeKey = publishRuntimeKey(productFolder);
     const manifestEntry = findPublishManifestEntry(manifest, runtimeKey);
-    if (isManifestEntrySafelyPublished(manifestEntry)) {
+    if (isManifestEntrySafelyPublishedForIdentity(manifestEntry, productIdentity)) {
       return {
         productFolder,
         runtimeKey,
         action: "skip" as const,
-        reason: `manifest:${manifestEntry?.finalVerifyStatus}`,
+        reason: `manifest:${manifestEntry?.finalVerifyStatus}:identity_matched`,
         manifestStatus: manifestEntry?.status,
         finalVerifyStatus: manifestEntry?.finalVerifyStatus
       };
     }
     const resultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
-    if (fs.existsSync(resultFile)) {
+    if (!productIdentity && fs.existsSync(resultFile)) {
       const decision = evaluatePublishResult(readPublishResultSummary(resultFile));
       if (decision.safelyPublished) {
         return {
@@ -272,7 +277,7 @@ export async function publishDistributedProducts(options: {
       });
       return false;
     }
-    if (!wasPublishCompleted(publishRuntimeDir)) {
+    if (productIdentity || !wasPublishCompleted(publishRuntimeDir)) {
       return true;
     }
 
@@ -284,7 +289,8 @@ export async function publishDistributedProducts(options: {
       status: "published",
       finalVerifyStatus: "publish_signal_confirmed",
       resultFile: path.join(publishRuntimeDir, "result.json"),
-      message: "Recovered from legacy completed result file."
+      message: "Recovered from legacy completed result file.",
+      ...productIdentityFields
     });
     alreadyPublishedResults.push({
       productFolder,
@@ -341,7 +347,8 @@ export async function publishDistributedProducts(options: {
       status: "pending",
       finalVerifyStatus: "not_checked",
       resultFile: path.join(options.runtimeDir, "publish", runtimeKey, "result.json"),
-      message: "Publish flow is running."
+      message: "Publish flow is running.",
+      ...productIdentityFields
     });
 
     let publishResult = await runPublishFromSpuJob(
@@ -382,7 +389,8 @@ export async function publishDistributedProducts(options: {
         status: "pending",
         finalVerifyStatus: "not_checked",
         resultFile: publishResult.artifacts.resultFile,
-        message: `Retrying after ${decision.errorClass}: ${decision.issue}`
+        message: `Retrying after ${decision.errorClass}: ${decision.issue}`,
+        ...productIdentityFields
       });
       publishResult = await runPublishFromSpuJob(
         {
@@ -426,7 +434,8 @@ export async function publishDistributedProducts(options: {
       finalVerifyStatus: decision.finalVerifyStatus,
       resultFile: publishResult.artifacts.resultFile,
       message: publishResult.message,
-      errorClass: decision.errorClass
+      errorClass: decision.errorClass,
+      ...productIdentityFields
     });
 
     const checkpointFile = path.join(options.runtimeDir, "publish", runtimeKey);

@@ -734,6 +734,17 @@ assert.equal(
 assert.equal(
   shouldResumeHistoricalFailureForCurrentFeishuBatch({
     failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
+    pendingSourceImages: [
+      "/work/input/auto-listing/feishu-images/product-1.png",
+      "/work/input/auto-listing/feishu-images/product-2.png"
+    ],
+    batchComplete: false
+  }),
+  false
+);
+assert.equal(
+  shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
     pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-2.png"],
     batchComplete: false
   }),
