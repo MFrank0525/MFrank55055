@@ -4,9 +4,9 @@ import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import {
   resolveDefaultRetryableChildFailureRecoveryAttempts,
+  shouldContinueFullFlowAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
-  shouldContinueFeishuBatchAfterChildExit,
-  shouldResumeFeishuBatchAfterRetryableChildFailure,
+  shouldRecoverFullFlowAfterChildFailure,
   shouldRefreshFeishuAssetsBeforeFullFlow,
   type FullFlowContinuationReason
 } from "../autolist/batch-continuation-rules.js";
@@ -290,10 +290,17 @@ async function main(): Promise<void> {
   let fullFlowReason: FullFlowContinuationReason = "initial_full";
   let childRecoveryAttempts = 0;
   while (nextMode) {
-    const exitCode = nextMode === "resume" ? await runResume() : await runFullFlow(fullFlowReason);
+    const childMode = nextMode;
+    const exitCode = childMode === "resume" ? await runResume() : await runFullFlow(fullFlowReason);
     fullFlowReason = "initial_full";
     const currentBatch = readBatchProgress();
-    if (shouldContinueFeishuBatchAfterChildExit({ exitCode, batchComplete: currentBatch.batchComplete })) {
+    if (
+      shouldContinueFullFlowAfterChildExit({
+        childMode,
+        exitCode,
+        batchComplete: currentBatch.batchComplete
+      })
+    ) {
       console.log("Feishu batch still has pending products after a successful child run; continuing full real flow with the locked current Feishu cache.");
       nextMode = "full";
       fullFlowReason = "same_batch_pending";
@@ -303,7 +310,8 @@ async function main(): Promise<void> {
 
     const failureMessage = exitCode === childStallExitCode ? "child made no progress before watchdog timeout" : latestFailureMessage();
     if (
-      shouldResumeFeishuBatchAfterRetryableChildFailure({
+      shouldRecoverFullFlowAfterChildFailure({
+        childMode,
         exitCode,
         batchComplete: currentBatch.batchComplete,
         retryableFailureMessage: failureMessage,

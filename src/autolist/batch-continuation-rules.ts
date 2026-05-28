@@ -7,6 +7,16 @@ export function shouldContinueFeishuBatchAfterChildExit(input: FeishuBatchContin
   return input.exitCode === 0 && !input.batchComplete;
 }
 
+export type SupervisorChildMode = "resume" | "full";
+
+export type SupervisorFullFlowContinuationInput = FeishuBatchContinuationInput & {
+  childMode: SupervisorChildMode;
+};
+
+export function shouldContinueFullFlowAfterChildExit(input: SupervisorFullFlowContinuationInput): boolean {
+  return input.childMode === "full" && shouldContinueFeishuBatchAfterChildExit(input);
+}
+
 export type FeishuBatchRetryAfterFailureInput = {
   exitCode: number | null;
   batchComplete: boolean;
@@ -26,6 +36,14 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
   return /image generation|main image|timed out|timeout|fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|no progress|watchdog|product folders already contain workbook/i.test(
     input.retryableFailureMessage || ""
   );
+}
+
+export type SupervisorFullFlowRecoveryInput = FeishuBatchRetryAfterFailureInput & {
+  childMode: SupervisorChildMode;
+};
+
+export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlowRecoveryInput): boolean {
+  return input.childMode === "full" && shouldResumeFeishuBatchAfterRetryableChildFailure(input);
 }
 
 export type InterruptedTaskResumeInput = {

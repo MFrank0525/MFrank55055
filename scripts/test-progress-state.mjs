@@ -12,12 +12,14 @@ import {
 } from "../dist/src/autolist/audit-rules.js";
 import {
   shouldContinueFeishuBatchAfterChildExit,
+  shouldContinueFullFlowAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
   shouldRefreshFeishuAssetsBeforeFullFlow,
   shouldPreferActiveTaskStateSummary,
   selectHermesStatusResultFile,
   isHermesSupervisorProcessCommand,
   shouldResumeFeishuBatchAfterRetryableChildFailure,
+  shouldRecoverFullFlowAfterChildFailure,
   shouldResumeInterruptedTaskInPlace,
   resolveDefaultRetryableChildFailureRecoveryAttempts,
   resolveHermesProgressAgeSeconds,
@@ -89,6 +91,16 @@ assert.match(
   hermesRunnerSource,
   /shouldResumeHistoricalFailureForCurrentFeishuBatch/,
   "Hermes runner must use the rule-layer guard before resuming historical failures"
+);
+assert.match(
+  hermesRunnerSource,
+  /findLatestInterruptedStateForResume\(\)[\s\S]*shouldResumeCurrentFailure\(\)/,
+  "Hermes runner must prefer interrupted in-place publish state over stale generated resume jobs"
+);
+assert.match(
+  hermesRunnerSource,
+  /safelyPublishedCount/,
+  "Hermes runner must rank interrupted resume candidates by publish-manifest progress before raw artifact count"
 );
 assert.match(
   hermesRunnerSource,
@@ -468,6 +480,22 @@ assert.equal(
   true
 );
 assert.equal(
+  shouldContinueFullFlowAfterChildExit({
+    childMode: "resume",
+    exitCode: 0,
+    batchComplete: false
+  }),
+  false
+);
+assert.equal(
+  shouldContinueFullFlowAfterChildExit({
+    childMode: "full",
+    exitCode: 0,
+    batchComplete: false
+  }),
+  true
+);
+assert.equal(
   shouldContinueFeishuBatchAfterChildExit({
     exitCode: 1,
     batchComplete: false
@@ -643,6 +671,28 @@ assert.equal(
     exitCode: 1,
     batchComplete: false,
     retryableFailureMessage: "Image generation request timed out. The provider did not respond in time.",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: "Refusing to generate paid titles while product folders already contain workbook(s): /work/shop/product-1 -> title.xlsx",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  false
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: "Refusing to generate paid titles while product folders already contain workbook(s): /work/shop/product-1 -> title.xlsx",
     recoveryAttempts: 0,
     maxRecoveryAttempts: 3
   }),

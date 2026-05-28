@@ -979,13 +979,28 @@ function countReusableRawImages(runtimeDir: string, taskId: string | undefined):
   return count;
 }
 
-function findLatestInterruptedStateForResume(): { stateFile: string; runtimeDir: string; state: AutoListingStateFile; task: NonNullable<AutoListingStateFile["tasks"]>[number]; reusableRawImageCount: number } | undefined {
+function countSafelyPublishedManifestEntries(runtimeDir: string): number {
+  const manifest = readJsonFile<PublishManifestFile>(path.join(runtimeDir, "publish-manifest.json"));
+  return (manifest?.entries || []).filter(
+    (entry) => entry.status === "published" && ["publish_signal_confirmed", "list_verified"].includes(entry.finalVerifyStatus || "")
+  ).length;
+}
+
+function findLatestInterruptedStateForResume(): {
+  stateFile: string;
+  runtimeDir: string;
+  state: AutoListingStateFile;
+  task: NonNullable<AutoListingStateFile["tasks"]>[number];
+  reusableRawImageCount: number;
+  safelyPublishedCount: number;
+} | undefined {
   const candidates: Array<{
     stateFile: string;
     runtimeDir: string;
     state: AutoListingStateFile;
     task: NonNullable<AutoListingStateFile["tasks"]>[number];
     reusableRawImageCount: number;
+    safelyPublishedCount: number;
     mtimeMs: number;
   }> = [];
   for (const stateFile of listStateFilesNewestFirst()) {
@@ -1014,11 +1029,12 @@ function findLatestInterruptedStateForResume(): { stateFile: string; runtimeDir:
         state,
         task,
         reusableRawImageCount,
+        safelyPublishedCount: countSafelyPublishedManifestEntries(runtimeDir),
         mtimeMs: fs.statSync(stateFile).mtimeMs
       });
     }
   }
-  return candidates.sort((a, b) => b.reusableRawImageCount - a.reusableRawImageCount || b.mtimeMs - a.mtimeMs)[0];
+  return candidates.sort((a, b) => b.safelyPublishedCount - a.safelyPublishedCount || b.reusableRawImageCount - a.reusableRawImageCount || b.mtimeMs - a.mtimeMs)[0];
 }
 
 function findLatestFailedResultForResume(): { resultFile: string; result: AutoListingResultFile } | undefined {
@@ -1042,42 +1058,49 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
   return undefined;
 }
 
+function writeResumeJobFromInterruptedState(
+  sourceJob: AutoListingJobFile,
+  interrupted: NonNullable<ReturnType<typeof findLatestInterruptedStateForResume>>
+): AutoListingJobFile {
+  const resumeJob: AutoListingJobFile = {
+    ...sourceJob,
+    runtimeDir: interrupted.runtimeDir,
+    resultFile: path.join(interrupted.runtimeDir, "result.json"),
+    runId: interrupted.state.runId || path.basename(interrupted.runtimeDir),
+    input: {
+      ...sourceJob.input,
+      startStep: interrupted.task.status || "source_images_discovered",
+      endStep: "done",
+      resumeSourceImagePath: interrupted.task.sourceImagePath,
+      resumeTaskId: interrupted.task.taskId,
+      resumeProductFolderNames: collectResumeProductFolderNames(interrupted.task),
+      maxImagesPerRun: 1,
+      clearTestOutputsBeforeRun: false
+    }
+  };
+  fs.mkdirSync(path.dirname(resumeJobFile), { recursive: true });
+  fs.writeFileSync(resumeJobFile, JSON.stringify(resumeJob, null, 2) + "\n", "utf8");
+  return resumeJob;
+}
+
 function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
-  if (shouldResumeCurrentFailure()) {
-    return readJsonFile<AutoListingJobFile>(resumeJobFile);
-  }
-
-  const latest = findLatestFailedResultForResume();
-
   const sourceJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   if (!sourceJob?.input) {
     return undefined;
   }
 
+  const interrupted = findLatestInterruptedStateForResume();
+  if (interrupted?.task.sourceImagePath) {
+    return writeResumeJobFromInterruptedState(sourceJob, interrupted);
+  }
+
+  if (shouldResumeCurrentFailure()) {
+    return readJsonFile<AutoListingJobFile>(resumeJobFile);
+  }
+
+  const latest = findLatestFailedResultForResume();
   if (!latest) {
-    const interrupted = findLatestInterruptedStateForResume();
-    if (!interrupted?.task.sourceImagePath) {
-      return undefined;
-    }
-    const resumeJob: AutoListingJobFile = {
-      ...sourceJob,
-      runtimeDir: interrupted.runtimeDir,
-      resultFile: path.join(interrupted.runtimeDir, "result.json"),
-      runId: interrupted.state.runId || path.basename(interrupted.runtimeDir),
-      input: {
-        ...sourceJob.input,
-        startStep: interrupted.task.status || "source_images_discovered",
-        endStep: "done",
-        resumeSourceImagePath: interrupted.task.sourceImagePath,
-        resumeTaskId: interrupted.task.taskId,
-        resumeProductFolderNames: collectResumeProductFolderNames(interrupted.task),
-        maxImagesPerRun: 1,
-        clearTestOutputsBeforeRun: false
-      }
-    };
-    fs.mkdirSync(path.dirname(resumeJobFile), { recursive: true });
-    fs.writeFileSync(resumeJobFile, JSON.stringify(resumeJob, null, 2) + "\n", "utf8");
-    return resumeJob;
+    return undefined;
   }
 
   const failedTask = (latest.result.tasks || []).find((task) => task.status === "failed" || task.error);
