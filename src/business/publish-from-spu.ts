@@ -38,6 +38,7 @@ import {
   evaluatePriceInventoryCompletion,
   evaluatePublishCheckResult,
   evaluatePublishCreatePageReadiness,
+  evaluatePlatformSpuQueryPageReadiness,
   evaluatePublishSubmission,
   evaluatePublishSubmissionAfterAction,
   evaluateServiceFulfillmentCompletion,
@@ -206,10 +207,10 @@ async function ensurePlatformSpuPage(runtimeDir: string, shopFolder?: string): P
     const page = context.pages().find((item) => !item.isClosed()) || (await context.newPage());
     attachSafeDialogHandler(page);
     await page.bringToFront();
-    await gotoWithTolerance(page, PLATFORM_SPU_URL, 3000);
+    await ensurePlatformSpuQueryPageActive(page, runtimeDir, "platform-spu-entry", 30000);
     if (shopFolder) {
       await ensureShopContext(page, runtimeDir, shopFolder);
-      await gotoWithTolerance(page, PLATFORM_SPU_URL, 3000);
+      await ensurePlatformSpuQueryPageActive(page, runtimeDir, "platform-spu-entry-after-shop-switch", 45000);
     }
 
     const screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-entry.png");
@@ -1473,25 +1474,100 @@ async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): P
   }, kind);
 }
 
-async function waitForPlatformSpuQueryPageReady(page: Page, timeoutMs = 45000): Promise<boolean> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    const ready = await page.evaluate(() => {
-      const bodyText = document.body.innerText || "";
-      const hasQueryControls = bodyText.includes("\u67e5\u8be2") && (bodyText.includes("SPU") || bodyText.includes("\u5e73\u53f0\u6807\u54c1"));
-      const visibleInputs = Array.from(document.querySelectorAll("input")).filter((input) => {
-        const rect = (input as HTMLElement).getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
+async function readPlatformSpuQueryPageSnapshot(page: Page): Promise<{
+  url: string;
+  bodyText: string;
+  visibleInputCount: number;
+  brandInputFound: boolean;
+  spuInputFound: boolean;
+  accountMenuOpen: boolean;
+  loading: boolean;
+}> {
+  return page.evaluate(() => {
+    const bodyText = document.body.innerText || "";
+    const visibleInputs = Array.from(document.querySelectorAll("input, textarea"))
+      .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
+      .filter((input) => {
+        const rect = input.getBoundingClientRect();
+        const style = window.getComputedStyle(input);
+        return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
+      })
+      .map((input) => {
+        const context = [
+          input.getAttribute("placeholder") || "",
+          input.getAttribute("aria-label") || "",
+          input.parentElement?.textContent || "",
+          input.parentElement?.parentElement?.textContent || ""
+        ]
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        return {
+          type: input.getAttribute("type") || "",
+          role: input.getAttribute("role") || "",
+          context
+        };
       });
-      const loadingText = bodyText.includes("\u52a0\u8f7d\u4e2d") || bodyText.includes("Loading");
-      return hasQueryControls && visibleInputs.length >= 2 && !loadingText;
-    }).catch(() => false);
-    if (ready) {
-      return true;
+    const brandInputFound = visibleInputs.some((input, index) => {
+      if (/品牌|brand/i.test(input.context)) {
+        return true;
+      }
+      return index <= 2 && (input.type === "search" || input.role === "combobox");
+    });
+    const spuInputFound = visibleInputs.some((input) => /SPU/i.test(input.context));
+    const accountMenuOpen =
+      bodyText.includes("切换组织/店铺") &&
+      bodyText.includes("退出") &&
+      bodyText.includes("店铺信息") &&
+      bodyText.includes("登录账号");
+    const loading = bodyText.includes("加载中") || bodyText.includes("Loading");
+    return {
+      url: window.location.href,
+      bodyText,
+      visibleInputCount: visibleInputs.length,
+      brandInputFound,
+      spuInputFound,
+      accountMenuOpen,
+      loading
+    };
+  });
+}
+
+async function waitForPlatformSpuQueryPageReady(page: Page, timeoutMs = 45000): Promise<{ ready: boolean; issue: string }> {
+  const startedAt = Date.now();
+  let lastIssue = "";
+  while (Date.now() - startedAt < timeoutMs) {
+    const decision = await readPlatformSpuQueryPageSnapshot(page)
+      .then((snapshot) => evaluatePlatformSpuQueryPageReadiness(snapshot))
+      .catch((error) => ({
+        ready: false,
+        issue: error instanceof Error ? error.message : String(error)
+      }));
+    lastIssue = decision.issue;
+    if (decision.ready) {
+      return decision;
     }
     await page.waitForTimeout(1000);
   }
-  return false;
+  return { ready: false, issue: lastIssue || "Platform SPU query page did not become ready before timeout." };
+}
+
+async function ensurePlatformSpuQueryPageActive(
+  page: Page,
+  runtimeDir: string,
+  label: string,
+  timeoutMs = 45000
+): Promise<void> {
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(300);
+  await gotoWithTolerance(page, PLATFORM_SPU_URL, 3500).catch(() => {});
+  await page.keyboard.press("Escape").catch(() => {});
+  const decision = await waitForPlatformSpuQueryPageReady(page, timeoutMs);
+  if (!decision.ready) {
+    const error = new Error(`Platform SPU query page was not ready after navigation: ${decision.issue}`) as QueryDiagnosticError;
+    error.screenshotFile = await savePageScreenshot(page, runtimeDir, `${label}-platform-spu-query-page-not-ready.png`);
+    throw error;
+  }
 }
 
 async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, shopFolder?: string, retryNo = 0): Promise<{
@@ -1513,10 +1589,10 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
     await closeCreatePagesExcept(context, [page]);
     await closeExtraPages(context, [page]);
     await page.bringToFront();
-    await gotoWithTolerance(page, PLATFORM_SPU_URL, 3000);
+    await ensurePlatformSpuQueryPageActive(page, runtimeDir, "platform-spu-query", 30000);
     if (shopFolder) {
       await ensureShopContext(page, runtimeDir, shopFolder);
-      await gotoWithTolerance(page, PLATFORM_SPU_URL, 3000);
+      await ensurePlatformSpuQueryPageActive(page, runtimeDir, "platform-spu-query-after-shop-switch", 45000);
     }
 
     const platformTab = page.getByText("\u5E73\u53F0\u6807\u54C1", { exact: true });
@@ -1526,14 +1602,15 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
     }
 
     const queryPageReady = await waitForPlatformSpuQueryPageReady(page);
-    if (!queryPageReady) {
+    if (!queryPageReady.ready) {
       if (retryNo < 2) {
         await savePageScreenshot(page, runtimeDir, `platform-spu-query-page-not-ready-retry-${retryNo + 1}.png`).catch(() => "");
-        await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+        await page.keyboard.press("Escape").catch(() => {});
+        await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + retryNo * 1500).catch(() => {});
         await page.waitForTimeout(2000 + retryNo * 1000);
         return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
       }
-      const error = new Error("Platform SPU query page was not ready after navigation.") as QueryDiagnosticError;
+      const error = new Error(`Platform SPU query page was not ready after navigation: ${queryPageReady.issue}`) as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-page-not-ready.png");
       throw error;
     }

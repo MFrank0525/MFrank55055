@@ -80,6 +80,21 @@ export interface ShopSwitchMenuStateDecision {
   issue: string;
 }
 
+export interface PlatformSpuQueryPageReadinessInput {
+  url: string;
+  bodyText: string;
+  visibleInputCount: number;
+  brandInputFound: boolean;
+  spuInputFound: boolean;
+  accountMenuOpen: boolean;
+  loading: boolean;
+}
+
+export interface PlatformSpuQueryPageReadinessDecision {
+  ready: boolean;
+  issue: string;
+}
+
 export interface PublishCreatePageHealthInput {
   usable: boolean;
   bodyTextLength: number;
@@ -162,6 +177,30 @@ export function evaluatePublishCreatePageReadiness(input: PublishCreatePageHealt
   return { action: "wait_or_reload", issue: "Publish create page is not ready yet." };
 }
 
+export function evaluatePlatformSpuQueryPageReadiness(input: PlatformSpuQueryPageReadinessInput): PlatformSpuQueryPageReadinessDecision {
+  const bodyText = normalizeVisibleText(input.bodyText || "");
+  if (!input.url.includes("/ffa/g/spu-record")) {
+    return { ready: false, issue: "Platform SPU query page URL is not active." };
+  }
+  if (input.accountMenuOpen) {
+    return { ready: false, issue: "Top-right account/shop menu is open over the platform SPU page." };
+  }
+  if (input.loading) {
+    return { ready: false, issue: "Platform SPU query page is still loading." };
+  }
+  if (
+    !bodyText.includes("平台标品") ||
+    !bodyText.includes("查询") ||
+    !bodyText.includes("SPU") ||
+    input.visibleInputCount < 2 ||
+    !input.brandInputFound ||
+    !input.spuInputFound
+  ) {
+    return { ready: false, issue: "Platform SPU query controls are incomplete." };
+  }
+  return { ready: true, issue: "" };
+}
+
 export function isFreshPublishCreatePage(snapshot: PublishPageSnapshot): boolean {
   const bodyText = normalizeVisibleText(snapshot.bodyText);
   return (
@@ -215,6 +254,9 @@ export function classifyPublishFailure(message: string): string {
     return "platform_spu_prefill_failed";
   }
   if (text.includes("PlatformSPUquerypagewasnotready") || text.includes("标品管理") && text.includes("加载")) {
+    return "platform_page_not_ready";
+  }
+  if (text.includes("SPUinputvaluemismatchaftertyping") && text.includes("actual=<empty>")) {
     return "platform_page_not_ready";
   }
   if (text.includes("Failedtoactivatepublishsectiontab") && text.includes("actual=<unknown>")) {
