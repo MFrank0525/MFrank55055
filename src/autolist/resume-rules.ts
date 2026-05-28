@@ -29,6 +29,9 @@ export function inferResumeStartStepForTask(task: ResumeTaskLike): AutoListingSt
       return "published";
     }
     const failedStep = task.error?.step;
+    if (failedStep === "poster_prompts_generated") {
+      return "selling_points_loaded";
+    }
     if (failedStep && (AUTO_LISTING_STEPS as readonly string[]).includes(failedStep)) {
       return failedStep as AutoListingStep;
     }
