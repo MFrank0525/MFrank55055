@@ -17,6 +17,7 @@ import {
   assertDeepSeekPromptsBelongToCurrentProduct,
   buildDeepSeekPromptValidationContext,
   resolveDeepSeekPromptRetryPolicy,
+  shouldRetryDeepSeekPromptSubmission,
   type DeepSeekPromptValidationContext
 } from "./deepseek-prompt-rules.js";
 
@@ -527,6 +528,10 @@ export async function generatePosterPromptsWithDeepSeek(options: {
         attemptPromptText,
         options.promptCount
       );
+      if (shouldRetryDeepSeekPromptSubmission({ extractedPromptCount: extracted.length })) {
+        errors.push(`attempt ${attempt}: DeepSeek returned no extractable latest prompt paragraphs.`);
+        continue;
+      }
       try {
         prompts = validatePromptParagraphs(
           extracted.slice(0, options.promptCount),
@@ -537,13 +542,17 @@ export async function generatePosterPromptsWithDeepSeek(options: {
         selectedScreenshotFile = attemptScreenshotFile;
         break;
       } catch (error) {
-        errors.push(`attempt ${attempt}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `DeepSeek returned latest content but it is not usable for the current product. ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
     }
 
     if (!prompts || !timing) {
       throw new Error(
-        `DeepSeek did not return valid current-product poster prompts after ${retryPolicy.maxAttempts} attempt(s). ${errors.join(" | ")}`
+        `DeepSeek did not return latest poster prompt content after ${retryPolicy.maxAttempts} attempt(s). ${errors.join(" | ")}`
       );
     }
     fs.writeFileSync(extractedFile, `${prompts.join("\n")}\n`, "utf8");

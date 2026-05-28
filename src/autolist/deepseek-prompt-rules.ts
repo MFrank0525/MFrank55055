@@ -60,6 +60,7 @@ const COPIED_RULE_TEXT_MARKERS = [
   "每次需设计",
   "场景关联",
   "内容细节",
+  "必须融入产品卖点",
   "禁止展示内容",
   "文字风格",
   "创新性",
@@ -144,6 +145,10 @@ export function resolveDeepSeekPromptRetryPolicy(): { maxAttempts: number } {
   return { maxAttempts: 3 };
 }
 
+export function shouldRetryDeepSeekPromptSubmission(input: { extractedPromptCount: number }): boolean {
+  return input.extractedPromptCount <= 0;
+}
+
 export function buildDeepSeekPromptValidationContext(
   input: DeepSeekPromptValidationContextInput
 ): DeepSeekPromptValidationContext {
@@ -182,14 +187,6 @@ export function classifyDeepSeekPromptParagraph(
   if (copiedMarker) {
     return { ok: false, matchedAnchors: [], reason: `DeepSeek paragraph copied rule text: ${copiedMarker}` };
   }
-  const forbiddenTerm = context.forbiddenTerms.find((term) => normalizedPrompt.includes(normalizeComparableText(term)));
-  if (forbiddenTerm) {
-    return {
-      ok: false,
-      matchedAnchors: [],
-      reason: `DeepSeek paragraph references another product domain: ${forbiddenTerm}`
-    };
-  }
   const matchedAnchors = context.anchors.filter((anchor) => normalizedPrompt.includes(anchor));
   const matchedStrongAnchors = context.strongAnchors.filter((anchor) => normalizedPrompt.includes(anchor));
   if (!matchedStrongAnchors.length) {
@@ -210,11 +207,16 @@ export function assertDeepSeekPromptsBelongToCurrentProduct(
   if (prompts.length !== promptCount) {
     throw new Error(`DeepSeek must return ${promptCount} keyword paragraphs, got ${prompts.length}.`);
   }
-  for (const prompt of prompts) {
-    const classification = classifyDeepSeekPromptParagraph(prompt, context);
-    if (!classification.ok) {
-      throw new Error(`DeepSeek prompt does not match current product: ${classification.reason}; prompt=${prompt}`);
-    }
+  const classifications = prompts.map((prompt) => ({
+    prompt,
+    classification: classifyDeepSeekPromptParagraph(prompt, context)
+  }));
+  const matched = classifications.find((item) => item.classification.ok);
+  if (!matched) {
+    const reasons = classifications
+      .map((item, index) => `paragraph ${index + 1}: ${item.classification.reason}`)
+      .join(" | ");
+    throw new Error(`DeepSeek prompt set does not match current product: ${reasons}`);
   }
   return prompts;
 }
