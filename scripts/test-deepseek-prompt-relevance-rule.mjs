@@ -3,6 +3,7 @@ import {
   assertDeepSeekPromptsBelongToCurrentProduct,
   buildDeepSeekPromptValidationContext,
   classifyDeepSeekPromptParagraph,
+  selectDeepSeekLatestReplyPromptBlock,
   shouldRetryDeepSeekPromptSubmission,
   resolveDeepSeekPromptRetryPolicy
 } from "../dist/src/autolist/deepseek-prompt-rules.js";
@@ -91,3 +92,13 @@ assert.throws(
 assert.equal(shouldRetryDeepSeekPromptSubmission({ extractedPromptCount: 0 }), true);
 assert.equal(shouldRetryDeepSeekPromptSubmission({ extractedPromptCount: 1 }), false);
 assert.equal(shouldRetryDeepSeekPromptSubmission({ extractedPromptCount: 5 }), false);
+
+const historicalTail = [
+  "历史凡士林软膏提示词,重组胶原蛋白,20g管装,唇部护理,旧商品",
+  "历史护手霜提示词,手部皮肤护理,50g管装,旧商品"
+];
+assert.deepEqual(
+  selectDeepSeekLatestReplyPromptBlock([...validPrompts, ...historicalTail], 5),
+  validPrompts,
+  "Latest DeepSeek reply appears before visible conversation history; extraction must select the first complete block."
+);

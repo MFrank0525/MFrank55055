@@ -149,6 +149,13 @@ export function shouldRetryDeepSeekPromptSubmission(input: { extractedPromptCoun
   return input.extractedPromptCount <= 0;
 }
 
+export function selectDeepSeekLatestReplyPromptBlock(candidates: string[], promptCount: number): string[] {
+  if (candidates.length <= promptCount) {
+    return candidates;
+  }
+  return candidates.slice(0, promptCount);
+}
+
 export function buildDeepSeekPromptValidationContext(
   input: DeepSeekPromptValidationContextInput
 ): DeepSeekPromptValidationContext {

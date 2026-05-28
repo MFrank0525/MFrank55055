@@ -17,6 +17,7 @@ import {
   assertDeepSeekPromptsBelongToCurrentProduct,
   buildDeepSeekPromptValidationContext,
   resolveDeepSeekPromptRetryPolicy,
+  selectDeepSeekLatestReplyPromptBlock,
   shouldRetryDeepSeekPromptSubmission,
   type DeepSeekPromptValidationContext
 } from "./deepseek-prompt-rules.js";
@@ -441,6 +442,9 @@ function extractNewPromptParagraphs(
   const beforeParagraphs = extractPromptParagraphs(beforeRaw, sellingPointText);
   const afterReplyOnly = sliceReplyAfterPrompt(afterRaw, promptText);
   const afterParagraphs = extractPromptParagraphs(afterReplyOnly, sellingPointText);
+  if (afterParagraphs.length > 0) {
+    return selectDeepSeekLatestReplyPromptBlock(afterParagraphs, promptCount);
+  }
   const delta = subtractKnownParagraphs(afterParagraphs, beforeParagraphs);
   if (delta.length > 0) {
     return delta;
