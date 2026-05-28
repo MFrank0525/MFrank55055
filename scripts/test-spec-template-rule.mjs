@@ -136,6 +136,18 @@ assert.match(
   "template verification must accept a completed template before deleting blank placeholder spec inputs"
 );
 
+assert.match(
+  publishSource,
+  /async function ensureManualSpecTemplateEntryModeOnPage[\s\S]*切换手动填写/,
+  "price/inventory spec setup must explicitly leave the AI upload assistant and enter manual spec template mode"
+);
+
+assert.match(
+  publishSource,
+  /ensureManualSpecTemplateEntryModeOnPage\(page\)[\s\S]*applySpecTemplateWithVerificationOnPage/,
+  "spec template application must wait for manual spec template mode before choosing a template"
+);
+
 for (const forbiddenSpecTypeAction of [
   "ensureProductSpecTypeNameOnPage",
   "clickProductSpecTypeControlOnPage",

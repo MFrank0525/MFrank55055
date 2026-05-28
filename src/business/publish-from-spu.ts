@@ -3927,6 +3927,95 @@ async function chooseDynamicSpecTemplateOnPage(page: Page, title?: string): Prom
   return selectedValue;
 }
 
+async function isManualSpecTemplateEntryModeVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const visibleText = Array.from(document.querySelectorAll("body *"))
+      .map((el) => el as HTMLElement)
+      .filter((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      })
+      .map((el) => normalize(el.innerText || el.textContent || ""))
+      .join(" ");
+
+    return (
+      visibleText.includes("商品规格") &&
+      visibleText.includes("规格模板") &&
+      !visibleText.includes("点击 或 拖动 文件到虚线框内上传")
+    );
+  });
+}
+
+async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {
+  const clickedByText = await page
+    .getByText("切换手动填写", { exact: false })
+    .first()
+    .click({ timeout: 2500 })
+    .then(() => true)
+    .catch(() => false);
+  if (clickedByText) {
+    return true;
+  }
+
+  return page.evaluate(() => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const target = Array.from(document.querySelectorAll("button, [role='button'], a, body *"))
+      .map((el) => el as HTMLElement)
+      .filter((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const text = normalize(el.innerText || el.textContent || "");
+        return (
+          text.includes("切换手动填写") &&
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        );
+      })
+      .sort((a, b) => {
+        const aRect = a.getBoundingClientRect();
+        const bRect = b.getBoundingClientRect();
+        return bRect.left - aRect.left || aRect.top - bRect.top;
+      })[0];
+    if (!target) {
+      return false;
+    }
+    ((target.closest("button, [role='button'], a") as HTMLElement | null) || target).click();
+    return true;
+  });
+}
+
+async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await dismissTransientOverlays(page).catch(() => {});
+    await scrollLabelIntoView(page, "规格设置").catch(() => false);
+    await page.waitForTimeout(400);
+    if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
+      return;
+    }
+    await clickSwitchManualSpecEntryMode(page).catch(() => false);
+    await page.waitForTimeout(1000);
+    if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
+      return;
+    }
+  }
+  throw new Error("Manual spec template entry mode was not visible after clicking 切换手动填写.");
+}
+
+async function waitForSpecTemplateReadback(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
+    const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
+    if (filledValues.length > 0 || visiblePriceRows > 0) {
+      return;
+    }
+    await page.waitForTimeout(700);
+  }
+}
+
 async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {
   return page.evaluate((expectedValues) => {
     const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
@@ -4169,8 +4258,9 @@ async function applySpecTemplateWithVerificationOnPage(
   let selectedTemplate = "";
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    await ensureManualSpecTemplateEntryModeOnPage(page);
     selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title).catch(() => selectedTemplate);
-    await page.waitForTimeout(600);
+    await waitForSpecTemplateReadback(page);
 
     const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
     const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
