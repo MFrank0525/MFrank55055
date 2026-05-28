@@ -455,6 +455,7 @@ async function executeTaskChain(
         mainImageCountStrategy,
         promptCount: productPlan.promptCount,
         shopCodes: productPlan.shopCodes,
+        feishuRecordId: current.feishuProductRecord?.recordId,
         simulateOnly,
         onProgress: (message) => {
           appendEvent(eventFile, createEvent("info", step, message, current.taskId));

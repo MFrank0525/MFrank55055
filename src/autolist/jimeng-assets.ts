@@ -847,6 +847,201 @@ async function recoverExistingRoundOutputs(options: {
   return recovered;
 }
 
+export const MAIN_IMAGE_REUSE_IDENTITY_FILE = "reuse-identity.json";
+
+interface MainImageReuseIdentity {
+  sourceImagePath?: string;
+  sourceImageName?: string;
+  feishuRecordId?: string;
+}
+
+function normalizeIdentityPath(filePath: string | undefined): string {
+  return filePath ? path.resolve(filePath) : "";
+}
+
+function readMainImageReuseIdentity(taskDir: string): MainImageReuseIdentity | undefined {
+  const identityFile = path.join(taskDir, MAIN_IMAGE_REUSE_IDENTITY_FILE);
+  if (!fs.existsSync(identityFile)) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(identityFile, "utf8")) as MainImageReuseIdentity;
+    return {
+      ...parsed,
+      sourceImagePath: normalizeIdentityPath(parsed.sourceImagePath)
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function writeMainImageReuseIdentity(taskDir: string, identity: MainImageReuseIdentity): void {
+  fs.mkdirSync(taskDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(taskDir, MAIN_IMAGE_REUSE_IDENTITY_FILE),
+    JSON.stringify(
+      {
+        ...identity,
+        sourceImagePath: normalizeIdentityPath(identity.sourceImagePath)
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
+}
+
+function listTaskDirs(runtimeRootDir: string): string[] {
+  if (!fs.existsSync(runtimeRootDir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(runtimeRootDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .flatMap((entry) => {
+      const tasksDir = path.join(runtimeRootDir, entry.name, "tasks");
+      if (!fs.existsSync(tasksDir)) {
+        return [];
+      }
+      return fs
+        .readdirSync(tasksDir, { withFileTypes: true })
+        .filter((taskEntry) => taskEntry.isDirectory())
+        .map((taskEntry) => path.join(tasksDir, taskEntry.name));
+    });
+}
+
+function readStateTaskIdentity(taskDir: string): MainImageReuseIdentity | undefined {
+  const runDir = path.dirname(path.dirname(taskDir));
+  const taskId = path.basename(taskDir);
+  const stateFile = path.join(runDir, "state.json");
+  if (!fs.existsSync(stateFile)) {
+    return undefined;
+  }
+  try {
+    const state = JSON.parse(fs.readFileSync(stateFile, "utf8")) as {
+      tasks?: Array<{
+        taskId?: string;
+        sourceImagePath?: string;
+        sourceImageName?: string;
+        feishuProductRecord?: { recordId?: string };
+      }>;
+    };
+    const task = (state.tasks || []).find((item) => item.taskId === taskId);
+    if (!task?.sourceImagePath) {
+      return undefined;
+    }
+    return {
+      sourceImagePath: normalizeIdentityPath(task.sourceImagePath),
+      sourceImageName: task.sourceImageName,
+      feishuRecordId: task.feishuProductRecord?.recordId
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function taskIdentityMatches(candidate: MainImageReuseIdentity | undefined, target: MainImageReuseIdentity): boolean {
+  if (!candidate) {
+    return false;
+  }
+  if (target.sourceImagePath && candidate.sourceImagePath === target.sourceImagePath) {
+    return true;
+  }
+  return Boolean(target.feishuRecordId && candidate.feishuRecordId === target.feishuRecordId);
+}
+
+function listRoundRawFiles(taskDir: string, roundName: string): string[] {
+  const rawDir = path.join(taskDir, roundName, "openai-compatible", "raw");
+  if (!fs.existsSync(rawDir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(rawDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^generated-\d+.*\.(png|jpg|jpeg|webp)$/i.test(entry.name))
+    .map((entry) => path.join(rawDir, entry.name))
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function listRoundNames(taskDir: string): string[] {
+  if (!fs.existsSync(taskDir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(taskDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^main-image-\d+$/i.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function countDirectReusableRawImages(taskDir: string): number {
+  return listRoundNames(taskDir).reduce((count, roundName) => count + listRoundRawFiles(taskDir, roundName).length, 0);
+}
+
+function copyMissingReusableRawImages(sourceTaskDir: string, targetTaskDir: string): number {
+  let copied = 0;
+  for (const roundName of listRoundNames(sourceTaskDir)) {
+    const sourceFiles = listRoundRawFiles(sourceTaskDir, roundName);
+    if (sourceFiles.length === 0) {
+      continue;
+    }
+    const targetRawDir = path.join(targetTaskDir, roundName, "openai-compatible", "raw");
+    const targetFiles = listRoundRawFiles(targetTaskDir, roundName);
+    if (targetFiles.length >= sourceFiles.length) {
+      continue;
+    }
+    fs.mkdirSync(targetRawDir, { recursive: true });
+    for (let index = targetFiles.length; index < sourceFiles.length; index += 1) {
+      const targetFile = path.join(targetRawDir, path.basename(sourceFiles[index]));
+      if (fs.existsSync(targetFile)) {
+        continue;
+      }
+      fs.copyFileSync(sourceFiles[index], targetFile);
+      copied += 1;
+    }
+  }
+  return copied;
+}
+
+export function seedCurrentProductMainImageReuse(options: {
+  runtimeDir: string;
+  taskId: string;
+  sourceImagePath: string;
+  sourceImageName?: string;
+  feishuRecordId?: string;
+}): { copiedRawImageCount: number; sourceTaskDir?: string } {
+  const targetTaskDir = ensureTaskDir(options.runtimeDir, options.taskId);
+  const targetIdentity: MainImageReuseIdentity = {
+    sourceImagePath: normalizeIdentityPath(options.sourceImagePath),
+    sourceImageName: options.sourceImageName || path.basename(options.sourceImagePath),
+    feishuRecordId: options.feishuRecordId
+  };
+  writeMainImageReuseIdentity(targetTaskDir, targetIdentity);
+
+  const runtimeRootDir = path.dirname(options.runtimeDir);
+  const candidates = listTaskDirs(runtimeRootDir)
+    .filter((taskDir) => path.resolve(taskDir) !== path.resolve(targetTaskDir))
+    .map((taskDir) => ({
+      taskDir,
+      identity: readMainImageReuseIdentity(taskDir) || readStateTaskIdentity(taskDir),
+      rawImageCount: countDirectReusableRawImages(taskDir),
+      mtimeMs: fs.statSync(taskDir).mtimeMs
+    }))
+    .filter((candidate) => candidate.rawImageCount > 0 && taskIdentityMatches(candidate.identity, targetIdentity))
+    .sort((a, b) => b.rawImageCount - a.rawImageCount || b.mtimeMs - a.mtimeMs);
+
+  for (const candidate of candidates) {
+    const copiedRawImageCount = copyMissingReusableRawImages(candidate.taskDir, targetTaskDir);
+    if (copiedRawImageCount > 0) {
+      return {
+        copiedRawImageCount,
+        sourceTaskDir: candidate.taskDir
+      };
+    }
+  }
+
+  return { copiedRawImageCount: 0 };
+}
+
 function finalizeProductFolders(
   stagedFiles: Array<{
     stagedFile: string;
@@ -950,6 +1145,7 @@ export async function generateMainImageAssets(options: {
   mainImageCountStrategy: MainImageCountStrategy;
   promptCount?: number;
   shopCodes?: string[];
+  feishuRecordId?: string;
   simulateOnly: boolean;
   onProgress?: (message: string) => void;
 }): Promise<MainImageArtifact> {
@@ -964,6 +1160,18 @@ export async function generateMainImageAssets(options: {
     throw new Error("Main image generation requires " + promptCount + " shop folder(s), got " + shopFolders.length + ".");
   }
   const productName = inferBrandedGenericName(options.brandedGenericName, options.sellingPointText);
+  const reuseSeed = seedCurrentProductMainImageReuse({
+    runtimeDir: options.runtimeDir,
+    taskId: options.taskId,
+    sourceImagePath: options.sourceImagePath,
+    sourceImageName: path.basename(options.sourceImagePath),
+    feishuRecordId: options.feishuRecordId
+  });
+  if (reuseSeed.copiedRawImageCount > 0) {
+    options.onProgress?.(
+      `Reused ${reuseSeed.copiedRawImageCount} current-product raw main image(s) from ${reuseSeed.sourceTaskDir || "previous task"}.`
+    );
+  }
 
   if (options.simulateOnly) {
     return {
