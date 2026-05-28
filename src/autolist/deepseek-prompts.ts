@@ -217,7 +217,7 @@ function buildExistingArtifactFromRaw(
     let prompts: string[];
     try {
       prompts = validatePromptParagraphs(
-        collectLatestPromptBlock(extractPromptParagraphs(rawText, sellingPointText), promptCount),
+        selectDeepSeekLatestReplyPromptBlock(extractPromptParagraphs(rawText, sellingPointText), promptCount),
         promptCount,
         validationContext
       );
