@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { generatePosterPromptsWithDeepSeek } from "./deepseek-prompts.js";
+import {
+  assertDeepSeekPromptsBelongToCurrentProduct,
+  buildDeepSeekPromptValidationContext
+} from "./deepseek-prompt-rules.js";
 import { writeDeepSeekPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateMainImageAssets } from "./jimeng-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
@@ -327,6 +331,9 @@ async function executeTaskChain(
         runtimeDir,
         taskId: current.taskId,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
+        userCognitionName: current.sellingPointArtifact.userCognitionName,
+        brandedGenericName: current.sellingPointArtifact.brandedGenericName,
+        genericName: current.feishuProductRecord?.genericName,
         conversationUrl: deepseekConversationUrl,
         promptCount,
         simulateOnly
@@ -368,17 +375,70 @@ async function executeTaskChain(
       if (!current.sellingPointArtifact?.sellingPointText || !current.deepseekArtifact?.prompts?.length) {
         throw new Error("Main image generation requires selling points and poster prompts.");
       }
+      const productPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
+      const promptValidationContext = buildDeepSeekPromptValidationContext({
+        sellingPointText: current.sellingPointArtifact.sellingPointText,
+        userCognitionName: current.sellingPointArtifact.userCognitionName,
+        brandedGenericName: current.sellingPointArtifact.brandedGenericName,
+        genericName: current.feishuProductRecord?.genericName
+      });
+      try {
+        assertDeepSeekPromptsBelongToCurrentProduct(
+          current.deepseekArtifact.prompts.slice(0, productPlan.promptCount),
+          promptValidationContext,
+          productPlan.promptCount
+        );
+      } catch (error) {
+        appendEvent(
+          eventFile,
+          createEvent(
+            "info",
+            "poster_prompts_generated",
+            `Saved DeepSeek prompts do not match current product; regenerating before image generation. ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            current.taskId
+          )
+        );
+        const regeneratedDeepseekArtifact = await generatePosterPromptsWithDeepSeek({
+          runtimeDir,
+          taskId: current.taskId,
+          sellingPointText: current.sellingPointArtifact.sellingPointText,
+          userCognitionName: current.sellingPointArtifact.userCognitionName,
+          brandedGenericName: current.sellingPointArtifact.brandedGenericName,
+          genericName: current.feishuProductRecord?.genericName,
+          conversationUrl: deepseekConversationUrl,
+          promptCount: productPlan.promptCount,
+          simulateOnly
+        });
+        regeneratedDeepseekArtifact.wordFiles = writeDeepSeekPromptWordFiles({
+          jimengImageDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
+          sellingPointText: current.sellingPointArtifact.sellingPointText,
+          brand: current.sellingPointArtifact.brand,
+          userCognitionName: current.sellingPointArtifact.userCognitionName,
+          brandedGenericName: current.sellingPointArtifact.brandedGenericName,
+          prompts: regeneratedDeepseekArtifact.prompts,
+          promptCount: productPlan.promptCount
+        });
+        current = {
+          ...current,
+          status: "poster_prompts_generated",
+          deepseekArtifact: regeneratedDeepseekArtifact,
+          lastUpdatedAt: new Date().toISOString(),
+          notes: [...current.notes, "Regenerated DeepSeek prompts after current-product validation rejected saved prompts."]
+        };
+        markProgress();
+      }
       appendEvent(eventFile, createEvent("info", step, "Starting main image generation.", current.taskId));
       assertNotPaused(pauseSignalFile, current.taskId, step);
-      const productPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
       const mainImageArtifact = await generateMainImageAssets({
         runtimeDir,
         taskId: current.taskId,
         shopRootDir,
         sourceImagePath: current.sourceImagePath,
-        sellingPointText: current.sellingPointArtifact.sellingPointText,
-        brandedGenericName: current.sellingPointArtifact.brandedGenericName,
-        wordFiles: current.deepseekArtifact.wordFiles || [],
+        sellingPointText: current.sellingPointArtifact!.sellingPointText,
+        brandedGenericName: current.sellingPointArtifact!.brandedGenericName,
+        wordFiles: current.deepseekArtifact!.wordFiles || [],
         imageGenerationProvider,
         imageGenerationConfigFile,
         mainImageExpectedCount,

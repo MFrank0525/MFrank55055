@@ -13,6 +13,12 @@ import {
   getDeepSeekRetryInstruction,
   DEEPSEEK_URL
 } from "./rule-text.js";
+import {
+  assertDeepSeekPromptsBelongToCurrentProduct,
+  buildDeepSeekPromptValidationContext,
+  resolveDeepSeekPromptRetryPolicy,
+  type DeepSeekPromptValidationContext
+} from "./deepseek-prompt-rules.js";
 
 const CONVERSATION_CACHE_FILE = path.resolve(process.cwd(), "data", "auto-listing", "conversation-targets.json");
 
@@ -51,13 +57,14 @@ function buildPromptText(sellingPointText: string, promptCount: number): string 
   ].join("\n");
 }
 
-function buildRetryPrompt(sellingPointText: string, promptCount: number): string {
+function buildRetryPrompt(sellingPointText: string, promptCount: number, productFocusText = ""): string {
   return [
     getDeepSeekInstruction1(),
     sellingPointText,
+    productFocusText ? `本次必须只围绕当前商品生成提示词：${productFocusText}` : "",
     getDeepSeekRetryInstruction(),
     `本次只补充输出${promptCount}款不同的电商海报关键词段落。`
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 function writePromptFile(taskDir: string, sellingPointText: string, promptCount: number): { promptFile: string; promptText: string } {
@@ -140,7 +147,11 @@ function collectLatestPromptBlock(candidates: string[], promptCount: number): st
   return candidates.slice(-promptCount);
 }
 
-function validatePromptParagraphs(prompts: string[], promptCount: number): string[] {
+function validatePromptParagraphs(
+  prompts: string[],
+  promptCount: number,
+  validationContext?: DeepSeekPromptValidationContext
+): string[] {
   if (prompts.length !== promptCount) {
     throw new Error(`DeepSeek must return ${promptCount} keyword paragraphs, got ${prompts.length}.`);
   }
@@ -153,20 +164,29 @@ function validatePromptParagraphs(prompts: string[], promptCount: number): strin
       throw new Error(`DeepSeek paragraph was not keyword-like enough: ${prompt}`);
     }
   }
+  if (validationContext) {
+    assertDeepSeekPromptsBelongToCurrentProduct(normalized, validationContext, promptCount);
+  }
   return normalized;
 }
 
-function buildSimulatedArtifact(taskDir: string, sellingPointText: string, promptCount: number): DeepSeekArtifact {
+function buildSimulatedArtifact(
+  taskDir: string,
+  sellingPointText: string,
+  promptCount: number,
+  validationContext: DeepSeekPromptValidationContext
+): DeepSeekArtifact {
   const { promptFile } = writePromptFile(taskDir, sellingPointText, promptCount);
   const rawFile = path.join(taskDir, "deepseek-raw.txt");
   const extractedFile = path.join(taskDir, "deepseek-extracted.txt");
   const screenshotFile = path.join(taskDir, "deepseek.png");
+  const anchor = validationContext.strongAnchors[0] || validationContext.anchors[0] || "当前商品";
   const prompts = [
-    "医疗实验室,蓝白色调,产品居中,显微结构元素,专业器械质感,关节护理图示",
-    "健康护理场景,生物制造背景,产品特写,人群关怀,使用步骤图标,科技感光效",
-    "医学科技空间,冷色渐变,产品悬浮,部位示意图,成分粒子,专业海报排版",
-    "康复护理场景,临床洁净背景,使用方法演示,人群呼应,器械认证元素,电商主图构图",
-    "生物制造车间,医疗蓝光,产品主体强化,适用人群暗示,步骤提示,品牌水印预留"
+    `${anchor}护理场景,蓝白色调,产品居中,核心卖点标签,专业器械质感,电商主图构图`,
+    `${anchor}产品特写,洁净台面背景,使用步骤图标,水润高光层次,正品防伪标签,科技感光效`,
+    `${anchor}医学科技空间,冷色渐变,产品悬浮展示,成分粒子轨迹,专业海报排版,品牌水印预留`,
+    `${anchor}日常护理场景,临床洁净背景,产品包装前景,材质纹理细节,安全承诺图标,主图视觉中心`,
+    `${anchor}主题海报,医疗蓝白光效,产品主体强化,卖点符号化呈现,步骤提示卡片,高转化电商排版`
   ];
   const selectedPrompts = prompts.slice(0, promptCount);
   fs.writeFileSync(rawFile, `${selectedPrompts.join("\n")}\n`, "utf8");
@@ -174,8 +194,15 @@ function buildSimulatedArtifact(taskDir: string, sellingPointText: string, promp
   return { promptFile, rawFile, extractedFile, screenshotFile, prompts: selectedPrompts, simulated: true };
 }
 
-function buildExistingArtifactFromRaw(taskDir: string, sellingPointText: string, promptCount: number): DeepSeekArtifact | undefined {
+function buildExistingArtifactFromRaw(
+  taskDir: string,
+  sellingPointText: string,
+  promptCount: number,
+  validationContext: DeepSeekPromptValidationContext
+): DeepSeekArtifact | undefined {
   const rawCandidates = [
+    { rawFile: path.join(taskDir, "deepseek-retry-2-raw.txt"), screenshotFile: path.join(taskDir, "deepseek-retry-2.png") },
+    { rawFile: path.join(taskDir, "deepseek-retry-1-raw.txt"), screenshotFile: path.join(taskDir, "deepseek-retry-1.png") },
     { rawFile: path.join(taskDir, "deepseek-retry-raw.txt"), screenshotFile: path.join(taskDir, "deepseek-retry.png") },
     { rawFile: path.join(taskDir, "deepseek-raw.txt"), screenshotFile: path.join(taskDir, "deepseek.png") }
   ];
@@ -189,7 +216,8 @@ function buildExistingArtifactFromRaw(taskDir: string, sellingPointText: string,
     try {
       prompts = validatePromptParagraphs(
         collectLatestPromptBlock(extractPromptParagraphs(rawText, sellingPointText), promptCount),
-        promptCount
+        promptCount,
+        validationContext
       );
     } catch {
       continue;
@@ -423,15 +451,29 @@ export async function generatePosterPromptsWithDeepSeek(options: {
   runtimeDir: string;
   taskId: string;
   sellingPointText: string;
+  userCognitionName?: string;
+  brandedGenericName?: string;
+  genericName?: string;
   conversationUrl?: string;
   promptCount: number;
   simulateOnly: boolean;
 }): Promise<DeepSeekArtifact> {
   const taskDir = ensureTaskDir(options.runtimeDir, options.taskId);
+  const validationContext = buildDeepSeekPromptValidationContext({
+    sellingPointText: options.sellingPointText,
+    userCognitionName: options.userCognitionName,
+    brandedGenericName: options.brandedGenericName,
+    genericName: options.genericName
+  });
   if (options.simulateOnly) {
-    return buildSimulatedArtifact(taskDir, options.sellingPointText, options.promptCount);
+    return buildSimulatedArtifact(taskDir, options.sellingPointText, options.promptCount, validationContext);
   }
-  const existingArtifact = buildExistingArtifactFromRaw(taskDir, options.sellingPointText, options.promptCount);
+  const existingArtifact = buildExistingArtifactFromRaw(
+    taskDir,
+    options.sellingPointText,
+    options.promptCount,
+    validationContext
+  );
   if (existingArtifact) {
     return existingArtifact;
   }
@@ -448,35 +490,68 @@ export async function generatePosterPromptsWithDeepSeek(options: {
     const beforeRaw = await page.locator("body").innerText().catch(() => "");
     fs.writeFileSync(beforeRawFile, `${extractPromptParagraphs(beforeRaw, options.sellingPointText).join("\n")}\n`, "utf8");
 
-    let timing = await submitOnExistingConversation(page, promptText, screenshotFile, rawFile);
-    let extracted = extractNewPromptParagraphs(beforeRaw, timing.rawText, options.sellingPointText, promptText, options.promptCount);
+    let timing: { submittedAt: string; capturedAt: string; rawText: string } | undefined;
+    let prompts: string[] | undefined;
+    let selectedRawFile = rawFile;
+    let selectedScreenshotFile = screenshotFile;
+    const productFocusText = [
+      validationContext.userCognitionName,
+      validationContext.brandedGenericName,
+      validationContext.genericName
+    ].filter(Boolean).join(" / ");
+    const retryPolicy = resolveDeepSeekPromptRetryPolicy();
+    const errors: string[] = [];
 
-    if (extracted.length < options.promptCount) {
-      const retryPromptText = buildRetryPrompt(options.sellingPointText, options.promptCount);
-      const retryPromptFile = path.join(taskDir, "deepseek-poster-retry-prompt.txt");
-      const retryRawFile = path.join(taskDir, "deepseek-retry-raw.txt");
-      const retryScreenshotFile = path.join(taskDir, "deepseek-retry.png");
-      const retryBeforeRawFile = path.join(taskDir, "deepseek-retry-before-raw.txt");
-      const retryBeforeRaw = await page.locator("body").innerText().catch(() => "");
-      fs.writeFileSync(retryPromptFile, `${retryPromptText}\n`, "utf8");
-      fs.writeFileSync(retryBeforeRawFile, `${extractPromptParagraphs(retryBeforeRaw, options.sellingPointText).join("\n")}\n`, "utf8");
-      timing = await submitOnExistingConversation(page, retryPromptText, retryScreenshotFile, retryRawFile);
-      extracted = extractNewPromptParagraphs(
-        retryBeforeRaw,
+    for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
+      const attemptPromptText =
+        attempt === 1 ? promptText : buildRetryPrompt(options.sellingPointText, options.promptCount, productFocusText);
+      const attemptPromptFile =
+        attempt === 1 ? promptFile : path.join(taskDir, `deepseek-poster-retry-${attempt - 1}-prompt.txt`);
+      const attemptRawFile = attempt === 1 ? rawFile : path.join(taskDir, `deepseek-retry-${attempt - 1}-raw.txt`);
+      const attemptScreenshotFile =
+        attempt === 1 ? screenshotFile : path.join(taskDir, `deepseek-retry-${attempt - 1}.png`);
+      const attemptBeforeRawFile =
+        attempt === 1 ? beforeRawFile : path.join(taskDir, `deepseek-retry-${attempt - 1}-before-raw.txt`);
+      const attemptBeforeRaw = attempt === 1 ? beforeRaw : await page.locator("body").innerText().catch(() => "");
+      fs.writeFileSync(attemptPromptFile, `${attemptPromptText}\n`, "utf8");
+      fs.writeFileSync(
+        attemptBeforeRawFile,
+        `${extractPromptParagraphs(attemptBeforeRaw, options.sellingPointText).join("\n")}\n`,
+        "utf8"
+      );
+      timing = await submitOnExistingConversation(page, attemptPromptText, attemptScreenshotFile, attemptRawFile);
+      const extracted = extractNewPromptParagraphs(
+        attemptBeforeRaw,
         timing.rawText,
         options.sellingPointText,
-        retryPromptText,
+        attemptPromptText,
         options.promptCount
       );
+      try {
+        prompts = validatePromptParagraphs(
+          extracted.slice(0, options.promptCount),
+          options.promptCount,
+          validationContext
+        );
+        selectedRawFile = attemptRawFile;
+        selectedScreenshotFile = attemptScreenshotFile;
+        break;
+      } catch (error) {
+        errors.push(`attempt ${attempt}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
-    const prompts = validatePromptParagraphs(extracted.slice(0, options.promptCount), options.promptCount);
+    if (!prompts || !timing) {
+      throw new Error(
+        `DeepSeek did not return valid current-product poster prompts after ${retryPolicy.maxAttempts} attempt(s). ${errors.join(" | ")}`
+      );
+    }
     fs.writeFileSync(extractedFile, `${prompts.join("\n")}\n`, "utf8");
     return {
       promptFile,
-      rawFile,
+      rawFile: selectedRawFile,
       extractedFile,
-      screenshotFile,
+      screenshotFile: selectedScreenshotFile,
       prompts,
       submittedAt: timing.submittedAt,
       capturedAt: timing.capturedAt,
