@@ -75,12 +75,14 @@ export FEISHU_BITABLE_URL="https://..."
 - `用户认知名`
 - `通用名称`
 - `品牌`
-- `SPU信息`
+- `SPU`
 - `产品卖点`
+- `DeepSeek提示词`
+- `标题关键词`
 - `导购短标题`
 - `产品类目`
 - `资质图片`
-- `产品白底图`
+- `白底图`
 
 如果你的飞书字段名不同，只改 `input/feishu-bitable.config.json` 里的 `fieldMap`。
 
@@ -179,13 +181,13 @@ npm run auto-listing:hermes-status
 /Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><用户认知名>/
 ```
 
-真实流程仍然保留豆包生成电商标题，因为标题质量以抖音电商实战转化为优先。
+真实流程不再调用豆包网页生成电商标题。标题关键词来自飞书 `标题关键词` 字段，脚本只做类目规则内的排列组合。
 
 真实流程的生图 provider 已切换为 OpenAI-compatible 中转站 `gpt-image-2`。本地密钥和接口配置放在 `input/image-generation.config.json`，该文件被 `.gitignore` 忽略；仓库只提交 `input/image-generation.config.example.json`。如果运行时报余额、额度或计费不足，需要先给中转站账号充值。
 
 这条链路不使用 ChatGPT 网页端，因此不应消耗 GPT Plus 会员消息额度。项目运行时会拦截 `chatgpt.com` 和 `chat.openai.com` 这类 ChatGPT/Plus 网页域名；OpenAI-compatible 图片接口或中转站接口属于 API/中转站计费，不等同于 GPT Plus 会员额度。
 
-真实流程仍会消耗飞书开放平台调用额度、附件下载流量、中转站生图额度、豆包标题生成账号额度，以及抖店浏览器账号会话资源。启动器会把真实流程放到后台运行，并通过状态命令返回结果摘要。
+真实流程仍会消耗飞书开放平台调用额度、附件下载流量、中转站生图额度，以及抖店浏览器账号会话资源。启动器会把真实流程放到后台运行，并通过状态命令返回结果摘要。
 
 运行全流程前先检查：
 

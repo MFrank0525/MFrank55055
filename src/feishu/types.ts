@@ -4,6 +4,8 @@ export interface FeishuBitableFieldMap {
   brand: string;
   spu: string;
   sellingPointText: string;
+  deepseekPromptText?: string;
+  titleKeywordText?: string;
   shortTitle: string;
   productCategory?: string;
   qualificationImages: string;
@@ -46,6 +48,8 @@ export interface FeishuProductRecord {
   brand: string;
   spu: string;
   sellingPointText: string;
+  deepseekPromptText: string;
+  titleKeywordText: string;
   shortTitle: string;
   productCategory?: string;
   qualificationImages: FeishuBitableAttachment[];

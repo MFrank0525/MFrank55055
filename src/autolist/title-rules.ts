@@ -64,7 +64,7 @@ export function assertGeneratedTitlesBelongToProduct(options: {
 
   if (mismatches.length > 0) {
     throw new Error(
-      `Doubao titles do not match current product genericName=${genericName}: ${mismatches
+      `Generated titles do not match current product genericName=${genericName}: ${mismatches
         .slice(0, 5)
         .map((item) => `${String(item.index).padStart(2, "0")}=${item.title}`)
         .join(" | ")}`

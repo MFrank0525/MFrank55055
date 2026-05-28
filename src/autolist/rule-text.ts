@@ -13,19 +13,19 @@ export function buildDoubaoSellingPointPrompt(): string {
 }
 
 export function getDeepSeekConversationTitle(): string {
-  return readManualTextBlock("poster_prompts_generated", "固定对话标题");
+  throw new Error("DeepSeek browser prompt generation is disabled. Poster prompts must come from Feishu DeepSeek提示词.");
 }
 
 export function getDeepSeekInstruction1(): string {
-  return readManualTextBlock("poster_prompts_generated", "指令1");
+  throw new Error("DeepSeek browser prompt generation is disabled. Poster prompts must come from Feishu DeepSeek提示词.");
 }
 
 export function buildDeepSeekInstruction2(): string {
-  return readManualTextBlock("poster_prompts_generated", "指令2");
+  throw new Error("DeepSeek browser prompt generation is disabled. Poster prompts must come from Feishu DeepSeek提示词.");
 }
 
 export function getDeepSeekRetryInstruction(): string {
-  return readManualTextBlock("poster_prompts_generated", "重试指令");
+  throw new Error("DeepSeek browser prompt generation is disabled. Poster prompts must come from Feishu DeepSeek提示词.");
 }
 
 function escapeRegExp(input: string): string {
@@ -113,24 +113,14 @@ function assertNoReplacementChar(text: string, label: string): void {
 }
 
 export function assertRuleTextIntegrity(): void {
-  const deepseekConversationTitle = getDeepSeekConversationTitle();
-  const deepseekInstruction1 = getDeepSeekInstruction1();
-  const deepseekRetryInstruction = getDeepSeekRetryInstruction();
-  const deepseekInstruction2 = buildDeepSeekInstruction2();
   const mainImageInstruction1 = buildMainImageInstruction1("延草纲目", "医用膝盖喷剂", "延草纲目膝盖部位医用喷剂");
-  const titleConversationUrl = readManualTextBlock("titles_generated", "固定标题对话");
-  const titlePromptPrefix = readManualTextBlock("titles_generated", "标题指令前缀");
-  const titleGenerationRule = readManualTextBlock("titles_generated", "标题生成规则");
+  const posterPromptManual = readManualTextBlock("poster_prompts_generated", "来源规则");
+  const titleGenerationManual = readManualTextBlock("titles_generated", "来源规则");
 
   for (const [label, text, includes] of [
-    ["DeepSeek conversation title", deepseekConversationTitle, RULE_CONTRACT_MARKERS.deepseekConversationTitle],
-    ["DeepSeek instruction1", deepseekInstruction1, RULE_CONTRACT_MARKERS.deepseekInstruction1],
-    ["DeepSeek retry instruction", deepseekRetryInstruction, RULE_CONTRACT_MARKERS.deepseekRetryInstruction],
-    ["DeepSeek instruction2", deepseekInstruction2, RULE_CONTRACT_MARKERS.deepseekInstruction2],
     ["Main image instruction", mainImageInstruction1, RULE_CONTRACT_MARKERS.mainImageInstruction1],
-    ["Title conversation URL", titleConversationUrl, RULE_CONTRACT_MARKERS.titleConversationUrl],
-    ["Title prompt prefix", titlePromptPrefix, RULE_CONTRACT_MARKERS.titlePromptPrefix],
-    ["Title generation rule", titleGenerationRule, RULE_CONTRACT_MARKERS.titleGenerationRule]
+    ["Poster prompt source rule", posterPromptManual, RULE_CONTRACT_MARKERS.posterPromptSourceRule],
+    ["Title keyword source rule", titleGenerationManual, RULE_CONTRACT_MARKERS.titleKeywordSourceRule]
   ] as const) {
     for (const expected of includes) {
       assertIncludes(text, expected, label);
@@ -138,14 +128,9 @@ export function assertRuleTextIntegrity(): void {
   }
 
   for (const [label, value] of [
-    ["DeepSeek conversation title", deepseekConversationTitle],
-    ["DeepSeek instruction1", deepseekInstruction1],
-    ["DeepSeek retry instruction", deepseekRetryInstruction],
-    ["DeepSeek instruction2", deepseekInstruction2],
     ["Main image instruction", mainImageInstruction1],
-    ["Title conversation URL", titleConversationUrl],
-    ["Title prompt prefix", titlePromptPrefix],
-    ["Title generation rule", titleGenerationRule]
+    ["Poster prompt source rule", posterPromptManual],
+    ["Title keyword source rule", titleGenerationManual]
   ] as const) {
     assertNoReplacementChar(value, label);
   }

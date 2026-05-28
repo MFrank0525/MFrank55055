@@ -106,6 +106,8 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     brand: extractText(field("brand")),
     spu: extractText(field("spu")),
     sellingPointText: extractText(field("sellingPointText")),
+    deepseekPromptText: extractText(field("deepseekPromptText")),
+    titleKeywordText: extractText(field("titleKeywordText")),
     shortTitle: extractText(field("shortTitle")),
     productCategory: extractText(field("productCategory")),
     qualificationImages: extractAttachments(field("qualificationImages")),
@@ -121,6 +123,8 @@ export function validateFeishuProductRecord(record: FeishuProductRecord): string
   if (!record.brand) missing.push("brand");
   if (!record.spu) missing.push("spu");
   if (!record.sellingPointText) missing.push("sellingPointText");
+  if (!record.deepseekPromptText) missing.push("deepseekPromptText");
+  if (!record.titleKeywordText) missing.push("titleKeywordText");
   if (!record.shortTitle) missing.push("shortTitle");
   if (!record.qualificationImages.length) missing.push("qualificationImages");
   if (!record.whiteBackgroundImages.length) missing.push("whiteBackgroundImages");
@@ -139,6 +143,8 @@ export function isEmptyFeishuProductRecord(record: FeishuProductRecord): boolean
     !record.brand &&
     !record.spu &&
     !record.sellingPointText &&
+    !record.deepseekPromptText &&
+    !record.titleKeywordText &&
     !record.shortTitle &&
     !record.productCategory &&
     record.qualificationImages.length === 0 &&

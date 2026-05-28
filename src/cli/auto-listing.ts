@@ -84,7 +84,7 @@ function printExternalCostSummary(job: AutoListingJobFile): void {
           : [
               "Feishu API quota",
               `${provider} image generation credits`,
-              "Doubao web/account quota for prompt and title generation",
+              "Feishu prompt/title field reads",
               "Doudian browser session with publishing side effects"
             ],
         imageGenerationConfigFile: job.input?.imageGenerationConfigFile

@@ -102,7 +102,7 @@ function printExternalCostSummary(jobFile: string, real: boolean): void {
   console.log(`Mode: ${real ? "real paid-capable" : "simulate"}`);
   console.log(`Image generation provider: ${provider}`);
   if (real) {
-    console.log("May consume: Feishu API quota, OpenAI-compatible image generation credits, Doubao web account quota, Doudian browser session.");
+    console.log("May consume: Feishu API quota, OpenAI-compatible image generation credits, and Doudian browser session.");
     console.log(`Image generation config file: ${path.resolve(job.input?.imageGenerationConfigFile || "./input/image-generation.config.json")}`);
   } else {
     console.log("Paid image generation and browser publishing must remain disabled by input.simulateOnly=true.");

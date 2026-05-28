@@ -341,6 +341,7 @@ async function executeTaskChain(
         runtimeDir,
         taskId: current.taskId,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
+        feishuPromptText: current.feishuProductRecord?.deepseekPromptText,
         userCognitionName: current.sellingPointArtifact.userCognitionName,
         brandedGenericName: current.sellingPointArtifact.brandedGenericName,
         genericName: current.feishuProductRecord?.genericName,
@@ -414,6 +415,7 @@ async function executeTaskChain(
           runtimeDir,
           taskId: current.taskId,
           sellingPointText: current.sellingPointArtifact.sellingPointText,
+          feishuPromptText: current.feishuProductRecord?.deepseekPromptText,
           userCognitionName: current.sellingPointArtifact.userCognitionName,
           brandedGenericName: current.sellingPointArtifact.brandedGenericName,
           genericName: current.feishuProductRecord?.genericName,
@@ -499,7 +501,7 @@ async function executeTaskChain(
 
     if (step === "titles_generated") {
       if (!current.sellingPointArtifact?.sellingPointText) {
-        throw new Error("Title generation requires Doubao selling points.");
+        throw new Error("Title generation requires Feishu product context.");
       }
       assertNotPaused(pauseSignalFile, current.taskId, step);
       const effectiveTitleCount = getProductCategoryPlan(current.feishuProductRecord?.productCategory).titleCount || titleCount;
@@ -510,6 +512,8 @@ async function executeTaskChain(
         titleDir,
         sourceImagePath: current.sourceImagePath,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
+        titleKeywordText: current.feishuProductRecord?.titleKeywordText,
+        brand: current.feishuProductRecord?.brand,
         userCognitionName: current.feishuProductRecord?.userCognitionName,
         genericName: current.feishuProductRecord?.genericName,
         productCategory: current.feishuProductRecord?.productCategory,
@@ -566,7 +570,7 @@ async function executeTaskChain(
 
     if (step === "metadata_enriched") {
       if (!current.titleSheetArtifact?.generatedFiles?.length || !current.sellingPointArtifact?.sellingPointText) {
-        throw new Error("Metadata enrichment requires distributed title sheets and Doubao selling points.");
+        throw new Error("Metadata enrichment requires distributed title sheets and Feishu product context.");
       }
       const distributedWorkbookFiles = current.titleSheetArtifact.generatedFiles
         .filter((item) => item.distributedTo)
@@ -603,7 +607,7 @@ async function executeTaskChain(
 
     if (step === "qualifications_attached") {
       if (!current.generatedProductFolders.length || !current.sellingPointArtifact?.sellingPointText) {
-        throw new Error("Qualification attachment requires product folders and Doubao selling points.");
+        throw new Error("Qualification attachment requires product folders and Feishu product context.");
       }
       const qualificationArtifact = attachQualificationFiles({
         qualificationDir,

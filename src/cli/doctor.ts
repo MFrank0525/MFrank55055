@@ -189,7 +189,6 @@ function baseChecks(): CheckResult[] {
   return [
   checkPath("node_modules", "node_modules"),
   checkBrowser(),
-  checkJson("input/doubao-job.example.json"),
   checkJson("input/publish-from-spu.job.example.json"),
   checkJson("input/auto-listing.job.example.json"),
   checkCommand("Python", getPythonCommand()),

@@ -56,7 +56,7 @@ export function buildAutoListingPreflightSummary(resolved: AutoListingResolvedJo
 
   if (!resolved.input.simulateOnly) {
     warnings.push(
-      `Real mode is enabled. ${resolved.input.imageGenerationProvider} image generation and Doubao title generation may consume external service quota.`
+      `Real mode is enabled. ${resolved.input.imageGenerationProvider} image generation, Feishu API calls, and Doudian publishing may consume external service quota.`
     );
   }
   if (sourceImages === 0) {
