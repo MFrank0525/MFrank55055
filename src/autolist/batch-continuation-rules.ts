@@ -88,6 +88,33 @@ export function resolveHermesFeishuProgressDisplayMode(
   return "current_batch";
 }
 
+export type HermesFeishuBatchDisplayCountsInput = {
+  recordCount: number;
+  processedRecordCount: number;
+  pendingSourceImages: string[];
+  currentSourceImagePath?: string;
+};
+
+export type HermesFeishuBatchDisplayCounts = {
+  recordCount: number;
+  completedCount: number;
+  currentCount: number;
+  notStartedCount: number;
+};
+
+export function resolveHermesFeishuBatchDisplayCounts(
+  input: HermesFeishuBatchDisplayCountsInput
+): HermesFeishuBatchDisplayCounts {
+  const currentSourceImagePath = input.currentSourceImagePath || "";
+  const currentCount = currentSourceImagePath && input.pendingSourceImages.includes(currentSourceImagePath) ? 1 : 0;
+  return {
+    recordCount: input.recordCount,
+    completedCount: input.processedRecordCount,
+    currentCount,
+    notStartedCount: Math.max(0, input.pendingSourceImages.length - currentCount)
+  };
+}
+
 export type HermesProgressAgeInput = {
   nowIso: string;
   latestProgressTimestamp?: string;
@@ -132,6 +159,50 @@ export function resolveHermesEffectiveProgressTimestamp(
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 
   return candidates[0];
+}
+
+export function selectHermesActiveRunIdFromLogLines(lines: string[]): string | undefined {
+  const pattern = /auto-listing run started:\s*([0-9]{8}-[0-9]{6})/;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const match = pattern.exec(lines[index] || "");
+    if (match) {
+      return match[1];
+    }
+  }
+  return undefined;
+}
+
+export type HermesExpectedResultFileInput = {
+  running: boolean;
+  activeRuntimeDir?: string;
+};
+
+export function shouldUseExpectedResultFileInRunningStatus(input: HermesExpectedResultFileInput): boolean {
+  return !input.running || !input.activeRuntimeDir;
+}
+
+export type HermesPublishProgressExposureInput = {
+  running: boolean;
+  publishProgressAvailable: boolean;
+  currentTaskStatus?: string;
+  stateProgressTimestamp?: string;
+  publishProgressTimestamp?: string;
+};
+
+export function shouldExposePublishProgressInHermesStatus(input: HermesPublishProgressExposureInput): boolean {
+  if (!input.publishProgressAvailable) {
+    return false;
+  }
+  if (!input.running) {
+    return true;
+  }
+  if (input.currentTaskStatus === "published") {
+    return true;
+  }
+  if (!input.stateProgressTimestamp || !input.publishProgressTimestamp) {
+    return true;
+  }
+  return Date.parse(input.publishProgressTimestamp) >= Date.parse(input.stateProgressTimestamp);
 }
 
 export type HermesHistoricalResultSuppressionInput = {

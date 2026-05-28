@@ -23,10 +23,14 @@ import {
   resolveHermesProgressAgeSeconds,
   resolveHermesEffectiveProgressTimestamp,
   resolveHermesFeishuProgressDisplayMode,
+  resolveHermesFeishuBatchDisplayCounts,
   resolveHermesStartAfterFeishuRefresh,
+  selectHermesActiveRunIdFromLogLines,
   selectHermesStatusRuntimeDir,
   shouldSuppressHistoricalResultInHermesStatus,
   shouldSuppressStateCurrentTaskInHermesStatus,
+  shouldExposePublishProgressInHermesStatus,
+  shouldUseExpectedResultFileInRunningStatus,
   shouldResumeHistoricalFailureForCurrentFeishuBatch
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
@@ -570,6 +574,48 @@ assert.equal(
   "active-child-result.json"
 );
 assert.equal(
+  shouldUseExpectedResultFileInRunningStatus({
+    running: true,
+    activeRuntimeDir: "/runs/active"
+  }),
+  false
+);
+assert.equal(
+  shouldUseExpectedResultFileInRunningStatus({
+    running: true
+  }),
+  true
+);
+assert.equal(
+  selectHermesActiveRunIdFromLogLines([
+    "[2026-05-27T15:28:45.848Z] [info] auto-listing run started: 20260527-035110",
+    "... many later lines ...",
+    "[2026-05-27T17:41:03.831Z] [info] auto-listing run started: 20260528-014103",
+    "[2026-05-28T02:12:13.117Z] [info] Prompt 5/5: Image 1: submitting edits request."
+  ]),
+  "20260528-014103"
+);
+assert.equal(
+  shouldExposePublishProgressInHermesStatus({
+    running: true,
+    publishProgressAvailable: true,
+    currentTaskStatus: "main_images_generated",
+    stateProgressTimestamp: "2026-05-28T02:12:13.117Z",
+    publishProgressTimestamp: "2026-05-28T01:20:48.812Z"
+  }),
+  false
+);
+assert.equal(
+  shouldExposePublishProgressInHermesStatus({
+    running: true,
+    publishProgressAvailable: true,
+    currentTaskStatus: "published",
+    stateProgressTimestamp: "2026-05-28T02:12:13.117Z",
+    publishProgressTimestamp: "2026-05-28T02:13:13.117Z"
+  }),
+  true
+);
+assert.equal(
   selectHermesStatusRuntimeDir({
     running: true,
     activeRuntimeDir: "/runs/active",
@@ -746,6 +792,34 @@ assert.equal(
     activeResumeReusableArtifactCount: 16
   }),
   "current_batch"
+);
+assert.deepEqual(
+  resolveHermesFeishuBatchDisplayCounts({
+    recordCount: 10,
+    processedRecordCount: 5,
+    pendingSourceImages: ["/work/current.png", "/work/next.png"],
+    currentSourceImagePath: "/work/current.png"
+  }),
+  {
+    recordCount: 10,
+    completedCount: 5,
+    currentCount: 1,
+    notStartedCount: 1
+  }
+);
+assert.deepEqual(
+  resolveHermesFeishuBatchDisplayCounts({
+    recordCount: 10,
+    processedRecordCount: 5,
+    pendingSourceImages: ["/work/next.png"],
+    currentSourceImagePath: "/work/current.png"
+  }),
+  {
+    recordCount: 10,
+    completedCount: 5,
+    currentCount: 0,
+    notStartedCount: 1
+  }
 );
 assert.equal(
   resolveHermesStartAfterFeishuRefresh({

@@ -4,16 +4,20 @@ import path from "node:path";
 import {
   isHermesSupervisorProcessCommand,
   resolveHermesEffectiveProgressTimestamp,
+  resolveHermesFeishuBatchDisplayCounts,
   resolveHermesFeishuProgressDisplayMode,
   resolveHermesProgressAgeSeconds,
   resolveHermesStartAfterFeishuRefresh,
+  selectHermesActiveRunIdFromLogLines,
   selectHermesStatusResultFile,
   selectHermesStatusRuntimeDir,
+  shouldExposePublishProgressInHermesStatus,
   shouldPreferActiveTaskStateSummary,
   shouldResumeHistoricalFailureForCurrentFeishuBatch,
   shouldResumeInterruptedTaskInPlace,
   shouldSuppressHistoricalResultInHermesStatus,
-  shouldSuppressStateCurrentTaskInHermesStatus
+  shouldSuppressStateCurrentTaskInHermesStatus,
+  shouldUseExpectedResultFileInRunningStatus
 } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
@@ -147,7 +151,6 @@ const pauseFile = path.join(controlDir, "pause.requested");
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu-real.json");
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
-const activeRunStartedPattern = /auto-listing run started:\s*([0-9]{8}-[0-9]{6})/;
 
 function readJsonFile<T>(file: string): T | undefined {
   if (!fs.existsSync(file)) {
@@ -269,12 +272,10 @@ function findActiveRuntimeDirFromLog(logFile: string | undefined): string | unde
   if (!logFile || !fs.existsSync(logFile)) {
     return undefined;
   }
-  for (const line of tailFile(logFile, 200).reverse()) {
-    const match = activeRunStartedPattern.exec(line);
-    if (match) {
-      const runtimeDir = path.resolve(rootDir, "data/auto-listing/runs", match[1]);
-      return fs.existsSync(runtimeDir) ? runtimeDir : undefined;
-    }
+  const runId = selectHermesActiveRunIdFromLogLines(fs.readFileSync(logFile, "utf8").split(/\r?\n/));
+  if (runId) {
+    const runtimeDir = path.resolve(rootDir, "data/auto-listing/runs", runId);
+    return fs.existsSync(runtimeDir) ? runtimeDir : undefined;
   }
   return undefined;
 }
@@ -610,10 +611,12 @@ function existingStatus(): Record<string, unknown> {
   const latestResultFile = running ? undefined : findLatestResultFile();
   const resultFile = selectHermesStatusResultFile({
     running,
-    expected: {
-      resultFile: job.expectedResultFile,
-      mtimeMs: fileMtimeMs(job.expectedResultFile)
-    },
+    expected: shouldUseExpectedResultFileInRunningStatus({ running, activeRuntimeDir })
+      ? {
+          resultFile: job.expectedResultFile,
+          mtimeMs: fileMtimeMs(job.expectedResultFile)
+        }
+      : undefined,
     log: {
       resultFile: activeResultFile && fs.existsSync(activeResultFile) ? activeResultFile : undefined,
       mtimeMs: fileMtimeMs(activeResultFile)
@@ -647,11 +650,26 @@ function existingStatus(): Record<string, unknown> {
   const activePublishUpdatedAt = (publishProgress?.active as Record<string, unknown> | undefined)?.updatedAt;
   const latestPublishedUpdatedAt = (publishProgress?.latestPublished as Record<string, unknown> | undefined)?.updatedAt;
   const latestStateProgressAt = (state?.latestProgress as Record<string, unknown> | undefined)?.timestamp;
+  const publishProgressTimestamp =
+    typeof activePublishUpdatedAt === "string"
+      ? activePublishUpdatedAt
+      : typeof latestArtifactUpdatedAt === "string"
+        ? latestArtifactUpdatedAt
+        : typeof latestPublishedUpdatedAt === "string"
+          ? latestPublishedUpdatedAt
+          : undefined;
+  const exposePublishProgress = shouldExposePublishProgressInHermesStatus({
+    running,
+    publishProgressAvailable: Boolean(publishProgress),
+    currentTaskStatus: String((state?.currentTask as Record<string, unknown> | undefined)?.status || ""),
+    stateProgressTimestamp: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined,
+    publishProgressTimestamp
+  });
   const effectiveProgress = resolveHermesEffectiveProgressTimestamp({
     stateProgressTimestamp: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined,
-    activePublishUpdatedAt: typeof activePublishUpdatedAt === "string" ? activePublishUpdatedAt : undefined,
-    latestArtifactUpdatedAt: typeof latestArtifactUpdatedAt === "string" ? latestArtifactUpdatedAt : undefined,
-    latestPublishedUpdatedAt: typeof latestPublishedUpdatedAt === "string" ? latestPublishedUpdatedAt : undefined
+    activePublishUpdatedAt: exposePublishProgress && typeof activePublishUpdatedAt === "string" ? activePublishUpdatedAt : undefined,
+    latestArtifactUpdatedAt: exposePublishProgress && typeof latestArtifactUpdatedAt === "string" ? latestArtifactUpdatedAt : undefined,
+    latestPublishedUpdatedAt: exposePublishProgress && typeof latestPublishedUpdatedAt === "string" ? latestPublishedUpdatedAt : undefined
   });
   const progressHeartbeat = effectiveProgress
     ? {
@@ -663,9 +681,11 @@ function existingStatus(): Record<string, unknown> {
       }
     : undefined;
   const publishProgressHasNewerActive =
+    exposePublishProgress &&
     Boolean(activePublishUpdatedAt) &&
     (!latestStateProgressAt || Date.parse(String(activePublishUpdatedAt)) > Date.parse(String(latestStateProgressAt)));
   const publishProgressHasNewerArtifact =
+    exposePublishProgress &&
     Boolean(latestArtifactUpdatedAt) &&
     (!latestStateProgressAt || Date.parse(String(latestArtifactUpdatedAt)) > Date.parse(String(latestStateProgressAt)));
   const batchComplete = feishuProgress ? feishuProgress.batchComplete === true : true;
@@ -691,7 +711,7 @@ function existingStatus(): Record<string, unknown> {
   const resolvedStatus = running ? "running" : completed ? "completed" : failed ? "failed" : hasPendingFeishuProducts ? "pending_products" : "exited_unknown";
   const suppressHistoricalResult = shouldSuppressHistoricalResultInHermesStatus({
     running,
-    publishProgressAvailable: Boolean(publishProgress),
+    publishProgressAvailable: exposePublishProgress,
     resultOk: typeof result?.ok === "boolean" ? result.ok : undefined,
     resultStatus: typeof result?.status === "string" ? result.status : undefined,
     activeRuntimeDir,
@@ -699,7 +719,7 @@ function existingStatus(): Record<string, unknown> {
   });
   const suppressStateCurrentTask = shouldSuppressStateCurrentTaskInHermesStatus({
     running,
-    publishProgressAvailable: Boolean(publishProgress),
+    publishProgressAvailable: exposePublishProgress,
     latestProgressStep: String((state?.latestProgress as Record<string, unknown> | undefined)?.step || ""),
     currentTaskStatus: String((state?.currentTask as Record<string, unknown> | undefined)?.status || "")
   });
@@ -735,15 +755,26 @@ function existingStatus(): Record<string, unknown> {
           ? "任务正在运行，尚未写入发布进度。"
           : "任务进程已退出，查看 result 字段确认最终结果。"),
     resultNote:
-      running && publishProgress
+      running && exposePublishProgress
         ? "进程仍在运行时历史 result.json 可能保留上一次失败内容；实时进度以 publishProgress/publish-manifest 为准，历史失败 result 已从状态载荷中隐藏。"
         : undefined,
     result: suppressHistoricalResult ? undefined : result,
     state: statusState,
     progressHeartbeat,
-    publishProgress,
+    publishProgress: exposePublishProgress ? publishProgress : undefined,
     feishuProgress,
     feishuProgressDisplayMode,
+    feishuBatchDisplayCounts: feishuProgress
+      ? resolveHermesFeishuBatchDisplayCounts({
+          recordCount: Number(feishuProgress.recordCount || 0),
+          processedRecordCount: Number(feishuProgress.processedRecordCount || 0),
+          pendingSourceImages: Array.isArray(feishuProgress.pendingSourceImages)
+            ? feishuProgress.pendingSourceImages.map((item) => path.resolve(rootDir, String(item)))
+            : [],
+          currentSourceImagePath:
+            typeof currentTask?.sourceImagePath === "string" ? path.resolve(rootDir, currentTask.sourceImagePath) : undefined
+        })
+      : undefined,
     activeResumeReusableArtifactCount,
     logTail: tailFile(job.logFile, 12).map(compactStatusLine)
   };
@@ -775,6 +806,17 @@ function formatStatusText(status: Record<string, unknown>): string {
   if (heartbeat?.timestamp) {
     lines.push(`状态心跳：${String(heartbeat.timestamp)}，来源 ${String(heartbeat.source || "unknown")}，约 ${String(heartbeat.ageSeconds ?? "?")} 秒前`);
   }
+  if (state) {
+    const currentTask = state.currentTask as Record<string, unknown> | undefined;
+    const latestProgress = state.latestProgress as Record<string, unknown> | undefined;
+    lines.push(`运行批次：${String(state.runId || path.basename(String(status.activeRuntimeDir || "")) || "unknown")}`);
+    if (currentTask?.sourceImageName) {
+      lines.push(`当前商品：${String(currentTask.sourceImageName)}（${String(latestProgress?.step || currentTask.status || "unknown")}）`);
+    }
+    if (latestProgress?.message) {
+      lines.push(`最新进度：${compactStatusValue(String(latestProgress.message))}`);
+    }
+  }
   const feishuProgress = status.feishuProgress as Record<string, unknown> | undefined;
   if (feishuProgress) {
     if (status.feishuProgressDisplayMode === "resume_artifact_completion") {
@@ -782,19 +824,14 @@ function formatStatusText(status: Record<string, unknown>): string {
         `飞书批次：旧批次已完成 ${String(feishuProgress.processedRecordCount ?? "?")}/${String(feishuProgress.recordCount ?? "?")}；当前在收尾已有生图产物，完成后自动刷新新批次`
       );
     } else {
-      lines.push(`飞书批次：已处理 ${String(feishuProgress.processedRecordCount ?? "?")}/${String(feishuProgress.recordCount ?? "?")}，待处理 ${String(feishuProgress.pendingRecordCount ?? "?")}`);
-    }
-  } else if (state) {
-    const currentTask = state.currentTask as Record<string, unknown> | undefined;
-    const latestProgress = state.latestProgress as Record<string, unknown> | undefined;
-    lines.push(`运行批次：${String(state.runId || path.basename(String(status.activeRuntimeDir || "")) || "unknown")}`);
-    if (currentTask?.sourceImageName) {
-      lines.push(
-        `当前商品：${String(currentTask.sourceImageName)}（${String(latestProgress?.step || currentTask.status || "unknown")}）`
-      );
-    }
-    if (latestProgress?.message) {
-      lines.push(`最新进度：${compactStatusValue(String(latestProgress.message))}`);
+      const counts = status.feishuBatchDisplayCounts as Record<string, unknown> | undefined;
+      if (counts) {
+        lines.push(
+          `飞书批次：已完成 ${String(counts.completedCount ?? "?")}/${String(counts.recordCount ?? "?")}，当前处理 ${String(counts.currentCount ?? 0)}，未开始 ${String(counts.notStartedCount ?? "?")}`
+        );
+      } else {
+        lines.push(`飞书批次：已处理 ${String(feishuProgress.processedRecordCount ?? "?")}/${String(feishuProgress.recordCount ?? "?")}，待处理 ${String(feishuProgress.pendingRecordCount ?? "?")}`);
+      }
     }
   } else if (result) {
     lines.push(`最近结果：${String(result.status || "unknown")}，批次 ${String(result.runId || "unknown")}`);
