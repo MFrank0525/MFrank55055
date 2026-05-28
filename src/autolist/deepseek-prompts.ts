@@ -114,7 +114,6 @@ export async function generatePosterPromptsWithDeepSeek(options: {
   userCognitionName?: string;
   brandedGenericName?: string;
   genericName?: string;
-  conversationUrl?: string;
   promptCount: number;
   simulateOnly: boolean;
 }): Promise<DeepSeekArtifact> {

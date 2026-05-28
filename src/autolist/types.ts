@@ -46,7 +46,6 @@ export interface AutoListingJobInput {
   productInfoKeyMapFile?: string;
   feishuProductDataFile?: string;
   shopRootDir: string;
-  deepseekConversationUrl?: string;
   imageGenerationProvider?: ImageGenerationProvider;
   imageGenerationConfigFile?: string;
   mainImageExpectedCount?: number;

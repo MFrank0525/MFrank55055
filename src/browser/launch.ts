@@ -11,8 +11,6 @@ let activeRemoteDebuggingPort = REMOTE_DEBUGGING_PORTS[0];
 const DOUYIN_SHOP_URL = "https://fxg.jinritemai.com/ffa/g/spu-record";
 
 const WORKSPACE_PAGE_SPECS = [
-  { key: "doubao", url: "https://www.doubao.com/chat/" },
-  { key: "deepseek", url: "https://chat.deepseek.com/" },
   { key: "shop", url: DOUYIN_SHOP_URL }
 ] as const;
 
@@ -227,12 +225,6 @@ async function connectBrowserWithRecovery(userDataDir: string): Promise<Browser>
 
 function pageMatchesWorkspace(page: Page, key: WorkspacePageKey): boolean {
   const url = page.url();
-  if (key === "doubao") {
-    return url.startsWith("https://www.doubao.com/chat/");
-  }
-  if (key === "deepseek") {
-    return url.includes("chat.deepseek.com");
-  }
   if (key === "shop") {
     return url.includes("fxg.jinritemai.com");
   }

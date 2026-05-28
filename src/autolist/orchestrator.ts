@@ -185,7 +185,6 @@ async function executeTaskChain(
   productInfoKeyMapFile: string,
   feishuProductDataFile: string,
   shopRootDir: string,
-  deepseekConversationUrl: string,
   imageGenerationProvider: "openai-compatible",
   imageGenerationConfigFile: string,
   mainImageExpectedCount: number,
@@ -345,7 +344,6 @@ async function executeTaskChain(
         userCognitionName: current.sellingPointArtifact.userCognitionName,
         brandedGenericName: current.sellingPointArtifact.brandedGenericName,
         genericName: current.feishuProductRecord?.genericName,
-        conversationUrl: deepseekConversationUrl,
         promptCount,
         simulateOnly
       });
@@ -419,7 +417,6 @@ async function executeTaskChain(
           userCognitionName: current.sellingPointArtifact.userCognitionName,
           brandedGenericName: current.sellingPointArtifact.brandedGenericName,
           genericName: current.feishuProductRecord?.genericName,
-          conversationUrl: deepseekConversationUrl,
           promptCount: productPlan.promptCount,
           simulateOnly
         });
@@ -940,7 +937,6 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.input.productInfoKeyMapFile,
           resolved.input.feishuProductDataFile,
           resolved.input.shopRootDir,
-          resolved.input.deepseekConversationUrl,
           resolved.input.imageGenerationProvider,
           resolved.input.imageGenerationConfigFile,
           resolved.input.mainImageExpectedCount,

@@ -45,7 +45,6 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
       : path.resolve(process.cwd(), "data", "auto-listing", "product-info-key-map.json"),
     feishuProductDataFile,
     shopRootDir: ensureDirExists(input.shopRootDir, "Shop root dir"),
-    deepseekConversationUrl: input.deepseekConversationUrl || "",
     imageGenerationProvider: input.imageGenerationProvider || "openai-compatible",
     imageGenerationConfigFile: input.imageGenerationConfigFile
       ? ensureDirExists(input.imageGenerationConfigFile, "Image generation config file")
