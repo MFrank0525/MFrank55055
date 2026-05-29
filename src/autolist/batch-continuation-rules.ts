@@ -14,7 +14,7 @@ export type SupervisorFullFlowContinuationInput = FeishuBatchContinuationInput &
 };
 
 export function shouldContinueFullFlowAfterChildExit(input: SupervisorFullFlowContinuationInput): boolean {
-  return input.childMode === "full" && shouldContinueFeishuBatchAfterChildExit(input);
+  return shouldContinueFeishuBatchAfterChildExit(input);
 }
 
 export type FeishuBatchRetryAfterFailureInput = {

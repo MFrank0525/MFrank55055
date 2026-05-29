@@ -485,7 +485,7 @@ assert.equal(
     exitCode: 0,
     batchComplete: false
   }),
-  false
+  true
 );
 assert.equal(
   shouldContinueFullFlowAfterChildExit({
