@@ -106,6 +106,11 @@ assert.match(
   /readVisiblePriceInventoryRowTargets[\s\S]*fillVisiblePriceInventoryRowByTableDom/,
   "price/inventory action must read and write through the same visible table-row target model"
 );
+assert.match(
+  publishSource,
+  /fillVisiblePriceInventoryRowByTableDom[\s\S]*scrollIntoView\(\{ block: "center"/,
+  "price/inventory action must center each target row before filling so sticky footers do not cover bottom rows"
+);
 
 assert.match(
   publishSource,

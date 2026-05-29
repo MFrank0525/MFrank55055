@@ -7807,6 +7807,10 @@ async function fillVisiblePriceInventoryRowByTableDom(
   }
 
   const row = page.locator("tr").nth(target.trIndex);
+  await row.evaluate((node) => {
+    node.scrollIntoView({ block: "center", inline: "nearest" });
+  }).catch(() => {});
+  await page.waitForTimeout(200);
   const priceInput = row.locator("input").nth(target.priceInputIndex);
   const stockInput = row.locator("input").nth(target.stockInputIndex);
 
