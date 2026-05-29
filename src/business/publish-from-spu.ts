@@ -43,7 +43,8 @@ import {
   evaluatePublishSubmissionAfterAction,
   evaluateServiceFulfillmentCompletion,
   evaluateSpecTemplateCompletion,
-  isUploadPlaceholderGraphicContext
+  isUploadPlaceholderGraphicContext,
+  resolvePriceInventoryRowInputRoles
 } from "./publish-from-spu/publish-rules.js";
 import type { ServiceFulfillmentState } from "./publish-from-spu/publish-rules.js";
 import { makePublishActionResult } from "./publish-from-spu/publish-actions.js";
@@ -7656,23 +7657,126 @@ async function getVisiblePriceInventoryInputLocators(page: Page): Promise<{
   };
 }
 
+type PriceInventoryRowTarget = {
+  trIndex: number;
+  priceInputIndex: number;
+  stockInputIndex: number;
+  top: number;
+  priceValue: string;
+  stockValue: string;
+};
+
+async function readVisiblePriceInventoryRowTargets(page: Page): Promise<PriceInventoryRowTarget[]> {
+  const rawRows = await page.evaluate(() => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    return Array.from(document.querySelectorAll("tr"))
+      .map((row, trIndex) => {
+        const rowEl = row as HTMLTableRowElement;
+        const rowRect = rowEl.getBoundingClientRect();
+        const rowStyle = window.getComputedStyle(rowEl);
+        const rowText = normalize(rowEl.innerText || rowEl.textContent || "");
+        if (
+          !rowText ||
+          rowRect.width <= 0 ||
+          rowRect.height <= 0 ||
+          rowRect.bottom <= 0 ||
+          rowRect.top >= window.innerHeight ||
+          rowStyle.display === "none" ||
+          rowStyle.visibility === "hidden" ||
+          rowText.includes("现货库存") ||
+          rowText.includes("价格与库存")
+        ) {
+          return null;
+        }
+        const inputs = Array.from(rowEl.querySelectorAll("input"))
+          .map((input, inputIndex) => {
+            const inputEl = input as HTMLInputElement;
+            const inputRect = inputEl.getBoundingClientRect();
+            const inputStyle = window.getComputedStyle(inputEl);
+            const type = (inputEl.getAttribute("type") || "text").toLowerCase();
+            const placeholder = normalize(inputEl.getAttribute("placeholder") || "");
+            const context = normalize(
+              [
+                inputEl.value || "",
+                placeholder,
+                inputEl.getAttribute("aria-label") || "",
+                inputEl.parentElement?.innerText || "",
+                inputEl.parentElement?.parentElement?.innerText || "",
+                inputEl.closest("td, th, tr, .semi-table-row, .ecom-g-table-row")?.textContent || ""
+              ].join(" ")
+            );
+            if (
+              inputRect.width < 80 ||
+              inputRect.height <= 0 ||
+              inputStyle.display === "none" ||
+              inputStyle.visibility === "hidden" ||
+              inputEl.disabled ||
+              inputEl.readOnly ||
+              ["hidden", "file", "checkbox", "radio"].includes(type)
+            ) {
+              return null;
+            }
+            return {
+              inputIndex,
+              value: inputEl.value || "",
+              placeholder,
+              context,
+              centerX: inputRect.x + inputRect.width / 2
+            };
+          })
+          .filter(Boolean) as Array<{
+            inputIndex: number;
+            value: string;
+            placeholder: string;
+            context: string;
+            centerX: number;
+          }>;
+        return { trIndex, top: rowRect.top, inputs };
+      })
+      .filter(Boolean) as Array<{
+        trIndex: number;
+        top: number;
+        inputs: Array<{
+          inputIndex: number;
+          value: string;
+          placeholder: string;
+          context: string;
+          centerX: number;
+        }>;
+      }>;
+  });
+
+  return rawRows
+    .map((row) => {
+      const roles = resolvePriceInventoryRowInputRoles(row.inputs);
+      if (!roles) {
+        return null;
+      }
+      const price = row.inputs.find((input) => input.inputIndex === roles.priceIndex);
+      const stock = row.inputs.find((input) => input.inputIndex === roles.stockIndex);
+      if (!price || !stock) {
+        return null;
+      }
+      return {
+        trIndex: row.trIndex,
+        priceInputIndex: roles.priceIndex,
+        stockInputIndex: roles.stockIndex,
+        top: row.top,
+        priceValue: price.value,
+        stockValue: stock.value
+      };
+    })
+    .filter((row): row is PriceInventoryRowTarget => Boolean(row))
+    .sort((a, b) => a.top - b.top);
+}
+
 async function readVisiblePriceInventoryRows(
   page: Page
 ): Promise<Array<{ priceValue: string; stockValue: string }>> {
-  const { priceInputs, stockInputs } = await getVisiblePriceInventoryInputLocators(page);
-  const priceCount = await priceInputs.count();
-  const stockCount = await stockInputs.count();
-  const rowCount = Math.min(priceCount, stockCount);
-  const rows: Array<{ priceValue: string; stockValue: string }> = [];
-
-  for (let index = 0; index < rowCount; index += 1) {
-    rows.push({
-      priceValue: await priceInputs.nth(index).inputValue().catch(() => ""),
-      stockValue: await stockInputs.nth(index).inputValue().catch(() => "")
-    });
-  }
-
-  return rows;
+  return (await readVisiblePriceInventoryRowTargets(page)).map((row) => ({
+    priceValue: row.priceValue,
+    stockValue: row.stockValue
+  }));
 }
 
 async function setLocatorInputValue(locator: Locator, value: string): Promise<string> {
@@ -7690,37 +7794,70 @@ async function setLocatorInputValue(locator: Locator, value: string): Promise<st
   }, value);
 }
 
+async function fillVisiblePriceInventoryRowByTableDom(
+  page: Page,
+  rowIndex: number,
+  expectedPriceText: string,
+  expectedStockText: string
+): Promise<void> {
+  const rows = await readVisiblePriceInventoryRowTargets(page);
+  const target = rows[rowIndex];
+  if (!target) {
+    throw new Error(`Visible price/inventory row ${rowIndex + 1} was not found.`);
+  }
+
+  const row = page.locator("tr").nth(target.trIndex);
+  const priceInput = row.locator("input").nth(target.priceInputIndex);
+  const stockInput = row.locator("input").nth(target.stockInputIndex);
+
+  await priceInput.scrollIntoViewIfNeeded().catch(() => {});
+  await priceInput.click({ timeout: 3000 }).catch(() => {});
+  await priceInput.fill(expectedPriceText, { timeout: 3000 }).catch(() => {});
+  let currentPriceValue = await priceInput.inputValue().catch(() => "");
+  if (normalizeNumericInputValue(currentPriceValue) !== normalizeNumericInputValue(expectedPriceText)) {
+    currentPriceValue = await setLocatorInputValue(priceInput, expectedPriceText).catch(() => currentPriceValue);
+  }
+
+  await stockInput.scrollIntoViewIfNeeded().catch(() => {});
+  await stockInput.click({ timeout: 3000 }).catch(() => {});
+  await stockInput.fill(expectedStockText, { timeout: 3000 }).catch(() => {});
+  let currentStockValue = await stockInput.inputValue().catch(() => "");
+  if (normalizeNumericInputValue(currentStockValue) !== normalizeNumericInputValue(expectedStockText)) {
+    currentStockValue = await setLocatorInputValue(stockInput, expectedStockText).catch(() => currentStockValue);
+  }
+  await stockInput.press("Tab").catch(() => {});
+}
+
 async function fillAndVerifyPriceInventoryRow(
   page: Page,
   rowIndex: number,
   expectedPrice: number,
   expectedStock: number
 ): Promise<string> {
-  const { priceInputs, stockInputs } = await getVisiblePriceInventoryInputLocators(page);
   const expectedPriceText = String(expectedPrice);
   const expectedStockText = String(expectedStock);
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const priceInput = priceInputs.nth(rowIndex);
-    const stockInput = stockInputs.nth(rowIndex);
-
-    await priceInput.scrollIntoViewIfNeeded().catch(() => {});
-    await priceInput.click({ timeout: 3000 }).catch(() => {});
-    await priceInput.fill(expectedPriceText, { timeout: 3000 }).catch(() => {});
-    let currentPriceValue = await priceInput.inputValue().catch(() => "");
-    if (normalizeNumericInputValue(currentPriceValue) !== normalizeNumericInputValue(expectedPriceText)) {
-      currentPriceValue = await setLocatorInputValue(priceInput, expectedPriceText).catch(() => currentPriceValue);
-    }
-    await page.waitForTimeout(200);
-
-    await stockInput.scrollIntoViewIfNeeded().catch(() => {});
-    await stockInput.click({ timeout: 3000 }).catch(() => {});
-    await stockInput.fill(expectedStockText, { timeout: 3000 }).catch(() => {});
-    let currentStockValue = await stockInput.inputValue().catch(() => "");
-    if (normalizeNumericInputValue(currentStockValue) !== normalizeNumericInputValue(expectedStockText)) {
-      currentStockValue = await setLocatorInputValue(stockInput, expectedStockText).catch(() => currentStockValue);
-    }
-    await stockInput.press("Tab").catch(() => {});
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await fillVisiblePriceInventoryRowByTableDom(page, rowIndex, expectedPriceText, expectedStockText).catch(async () => {
+      const { priceInputs, stockInputs } = await getVisiblePriceInventoryInputLocators(page);
+      const priceInput = priceInputs.nth(rowIndex);
+      const stockInput = stockInputs.nth(rowIndex);
+      await priceInput.scrollIntoViewIfNeeded().catch(() => {});
+      await priceInput.click({ timeout: 3000 }).catch(() => {});
+      await priceInput.fill(expectedPriceText, { timeout: 3000 }).catch(() => {});
+      let currentPriceValue = await priceInput.inputValue().catch(() => "");
+      if (normalizeNumericInputValue(currentPriceValue) !== normalizeNumericInputValue(expectedPriceText)) {
+        currentPriceValue = await setLocatorInputValue(priceInput, expectedPriceText).catch(() => currentPriceValue);
+      }
+      await stockInput.scrollIntoViewIfNeeded().catch(() => {});
+      await stockInput.click({ timeout: 3000 }).catch(() => {});
+      await stockInput.fill(expectedStockText, { timeout: 3000 }).catch(() => {});
+      let currentStockValue = await stockInput.inputValue().catch(() => "");
+      if (normalizeNumericInputValue(currentStockValue) !== normalizeNumericInputValue(expectedStockText)) {
+        currentStockValue = await setLocatorInputValue(stockInput, expectedStockText).catch(() => currentStockValue);
+      }
+      await stockInput.press("Tab").catch(() => {});
+    });
     await page.waitForTimeout(300);
 
     const rows = await readVisiblePriceInventoryRows(page);

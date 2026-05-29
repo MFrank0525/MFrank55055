@@ -45,6 +45,17 @@ export interface PriceInventoryEntryRuleDecision {
   issue: string;
 }
 
+export interface PriceInventoryRowInputCandidate {
+  placeholder: string;
+  context: string;
+  centerX: number;
+}
+
+export interface PriceInventoryRowInputRoles {
+  priceIndex: number;
+  stockIndex: number;
+}
+
 export interface ServiceFulfillmentState {
   shippingModeSelected: boolean;
   shippingTimeSelected: boolean;
@@ -448,6 +459,28 @@ export function evaluatePriceInventoryEntryRule(input: PriceInventoryEntryRuleIn
     };
   }
   return { action: "apply_price_inventory", issue: "" };
+}
+
+export function resolvePriceInventoryRowInputRoles(
+  candidates: PriceInventoryRowInputCandidate[]
+): PriceInventoryRowInputRoles | undefined {
+  const editable = candidates
+    .map((candidate, index) => ({ ...candidate, index }))
+    .filter((candidate) => {
+      const text = `${candidate.placeholder} ${candidate.context}`.replace(/\s+/g, " ").trim();
+      return !/erp编码|商家编码/i.test(text) && !/规格值|请输入规格值/i.test(text);
+    })
+    .sort((a, b) => a.centerX - b.centerX);
+
+  const stock = editable.find((candidate) => /库存/.test(`${candidate.placeholder} ${candidate.context}`));
+  const price = editable.find((candidate) => candidate.index !== stock?.index);
+  if (!price || !stock) {
+    return undefined;
+  }
+  return {
+    priceIndex: price.index,
+    stockIndex: stock.index
+  };
 }
 
 export function evaluateServiceCompletion(input: { freightTemplateName: string; missingFields: string[] }): PublishRuleCheck {

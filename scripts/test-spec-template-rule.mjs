@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   evaluatePriceInventoryEntryRule,
-  evaluateSpecTemplateCompletion
+  evaluateSpecTemplateCompletion,
+  resolvePriceInventoryRowInputRoles
 } from "../src/business/publish-from-spu/publish-rules.ts";
 
 assert.deepEqual(
@@ -59,6 +60,28 @@ assert.deepEqual(
   }
 );
 
+assert.deepEqual(
+  resolvePriceInventoryRowInputRoles([
+    {
+      placeholder: "请输入",
+      context: "￥ 请输入",
+      centerX: 620
+    },
+    {
+      placeholder: "请输入库存",
+      context: "现货库存 请输入库存",
+      centerX: 780
+    },
+    {
+      placeholder: "请输入erp编码",
+      context: "商家编码 请输入erp编码",
+      centerX: 1330
+    }
+  ]),
+  { priceIndex: 0, stockIndex: 1 },
+  "price/inventory rows must treat the first editable non-code input as price even when its placeholder is only 请输入"
+);
+
 const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
 for (const obsoleteAction of [
   "createFixedSpecTypeAndValues",
@@ -77,6 +100,11 @@ assert.match(
   publishSource,
   /rect\.left >= 420[\s\S]*rect\.top >= 240/,
   "publish section visibility must be scoped to the main form, not sidebar errors or top tabs"
+);
+assert.match(
+  publishSource,
+  /readVisiblePriceInventoryRowTargets[\s\S]*fillVisiblePriceInventoryRowByTableDom/,
+  "price/inventory action must read and write through the same visible table-row target model"
 );
 
 assert.match(
