@@ -111,6 +111,11 @@ assert.match(
   /fillVisiblePriceInventoryRowByTableDom[\s\S]*scrollIntoView\(\{ block: "center"/,
   "price/inventory action must center each target row before filling so sticky footers do not cover bottom rows"
 );
+assert.equal(
+  /rowRect\.top >= window\.innerHeight/.test(publishSource),
+  false,
+  "price/inventory row discovery must not use viewport visibility as the SKU row count; offscreen rows must still be filled"
+);
 
 assert.match(
   publishSource,

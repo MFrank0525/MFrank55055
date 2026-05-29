@@ -7679,8 +7679,6 @@ async function readVisiblePriceInventoryRowTargets(page: Page): Promise<PriceInv
           !rowText ||
           rowRect.width <= 0 ||
           rowRect.height <= 0 ||
-          rowRect.bottom <= 0 ||
-          rowRect.top >= window.innerHeight ||
           rowStyle.display === "none" ||
           rowStyle.visibility === "hidden" ||
           rowText.includes("现货库存") ||
