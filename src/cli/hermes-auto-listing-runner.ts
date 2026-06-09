@@ -3,12 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   isHermesSupervisorProcessCommand,
+  isHermesRunningProcessConfirmed,
   resolveHermesEffectiveProgressTimestamp,
   resolveHermesFeishuBatchDisplayCounts,
   resolveHermesFeishuProgressDisplayMode,
   resolveHermesProgressAgeSeconds,
   resolveHermesStartAfterFeishuRefresh,
   selectHermesActiveRunIdFromLogLines,
+  selectHermesLatestResultFileForJobStatus,
   selectHermesStatusResultFile,
   selectHermesStatusRuntimeDir,
   shouldExposePublishProgressInHermesStatus,
@@ -183,14 +185,11 @@ function isPidRunning(pid: number | undefined): boolean {
 }
 
 function isRunnerJobRunning(job: RunnerJob): boolean {
-  if (!isPidRunning(job.pid)) {
-    return false;
-  }
   const command = readProcessCommand(job.pid);
-  if (!command) {
-    return true;
-  }
-  return isHermesSupervisorProcessCommand(command);
+  return isHermesRunningProcessConfirmed({
+    pidAlive: isPidRunning(job.pid),
+    command
+  });
 }
 
 function timestampForFile(date = new Date()): string {
@@ -219,6 +218,13 @@ function compactStatusLine(line: string): string {
   const workbookCount = (compact.match(/\.xlsx\b/gi) || []).length;
   if (workbookCount > 2 && /product folders already contain workbook/i.test(compact)) {
     return `标题 workbook 已存在 ${workbookCount} 个；续跑应跳过标题生成并从发布阶段继续，原始路径列表已压缩。`;
+  }
+  const watermarkFailure = /Publish preflight failed for\s+(\d+)\s+issue\(s\).*No main image candidate matched current shop watermark/i.exec(compact);
+  if (watermarkFailure) {
+    const examples = Array.from(compact.matchAll(/([^|]+?)\s*->\s*No main image candidate matched current shop watermark:\s*([^|]+)/gi))
+      .slice(0, 2)
+      .map((match) => `${match[1].replace(/^Publish preflight failed for\s+\d+\s+issue\(s\):\s*/i, "").trim()} 应匹配 ${match[2].trim()}`);
+    return `发布预检失败：${watermarkFailure[1]} 个商品文件夹主图水印与目标店铺不匹配；需从主图生成步骤重建水印后再发布${examples.length ? `。示例：${examples.join("；")}` : "。"}。`;
   }
   return compact.length > 500 ? `${compact.slice(0, 500)}... [truncated]` : compact;
 }
@@ -376,6 +382,47 @@ function summarizeState(runtimeDir: string | undefined): Record<string, unknown>
           message: compactStatusValue(latestProgress.message)
         }
       : undefined
+  };
+}
+
+function summarizeImageGenerationProgress(runtimeDir: string | undefined, taskId: string | undefined): Record<string, unknown> | undefined {
+  if (!runtimeDir || !taskId) {
+    return undefined;
+  }
+  const eventsFile = path.join(runtimeDir, "events.ndjson");
+  if (!fs.existsSync(eventsFile)) {
+    return undefined;
+  }
+  const events = fs
+    .readFileSync(eventsFile, "utf8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as { timestamp?: string; taskId?: string; step?: string; message?: string };
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((event): event is { timestamp?: string; taskId?: string; step?: string; message?: string } =>
+      Boolean(event?.taskId === taskId && event.step === "main_images_generated")
+    );
+  const latest = events.at(-1);
+  if (!latest) {
+    return undefined;
+  }
+  const latestReuseEvent = [...events]
+    .reverse()
+    .find((event) => /Reused\s+\d+\s+current-product raw main image/i.test(event.message || ""));
+  const reused = /Reused\s+(\d+)\s+current-product raw main image/i.exec(latestReuseEvent?.message || "");
+  const ready = /Main images ready:\s*(\d+)\s*file/i.exec(latest.message || "");
+  const saved = /saved generated-(\d+)/i.exec(latest.message || "");
+  const submitting = /Prompt\s+(\d+)\/(\d+):\s*Image\s+(\d+)/i.exec(latest.message || "");
+  return {
+    status: reused ? "reused_raw_images" : ready ? "ready" : saved ? "generating" : submitting ? "generating" : "in_progress",
+    count: reused ? Number(reused[1]) : ready ? Number(ready[1]) : undefined,
+    latestMessage: compactStatusValue(reused ? latestReuseEvent?.message || "" : latest.message || ""),
+    updatedAt: reused ? latestReuseEvent?.timestamp : latest.timestamp
   };
 }
 
@@ -608,7 +655,12 @@ function existingStatus(): Record<string, unknown> {
   const running = isRunnerJobRunning(job);
   const activeRuntimeDir = findActiveRuntimeDirFromLog(job.logFile);
   const activeResultFile = activeRuntimeDir ? path.join(activeRuntimeDir, "result.json") : undefined;
-  const latestResultFile = running ? undefined : findLatestResultFile();
+  const latestResultFile = running
+    ? undefined
+    : selectHermesLatestResultFileForJobStatus({
+        hasControlJob: Boolean(job),
+        latestResultFile: findLatestResultFile()
+      });
   const resultFile = selectHermesStatusResultFile({
     running,
     expected: shouldUseExpectedResultFileInRunningStatus({ running, activeRuntimeDir })
@@ -637,6 +689,7 @@ function existingStatus(): Record<string, unknown> {
   const feishuProgress = summarizeFeishuProgress();
   const state = summarizeState(runtimeDir);
   const currentTask = state?.currentTask as Record<string, unknown> | undefined;
+  const imageProgress = summarizeImageGenerationProgress(runtimeDir, currentTask?.taskId ? String(currentTask.taskId) : undefined);
   const activeResumeReusableArtifactCount =
     job.mode === "resume-real-job" && runtimeDir && currentTask?.taskId
       ? countReusableRawImages(runtimeDir, String(currentTask.taskId))
@@ -738,6 +791,8 @@ function existingStatus(): Record<string, unknown> {
         ? `，最新进度：${compactStatusValue(String((state.latestProgress as Record<string, unknown>).message))}`
         : "")
     : undefined;
+  const failedError = (state?.currentTask as Record<string, unknown> | undefined)?.error as Record<string, unknown> | undefined;
+  const failureSummary = failedError?.message ? compactStatusValue(String(failedError.message)) : undefined;
   return {
     ok: true,
     status: resolvedStatus,
@@ -750,7 +805,11 @@ function existingStatus(): Record<string, unknown> {
     activeRuntimeDir,
     statusSource: publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary ? (publishProgress ? "publish-manifest" : state ? "state" : "result-log") : "state",
     summary:
-      (publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary ? publishProgress?.progressText || stateSummary : stateSummary) ||
+      (resolvedStatus === "failed"
+        ? failureSummary || stateSummary
+        : publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary
+          ? publishProgress?.progressText || stateSummary
+          : stateSummary) ||
       (running
           ? "任务正在运行，尚未写入发布进度。"
           : "任务进程已退出，查看 result 字段确认最终结果。"),
@@ -761,6 +820,7 @@ function existingStatus(): Record<string, unknown> {
     result: suppressHistoricalResult ? undefined : result,
     state: statusState,
     progressHeartbeat,
+    imageProgress,
     publishProgress: exposePublishProgress ? publishProgress : undefined,
     feishuProgress,
     feishuProgressDisplayMode,
@@ -784,37 +844,40 @@ function formatStatusText(status: Record<string, unknown>): string {
   const state = status.state as Record<string, unknown> | undefined;
   const progress = status.publishProgress as Record<string, unknown> | undefined;
   const result = status.result as Record<string, unknown> | undefined;
-  const logTail = Array.isArray(status.logTail) ? status.logTail as string[] : [];
   const lines = [
     `上架状态：${String(status.status || "unknown")}`,
-    `摘要：${String(status.summary || "暂无摘要")}`
+    `${status.status === "failed" ? "失败原因" : "摘要"}：${String(status.summary || "暂无摘要")}`
   ];
-  if (status.mode) {
-    lines.push(`模式：${String(status.mode)}`);
-  }
-  if (status.startedAt) {
-    lines.push(`启动时间：${String(status.startedAt)}`);
-  }
-  if (progress) {
-    lines.push(`发布：${String(progress.safelyPublished ?? 0)}/${String(progress.total ?? "?")}，失败 ${String(progress.failed ?? 0)}，待处理 ${String(progress.pending ?? 0)}`);
-    const latestArtifact = progress.latestArtifact as Record<string, unknown> | undefined;
-    if (latestArtifact?.name && latestArtifact?.updatedAt) {
-      lines.push(`最近发布产物：${String(latestArtifact.name)}（${String(latestArtifact.updatedAt)}）`);
-    }
-  }
-  const heartbeat = status.progressHeartbeat as Record<string, unknown> | undefined;
-  if (heartbeat?.timestamp) {
-    lines.push(`状态心跳：${String(heartbeat.timestamp)}，来源 ${String(heartbeat.source || "unknown")}，约 ${String(heartbeat.ageSeconds ?? "?")} 秒前`);
-  }
   if (state) {
     const currentTask = state.currentTask as Record<string, unknown> | undefined;
     const latestProgress = state.latestProgress as Record<string, unknown> | undefined;
     lines.push(`运行批次：${String(state.runId || path.basename(String(status.activeRuntimeDir || "")) || "unknown")}`);
     if (currentTask?.sourceImageName) {
-      lines.push(`当前商品：${String(currentTask.sourceImageName)}（${String(latestProgress?.step || currentTask.status || "unknown")}）`);
+      const error = currentTask.error as Record<string, unknown> | undefined;
+      const stage = currentTask.status === "failed" && error?.step ? `failed at ${String(error.step)}` : String(latestProgress?.step || currentTask.status || "unknown");
+      lines.push(`当前商品：${String(currentTask.sourceImageName)}（${stage}）`);
     }
-    if (latestProgress?.message) {
+    if (latestProgress?.message && currentTask?.status !== "failed") {
       lines.push(`最新进度：${compactStatusValue(String(latestProgress.message))}`);
+    }
+    const error = currentTask?.error as Record<string, unknown> | undefined;
+    if (error?.message && status.status !== "failed") {
+      lines.push(`异常原因：${compactStatusValue(String(error.message))}`);
+    }
+  }
+  const imageProgress = status.imageProgress as Record<string, unknown> | undefined;
+  if (imageProgress) {
+    if (imageProgress.status === "reused_raw_images") {
+      lines.push(`生图：已复用当前商品 raw 主图 ${String(imageProgress.count ?? "?")} 张；不会重新调用中转站生成。`);
+    } else {
+      lines.push(`生图：${String(imageProgress.latestMessage || imageProgress.status || "进行中")}`);
+    }
+  }
+  if (progress) {
+    if (status.status === "failed" && Number(progress.safelyPublished || 0) === 0 && Number(progress.failed || 0) === 0) {
+      lines.push("发布：未开始真实发布；发布前预检已拦截。");
+    } else {
+      lines.push(`发布：${String(progress.safelyPublished ?? 0)}/${String(progress.total ?? "?")}，失败 ${String(progress.failed ?? 0)}，待处理 ${String(progress.pending ?? 0)}`);
     }
   }
   const feishuProgress = status.feishuProgress as Record<string, unknown> | undefined;
@@ -835,10 +898,6 @@ function formatStatusText(status: Record<string, unknown>): string {
     }
   } else if (result) {
     lines.push(`最近结果：${String(result.status || "unknown")}，批次 ${String(result.runId || "unknown")}`);
-  }
-  if (logTail.length) {
-    lines.push("最近日志：");
-    lines.push(...logTail.slice(-4).map(compactStatusLine));
   }
   return lines.join("\n");
 }

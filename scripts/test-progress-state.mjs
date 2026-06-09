@@ -33,7 +33,9 @@ import {
   shouldSuppressStateCurrentTaskInHermesStatus,
   shouldExposePublishProgressInHermesStatus,
   shouldUseExpectedResultFileInRunningStatus,
-  shouldResumeHistoricalFailureForCurrentFeishuBatch
+  shouldResumeHistoricalFailureForCurrentFeishuBatch,
+  isHermesRunningProcessConfirmed,
+  selectHermesLatestResultFileForJobStatus
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -666,6 +668,36 @@ assert.equal(
   true
 );
 assert.equal(isHermesSupervisorProcessCommand("/usr/bin/yes 9485"), false);
+assert.equal(
+  isHermesRunningProcessConfirmed({
+    pidAlive: true,
+    command: undefined
+  }),
+  false,
+  "Hermes status must not treat an unreadable/stale PID as an active supervisor."
+);
+assert.equal(
+  isHermesRunningProcessConfirmed({
+    pidAlive: true,
+    command: "node dist/src/cli/hermes-auto-listing-supervisor.js --initial full"
+  }),
+  true
+);
+assert.equal(
+  selectHermesLatestResultFileForJobStatus({
+    hasControlJob: true,
+    latestResultFile: "/runs/simulated/result.json"
+  }),
+  undefined,
+  "Hermes status for an existing control job must not mix in an unrelated newer simulated result."
+);
+assert.equal(
+  selectHermesLatestResultFileForJobStatus({
+    hasControlJob: false,
+    latestResultFile: "/runs/latest/result.json"
+  }),
+  "/runs/latest/result.json"
+);
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
     exitCode: 1,

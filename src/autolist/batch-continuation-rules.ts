@@ -361,3 +361,14 @@ export function selectHermesStatusRuntimeDir(input: HermesStatusRuntimeDirSelect
 export function isHermesSupervisorProcessCommand(command: string): boolean {
   return /\bnode\b/.test(command) && /dist\/src\/cli\/hermes-auto-listing-supervisor\.js/.test(command);
 }
+
+export function isHermesRunningProcessConfirmed(input: { pidAlive: boolean; command?: string }): boolean {
+  return input.pidAlive && Boolean(input.command && isHermesSupervisorProcessCommand(input.command));
+}
+
+export function selectHermesLatestResultFileForJobStatus(input: {
+  hasControlJob: boolean;
+  latestResultFile?: string;
+}): string | undefined {
+  return input.hasControlJob ? undefined : input.latestResultFile;
+}
