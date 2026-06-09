@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_ARCHIVE_ROOT } from "./archive-main-images.js";
-import { selectCleanupTargets } from "./cleanup-rules.js";
+import { selectCleanupTargets, selectStaleRunHistoryTargets } from "./cleanup-rules.js";
 import { selectMaintenanceResidueTargets } from "./maintenance-rules.js";
 import type { CleanupArtifact } from "./types.js";
 
@@ -173,5 +173,49 @@ export function cleanupAfterPublish(options: {
   return {
     removedPaths,
     simulated: options.simulateOnly
+  };
+}
+
+function collectRunDirs(runtimeRootDir: string): string[] {
+  if (!fs.existsSync(runtimeRootDir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(runtimeRootDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(runtimeRootDir, entry.name));
+}
+
+export function cleanupStaleRunHistory(options: {
+  runtimeRootDir: string;
+  activeRuntimeDir: string;
+  cleanupAfterPublish: boolean;
+  simulateOnly: boolean;
+}): CleanupArtifact {
+  const removedPaths: string[] = [];
+  if (!options.cleanupAfterPublish || options.simulateOnly) {
+    return {
+      removedPaths,
+      simulated: options.simulateOnly
+    };
+  }
+
+  const targets = selectStaleRunHistoryTargets({
+    runDirs: collectRunDirs(options.runtimeRootDir),
+    activeRunDir: options.activeRuntimeDir
+  });
+
+  for (const target of targets) {
+    assertSafeCleanupTarget(target);
+    if (!fs.existsSync(target)) {
+      continue;
+    }
+    fs.rmSync(target, { recursive: true, force: true });
+    removedPaths.push(target);
+  }
+
+  return {
+    removedPaths,
+    simulated: false
   };
 }

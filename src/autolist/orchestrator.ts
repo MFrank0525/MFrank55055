@@ -18,7 +18,7 @@ import {
 } from "./feishu-products.js";
 import { getProductCategoryPlan } from "./product-category.js";
 import { enrichDistributedTitleSheets } from "./metadata.js";
-import { cleanupAfterPublish } from "./cleanup.js";
+import { cleanupAfterPublish, cleanupStaleRunHistory } from "./cleanup.js";
 import { buildAutoListingPreflightSummary } from "./preflight.js";
 import { readOperationManual } from "./operation-manual.js";
 import { prepareTestRunOutputs } from "./prepare-test-run.js";
@@ -850,6 +850,25 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     writeJson(resolved.preflightFile, preflight);
     if (preflight.errors.length > 0) {
       throw new Error(`Auto-listing preflight failed: ${preflight.errors.join(" ")}`);
+    }
+
+    const shouldCleanupStaleRunHistory =
+      !resolved.input.simulateOnly &&
+      resolved.input.cleanupAfterPublish &&
+      !resolved.input.resumeSourceImagePath &&
+      resolved.input.startStep === "source_images_discovered";
+    const staleRunHistoryCleanup = cleanupStaleRunHistory({
+      runtimeRootDir: path.dirname(resolved.runtimeDir),
+      activeRuntimeDir: resolved.runtimeDir,
+      cleanupAfterPublish: shouldCleanupStaleRunHistory,
+      simulateOnly: resolved.input.simulateOnly
+    });
+    if (staleRunHistoryCleanup.removedPaths.length > 0) {
+      appendEvent(
+        resolved.eventFile,
+        createEvent("info", "pre_run_cleanup", `Cleared ${staleRunHistoryCleanup.removedPaths.length} stale run history dir(s).`)
+      );
+      logInfo(`pre-run cleanup removed ${staleRunHistoryCleanup.removedPaths.length} stale run history dir(s)`);
     }
 
     const preRunRemoved = prepareTestRunOutputs({

@@ -23,3 +23,35 @@ export function selectCleanupTargets(options: {
 
   return selected;
 }
+
+function isAutoListingRunDirName(value: string): boolean {
+  return /^[0-9]{8}-[0-9]{6}$/.test(value);
+}
+
+export function selectStaleRunHistoryTargets(options: {
+  runDirs: string[];
+  activeRunDir?: string;
+  protectedRunDirs?: string[];
+}): string[] {
+  const activeRunDir = options.activeRunDir ? normalizePath(options.activeRunDir) : "";
+  const protectedSet = new Set((options.protectedRunDirs || []).filter(Boolean).map(normalizePath));
+  const selected: string[] = [];
+  const seen = new Set<string>();
+
+  for (const runDir of options.runDirs.filter(Boolean)) {
+    const normalized = normalizePath(runDir);
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    if (normalized === activeRunDir || protectedSet.has(normalized)) {
+      continue;
+    }
+    if (!isAutoListingRunDirName(path.basename(normalized))) {
+      continue;
+    }
+    selected.push(runDir);
+  }
+
+  return selected;
+}

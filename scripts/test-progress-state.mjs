@@ -41,7 +41,8 @@ import {
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
 import { appendProcessedImages, clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
-import { selectCleanupTargets } from "../dist/src/autolist/cleanup-rules.js";
+import { selectCleanupTargets, selectStaleRunHistoryTargets } from "../dist/src/autolist/cleanup-rules.js";
+import { cleanupStaleRunHistory } from "../dist/src/autolist/cleanup.js";
 import {
   evaluateImageGenerationEndpointProbe,
   resolveImageDownloadTimeoutMs,
@@ -319,6 +320,39 @@ assert.deepEqual(cleanupTargets.sort(), [
   "/work/input/auto-listing/feishu-images/product-1.png",
   "/work/input/auto-listing/qualifications/product-1-cert.png"
 ]);
+
+assert.deepEqual(
+  selectStaleRunHistoryTargets({
+    runDirs: [
+      "/work/data/auto-listing/runs/20260609-195920",
+      "/work/data/auto-listing/runs/20260609-203518",
+      "/work/data/auto-listing/runs/not-a-run",
+      "/work/data/auto-listing/runs/control"
+    ],
+    activeRunDir: "/work/data/auto-listing/runs/20260609-203518"
+  }),
+  ["/work/data/auto-listing/runs/20260609-195920"]
+);
+
+const cleanupRunRoot = path.join(tempDir, "runs");
+const oldRunDir = path.join(cleanupRunRoot, "20260609-195920");
+const activeRunDir = path.join(cleanupRunRoot, "20260609-203518");
+const nonRunDir = path.join(cleanupRunRoot, "control");
+fs.mkdirSync(oldRunDir, { recursive: true });
+fs.mkdirSync(activeRunDir, { recursive: true });
+fs.mkdirSync(nonRunDir, { recursive: true });
+fs.writeFileSync(path.join(oldRunDir, "state.json"), "{}\n");
+fs.writeFileSync(path.join(activeRunDir, "state.json"), "{}\n");
+const staleRunCleanup = cleanupStaleRunHistory({
+  runtimeRootDir: cleanupRunRoot,
+  activeRuntimeDir: activeRunDir,
+  cleanupAfterPublish: true,
+  simulateOnly: false
+});
+assert.deepEqual(staleRunCleanup.removedPaths, [oldRunDir]);
+assert.equal(fs.existsSync(oldRunDir), false);
+assert.equal(fs.existsSync(activeRunDir), true);
+assert.equal(fs.existsSync(nonRunDir), true);
 
 const sameSpuFolderMatch = resolveFeishuAssetRecordForFolder({
   folderSearchParts: [

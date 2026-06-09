@@ -39,6 +39,8 @@
 真实流程完成清理时，`input/auto-listing/feishu-images`、`input/auto-listing/qualifications`、`input/auto-listing/titles`、`input/auto-listing/jimeng-images` 目录下所有非 `.gitkeep` 文件都视为过时中间产物，必须一并清空；`input/auto-listing/shops` 下保留店铺目录本身，但店铺目录内所有非 `.gitkeep` 商品产物都必须清空；自动生成的断点恢复 job（`*.resume.generated.json`）也必须清理。
 
 自动上架项目禁止长期保留一次性调试脚本、临时补丁脚本、重上架补丁 job 或历史生成 job。`input/auto-listing/*.generated.json` 中除当前运行正在使用的 resume job 外都属于过时动作文件，完成清理时必须删除；`scripts/` 下以 `inspect`、`debug`、`tmp`、`temp`、`temporary`、`patch`、`fix`、`relist` 命名的一次性脚本必须删除或迁移成正式规则/动作入口，不能留给后续工具学习或误用。`rules:check` 必须检查这类维护冗余，发现即失败。
+
+`data/auto-listing/runs/<yyyyMMdd-HHmmss>` 只允许保留当前正在执行的运行目录。新的真实 full-real-flow 从 `source_images_discovered` 开始前，必须自动删除其他历史 run 目录；断点续跑不执行该清理，避免破坏当前失败续跑链路需要的产物。
 ```
 
 ## 执行要求
@@ -60,6 +62,7 @@
 14. 完整真实流程从 `source_images_discovered` 开始时，必须先清理主图工作目录、标题目录、店铺产物目录中的历史产物；断点续跑 job 不执行启动前清理，避免破坏可复用产物。
 15. 完成真实清理时，必须自动清理 `input/auto-listing` 下过时的 `*.generated.json` job 文件；维护检查必须阻止一次性调试/补丁脚本留在 `scripts/` 下。
 16. 真实流程成功完成后，必须执行一次全工作区残留清扫，删除所有历史批次遗留的飞书附件、资质附件、标题表、主图工作目录产物、店铺商品产物和自动生成的恢复 job。
+17. 新的真实 full-real-flow 启动前，必须删除 `data/auto-listing/runs` 下除当前运行目录之外的历史 run 目录；当前运行目录和非 run 控制目录不能删除。
 
 ## 失败条件
 
@@ -67,6 +70,7 @@
 - 资质下载附件残留
 - 标题表格残留
 - 任意历史批次的过时白底图、资质附件、标题表、主图工作目录文件或恢复 job 残留
+- `data/auto-listing/runs` 下存在非当前运行的历史 run 目录
 - 任意一次性调试脚本、临时补丁脚本、重上架补丁 job、历史生成 job 残留
 - 产品图片文件夹残留
 - 店铺目录中残留当前产品文件
