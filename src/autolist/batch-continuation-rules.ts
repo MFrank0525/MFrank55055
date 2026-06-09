@@ -372,3 +372,17 @@ export function selectHermesLatestResultFileForJobStatus(input: {
 }): string | undefined {
   return input.hasControlJob ? undefined : input.latestResultFile;
 }
+
+export function isExternalMainImageRawReuseMessage(input: {
+  message?: string;
+  currentRuntimeDir: string;
+}): boolean {
+  const match = /Reused\s+\d+\s+current-product raw main image\(s\)\s+from\s+(.+?)\.?$/i.exec(input.message || "");
+  if (!match) {
+    return false;
+  }
+  const sourceDir = match[1].trim();
+  const normalizedSource = sourceDir.replace(/\/+$/, "");
+  const normalizedRuntime = input.currentRuntimeDir.replace(/\/+$/, "");
+  return normalizedSource !== normalizedRuntime && !normalizedSource.startsWith(normalizedRuntime + "/");
+}

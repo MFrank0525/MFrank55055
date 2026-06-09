@@ -83,10 +83,11 @@ async function runRecoveredRawCategory(category) {
     "utf8"
   );
 
-  const previousTaskDir = path.join(tmp, "runs", "previous", "tasks", "image-001");
-  fs.mkdirSync(previousTaskDir, { recursive: true });
+  const currentRuntimeDir = path.join(tmp, "runs", "current");
+  const currentTaskDir = path.join(currentRuntimeDir, "tasks", "image-001");
+  fs.mkdirSync(currentTaskDir, { recursive: true });
   fs.writeFileSync(
-    path.join(previousTaskDir, "reuse-identity.json"),
+    path.join(currentTaskDir, "reuse-identity.json"),
     JSON.stringify({
       sourceImagePath,
       sourceImageName: path.basename(sourceImagePath),
@@ -95,7 +96,7 @@ async function runRecoveredRawCategory(category) {
     "utf8"
   );
   for (let promptIndex = 1; promptIndex <= 5; promptIndex += 1) {
-    const rawDir = path.join(previousTaskDir, `main-image-${String(promptIndex).padStart(2, "0")}`, "openai-compatible", "raw");
+    const rawDir = path.join(currentTaskDir, `main-image-${String(promptIndex).padStart(2, "0")}`, "openai-compatible", "raw");
     fs.mkdirSync(rawDir, { recursive: true });
     for (let imageIndex = 1; imageIndex <= 4; imageIndex += 1) {
       fs.writeFileSync(path.join(rawDir, `generated-${String(imageIndex).padStart(2, "0")}.png`), fixturePng);
@@ -104,7 +105,7 @@ async function runRecoveredRawCategory(category) {
 
   const plan = getProductCategoryPlan(category);
   return generateMainImageAssets({
-    runtimeDir: path.join(tmp, "runs", "current"),
+    runtimeDir: currentRuntimeDir,
     taskId: "image-001",
     shopRootDir: shopRoot,
     sourceImagePath,

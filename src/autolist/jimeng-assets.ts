@@ -1006,28 +1006,6 @@ export function seedCurrentProductMainImageReuse(options: {
   };
   writeMainImageReuseIdentity(targetTaskDir, targetIdentity);
 
-  const runtimeRootDir = path.dirname(options.runtimeDir);
-  const candidates = listTaskDirs(runtimeRootDir)
-    .filter((taskDir) => path.resolve(taskDir) !== path.resolve(targetTaskDir))
-    .map((taskDir) => ({
-      taskDir,
-      identity: readMainImageReuseIdentity(taskDir) || readStateTaskIdentity(taskDir),
-      rawImageCount: countDirectReusableRawImages(taskDir),
-      mtimeMs: fs.statSync(taskDir).mtimeMs
-    }))
-    .filter((candidate) => candidate.rawImageCount > 0 && taskIdentityMatches(candidate.identity, targetIdentity))
-    .sort((a, b) => b.rawImageCount - a.rawImageCount || b.mtimeMs - a.mtimeMs);
-
-  for (const candidate of candidates) {
-    const copiedRawImageCount = copyMissingReusableRawImages(candidate.taskDir, targetTaskDir);
-    if (copiedRawImageCount > 0) {
-      return {
-        copiedRawImageCount,
-        sourceTaskDir: candidate.taskDir
-      };
-    }
-  }
-
   return { copiedRawImageCount: 0 };
 }
 

@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   isHermesSupervisorProcessCommand,
   isHermesRunningProcessConfirmed,
+  isExternalMainImageRawReuseMessage,
   resolveHermesEffectiveProgressTimestamp,
   resolveHermesFeishuBatchDisplayCounts,
   resolveHermesFeishuProgressDisplayMode,
@@ -970,11 +971,20 @@ function shouldResumeCurrentFailure(): boolean {
   const resultFile = path.resolve(rootDir, resumeJob.resultFile);
   const result = readJsonFile<AutoListingResultFile>(resultFile);
   const shouldResume = !result || (result.ok !== true && result.status !== "success");
+  const latestRelevantFailure = findLatestFailedResultForResume();
+  if (!latestRelevantFailure || path.resolve(latestRelevantFailure.resultFile) !== resultFile) {
+    fs.rmSync(resumeJobFile, { force: true });
+    return false;
+  }
   if (!shouldResume && fs.existsSync(resumeJobFile)) {
     fs.rmSync(resumeJobFile, { force: true });
   }
   const failedTask = (result?.tasks || []).find((task) => task.status === "failed" || task.error);
   if (shouldResume && failedTask) {
+    if (taskHasExternalMainImageRawReuse(path.dirname(resultFile), failedTask.taskId)) {
+      fs.rmSync(resumeJobFile, { force: true });
+      return false;
+    }
     const expectedStartStep = inferResumeStartStepForTask(failedTask);
     if (startStep !== expectedStartStep) {
       fs.rmSync(resumeJobFile, { force: true });
@@ -1038,6 +1048,35 @@ function countReusableRawImages(runtimeDir: string, taskId: string | undefined):
   return count;
 }
 
+function taskHasExternalMainImageRawReuse(runtimeDir: string, taskId: string | undefined): boolean {
+  if (!taskId) {
+    return false;
+  }
+  const eventsFile = path.join(runtimeDir, "events.ndjson");
+  if (!fs.existsSync(eventsFile)) {
+    return false;
+  }
+  return fs
+    .readFileSync(eventsFile, "utf8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .some((line) => {
+      try {
+        const event = JSON.parse(line) as { taskId?: string; step?: string; message?: string };
+        return (
+          event.taskId === taskId &&
+          event.step === "main_images_generated" &&
+          isExternalMainImageRawReuseMessage({
+            message: event.message,
+            currentRuntimeDir: runtimeDir
+          })
+        );
+      } catch {
+        return false;
+      }
+    });
+}
+
 function countSafelyPublishedManifestEntries(runtimeDir: string): number {
   const manifest = readJsonFile<PublishManifestFile>(path.join(runtimeDir, "publish-manifest.json"));
   return (manifest?.entries || []).filter(
@@ -1071,6 +1110,9 @@ function findLatestInterruptedStateForResume(): {
     }
     const sourceImageExists = fs.existsSync(path.resolve(rootDir, task.sourceImagePath));
     const reusableRawImageCount = countReusableRawImages(runtimeDir, task.taskId);
+    if (taskHasExternalMainImageRawReuse(runtimeDir, task.taskId)) {
+      continue;
+    }
     if (!shouldResumeSourceImageForCurrentFeishuBatch(task.sourceImagePath, reusableRawImageCount)) {
       continue;
     }
@@ -1103,15 +1145,19 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
       continue;
     }
     const failedTask = (result.tasks || []).find((task) => task.status === "failed" || task.error);
-    if (
-      failedTask?.sourceImagePath &&
-      fs.existsSync(path.resolve(rootDir, failedTask.sourceImagePath)) &&
-      shouldResumeSourceImageForCurrentFeishuBatch(
-        failedTask.sourceImagePath,
-        countReusableRawImages(result.runtimeDir || path.dirname(resultFile), failedTask.taskId)
-      )
-    ) {
-      return { resultFile, result };
+    if (failedTask?.sourceImagePath && fs.existsSync(path.resolve(rootDir, failedTask.sourceImagePath))) {
+      const runtimeDir = result.runtimeDir || path.dirname(resultFile);
+      if (
+        shouldResumeSourceImageForCurrentFeishuBatch(
+          failedTask.sourceImagePath,
+          countReusableRawImages(runtimeDir, failedTask.taskId)
+        )
+      ) {
+        if (taskHasExternalMainImageRawReuse(runtimeDir, failedTask.taskId)) {
+          return undefined;
+        }
+        return { resultFile, result };
+      }
     }
   }
   return undefined;

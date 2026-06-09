@@ -35,7 +35,8 @@ import {
   shouldUseExpectedResultFileInRunningStatus,
   shouldResumeHistoricalFailureForCurrentFeishuBatch,
   isHermesRunningProcessConfirmed,
-  selectHermesLatestResultFileForJobStatus
+  selectHermesLatestResultFileForJobStatus,
+  isExternalMainImageRawReuseMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -697,6 +698,21 @@ assert.equal(
     latestResultFile: "/runs/latest/result.json"
   }),
   "/runs/latest/result.json"
+);
+assert.equal(
+  isExternalMainImageRawReuseMessage({
+    message: "Reused 20 current-product raw main image(s) from /work/data/auto-listing/runs/old-run/tasks/image-001.",
+    currentRuntimeDir: "/work/data/auto-listing/runs/current-run"
+  }),
+  true,
+  "A failed task seeded from another run must not be resumed as a current-task raw reuse."
+);
+assert.equal(
+  isExternalMainImageRawReuseMessage({
+    message: "Reused 20 current-product raw main image(s) from /work/data/auto-listing/runs/current-run/tasks/image-001.",
+    currentRuntimeDir: "/work/data/auto-listing/runs/current-run"
+  }),
+  false
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
