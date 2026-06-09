@@ -11,32 +11,10 @@ import {
   shouldRetryImageGenerationWithPolicyPrompt
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
-import { shopCodeFromFolder } from "./product-category.js";
+import { readManualTextBlock } from "./operation-manual.js";
+import { getShopSpecs, resolveMainImageShopAssignments, shopCodeFromFolder } from "./product-category.js";
 import { buildMainImageEditInstruction } from "./rule-text.js";
 import type { ImageGenerationProvider, MainImageArtifact, MainImageCountStrategy, MainImageGeneratedFile } from "./types.js";
-
-const SHOP_SPECS = [
-  {
-    shopCode: "01",
-    watermarkText: "延草纲目理疗器械旗舰店"
-  },
-  {
-    shopCode: "02",
-    watermarkText: "延草纲目健康护理专营店"
-  },
-  {
-    shopCode: "03",
-    watermarkText: "延草纲目个护保健专营店"
-  },
-  {
-    shopCode: "04",
-    watermarkText: "延草纲目康复理疗专营店"
-  },
-  {
-    shopCode: "05",
-    watermarkText: "延草纲目医疗保健专营店"
-  }
-] as const;
 
 interface OpenAiCompatibleImageConfig {
   provider?: "openai-compatible";
@@ -120,11 +98,6 @@ function parseSellingPointFields(sellingPointText: string): {
     genericName
   };
 }
-
-const PRODUCT_REFERENCE_GUARDRAIL =
-  "产品主体必须来自输入参考图，不允许根据文字重新绘制产品；请把输入参考图里的产品当作锁定主体嵌入海报，不要重新设计包装，不要改写包装文字，不要改变盒子和管体的形状、数量、角度关系、颜色和标识。背景、光影、氛围、道具可以生成，但产品包装文字和产品细节必须尽量保持参考图一致。";
-const IMAGE_EDIT_OUTPUT_GUARDRAIL =
-  "严格按照提示词生成图片，不要擅自过滤、删减或改写提示词中要求展示的内容。用户认知名、产品通用名称、产品卖点、提示词、禁止展示、不展示、不要展示、批文注册号、注册号、备案号、说明、规则、要求等解释性或约束性词汇只是给模型理解的指令，不要作为海报文字出现在图片里；但提示词要求体现的产品使用部位、使用步骤、场景元素、标题、副标题和卖点内容需要在图片中展示。";
 
 function buildImageVariationInstruction(imageIndex: number): string {
   const variants = [
@@ -242,13 +215,11 @@ function buildPolicyCompatibleImageEditPrompt(promptText: string, imageIndex: nu
     "适用部位图示"
   ].join("，");
 
-  return [
-    "【产品海报设计】请基于输入参考图制作传统电商海报。产品主体必须直接来自输入参考图，保持包装盒和管体的数量、形状、颜色、角度关系、主要标识和可见文字，不要根据文字重新绘制产品，也不要减少参考图中的任何产品主体。",
-    "海报文字只展示：主标题\"" + userCognitionName + "\"，副标题\"" + genericName + "\"，以及以下中性信息点：" + visualBadges + "。不要展示解释性词汇、约束性词汇、注册号、备案号、批文号或规则说明。",
-    "背景、光影、道具和氛围可以生成，风格为 C4D、OC 渲染、传统电商海报；产品主体尽可能放大并清晰可见，和整体海报光影自然融合。",
-    "可以用图标或简洁画面表达使用步骤和适用部位，但不要添加功效承诺、治疗暗示、夸大宣传或医学诊断表达。",
-    buildImageVariationInstruction(imageIndex)
-  ].join("\n");
+  return readManualTextBlock("main_images_generated", "内容策略兼容降级提示词模板")
+    .replaceAll("{{主标题}}", userCognitionName)
+    .replaceAll("{{副标题}}", genericName)
+    .replaceAll("{{中性信息点}}", visualBadges)
+    .replaceAll("{{差异化要求}}", buildImageVariationInstruction(imageIndex));
 }
 
 function resolveShopFolders(shopRootDir: string): Array<{ shopFolder: string; watermarkText: string }> {
@@ -260,11 +231,20 @@ function resolveShopFolders(shopRootDir: string): Array<{ shopFolder: string; wa
       fullPath: path.join(shopRootDir, entry.name)
     }));
 
-  return SHOP_SPECS.map((spec) => {
-    const match = existingFolders.find((folder) => folder.name.startsWith(spec.shopCode));
+  return getShopSpecs().map((spec) => {
+    const codeMatches = existingFolders.filter((folder) => folder.name.startsWith(spec.shopCode));
+    if (codeMatches.length > 1) {
+      throw new Error(
+        `Multiple shop folders found for code ${spec.shopCode}: ${codeMatches.map((folder) => folder.name).join(", ")}. Keep only the current rule folder.`
+      );
+    }
+    const match = codeMatches[0];
 
     if (!match) {
       throw new Error("Shop folder not found for code " + spec.shopCode);
+    }
+    if (match.name !== `${spec.shopCode}${spec.watermarkText}`) {
+      throw new Error(`Shop folder name mismatch for code ${spec.shopCode}. expected=${spec.shopCode}${spec.watermarkText}; actual=${match.name}`);
     }
 
     return {
@@ -287,6 +267,10 @@ function filterShopFoldersByCodes(
     throw new Error("Shop folder category plan mismatch. expected=" + shopCodes.join(",") + "; actual=" + filtered.map((item) => shopCodeFromFolder(item.shopFolder)).join(","));
   }
   return filtered;
+}
+
+function shopFolderByCode(shopFolders: Array<{ shopFolder: string; watermarkText: string }>): Map<string, { shopFolder: string; watermarkText: string }> {
+  return new Map(shopFolders.map((item) => [shopCodeFromFolder(item.shopFolder), item]));
 }
 
 function inferBrandedGenericName(brandedGenericName: string, sellingPointText: string): string {
@@ -318,7 +302,7 @@ function buildImageEditPromptFromWord(options: {
   }
   return [
     buildMainImageEditInstruction(options.brand, options.userCognitionName, options.genericName, sellingPoints),
-    IMAGE_EDIT_OUTPUT_GUARDRAIL,
+    readManualTextBlock("main_images_generated", "主图输出文字护栏"),
     deepseekPrompt
   ].join("\n");
 }
@@ -1091,31 +1075,43 @@ function buildSimulatedFiles(options: {
   sourceImagePath: string;
   promptFiles: string[];
   expectedImageCount: number;
+  imagesPerShop: number;
+  shopCodes: string[];
 }): MainImageGeneratedFile[] {
   const generatedFiles: MainImageGeneratedFile[] = [];
+  const shopMap = shopFolderByCode(options.shopFolders);
+  const assignments = resolveMainImageShopAssignments({
+    shopCodes: options.shopCodes,
+    imagesPerShop: options.imagesPerShop,
+    totalImageCount: options.promptFiles.length * options.expectedImageCount
+  });
   let imageIndex = 1;
 
   for (let promptIndex = 0; promptIndex < options.promptFiles.length; promptIndex += 1) {
-    const shopFolder = options.shopFolders[promptIndex].shopFolder;
     for (let itemIndex = 0; itemIndex < options.expectedImageCount; itemIndex += 1) {
+      const assignment = assignments[imageIndex - 1];
+      const shop = shopMap.get(assignment.shopCode);
+      if (!shop) {
+        throw new Error(`Simulated main image assignment missing shop folder for code: ${assignment.shopCode}`);
+      }
       const productFolder = path.join(
         options.taskDir,
         "simulated-shops",
-        sanitizeFileName(path.basename(shopFolder)),
+        sanitizeFileName(path.basename(shop.shopFolder)),
         sanitizeFileName(options.brandedGenericName + "水印" + String(imageIndex).padStart(2, "0"))
       );
       fs.mkdirSync(productFolder, { recursive: true });
       const imageFile = path.join(
         productFolder,
-        path.basename(buildStagedImageFile(productFolder, options.brandedGenericName, options.shopFolders[promptIndex].watermarkText, imageIndex, options.sourceImagePath))
+        path.basename(buildStagedImageFile(productFolder, options.brandedGenericName, shop.watermarkText, imageIndex, options.sourceImagePath))
       );
       fs.copyFileSync(options.sourceImagePath, imageFile);
       generatedFiles.push({
         imageFile,
         rawImageFile: options.sourceImagePath,
-        shopFolder,
+        shopFolder: shop.shopFolder,
         productFolder,
-        storeName: path.basename(shopFolder),
+        storeName: path.basename(shop.shopFolder),
         promptIndex: promptIndex + 1,
         promptWordFile: options.promptFiles[promptIndex]
       });
@@ -1145,6 +1141,7 @@ export async function generateMainImageAssets(options: {
   mainImageCountStrategy: MainImageCountStrategy;
   promptCount?: number;
   shopCodes?: string[];
+  imagesPerShop?: number;
   feishuRecordId?: string;
   simulateOnly: boolean;
   onProgress?: (message: string) => void;
@@ -1153,11 +1150,20 @@ export async function generateMainImageAssets(options: {
   const promptFile = writePromptSummary(taskDir, options.wordFiles);
   const shopFolders = filterShopFoldersByCodes(resolveShopFolders(options.shopRootDir), options.shopCodes);
   const promptCount = options.promptCount || 5;
+  const shopCodes = options.shopCodes || shopFolders.map((item) => shopCodeFromFolder(item.shopFolder));
+  const imagesPerShop = options.imagesPerShop || options.mainImageExpectedCount;
+  const totalExpectedImageCount = promptCount * options.mainImageExpectedCount;
+  const shopMap = shopFolderByCode(shopFolders);
+  const assignments = resolveMainImageShopAssignments({
+    shopCodes,
+    imagesPerShop,
+    totalImageCount: totalExpectedImageCount
+  });
   if (options.wordFiles.length < promptCount) {
     throw new Error("Main image generation requires " + promptCount + " Word prompt file(s), got " + options.wordFiles.length + ".");
   }
-  if (shopFolders.length < promptCount) {
-    throw new Error("Main image generation requires " + promptCount + " shop folder(s), got " + shopFolders.length + ".");
+  if (shopFolders.length < shopCodes.length) {
+    throw new Error("Main image generation requires " + shopCodes.length + " shop folder(s), got " + shopFolders.length + ".");
   }
   const productName = inferBrandedGenericName(options.brandedGenericName, options.sellingPointText);
   const reuseSeed = seedCurrentProductMainImageReuse({
@@ -1182,7 +1188,9 @@ export async function generateMainImageAssets(options: {
         brandedGenericName: productName,
         sourceImagePath: options.sourceImagePath,
         promptFiles: options.wordFiles.slice(0, promptCount),
-        expectedImageCount: options.mainImageExpectedCount
+        expectedImageCount: options.mainImageExpectedCount,
+        imagesPerShop,
+        shopCodes
       }),
       simulated: true
     };
@@ -1210,7 +1218,6 @@ export async function generateMainImageAssets(options: {
       ...parseSellingPointFields(options.sellingPointText)
     });
 
-    const { shopFolder, watermarkText } = shopFolders[promptIndex];
     const roundDir = path.join(taskDir, "main-image-" + String(promptIndex + 1).padStart(2, "0"));
     const stageDir = path.join(taskDir, "staged", String(promptIndex + 1).padStart(2, "0"));
     const watermarkOutputDir = path.join(roundDir, "watermark");
@@ -1221,15 +1228,20 @@ export async function generateMainImageAssets(options: {
       roundDir,
       stageDir,
       productName,
-      watermarkText,
+      watermarkText: shopFolders[0]?.watermarkText || productName,
       startImageIndex: imageIndex
     });
 
     for (const recovered of recoveredFiles) {
+      const assignment = assignments[recovered.imageIndex - 1];
+      const shop = assignment ? shopMap.get(assignment.shopCode) : undefined;
+      if (!shop) {
+        throw new Error(`Recovered main image assignment missing shop folder for image ${recovered.imageIndex}.`);
+      }
       stagedFiles.push({
         stagedFile: recovered.stagedFile,
         rawImageFile: recovered.rawImageFile,
-        shopFolder,
+        shopFolder: shop.shopFolder,
         promptIndex: promptIndex + 1,
         promptWordFile,
         imageIndex: recovered.imageIndex
@@ -1262,11 +1274,21 @@ export async function generateMainImageAssets(options: {
       onProgress: (message) => options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: ${message}`)
     });
 
-    const watermarkedFiles = await applyLocalWatermark({
-      inputFiles: generationResults.map((item) => item.file),
-      outputDir: watermarkOutputDir,
-      watermarkText
-    });
+    const watermarkedFiles: string[] = [];
+    for (let itemIndex = 0; itemIndex < generationResults.length; itemIndex += 1) {
+      const assignedImageIndex = imageIndex + itemIndex;
+      const assignment = assignments[assignedImageIndex - 1];
+      const shop = assignment ? shopMap.get(assignment.shopCode) : undefined;
+      if (!shop) {
+        throw new Error(`Generated main image assignment missing shop folder for image ${assignedImageIndex}.`);
+      }
+      const [watermarkedFile] = await applyLocalWatermark({
+        inputFiles: [generationResults[itemIndex].file],
+        outputDir: path.join(watermarkOutputDir, assignment.shopCode),
+        watermarkText: shop.watermarkText
+      });
+      watermarkedFiles.push(watermarkedFile);
+    }
 
     if (watermarkedFiles.length === 0) {
       throw new Error("No watermarked files were saved for prompt " + (promptIndex + 1) + ".");
@@ -1275,11 +1297,16 @@ export async function generateMainImageAssets(options: {
     for (let itemIndex = 0; itemIndex < watermarkedFiles.length; itemIndex += 1) {
       const rawFile = generationResults[itemIndex]?.file;
       const watermarkedFile = watermarkedFiles[itemIndex];
+      const assignment = assignments[imageIndex - 1];
+      const shop = assignment ? shopMap.get(assignment.shopCode) : undefined;
+      if (!shop) {
+        throw new Error(`Staged main image assignment missing shop folder for image ${imageIndex}.`);
+      }
 
       const stagedFile = stageWatermarkedFile({
         stageDir,
         productName,
-        watermarkText,
+        watermarkText: shop.watermarkText,
         imageIndex,
         watermarkedFile
       });
@@ -1287,7 +1314,7 @@ export async function generateMainImageAssets(options: {
       stagedFiles.push({
         stagedFile,
         rawImageFile: rawFile,
-        shopFolder,
+        shopFolder: shop.shopFolder,
         promptIndex: promptIndex + 1,
         promptWordFile,
         submitId: generationResults[itemIndex]?.submitId,

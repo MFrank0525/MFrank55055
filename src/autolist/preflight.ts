@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadFeishuProductRecords } from "./feishu-products.js";
-import { getProductCategoryPlan, shopCodeFromFolder } from "./product-category.js";
+import { getProductCategoryPlan, getShopSpecs, shopCodeFromFolder } from "./product-category.js";
 import type { AutoListingPreflightSummary, AutoListingResolvedJob } from "./types.js";
 
 function countImageFiles(dir: string): number {
@@ -33,7 +33,7 @@ function listShopCodes(dir: string): Set<string> {
 
 function expectedShopCodes(resolved: AutoListingResolvedJob): string[] {
   if (!resolved.input.feishuProductDataFile) {
-    return ["01", "02", "03", "04", "05"];
+    return getShopSpecs().map((shop) => shop.shopCode);
   }
   return [
     ...new Set(

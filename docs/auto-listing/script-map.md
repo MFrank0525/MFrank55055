@@ -37,7 +37,7 @@
 
 - `src/autolist/title-sheets.ts`
 - `src/autolist/xlsx-lite.ts`
-- `src/doubao/run.ts`
+- `src/autolist/title-rules.ts`
 
 ### `titles_distributed`
 

@@ -1,4 +1,10 @@
 import path from "node:path";
+import {
+  getShopSpecs,
+  resolveMainImageShopAssignments,
+  type ShopImageAssignment,
+  type ShopSpec
+} from "./shop-rules.js";
 
 export type ProductCategory = "医疗器械" | "非处方药" | "保健食品";
 
@@ -7,6 +13,7 @@ export interface ProductCategoryPlan {
   shopCodes: string[];
   promptCount: number;
   titleCount: number;
+  imagesPerShop: number;
   titleRule: "medical_device" | "otc_drug" | "health_food";
   titleCharacterCount: number;
 }
@@ -16,25 +23,28 @@ const DEFAULT_CATEGORY: ProductCategory = "医疗器械";
 const CATEGORY_PLANS: Record<ProductCategory, ProductCategoryPlan> = {
   医疗器械: {
     category: "医疗器械",
-    shopCodes: ["01", "02", "03", "04", "05"],
+    shopCodes: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"],
     promptCount: 5,
     titleCount: 20,
+    imagesPerShop: 2,
     titleRule: "medical_device",
     titleCharacterCount: 58
   },
   非处方药: {
     category: "非处方药",
-    shopCodes: ["03", "04", "05"],
-    promptCount: 3,
-    titleCount: 12,
+    shopCodes: ["01", "02", "03", "04", "05"],
+    promptCount: 5,
+    titleCount: 20,
+    imagesPerShop: 4,
     titleRule: "otc_drug",
     titleCharacterCount: 58
   },
   保健食品: {
     category: "保健食品",
-    shopCodes: ["01", "02", "03", "04", "05"],
+    shopCodes: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"],
     promptCount: 5,
     titleCount: 20,
+    imagesPerShop: 2,
     titleRule: "health_food",
     titleCharacterCount: 28
   }
@@ -65,3 +75,5 @@ export function shopCodeFromFolder(shopFolder: string): string {
   return path.basename(shopFolder).match(/^(\d{2})/)?.[1] || "";
 }
 
+export { getShopSpecs, resolveMainImageShopAssignments };
+export type { ShopImageAssignment, ShopSpec };

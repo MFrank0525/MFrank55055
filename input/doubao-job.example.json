@@ -1,0 +1,8 @@
+{
+  "promptText": "请根据图片生成抖音商品标题。",
+  "imageDir": "./input/auto-listing/feishu-images",
+  "outputDir": "./data/doubao/output",
+  "runtimeDir": "./data/doubao/runtime/example",
+  "titleCount": 12,
+  "cleanupOutputDir": true
+}

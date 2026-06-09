@@ -27,9 +27,9 @@ const otcTitles = buildTitlesFromFeishuKeywords({
   brand: "延草纲目",
   genericName: "医用凡士林润唇软膏",
   productCategory: "非处方药",
-  titleCount: 12
+  titleCount: 20
 });
-assert.equal(otcTitles.length, 12);
+assert.equal(otcTitles.length, 20);
 for (const title of otcTitles) {
   assert.ok(countTitleCharacters(title) <= 58);
   assert.ok(title.endsWith("医用凡士林润唇软膏"));

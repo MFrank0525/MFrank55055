@@ -12,11 +12,11 @@ import {
   FIXED_STOCK,
   FORBIDDEN_GRAPHIC_SECTION_LABELS,
   GRAPHIC_SECTION_LABELS,
-  PLATFORM_SPU_QUERY_RULE,
   PLATFORM_SPU_URL,
   SPEC_TEMPLATE_KEYWORD_DEFAULT,
   SPEC_TEMPLATE_KEYWORD_JIUGUANG
 } from "./publish-from-spu/constants.js";
+import { readPublishRuleSummary } from "./publish-from-spu/publish-rule-text.js";
 import type {
   PublishActionResult,
   ProductAssets,
@@ -9042,21 +9042,11 @@ export async function runPublishFromSpuJob(
           otherFiles: assets.otherFiles
         },
         fixedConfig: {
-          platformSpuQueryRule: PLATFORM_SPU_QUERY_RULE,
+          ...readPublishRuleSummary(),
           modelSpec: resolvedMetadata.modelSpec,
-          publishFlowRule:
-            "\u4e25\u683c\u6309\u7167\u6a21\u5757\u987a\u5e8f\u6267\u884c\uff1a\u5148\u5b8c\u5584\u57fa\u7840\u4fe1\u606f\uff0c\u518d\u5b8c\u5584\u56fe\u6587\u4fe1\u606f\uff0c\u518d\u5b8c\u5584\u4ef7\u683c\u5e93\u5b58\uff0c\u518d\u5b8c\u5584\u670d\u52a1\u4e0e\u5c65\u7ea6\uff0c\u6700\u540e\u624d\u5141\u8bb8\u70b9\u51fb\u201c\u53d1\u5e03\u5546\u54c1\u201d\uff1b\u4efb\u4f55\u4e00\u4e2a\u6a21\u5757\u5931\u8d25\u6216\u62a5\u9519\u90fd\u5fc5\u987b\u5148\u505c\u6b62\u3001\u68c0\u67e5\u3001\u4fee\u590d\uff0c\u4fee\u590d\u6210\u529f\u540e\u624d\u80fd\u7ee7\u7eed\u4e0b\u4e00\u6b65",
-          categoryAttributeRule:
-            "\u7c7b\u76ee\u5c5e\u6027\u6a21\u5757\u91cc\u53ea\u5141\u8bb8\u586b\u5199\u201c\u578b\u53f7\u89c4\u683c=\u76d2\u88c5\u201d\uff0c\u5176\u4f59\u4efb\u4f55\u5b57\u6bb5\u90fd\u4e0d\u80fd\u6539\u52a8\uff1b\u4e00\u65e6\u89e6\u78b0\u5230\u5176\u4ed6\u7c7b\u76ee\u5c5e\u6027\uff0c\u5fc5\u987b\u7acb\u5373\u5237\u65b0\u9875\u9762\u5e76\u4ece\u6807\u9898\u586b\u5199\u5f00\u59cb\u91cd\u505a",
-          mainImageRule:
-            "图文信息只在“主图”模块上传；首位主图必须使用已通过图生图生成且已打店铺水印的 1:1 主图，再按固定顺序搭配 input/fixed-main-images/ 下的辅助图02-05；“主图3:4”和“白底图”板块不再上传任何图片，也不点击智能裁剪；如果平台自动填充主图3:4或白底图，必须清空并读回确认为空；详情页必须先点击“从主图填入”，再上传产品文件夹里的资质图片作为详情页图片",
           shippingMode: "\u73B0\u8D27\u53D1\u8D27\u6A21\u5F0F",
           shippingTime: "48\u5C0F\u65F6",
-          freightTemplateRule: "\u9009\u62e9\u540d\u79f0\u5305\u542b\u201c\u5ef6\u8349\u8fd0\u8d39\u201d\u7684\u8fd0\u8d39\u6a21\u677f",
           productStatus: "\u4E0A\u67B6",
-          specTemplateRule: "\u6807\u9898\u542b\u201c\u4e45\u5149\u5c0f\u6cfd\u201d\u5219\u9009\u62e9\u540d\u79f0\u5305\u542b\u201c\u4e45\u5149\u5c0f\u6cfd\u201d\u7684\u89c4\u683c\u6a21\u677f\uff0c\u5426\u5219\u9009\u62e9\u540d\u79f0\u5305\u542b\u201c\u4e70\u4e8c\u9001\u4e00\u201d\u7684\u89c4\u683c\u6a21\u677f",
-          specModuleRule:
-            "\u5546\u54c1\u89c4\u683c\u5b50\u6a21\u5757\u91cc\u7684\u89c4\u683c\u540d\u548c\u89c4\u683c\u503c\u4e0d\u5141\u8bb8\u7f16\u8f91\uff0c\u5b8c\u5168\u4f9d\u8d56\u89c4\u683c\u6a21\u677f\u7684\u8bbe\u7f6e\uff1b\u5982\u679c\u5546\u54c1\u89c4\u683c\u6a21\u5757\u62a5\u9519\u6216\u51fa\u73b0\u7ea2\u5b57\u63d0\u9192\uff0c\u5fc5\u987b\u5237\u65b0\u5f53\u524d\u53d1\u5e03\u9875\uff0c\u4ece\u57fa\u7840\u4fe1\u606f\u5f00\u59cb\u6309\u987a\u5e8f\u91cd\u65b0\u6267\u884c",
           specValues: FIXED_SPEC_VALUES,
           priceRows: FIXED_PRICES,
           stockRows: [FIXED_STOCK, FIXED_STOCK, FIXED_STOCK, FIXED_STOCK]

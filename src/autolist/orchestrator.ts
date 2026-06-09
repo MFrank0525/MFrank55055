@@ -454,6 +454,7 @@ async function executeTaskChain(
         mainImageCountStrategy,
         promptCount: productPlan.promptCount,
         shopCodes: productPlan.shopCodes,
+        imagesPerShop: productPlan.imagesPerShop,
         feishuRecordId: current.feishuProductRecord?.recordId,
         simulateOnly,
         onProgress: (message) => {

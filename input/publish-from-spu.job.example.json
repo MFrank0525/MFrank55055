@@ -2,8 +2,8 @@
   "runtimeDir": "./data/publish-from-spu/shop-001-product-001-flow",
   "resultFile": "./data/publish-from-spu/shop-001-product-001-flow/result.json",
   "input": {
-    "shopFolder": "./input/auto-listing/shops/01延草纲目理疗器械旗舰店",
-    "productFolder": "./input/auto-listing/shops/01延草纲目理疗器械旗舰店/示例商品文件夹",
+    "shopFolder": "./input/auto-listing/shops/01延草纲目大药房专营店",
+    "productFolder": "./input/auto-listing/shops/01延草纲目大药房专营店/示例商品文件夹",
     "mode": "run_publish_flow",
     "metadata": {
       "brand": "品牌名",

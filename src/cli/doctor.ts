@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
+import { getShopSpecs } from "../autolist/product-category.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { getPythonCommand } from "../utils/platform.js";
 
@@ -233,7 +234,7 @@ function checkAutoListingShopFolders(): CheckResult {
     .readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
-  const missing = ["01", "02", "03", "04", "05"].filter((code) => !existing.some((name) => name.startsWith(code)));
+  const missing = getShopSpecs().map((shop) => shop.shopCode).filter((code) => !existing.some((name) => name.startsWith(code)));
   if (missing.length > 0) {
     return { name: "auto-listing shop folders", ok: false, detail: `missing shop code(s): ${missing.join(", ")}` };
   }

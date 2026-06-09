@@ -67,19 +67,19 @@
 npm run rules:check
 ```
 
-## 当前三个核心规则源
+## 当前规则源
 
-### 卖点上下文
+### 主规则源
 
-[01-selling-points.md](docs/auto-listing/steps/01-selling-points.md)
+[steps](docs/auto-listing/steps) 是自动上架 11 个业务节点的唯一 Markdown 规则源。卖点、海报提示词、生图护栏、标题、店铺分发、发布、清理等业务规则都优先写在对应步骤文件里。
 
-### 图片提示词
+### 规则模块
 
-[02-deepseek-prompts.md](docs/auto-listing/steps/02-deepseek-prompts.md)
+`src/**/*-rules.ts` 和 `src/**/publish-rule-text.ts` 只能保存结构化判断、分类函数、Markdown 规则读取逻辑和小型常量，不保存长段中文业务规则正文。
 
-### 主图生成指令模板
+### 动作模块
 
-[03-main-image-generation.md](docs/auto-listing/steps/03-main-image-generation.md)
+浏览器点击、上传、文件复制、截图、日志写入等动作保存在动作模块。动作模块可以调用规则模块，但不能自己发明业务成功/失败条件。
 
 ## 不允许再发生的情况
 
