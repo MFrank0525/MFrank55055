@@ -763,7 +763,7 @@ async function recoverExistingRoundOutputs(options: {
   roundDir: string;
   stageDir: string;
   productName: string;
-  watermarkText: string;
+  resolveWatermarkText: (imageIndex: number) => string;
   startImageIndex: number;
 }): Promise<
   Array<{
@@ -781,6 +781,12 @@ async function recoverExistingRoundOutputs(options: {
   let imageIndex = options.startImageIndex;
   const existingStagedFiles = listImageFiles(options.stageDir);
   for (const stagedFile of existingStagedFiles) {
+    const expectedWatermarkText = options.resolveWatermarkText(imageIndex);
+    if (!path.basename(stagedFile).includes(expectedWatermarkText)) {
+      fs.rmSync(stagedFile, { force: true });
+      imageIndex += 1;
+      continue;
+    }
     const rawCandidates = listImageFilesRecursive(options.roundDir).filter((file) => file.includes(path.sep + "raw" + path.sep));
     recovered.push({
       stagedFile,
@@ -804,19 +810,18 @@ async function recoverExistingRoundOutputs(options: {
     return recovered;
   }
 
-  const recoveredWatermarkedFiles = await applyLocalWatermark({
-    inputFiles: watermarkCandidates,
-    outputDir: watermarkDir,
-    watermarkText: options.watermarkText
-  });
-
-  for (let itemIndex = 0; itemIndex < recoveredWatermarkedFiles.length; itemIndex += 1) {
-    const watermarkedFile = recoveredWatermarkedFiles[itemIndex];
+  for (let itemIndex = 0; itemIndex < watermarkCandidates.length; itemIndex += 1) {
     const rawImageFile = watermarkCandidates[itemIndex];
+    const watermarkText = options.resolveWatermarkText(imageIndex);
+    const [watermarkedFile] = await applyLocalWatermark({
+      inputFiles: [rawImageFile],
+      outputDir: path.join(watermarkDir, String(imageIndex).padStart(2, "0")),
+      watermarkText
+    });
     const stagedFile = stageWatermarkedFile({
       stageDir: options.stageDir,
       productName: options.productName,
-      watermarkText: options.watermarkText,
+      watermarkText,
       imageIndex,
       watermarkedFile
     });
@@ -1228,7 +1233,14 @@ export async function generateMainImageAssets(options: {
       roundDir,
       stageDir,
       productName,
-      watermarkText: shopFolders[0]?.watermarkText || productName,
+      resolveWatermarkText: (candidateImageIndex) => {
+        const assignment = assignments[candidateImageIndex - 1];
+        const shop = assignment ? shopMap.get(assignment.shopCode) : undefined;
+        if (!shop) {
+          throw new Error(`Recovered main image assignment missing shop folder for image ${candidateImageIndex}.`);
+        }
+        return shop.watermarkText;
+      },
       startImageIndex: imageIndex
     });
 

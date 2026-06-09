@@ -1198,6 +1198,19 @@ assert.equal(
   inferResumeStartStepForTask({
     status: "failed",
     error: {
+      step: "published",
+      message:
+        "Publish preflight failed: /work/shop/product-1 -> No main image candidate matched current shop watermark: 延草纲目药品专营店"
+    },
+    generatedProductFolders: ["/work/shop/product-1"]
+  }),
+  "main_images_generated",
+  "Resume jobs must rebuild product folders when staged images carry the wrong shop watermark."
+);
+assert.equal(
+  inferResumeStartStepForTask({
+    status: "failed",
+    error: {
       step: "poster_prompts_generated",
       message: "DeepSeek returned latest content but it is not usable for the current product."
     },

@@ -1069,7 +1069,7 @@ function writeResumeJobFromInterruptedState(
     runId: interrupted.state.runId || path.basename(interrupted.runtimeDir),
     input: {
       ...sourceJob.input,
-      startStep: interrupted.task.status || "source_images_discovered",
+      startStep: inferResumeStartStepForTask(interrupted.task),
       endStep: "done",
       resumeSourceImagePath: interrupted.task.sourceImagePath,
       resumeTaskId: interrupted.task.taskId,

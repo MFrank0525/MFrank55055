@@ -28,6 +28,9 @@ export function inferResumeStartStepForTask(task: ResumeTaskLike): AutoListingSt
     ) {
       return "published";
     }
+    if (/No main image candidate matched current shop watermark|shop watermark/i.test(task.error?.message || "")) {
+      return "main_images_generated";
+    }
     const failedStep = task.error?.step;
     if (failedStep === "poster_prompts_generated") {
       return "selling_points_loaded";
