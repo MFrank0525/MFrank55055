@@ -1129,10 +1129,43 @@ async function clearAndTypeAtPoint(
   point: { x: number; y: number },
   value: string
 ): Promise<void> {
-  await page.mouse.click(point.x, point.y, { delay: 80 });
+  await focusDomElementAtPoint(page, point);
   await page.keyboard.press(getSelectAllShortcut()).catch(() => {});
   await page.keyboard.press("Backspace").catch(() => {});
   await page.keyboard.type(value, { delay: 40 });
+}
+
+async function dispatchDomClickAtPoint(page: Page, point: { x: number; y: number }): Promise<boolean> {
+  return page.evaluate(({ x, y }) => {
+    const target = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!target) {
+      return false;
+    }
+    const clickable =
+      (target.closest("button, [role='button'], a, [role='option'], [role='menuitem'], [role='tab'], input, textarea, [contenteditable='true']") as HTMLElement | null) ||
+      target;
+    clickable.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+    clickable.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+    clickable.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    return true;
+  }, point).catch(() => false);
+}
+
+async function focusDomElementAtPoint(page: Page, point: { x: number; y: number }): Promise<boolean> {
+  return page.evaluate(({ x, y }) => {
+    const target = document.elementFromPoint(x, y) as HTMLElement | null;
+    const focusable =
+      (target?.closest("input, textarea, [contenteditable='true'], [role='textbox'], [role='combobox']") as HTMLElement | null) ||
+      target;
+    if (!focusable) {
+      return false;
+    }
+    focusable.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+    focusable.focus();
+    focusable.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+    focusable.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    return true;
+  }, point).catch(() => false);
 }
 
 async function clickVisibleDropdownOption(
@@ -1191,7 +1224,7 @@ async function clickVisibleDropdownOption(
     return "";
   }
 
-  await page.mouse.click(option.x, option.y, { delay: 90 });
+  await dispatchDomClickAtPoint(page, option);
   return option.text || "";
 }
 
@@ -1772,7 +1805,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
 
     const existingCreatePages = new Set(context.pages().filter((item) => item.url().includes("/ffa/g/create")));
     const popupPromise = context.waitForEvent("page", { timeout: 5000 }).catch(() => null);
-    await page.mouse.click(matched.clickX, matched.clickY, { delay: 90 });
+    await dispatchDomClickAtPoint(page, { x: matched.clickX, y: matched.clickY });
 
     const popup = await popupPromise;
     await page.waitForTimeout(2000).catch(() => {});
@@ -2055,7 +2088,7 @@ async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: num
 }
 
 async function clearAndTypeAtCenter(page: Page, center: { x: number; y: number }, value: string): Promise<void> {
-  await page.mouse.click(center.x, center.y, { delay: 80 });
+  await focusDomElementAtPoint(page, center);
   await page.keyboard.press(getSelectAllShortcut()).catch(() => {});
   await page.keyboard.press("Backspace").catch(() => {});
   await page.keyboard.type(value, { delay: 35 });
@@ -3064,7 +3097,7 @@ async function ensurePublishSectionTab(page: Page, text: string): Promise<void> 
     if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
       const center = await findPublishSectionTabCenter(page, text);
       if (center) {
-        await page.mouse.click(center.x, center.y, { delay: 70 }).catch(() => {});
+        await dispatchDomClickAtPoint(page, center).catch(() => false);
       }
     }
 
@@ -3854,7 +3887,7 @@ async function chooseNonFreeShippingTemplate(page: Page): Promise<string> {
     throw new Error("Freight template input not found on publish page.");
   }
 
-  await page.mouse.click(freightCenter.x, freightCenter.y, { delay: 80 });
+  await dispatchDomClickAtPoint(page, freightCenter);
   await page.waitForTimeout(1200);
 
   const picked = await page.evaluate(() => {
@@ -3903,7 +3936,7 @@ async function chooseNonFreeShippingTemplate(page: Page): Promise<string> {
     throw new Error("No visible non-free-shipping freight template option found.");
   }
 
-  await page.mouse.click(picked.x, picked.y, { delay: 90 });
+  await dispatchDomClickAtPoint(page, picked);
   await page.waitForTimeout(800);
   return picked.text;
 }
@@ -3939,7 +3972,7 @@ async function chooseKeywordFreightTemplate(page: Page, keyword: string): Promis
         const scrollY = await page.evaluate(() => window.scrollY).catch(() => 0);
         clickY = freightCenter.absY - scrollY;
       }
-      await page.mouse.click(freightCenter.x, clickY, { delay: 80 });
+      await dispatchDomClickAtPoint(page, { x: freightCenter.x, y: clickY });
     }
     await page.waitForTimeout(600);
 
@@ -5410,7 +5443,7 @@ async function purgeForbiddenGraphicSections(page: Page): Promise<string[]> {
       const target = previews[previews.length - 1];
       await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
       await page.waitForTimeout(250);
-      await page.mouse.click(target.x + target.width - 10, target.y + 10, { delay: 60 }).catch(() => {});
+      await dispatchDomClickAtPoint(page, { x: target.x + target.width - 10, y: target.y + 10 }).catch(() => false);
       await page.waitForTimeout(500);
       await clickConfirmIfVisible(page);
       await dismissTransientOverlays(page);
@@ -5563,7 +5596,7 @@ async function purgeForbiddenGraphicSectionsSafe(page: Page): Promise<string[]> 
       if (!deleteControl) {
         break;
       }
-      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
+      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
       await page.waitForTimeout(500);
       await clickConfirmIfVisibleSafe(page);
       await dismissTransientOverlays(page);
@@ -5880,7 +5913,7 @@ async function purgeForbiddenGraphicSectionsStrict(page: Page): Promise<string[]
       if (!deleteControl) {
         break;
       }
-      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
+      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
 
       await page.waitForTimeout(500);
       await clickConfirmIfVisibleStrict(page);
@@ -5921,7 +5954,7 @@ async function clearGraphicSectionPreviewsStrict(page: Page, sectionName: string
     if (!deleteControl) {
       break;
     }
-    await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
+    await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
 
     await page.waitForTimeout(500);
     await clickConfirmIfVisibleStrict(page);
@@ -6034,9 +6067,9 @@ async function clearWhiteBackgroundPreviewsStrict(page: Page, maxAttempts = 10):
       .catch(() => null);
 
     if (deleteControl) {
-      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 80 }).catch(() => {});
+      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
     } else {
-      await page.mouse.click(target.x + target.width + 82, target.y - 38, { delay: 80 }).catch(() => {});
+      await dispatchDomClickAtPoint(page, { x: target.x + target.width + 82, y: target.y - 38 }).catch(() => false);
     }
     await page.waitForTimeout(1000);
     await clickConfirmIfVisibleStrict(page);
@@ -6272,9 +6305,9 @@ async function clearDetailImagePreviewsStrict(page: Page, maxAttempts = 12): Pro
     await page.waitForTimeout(450);
     const deleteControl = await findDeleteControlNearPreviewSafe(page, target).catch(() => null);
     if (deleteControl) {
-      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 70 }).catch(() => {});
+      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
     } else {
-      await page.mouse.click(target.x + target.width + 82, target.y - 38, { delay: 70 }).catch(() => {});
+      await dispatchDomClickAtPoint(page, { x: target.x + target.width + 82, y: target.y - 38 }).catch(() => false);
     }
     await page.waitForTimeout(900);
     await clickConfirmIfVisibleStrict(page);
@@ -6429,11 +6462,11 @@ async function uploadWhiteBackgroundImage(page: Page, assets: ProductAssets): Pr
     await page.waitForTimeout(250);
     const deleteControl = await findDeleteControlNearPreviewSafe(page, target);
     if (deleteControl) {
-      await page.mouse.click(deleteControl.x, deleteControl.y, { delay: 60 }).catch(() => {});
+      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
     } else {
       const clickedFallback = await clickWhiteBackgroundDeleteFallback().catch(() => false);
       if (!clickedFallback) {
-        await page.mouse.click(target.x + target.width - 10, target.y + 10, { delay: 60 }).catch(() => {});
+        await dispatchDomClickAtPoint(page, { x: target.x + target.width - 10, y: target.y + 10 }).catch(() => false);
       }
     }
     await page.waitForTimeout(500);
@@ -7320,13 +7353,8 @@ async function clickPublishProductOnPage(
         break;
       } else {
         await publishButton.scrollIntoViewIfNeeded().catch(() => {});
-        const box = await publishButton.boundingBox({ timeout: 5000 }).catch(() => null);
-        if (!box) {
-          publishIssue = "Publish product button was visible but no clickable bounding box was available.";
-          break;
-        }
         publishClickAttempted = true;
-        await activePage.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { delay: 120 });
+        await publishButton.click({ timeout: 5000 });
         await activePage.waitForTimeout(1200).catch(() => {});
         if (activePage.isClosed()) {
           activePage = await recoverUsablePageFromContext(activeContext, "/ffa/g").catch(() => activePage);
