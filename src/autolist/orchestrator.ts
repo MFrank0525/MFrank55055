@@ -486,6 +486,7 @@ async function executeTaskChain(
         taskId: current.taskId,
         shopRootDir,
         sourceImagePath: current.sourceImagePath,
+        sourceImageReferenceUrl: current.feishuProductRecord?.whiteBackgroundImages?.[0]?.providerReferenceUrl,
         sellingPointText: current.sellingPointArtifact!.sellingPointText,
         brandedGenericName: current.sellingPointArtifact!.brandedGenericName,
         wordFiles: current.deepseekArtifact!.wordFiles || [],

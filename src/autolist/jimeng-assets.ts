@@ -32,6 +32,11 @@ interface OpenAiCompatibleImageConfig {
   pollIntervalMs?: number;
   maxPollMs?: number;
   allowMediaGenerateWithoutReference?: boolean;
+  referenceImageUpload?: {
+    provider?: "tmpfiles";
+    apiUrl?: string;
+    enabled?: boolean;
+  };
 }
 
 function redactImageGenerationLogValue(value: unknown): unknown {
@@ -52,8 +57,8 @@ function redactImageGenerationLogValue(value: unknown): unknown {
       redacted[key] = "[redacted base64 image payload]";
       continue;
     }
-    if (key === "url" && typeof nestedValue === "string") {
-      redacted[key] = "[redacted generated image url]";
+    if (/url|image|images|reference/i.test(key) && typeof nestedValue === "string" && /^https?:\/\//i.test(nestedValue)) {
+      redacted[key] = "[redacted image url]";
       continue;
     }
     redacted[key] = redactImageGenerationLogValue(nestedValue);
@@ -455,6 +460,8 @@ function mediaGenerateIsFinal(payload: any): boolean {
   return payload?.is_final === true || payload?.data?.is_final === true;
 }
 
+const mediaGenerateReferenceUploadCache = new Map<string, string>();
+
 function hasMediaGenerateReferenceImage(params: Record<string, unknown>): boolean {
   return ["images", "image_url", "img_url", "reference_urls"].some((key) => {
     const value = params[key];
@@ -465,10 +472,83 @@ function hasMediaGenerateReferenceImage(params: Record<string, unknown>): boolea
   });
 }
 
+function getMimeTypeForImage(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  return "image/png";
+}
+
+function toTmpFilesDirectUrl(url: string): string {
+  return url.replace(/^https:\/\/tmpfiles\.org\//, "https://tmpfiles.org/dl/");
+}
+
+async function uploadMediaGenerateReferenceImage(options: {
+  config: OpenAiCompatibleImageConfig;
+  sourceImagePath: string;
+  timeoutMs: number;
+}): Promise<string> {
+  if (!fs.existsSync(options.sourceImagePath)) {
+    throw normalizeImageGenerationError("Media generation reference image not found: " + options.sourceImagePath);
+  }
+  const stat = fs.statSync(options.sourceImagePath);
+  const cacheKey = [path.resolve(options.sourceImagePath), stat.size, stat.mtimeMs].join("|");
+  const cached = mediaGenerateReferenceUploadCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const uploadConfig = options.config.referenceImageUpload || {};
+  if (uploadConfig.enabled === false) {
+    throw normalizeImageGenerationError(
+      "media-generate mode needs a public reference image URL, but referenceImageUpload.enabled=false and the Feishu URL is not provider-accessible."
+    );
+  }
+  const apiUrl = uploadConfig.apiUrl || "https://tmpfiles.org/api/v1/upload";
+  if (uploadConfig.provider && uploadConfig.provider !== "tmpfiles") {
+    throw normalizeImageGenerationError("Unsupported media-generate reference image upload provider: " + uploadConfig.provider);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), resolveImageDownloadTimeoutMs(options.timeoutMs));
+  try {
+    const form = new FormData();
+    const imageBlob = new Blob([fs.readFileSync(options.sourceImagePath)], { type: getMimeTypeForImage(options.sourceImagePath) });
+    form.append("file", imageBlob, sanitizeFileName(path.basename(options.sourceImagePath)));
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      body: form,
+      signal: controller.signal
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      throw normalizeImageGenerationError("Reference image upload failed with HTTP " + response.status + ": " + text.slice(0, 300));
+    }
+    let payload: any;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { data: { url: text.trim() } };
+    }
+    const uploadedUrl = String(payload?.data?.url || payload?.url || "").trim();
+    if (!uploadedUrl.startsWith("https://tmpfiles.org/")) {
+      throw normalizeImageGenerationError("Reference image upload did not return a tmpfiles URL.");
+    }
+    const directUrl = toTmpFilesDirectUrl(uploadedUrl);
+    mediaGenerateReferenceUploadCache.set(cacheKey, directUrl);
+    return directUrl;
+  } catch (error) {
+    throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function generateWithOpenAiCompatibleProvider(options: {
   configFile: string;
   promptText: string;
   sourceImagePath: string;
+  sourceImageReferenceUrl?: string;
   downloadDir: string;
   expectedImageCount: number;
   onProgress?: (message: string) => void;
@@ -484,6 +564,15 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const requestDeadlineMs = resolveImageGenerationRequestDeadlineMs(timeoutMs);
   const maxTransientRetries = Math.max(0, config.maxTransientRetries ?? 3);
   const transportRetryPolicy = resolveImageGenerationTransportRetryPolicy(config.maxTransientRetries);
+  const configuredMediaParams = config.mediaParams || {};
+  const mediaGenerateReferenceUrl =
+    mode === "media-generate" && !hasMediaGenerateReferenceImage(configuredMediaParams) && !config.allowMediaGenerateWithoutReference
+      ? await uploadMediaGenerateReferenceImage({
+          config,
+          sourceImagePath: options.sourceImagePath,
+          timeoutMs
+        })
+      : "";
   const sendRequest = async (requestBody: BodyInit, contentType?: string): Promise<{ response: Response; text: string }> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -565,6 +654,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const buildMediaGenerateJsonBody = (promptText: string): Record<string, unknown> => {
     const params = {
       ...(config.size ? { size: config.size } : {}),
+      ...(options.sourceImageReferenceUrl ? { images: [options.sourceImageReferenceUrl] } : {}),
+      ...(mediaGenerateReferenceUrl ? { images: [mediaGenerateReferenceUrl] } : {}),
       ...(config.mediaParams || {}),
       ...(config.requestExtra || {})
     };
@@ -863,6 +954,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
 export async function generateOpenAiCompatibleImagePreview(options: {
   configFile: string;
   sourceImagePath: string;
+  sourceImageReferenceUrl?: string;
   promptWordFile: string;
   outputDir: string;
   sellingPointText: string;
@@ -880,6 +972,7 @@ export async function generateOpenAiCompatibleImagePreview(options: {
     configFile: options.configFile,
     promptText,
     sourceImagePath: options.sourceImagePath,
+    sourceImageReferenceUrl: options.sourceImageReferenceUrl,
     downloadDir: options.outputDir,
     expectedImageCount: 1
   });
@@ -1312,6 +1405,7 @@ export async function generateMainImageAssets(options: {
   taskId: string;
   shopRootDir: string;
   sourceImagePath: string;
+  sourceImageReferenceUrl?: string;
   sellingPointText: string;
   brandedGenericName: string;
   wordFiles: string[];
@@ -1456,6 +1550,7 @@ export async function generateMainImageAssets(options: {
       configFile: options.imageGenerationConfigFile,
       promptText,
       sourceImagePath: options.sourceImagePath,
+      sourceImageReferenceUrl: options.sourceImageReferenceUrl,
       downloadDir: path.join(roundDir, "openai-compatible", "raw"),
       expectedImageCount: remainingImageCount,
       onProgress: (message) => options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: ${message}`)

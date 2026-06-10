@@ -8,8 +8,10 @@
   "timeoutMs": 180000,
   "pollIntervalMs": 5000,
   "maxPollMs": 7200000,
-  "mediaParams": {
-    "images": ["https://cdn.example.com/product-reference.png"]
+  "referenceImageUpload": {
+    "provider": "tmpfiles",
+    "apiUrl": "https://tmpfiles.org/api/v1/upload",
+    "enabled": true
   },
   "requestExtra": {
     "quality": "high"
