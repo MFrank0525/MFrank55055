@@ -43,6 +43,7 @@ import {
   evaluatePublishSubmissionAfterAction,
   evaluateServiceFulfillmentCompletion,
   evaluateSpecTemplateCompletion,
+  isDoudianLoginPageText,
   isUploadPlaceholderGraphicContext,
   resolvePriceInventoryRowInputRoles
 } from "./publish-from-spu/publish-rules.js";
@@ -338,13 +339,8 @@ async function readCurrentShopNameFromMenu(page: Page): Promise<string> {
 
 async function isDoudianLoginRequired(page: Page): Promise<boolean> {
   return page.evaluate(() => {
-    const text = (document.body.innerText || "").replace(/\s+/g, "");
-    return (
-      (text.includes("扫码登录") && text.includes("抖店App")) ||
-      text.includes("切换为手机/邮箱登录") ||
-      text.includes("打开抖店App扫码登录")
-    );
-  });
+    return document.body.innerText || "";
+  }).then((text) => isDoudianLoginPageText(text));
 }
 
 async function clickTopRightShopMenu(page: Page): Promise<boolean> {
@@ -1581,10 +1577,38 @@ async function ensurePlatformSpuQueryPageActive(
   await page.keyboard.press("Escape").catch(() => {});
   const decision = await waitForPlatformSpuQueryPageReady(page, timeoutMs);
   if (!decision.ready) {
+    if (decision.issue === "Doudian login is required before publishing can continue.") {
+      const error = new Error(
+        `Doudian login required: open the automation browser and complete Doudian login before publishing can continue.`
+      ) as QueryDiagnosticError;
+      error.screenshotFile = await savePageScreenshot(page, runtimeDir, `${label}-doudian-login-required.png`);
+      throw error;
+    }
     const error = new Error(`Platform SPU query page was not ready after navigation: ${decision.issue}`) as QueryDiagnosticError;
     error.screenshotFile = await savePageScreenshot(page, runtimeDir, `${label}-platform-spu-query-page-not-ready.png`);
     throw error;
   }
+}
+
+export async function assertDoudianPublishSessionReady(options: {
+  runtimeDir: string;
+  timeoutMs?: number;
+  label?: string;
+}): Promise<void> {
+  const context = await launchPersistentBrowser();
+  const page =
+    context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/spu-record")) ||
+    context.pages().find((item) => !item.isClosed() && !item.url().includes("/ffa/g/create")) ||
+    (await context.newPage());
+  attachSafeDialogHandler(page);
+  await closeCreatePagesExcept(context, [page]);
+  await page.bringToFront();
+  await ensurePlatformSpuQueryPageActive(
+    page,
+    options.runtimeDir,
+    options.label || "doudian-publish-session-preflight",
+    options.timeoutMs || 30000
+  );
 }
 
 async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, shopFolder?: string, retryNo = 0): Promise<{

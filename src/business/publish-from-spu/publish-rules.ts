@@ -136,6 +136,22 @@ export function normalizeVisibleText(value: string): string {
   return value.replace(/\s+/g, "").trim();
 }
 
+export function isDoudianLoginPageText(value: string): boolean {
+  const text = normalizeVisibleText(value);
+  return (
+    (text.includes("扫码登录") && (text.includes("抖店App") || text.includes("抖店APP"))) ||
+    text.includes("打开抖店App扫码登录") ||
+    text.includes("切换为手机/邮箱登录") ||
+    (
+      text.includes("手机登录") &&
+      text.includes("邮箱登录") &&
+      text.includes("验证码") &&
+      text.includes("登录") &&
+      (text.includes("用户协议") || text.includes("隐私条款"))
+    )
+  );
+}
+
 export function normalizeShopRuleText(value: string): string {
   return normalizeVisibleText(value).replace(/^\d+/, "");
 }
@@ -190,6 +206,9 @@ export function evaluatePublishCreatePageReadiness(input: PublishCreatePageHealt
 
 export function evaluatePlatformSpuQueryPageReadiness(input: PlatformSpuQueryPageReadinessInput): PlatformSpuQueryPageReadinessDecision {
   const bodyText = normalizeVisibleText(input.bodyText || "");
+  if (isDoudianLoginPageText(bodyText)) {
+    return { ready: false, issue: "Doudian login is required before publishing can continue." };
+  }
   if (!input.url.includes("/ffa/g/spu-record")) {
     return { ready: false, issue: "Platform SPU query page URL is not active." };
   }
@@ -256,6 +275,13 @@ export function evaluatePublishSubmissionAfterAction(
 export function classifyPublishFailure(message: string): string {
   const text = normalizeVisibleText(message);
   if (!text) return "";
+  if (
+    text.includes("Doudianloginrequired") ||
+    text.includes("Doudianloginisrequiredbeforepublishingcancontinue") ||
+    isDoudianLoginPageText(text)
+  ) {
+    return "doudian_login_required";
+  }
   if (
     text.includes("Publishcreatepagedidnotbecomeready") ||
     text.includes("spu信息填充失败") ||

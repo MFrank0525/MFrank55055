@@ -30,6 +30,7 @@ import { assertTitleDistributionTargets, distributeTitleSheets, generateTitleShe
 import { resolveAutoListingJob } from "./config.js";
 import { assertRuleTextIntegrity } from "./rule-text.js";
 import { applyResumeTaskId, createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed, markRunPaused, recordTaskProgress } from "./state-machine.js";
+import { assertDoudianPublishSessionReady } from "../business/publish-from-spu.js";
 import { logError, logInfo, setLogFile } from "../utils/logger.js";
 import type { PublishProductIdentity } from "./publish-manifest.js";
 import type {
@@ -48,6 +49,22 @@ interface ManualReadRecord {
   readCount: number;
   firstReadAt: string;
   lastReadAt: string;
+}
+
+function shouldPreflightDoudianPublishSession(input: {
+  simulateOnly: boolean;
+  startStep: string;
+  endStep: string;
+}): boolean {
+  if (input.simulateOnly) {
+    return false;
+  }
+  const allSteps = getPlannedSteps();
+  const normalizedStartStep = normalizeAutoListingStep(input.startStep as any);
+  const normalizedEndStep = normalizeAutoListingStep(input.endStep as any);
+  const startIndex = normalizedStartStep === "source_images_discovered" ? 1 : Math.max(1, allSteps.indexOf(normalizedStartStep));
+  const endIndex = Math.max(startIndex, allSteps.indexOf(normalizedEndStep));
+  return allSteps.slice(startIndex, endIndex + 1).includes("published");
 }
 
 function manualReadSummary(manualReadMap: Map<string, ManualReadRecord>): ManualReadRecord[] {
@@ -928,6 +945,29 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
         )
       );
       logInfo(`reusing existing image(s) for resumed run: ${effectiveImages.join(" | ")}`);
+    }
+
+    if (
+      shouldPreflightDoudianPublishSession({
+        simulateOnly: resolved.input.simulateOnly,
+        startStep: resolved.input.startStep,
+        endStep: resolved.input.endStep
+      })
+    ) {
+      appendEvent(
+        resolved.eventFile,
+        createEvent("info", "preflight", "Checking Doudian publish browser login before paid image generation.")
+      );
+      logInfo("checking Doudian publish browser login before paid image generation");
+      await assertDoudianPublishSessionReady({
+        runtimeDir: path.join(resolved.runtimeDir, "preflight"),
+        label: "doudian-publish-session-preflight",
+        timeoutMs: 30000
+      });
+      appendEvent(
+        resolved.eventFile,
+        createEvent("info", "preflight", "Doudian publish browser session is ready.")
+      );
     }
 
     let workingState = state;

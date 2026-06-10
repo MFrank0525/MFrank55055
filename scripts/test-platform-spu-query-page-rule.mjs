@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   evaluatePlatformSpuQueryPageReadiness,
+  isDoudianLoginPageText,
   classifyPublishFailure,
   shouldRetryPublishFailure
 } from "../src/business/publish-from-spu/publish-rules.ts";
@@ -34,6 +35,24 @@ assert.deepEqual(
 
 assert.deepEqual(
   evaluatePlatformSpuQueryPageReadiness({
+    url: "https://fxg.jinritemai.com/login/common",
+    bodyText: "抖店 优质流量 自主经营 手机登录 邮箱登录 手机号码 验证码 发送验证码 登录 用户协议 隐私条款",
+    visibleInputCount: 2,
+    brandInputFound: false,
+    spuInputFound: false,
+    accountMenuOpen: false,
+    loading: false
+  }),
+  { ready: false, issue: "Doudian login is required before publishing can continue." }
+);
+
+assert.equal(
+  isDoudianLoginPageText("抖店 优质流量 自主经营 手机登录 邮箱登录 手机号码 验证码 发送验证码 登录 用户协议 隐私条款"),
+  true
+);
+
+assert.deepEqual(
+  evaluatePlatformSpuQueryPageReadiness({
     url: "https://fxg.jinritemai.com/ffa/g/spu-record?type=create",
     bodyText: "平台标品 品牌 查询",
     visibleInputCount: 2,
@@ -50,6 +69,10 @@ const emptySpuInputClass = classifyPublishFailure(
 );
 assert.equal(emptySpuInputClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(emptySpuInputClass, 0), true);
+
+const loginFailureClass = classifyPublishFailure("Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing 延草纲目");
+assert.equal(loginFailureClass, "doudian_login_required");
+assert.equal(shouldRetryPublishFailure(loginFailureClass, 0), false);
 
 const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
 assert.match(
