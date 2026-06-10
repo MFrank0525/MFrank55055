@@ -6,6 +6,7 @@ import { buildPosterPromptArtifactFromFeishu } from "../dist/src/autolist/deepse
 
 const mainImageRuleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
 const imageGenerationExampleConfig = fs.readFileSync("input/image-generation.config.example.json", "utf8");
+const imageGenerationMediaConfig = fs.readFileSync("input/image-generation.config.media-generate.example.json", "utf8");
 const jimengAssetsSource = fs.readFileSync("src/autolist/jimeng-assets.ts", "utf8");
 
 assert.match(
@@ -25,13 +26,18 @@ assert.doesNotMatch(
 );
 assert.match(
   imageGenerationExampleConfig,
-  /"size":\s*"3840x2160"/,
-  "OpenAI-compatible image2 example config must request 3840x2160 output"
+  /"size":\s*"1024x1024"/,
+  "OpenAI-compatible image2 example config must request 1024x1024 square output"
+);
+assert.match(
+  imageGenerationMediaConfig,
+  /"size":\s*"1024x1024"/,
+  "OpenAI-compatible media-generate example config must request 1024x1024 square output"
 );
 assert.match(
   jimengAssetsSource,
-  /3840x2160/,
-  "OpenAI-compatible image2 request fallback size must be 3840x2160"
+  /1024x1024/,
+  "OpenAI-compatible image2 request fallback size must be 1024x1024"
 );
 
 const promptText = [

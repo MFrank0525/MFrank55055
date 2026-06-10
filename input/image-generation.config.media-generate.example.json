@@ -4,7 +4,7 @@
   "apiKey": "",
   "model": "gpt-image-2",
   "mode": "media-generate",
-  "size": "2048x2048",
+  "size": "1024x1024",
   "timeoutMs": 180000,
   "pollIntervalMs": 5000,
   "maxPollMs": 7200000,

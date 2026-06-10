@@ -9,6 +9,7 @@ build/
 data/
 output/
 logs/
+.codegraph/
 *.log
 *.ndjson
 *.bak

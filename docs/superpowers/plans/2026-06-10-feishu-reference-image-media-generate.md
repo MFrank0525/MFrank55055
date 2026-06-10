@@ -54,4 +54,4 @@
 - [ ] Submit exactly one `media-generate` image task with `params.images` set to that tmpfiles direct URL.
 - [ ] Poll `/v1/skills/task-status`.
 - [ ] Download the resulting image to `data/auto-listing/provider-tests/`.
-- [ ] Verify the image is PNG and `2048x2048`.
+- [ ] Verify the image is PNG and `1024x1024`.
