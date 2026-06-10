@@ -9,12 +9,32 @@ import { getFallbackUserDataDir, getUserDataDir } from "./session.js";
 const REMOTE_DEBUGGING_PORTS = [9333, 9444];
 let activeRemoteDebuggingPort = REMOTE_DEBUGGING_PORTS[0];
 const DOUYIN_SHOP_URL = "https://fxg.jinritemai.com/ffa/g/spu-record";
+let playwrightDialogRaceGuardInstalled = false;
 
 const WORKSPACE_PAGE_SPECS = [
   { key: "shop", url: DOUYIN_SHOP_URL }
 ] as const;
 
 export type WorkspacePageKey = (typeof WORKSPACE_PAGE_SPECS)[number]["key"];
+
+function isNoDialogShowingRace(reason: unknown): boolean {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return /Protocol error \(Page\.handleJavaScriptDialog\): No dialog is showing/i.test(message);
+}
+
+export function installPlaywrightDialogRaceGuard(): void {
+  if (playwrightDialogRaceGuardInstalled) {
+    return;
+  }
+  playwrightDialogRaceGuardInstalled = true;
+  process.on("unhandledRejection", (reason) => {
+    if (isNoDialogShowingRace(reason)) {
+      logWarn("ignored Playwright dialog race: Page.handleJavaScriptDialog reported no dialog is showing.");
+      return;
+    }
+    throw reason instanceof Error ? reason : new Error(String(reason));
+  });
+}
 
 function getBrowserCandidates(): string[] {
   const localAppData = process.env.LOCALAPPDATA || "";
@@ -263,6 +283,7 @@ export async function getWorkspacePage(context: BrowserContext, key: WorkspacePa
 }
 
 export async function launchPersistentBrowser(): Promise<BrowserContext> {
+  installPlaywrightDialogRaceGuard();
   let browser: Browser;
   try {
     browser = await connectBrowserWithRecovery(getUserDataDir());

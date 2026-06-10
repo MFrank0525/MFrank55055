@@ -176,8 +176,13 @@ assert.match(
 
 assert.match(
   publishSource,
-  /async function ensureManualSpecTemplateEntryModeOnPage[\s\S]*切换手动填写/,
-  "price/inventory spec setup must explicitly leave the AI upload assistant and enter manual spec template mode"
+  /async function isManualSpecTemplateEntryModeVisible[\s\S]*商品规格[\s\S]*规格模板[\s\S]*添加规格类型[\s\S]*规格预览[\s\S]*价格与库存[\s\S]*现货库存/,
+  "price/inventory spec setup must structurally detect the current manual goods-spec module, not depend only on legacy switch text"
+);
+assert.match(
+  publishSource,
+  /scrollLabelIntoView\(page, "商品规格"\)[\s\S]*scrollLabelIntoView\(page, "规格模板"\)/,
+  "manual spec setup must scroll by current goods-spec structure labels"
 );
 
 assert.match(

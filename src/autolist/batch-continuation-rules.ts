@@ -267,7 +267,7 @@ export type FeishuBatchRefreshContinuationInput = {
 };
 
 export function shouldContinueFeishuAfterBatchRefresh(input: FeishuBatchRefreshContinuationInput): boolean {
-  return input.exitCode === 0 && input.currentBatchComplete && input.refreshedBatchChanged && !input.refreshedBatchComplete;
+  return input.exitCode === 0 && input.currentBatchComplete && !input.refreshedBatchComplete;
 }
 
 export type HermesStartAfterFeishuRefreshInput = {

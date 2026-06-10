@@ -31,6 +31,13 @@ interface LocalFeishuConfig {
   };
 }
 
+interface TerminalResultFile {
+  file: string;
+  ok: boolean;
+  status: string;
+  mtimeMs: number;
+}
+
 const rootDir = process.cwd();
 const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu-real.json");
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
@@ -105,6 +112,34 @@ function latestFailureMessage(): string {
   return "";
 }
 
+function latestTerminalResultAfter(startedAtMs: number): TerminalResultFile | undefined {
+  const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
+  if (!fs.existsSync(runsDir)) {
+    return undefined;
+  }
+  const resultFiles = fs
+    .readdirSync(runsDir)
+    .map((runId) => path.join(runsDir, runId, "result.json"))
+    .filter((file) => fs.existsSync(file))
+    .map((file) => ({ file, mtimeMs: fs.statSync(file).mtimeMs }))
+    .filter((item) => item.mtimeMs >= startedAtMs)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const { file, mtimeMs } of resultFiles) {
+    const result = readJsonFile<any>(file);
+    const status = String(result?.status || "");
+    if (!result || (result.ok !== true && result.ok !== false && status !== "success" && status !== "failed")) {
+      continue;
+    }
+    return {
+      file,
+      ok: result.ok === true || status === "success",
+      status: status || (result.ok === true ? "success" : "failed"),
+      mtimeMs
+    };
+  }
+  return undefined;
+}
+
 function terminateProcessGroup(pid: number): void {
   try {
     process.kill(-pid, "SIGTERM");
@@ -137,9 +172,11 @@ async function runChild(label: string, command: string, args: string[]): Promise
     env: process.env,
     stdio: "inherit"
   });
+  const childStartedAtMs = Date.now();
   let lastProgressMtime = latestProgressMtimeMs();
   let lastProgressSeenAt = Date.now();
   let killedForStall = false;
+  let terminalResultExitCode: number | null | undefined;
   const watchdog = setInterval(() => {
     const progressMtime = latestProgressMtimeMs();
     if (progressMtime > lastProgressMtime) {
@@ -148,6 +185,22 @@ async function runChild(label: string, command: string, args: string[]): Promise
       return;
     }
     if (Date.now() - lastProgressSeenAt < childStallTimeoutMs) {
+      return;
+    }
+    const terminalResult = latestTerminalResultAfter(childStartedAtMs);
+    if (terminalResult) {
+      terminalResultExitCode = terminalResult.ok ? 0 : 1;
+      console.error(
+        `Child ${label} wrote terminal result ${terminalResult.status} but did not exit; terminating process group ${child.pid}. result=${terminalResult.file}`
+      );
+      if (child.pid) {
+        terminateProcessGroup(child.pid);
+        setTimeout(() => {
+          if (!child.killed && child.pid) {
+            forceTerminateProcessGroup(child.pid);
+          }
+        }, 15000).unref();
+      }
       return;
     }
     killedForStall = true;
@@ -167,7 +220,7 @@ async function runChild(label: string, command: string, args: string[]): Promise
     child.once("error", reject);
     child.once("exit", (code) => {
       clearInterval(watchdog);
-      resolve(killedForStall ? childStallExitCode : code);
+      resolve(terminalResultExitCode !== undefined ? terminalResultExitCode : killedForStall ? childStallExitCode : code);
     });
   });
 }

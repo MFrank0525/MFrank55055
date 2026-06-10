@@ -143,7 +143,19 @@ function collectProtectedCleanupAssetFiles(feishuProductDataFile: string): strin
 }
 
 function isProductFullyProcessed(task: ImageTaskState): boolean {
-  return task.status === "cleaned" || task.status === "done";
+  if (task.status !== "cleaned" && task.status !== "done") {
+    return false;
+  }
+  const expectedPublishCount = task.shopDistributionArtifact?.distributedFolders?.length || task.generatedProductFolders.length;
+  const publishResults = task.publishArtifact?.results || [];
+  if (expectedPublishCount <= 0 || publishResults.length < expectedPublishCount) {
+    return false;
+  }
+  return publishResults.every((result) =>
+    result.ok === true &&
+    result.status === "published" &&
+    (result.finalVerifyStatus === "publish_signal_confirmed" || result.finalVerifyStatus === "list_verified")
+  );
 }
 
 function buildPublishProductIdentity(task: ImageTaskState): PublishProductIdentity {
@@ -229,10 +241,67 @@ async function executeTaskChain(
   const startIndex =
     normalizedStartStep === "source_images_discovered" ? 1 : Math.max(1, allSteps.indexOf(normalizedStartStep));
   const endIndex = Math.max(startIndex, allSteps.indexOf(normalizedEndStep));
+  const publishStepIndex = allSteps.indexOf("published");
+
+  if (
+    startIndex >= publishStepIndex &&
+    feishuProductDataFile &&
+    current.sourceImagePath &&
+    (!current.sellingPointArtifact?.sellingPointText || !current.feishuProductRecord)
+  ) {
+    const feishuRuntimeRecord = loadFeishuProductRuntimeRecord({
+      productDataFile: feishuProductDataFile,
+      sourceImagePath: current.sourceImagePath,
+      runtimeDir,
+      taskId: current.taskId
+    });
+    current = {
+      ...current,
+      sellingPointArtifact: current.sellingPointArtifact || feishuRuntimeRecord.sellingPointArtifact,
+      feishuProductRecord: current.feishuProductRecord || feishuRuntimeRecord.record,
+      lastUpdatedAt: new Date().toISOString(),
+      notes: [...current.notes, "Recovered Feishu product identity for publish-stage resume."]
+    };
+    appendEvent(
+      eventFile,
+      createEvent("info", "resume", "Recovered Feishu product identity for publish-stage resume.", current.taskId)
+    );
+  }
+
+  if (startIndex >= allSteps.indexOf("titles_generated") && !current.generatedProductFolders.length) {
+    const recovered = recoverDistributedFoldersFromShopRoot({
+      shopRootDir,
+      requireWorkbook: startIndex >= publishStepIndex,
+      expectedCount: titleCount,
+      productNameCandidates: [
+        current.feishuProductRecord?.userCognitionName || "",
+        current.sellingPointArtifact?.userCognitionName || "",
+        current.sellingPointArtifact?.brandedGenericName || ""
+      ],
+      expectedProductFolderNames: resumeProductFolderNames
+    });
+    current = {
+      ...current,
+      generatedProductFolders: current.generatedProductFolders.length
+        ? current.generatedProductFolders
+        : recovered.generatedProductFolders,
+      shopDistributionArtifact:
+        startIndex >= publishStepIndex
+          ? current.shopDistributionArtifact || recovered.shopDistributionArtifact
+          : current.shopDistributionArtifact,
+      lastUpdatedAt: new Date().toISOString(),
+      notes: [...current.notes, "Recovered distributed product folders from shop root directory."]
+    };
+    appendEvent(
+      eventFile,
+      createEvent("info", "resume", "Recovered distributed product folders from shop root directory.", current.taskId)
+    );
+  }
 
   if (
     startIndex >= allSteps.indexOf("main_images_generated") &&
-    (!current.sellingPointArtifact?.sellingPointText || !current.deepseekArtifact?.wordFiles?.length)
+    (!current.sellingPointArtifact?.sellingPointText || !current.deepseekArtifact?.wordFiles?.length) &&
+    !(startIndex >= publishStepIndex && current.shopDistributionArtifact?.distributedFolders?.length)
   ) {
     const recovered = recoverArtifactsFromWordFiles({
       runtimeDir,
@@ -252,36 +321,6 @@ async function executeTaskChain(
     appendEvent(
       eventFile,
       createEvent("info", "resume", "Recovered selling points and poster prompts from saved Word files.", current.taskId)
-    );
-  }
-
-  if (startIndex >= allSteps.indexOf("titles_generated") && !current.generatedProductFolders.length) {
-    const recovered = recoverDistributedFoldersFromShopRoot({
-      shopRootDir,
-      requireWorkbook: startIndex >= allSteps.indexOf("published"),
-      expectedCount: titleCount,
-      productNameCandidates: [
-        current.feishuProductRecord?.userCognitionName || "",
-        current.sellingPointArtifact?.userCognitionName || "",
-        current.sellingPointArtifact?.brandedGenericName || ""
-      ],
-      expectedProductFolderNames: resumeProductFolderNames
-    });
-    current = {
-      ...current,
-      generatedProductFolders: current.generatedProductFolders.length
-        ? current.generatedProductFolders
-        : recovered.generatedProductFolders,
-      shopDistributionArtifact:
-        startIndex >= allSteps.indexOf("published")
-          ? current.shopDistributionArtifact || recovered.shopDistributionArtifact
-          : current.shopDistributionArtifact,
-      lastUpdatedAt: new Date().toISOString(),
-      notes: [...current.notes, "Recovered distributed product folders from shop root directory."]
-    };
-    appendEvent(
-      eventFile,
-      createEvent("info", "resume", "Recovered distributed product folders from shop root directory.", current.taskId)
     );
   }
 

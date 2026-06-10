@@ -67,6 +67,11 @@ function normalizeSpuMatchText(value: string): string {
   return normalizeMatchText(value).replace(/械[住注]准/g, "械注准");
 }
 
+function isNavigationContextDestroyedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Execution context was destroyed|Cannot find context|Most likely because of a navigation/i.test(message);
+}
+
 function attachSafeDialogHandler(page: Page): void {
   page.on("dialog", (dialog) => {
     dialog.dismiss().catch(() => {});
@@ -346,11 +351,39 @@ async function isDoudianLoginRequired(page: Page): Promise<boolean> {
 async function clickTopRightShopMenu(page: Page): Promise<boolean> {
   const menuVisible = async (): Promise<boolean> =>
     page.evaluate(() => {
-      const text = (document.body.innerText || "").replace(/\s+/g, "");
-      return text.includes("切换组织/店铺") || text.includes("退出");
+      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+      const bodyText = normalize(document.body.innerText || "");
+      if (bodyText.includes("切换组织/店铺") || bodyText.includes("退出")) {
+        return true;
+      }
+      return Array.from(document.querySelectorAll("body *"))
+        .map((node) => node as HTMLElement)
+        .some((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const text = normalize(el.innerText || el.textContent || "");
+          return (
+            Boolean(text) &&
+            (text.includes("切换组织/店铺") || text.includes("退出")) &&
+            rect.width > 0 &&
+            rect.height > 0 &&
+            style.display !== "none" &&
+            style.visibility !== "hidden"
+          );
+        });
     });
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    const headerShopMenu = page
+      .locator(".headerShopName, [class*='headerShopName'], [class*='userName']")
+      .filter({ hasText: /店/ })
+      .first();
+    const locatorClicked = await headerShopMenu.click({ timeout: 3000 }).then(() => true).catch(() => false);
+    await page.waitForTimeout(700 + attempt * 250);
+    if (locatorClicked && await menuVisible()) {
+      return true;
+    }
+
     const clicked = await page.evaluate(() => {
       const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
       const candidates = Array.from(document.querySelectorAll("body *"))
@@ -387,8 +420,11 @@ async function clickTopRightShopMenu(page: Page): Promise<boolean> {
       if (!target) {
         return false;
       }
+      target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: "mouse", isPrimary: true }));
       target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      target.click();
       target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: "mouse", isPrimary: true }));
       target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
       return true;
     });
@@ -502,6 +538,20 @@ async function isShopSwitchEntryVisible(page: Page): Promise<boolean> {
 }
 
 async function clickShopSwitchEntry(page: Page): Promise<boolean> {
+  const switchEntries = page.getByText("切换组织/店铺", { exact: true });
+  const switchEntryCount = await switchEntries.count().catch(() => 0);
+  for (let index = switchEntryCount - 1; index >= 0; index -= 1) {
+    const entry = switchEntries.nth(index);
+    if (!(await entry.isVisible().catch(() => false))) {
+      continue;
+    }
+    const clicked = await entry.click({ timeout: 3000 }).then(() => true).catch(() => false);
+    if (clicked) {
+      await page.waitForTimeout(900);
+      return true;
+    }
+  }
+
   const clicked = await page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
     const target = normalize("切换组织/店铺");
@@ -553,13 +603,24 @@ async function waitForChooseShopDialog(page: Page): Promise<boolean> {
     .locator("div[role='dialog'], div[aria-modal='true'], .semi-modal, .ant-modal, .ecom-g-modal, [class*='modal']")
     .filter({ hasText: "请选择店铺" })
     .first();
-  if (await dialogByLocator.isVisible().catch(() => false)) {
+  const dialogVisibleByLocator = await dialogByLocator.isVisible().catch((error) => {
+    if (isNavigationContextDestroyedError(error)) {
+      return false;
+    }
+    return false;
+  });
+  if (dialogVisibleByLocator) {
     return true;
   }
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const visible = await page.evaluate(() => {
       const text = (document.body?.innerText || "").replace(/\s+/g, "");
       return text.includes("请选择店铺");
+    }).catch((error) => {
+      if (isNavigationContextDestroyedError(error)) {
+        return false;
+      }
+      throw error;
     });
     if (visible) {
       return true;
@@ -662,7 +723,12 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
           target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
           return true;
         })
-        .catch(() => false);
+        .catch((error) => {
+          if (isNavigationContextDestroyedError(error)) {
+            return true;
+          }
+          return false;
+        });
       if (domClicked) {
         await page.waitForTimeout(1800);
         const dialogStillVisible = await waitForChooseShopDialog(page);
@@ -797,7 +863,12 @@ async function selectShopFromDialogByVisibleText(page: Page, expectedShopName: s
     clickTarget.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
     clickTarget.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
     return true;
-  }, expectedShopName).catch(() => null);
+  }, expectedShopName).catch((error) => {
+    if (isNavigationContextDestroyedError(error)) {
+      return true;
+    }
+    return null;
+  });
   if (!clicked) {
     return false;
   }
@@ -1989,48 +2060,58 @@ async function inspectPublishPageOnPage(
   };
 }
 
+async function findBasicInputCenterByFieldId(page: Page, fieldId: string): Promise<{ x: number; y: number } | null> {
+  return page.evaluate((targetFieldId) => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const root = document.querySelector(`[attr-field-id="${targetFieldId}"]`) as HTMLElement | null;
+    const fields = Array.from(root?.querySelectorAll("input, textarea") || [])
+      .map((el) => {
+        const input = el as HTMLInputElement | HTMLTextAreaElement;
+        const rect = input.getBoundingClientRect();
+        const style = window.getComputedStyle(input);
+        if (
+          rect.width <= 80 ||
+          rect.height <= 0 ||
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          input.disabled ||
+          input.readOnly
+        ) {
+          return null;
+        }
+        const context = normalize(
+          [
+            input.placeholder || "",
+            input.getAttribute("aria-label") || "",
+            input.parentElement?.textContent || "",
+            input.parentElement?.parentElement?.textContent || ""
+          ].join(" ")
+        );
+        return {
+          x: rect.x + rect.width / 2,
+          y: rect.y + rect.height / 2,
+          top: rect.top,
+          score:
+            (context.includes(targetFieldId) ? 200 : 0) +
+            ((input as HTMLInputElement).type === "hidden" ? -500 : 0) +
+            Math.min(120, rect.width / 8) -
+            Math.abs(rect.top - (root?.getBoundingClientRect().top || rect.top))
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.top || 0) - (b?.top || 0));
+
+    const target = fields[0];
+    return target ? { x: target.x, y: target.y } : null;
+  }, fieldId);
+}
+
 async function findTitleInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
-  return page.evaluate(() => {
-    const fields = Array.from(document.querySelectorAll("input, textarea"));
-    const target = fields.find((el) => {
-      const input = el as HTMLInputElement | HTMLTextAreaElement;
-      const rect = input.getBoundingClientRect();
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        (input.getAttribute("type") || "") === "text" &&
-        (input.getAttribute("placeholder") || "").includes("\u8BF7\u8F93\u516515-120\u4E2A\u5B57\u7B26") &&
-        rect.y < 500
-      );
-    }) as HTMLInputElement | HTMLTextAreaElement | undefined;
-    if (!target) {
-      return null;
-    }
-    const rect = target.getBoundingClientRect();
-    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-  });
+  return findBasicInputCenterByFieldId(page, "\u5546\u54c1\u6807\u9898");
 }
 
 async function findShortTitleInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
-  return page.evaluate(() => {
-    const fields = Array.from(document.querySelectorAll("input, textarea"));
-    const target = fields.find((el) => {
-      const input = el as HTMLInputElement | HTMLTextAreaElement;
-      const rect = input.getBoundingClientRect();
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        (input.getAttribute("type") || "") === "text" &&
-        (input.getAttribute("placeholder") || "").includes("\u5EFA\u8BAE\u586B\u5199\u7B80\u660E\u51C6\u786E") &&
-        rect.y < 550
-      );
-    }) as HTMLInputElement | HTMLTextAreaElement | undefined;
-    if (!target) {
-      return null;
-    }
-    const rect = target.getBoundingClientRect();
-    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-  });
+  return findBasicInputCenterByFieldId(page, "\u5bfc\u8d2d\u77ed\u6807\u9898");
 }
 
 async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
@@ -3791,11 +3872,11 @@ async function readVisibleFreightTemplateOptionTexts(page: Page): Promise<string
         ) {
           return null;
         }
-        return text;
+        return text.length > 80 ? `${text.slice(0, 80)}...` : text;
       })
       .filter(Boolean) as string[];
 
-    return Array.from(new Set(options)).slice(0, 20);
+    return Array.from(new Set(options)).slice(0, 6);
   });
 }
 
@@ -4061,6 +4142,9 @@ async function isManualSpecTemplateEntryModeVisible(page: Page): Promise<boolean
     return (
       visibleText.includes("商品规格") &&
       visibleText.includes("规格模板") &&
+      (visibleText.includes("添加规格类型") ||
+        visibleText.includes("规格预览") ||
+        (visibleText.includes("价格与库存") && visibleText.includes("现货库存"))) &&
       !visibleText.includes("点击 或 拖动 文件到虚线框内上传")
     );
   });
@@ -4109,7 +4193,8 @@ async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {
 async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await dismissTransientOverlays(page).catch(() => {});
-    await scrollLabelIntoView(page, "规格设置").catch(() => false);
+    await scrollLabelIntoView(page, "商品规格").catch(() => false);
+    await scrollLabelIntoView(page, "规格模板").catch(() => false);
     await page.waitForTimeout(400);
     if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
       return;
@@ -6972,8 +7057,10 @@ async function waitForPublishCreatePageReady(
   runtimeDir: string,
   publishPageUrl: string,
   label: string,
-  maxAttempts = 3
+  maxAttempts = 3,
+  options: { allowPageNavigationRecovery?: boolean } = {}
 ): Promise<void> {
+  const allowPageNavigationRecovery = options.allowPageNavigationRecovery ?? true;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     await Promise.race([
       page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {}),
@@ -6999,10 +7086,12 @@ async function waitForPublishCreatePageReady(
     }
     await savePageScreenshot(page, runtimeDir, `${label}-publish-page-not-ready-${attempt + 1}.png`).catch(() => "");
     if (attempt < maxAttempts - 1) {
-      if (page.url().includes("/ffa/g/create")) {
-        await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
-      } else if (publishPageUrl) {
-        await gotoWithTolerance(page, publishPageUrl, 2500).catch(() => {});
+      if (allowPageNavigationRecovery) {
+        if (page.url().includes("/ffa/g/create")) {
+          await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+        } else if (publishPageUrl) {
+          await gotoWithTolerance(page, publishPageUrl, 2500).catch(() => {});
+        }
       }
       await page.waitForTimeout(2200 + attempt * 700).catch(() => {});
       continue;
@@ -8177,8 +8266,12 @@ async function runPublishFlow(
     }
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
-      await gotoWithTolerance(page, createPageUrl, 3500);
-      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-basic-${basicAttempt + 1}`);
+      if (basicAttempt > 0) {
+        await gotoWithTolerance(page, createPageUrl, 3500);
+      }
+      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-basic-${basicAttempt + 1}`, 3, {
+        allowPageNavigationRecovery: basicAttempt > 0
+      });
 
       try {
         await verifyCategoryRegistrationGateOnPage(
@@ -8362,6 +8455,28 @@ async function runPublishFlow(
       throw new Error(`Sequential publish flow stopped: 价格库存模块未完成。${priceRule.issue}`);
     }
     stages.push({ step: "apply_price_inventory", status: "completed" });
+
+    try {
+      await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_service_module");
+    } catch {
+      if (metadata.title || metadata.shortTitle || metadata.modelSpec) {
+        const refillResult = await fillBasicPublishPageOnPage(
+          page,
+          runtimeDir,
+          {
+            title: metadata.title,
+            shortTitle: metadata.shortTitle,
+            modelSpec: metadata.modelSpec,
+            spu: metadata.spu
+          },
+          "publish-page-basic-refilled-before-service.png"
+        );
+        screenshotFiles.push(refillResult.screenshotFile);
+        filledFields.length = 0;
+        filledFields.push(...refillResult.filledFields);
+      }
+      await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_service_module");
+    }
 
     const settingsResult = await applyFixedPublishSettingsOnPage(
       page,
@@ -8596,8 +8711,12 @@ async function runGraphicFlow(
     await ensureShopContext(page, runtimeDir, shopFolder);
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
-      await gotoWithTolerance(page, createPageUrl, 3500);
-      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `graphic-basic-${basicAttempt + 1}`);
+      if (basicAttempt > 0) {
+        await gotoWithTolerance(page, createPageUrl, 3500);
+      }
+      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `graphic-basic-${basicAttempt + 1}`, 3, {
+        allowPageNavigationRecovery: basicAttempt > 0
+      });
 
       try {
         await verifyCategoryRegistrationGateOnPage(

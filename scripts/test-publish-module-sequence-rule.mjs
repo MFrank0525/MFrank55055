@@ -39,6 +39,75 @@ assert.equal(
   false,
   "publisher must not retain a helper that uploads images into 主图3:4"
 );
+
+const titleInputFinderSource = sliceFunction("findTitleInputCenter");
+const shortTitleInputFinderSource = sliceFunction("findShortTitleInputCenter");
+assert.match(
+  titleInputFinderSource,
+  /findBasicInputCenterByFieldId\(page, "\\u5546\\u54c1\\u6807\\u9898"/,
+  "title input finder must use attr-field-id instead of fragile placeholder/type checks"
+);
+assert.match(
+  shortTitleInputFinderSource,
+  /findBasicInputCenterByFieldId\(page, "\\u5bfc\\u8d2d\\u77ed\\u6807\\u9898"/,
+  "short-title input finder must use attr-field-id instead of fragile placeholder/type checks"
+);
+assert.doesNotMatch(
+  shortTitleInputFinderSource,
+  /getAttribute\("type"\)/,
+  "short-title input finder must not require an explicit type=text attribute; HTML text inputs may omit type"
+);
+
+const publishFlowSource = sliceFunction("runPublishFlow");
+const publishInitialGoto = publishFlowSource.indexOf("await gotoWithTolerance(page, createPageUrl, 3500);");
+const publishBasicLoop = publishFlowSource.indexOf("for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1)");
+assert.notEqual(publishInitialGoto, -1, "publish flow must still open the create page once at the start");
+assert.notEqual(publishBasicLoop, -1, "publish flow basic-info retry loop not found");
+const publishBasicFirstAttemptWindow = publishFlowSource.slice(
+  publishBasicLoop,
+  publishFlowSource.indexOf("const fillResult = await fillBasicPublishPageOnPage", publishBasicLoop)
+);
+assert.doesNotMatch(
+  publishBasicFirstAttemptWindow,
+  /for \(let basicAttempt = 0; basicAttempt < 2; basicAttempt \+= 1\) \{\s*await gotoWithTolerance\(page, createPageUrl, 3500\);/,
+  "publish flow must reuse the already-ready create page on the first basic-info attempt instead of immediately reloading it"
+);
+assert.match(
+  publishBasicFirstAttemptWindow,
+  /if \(basicAttempt > 0\)[\s\S]*gotoWithTolerance\(page, createPageUrl, 3500\)/,
+  "publish flow may reopen the create page only for an explicit basic-info retry"
+);
+assert.match(
+  publishBasicFirstAttemptWindow,
+  /waitForPublishCreatePageReady\([\s\S]*allowPageNavigationRecovery: basicAttempt > 0[\s\S]*\)/,
+  "publish flow must not let the first basic-info readiness check reload the already-ready create page"
+);
+
+const graphicFlowSource = sliceFunction("runGraphicFlow");
+const graphicInitialGoto = graphicFlowSource.indexOf("await gotoWithTolerance(page, createPageUrl, 3500);");
+const graphicBasicLoop = graphicFlowSource.indexOf("for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1)");
+assert.notEqual(graphicInitialGoto, -1, "graphic flow must still open the create page once at the start");
+assert.notEqual(graphicBasicLoop, -1, "graphic flow basic-info retry loop not found");
+const graphicBasicFirstAttemptWindow = graphicFlowSource.slice(
+  graphicBasicLoop,
+  graphicFlowSource.indexOf("const fillResult = await fillBasicPublishPageOnPage", graphicBasicLoop)
+);
+assert.doesNotMatch(
+  graphicBasicFirstAttemptWindow,
+  /for \(let basicAttempt = 0; basicAttempt < 2; basicAttempt \+= 1\) \{\s*await gotoWithTolerance\(page, createPageUrl, 3500\);/,
+  "graphic flow must reuse the already-ready create page on the first basic-info attempt instead of immediately reloading it"
+);
+assert.match(
+  graphicBasicFirstAttemptWindow,
+  /if \(basicAttempt > 0\)[\s\S]*gotoWithTolerance\(page, createPageUrl, 3500\)/,
+  "graphic flow may reopen the create page only for an explicit basic-info retry"
+);
+assert.match(
+  graphicBasicFirstAttemptWindow,
+  /waitForPublishCreatePageReady\([\s\S]*allowPageNavigationRecovery: basicAttempt > 0[\s\S]*\)/,
+  "graphic flow must not let the first basic-info readiness check reload the already-ready create page"
+);
+
 assert.match(
   publishSource,
   /resetGraphicModuleOnPage/,

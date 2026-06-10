@@ -53,6 +53,7 @@ interface AutoListingJobFile {
     processedImageManifest?: string;
     imageGenerationConfigFile?: string;
     imageGenerationProvider?: string;
+    shopRootDir?: string;
     maxImagesPerRun?: number;
     clearTestOutputsBeforeRun?: boolean;
   };
@@ -226,6 +227,45 @@ function compactStatusLine(line: string): string {
       .slice(0, 2)
       .map((match) => `${match[1].replace(/^Publish preflight failed for\s+\d+\s+issue\(s\):\s*/i, "").trim()} 应匹配 ${match[2].trim()}`);
     return `发布预检失败：${watermarkFailure[1]} 个商品文件夹主图水印与目标店铺不匹配；需从主图生成步骤重建水印后再发布${examples.length ? `。示例：${examples.join("；")}` : "。"}。`;
+  }
+  const freightFailure = /No visible freight template option matched keyword:\s*([^;]+); visibleOptions=([^;]+)/i.exec(compact);
+  if (freightFailure) {
+    const rawOptions = freightFailure[2] || "";
+    const options =
+      rawOptions === "<none>"
+        ? "未读到下拉候选"
+        : /标题推荐|必填项进度|重要属性|型号规格|商品类目/.test(rawOptions)
+          ? "页面仍在其他模块或必填校验区域，未打开运费模板下拉候选"
+          : rawOptions.length > 120
+            ? `${rawOptions.slice(0, 120)}...`
+            : rawOptions;
+    return `发布服务与履约未完成：没有选中运费模板“${freightFailure[1].trim()}”。当前候选摘要：${options}`;
+  }
+  const freightComboFailure = /No visible freight template combobox matched keyword:\s*(.+)$/i.exec(compact);
+  if (freightComboFailure) {
+    return `发布服务与履约未完成：没有找到运费模板下拉框“${freightComboFailure[1].trim()}”，需要重新进入服务与履约模块后续跑。`;
+  }
+  const basicInfoFailure = /(?:Sequential publish flow stopped:\s*)?基础信息模块未完成。(.+)/i.exec(compact);
+  if (basicInfoFailure) {
+    const detail = basicInfoFailure[1]
+      .replace(/Short title input not found on publish page\./i, "导购短标题输入框未稳定识别")
+      .replace(/Title input not found on publish page\./i, "商品标题输入框未稳定识别")
+      .replace(/Model spec input not found on publish page\./i, "型号规格输入框未稳定识别");
+    return `发布基础信息未完成：${detail}；系统会按发布页控件未就绪处理并重试。`;
+  }
+  const finalPublishFailure = /(?:Sequential publish flow stopped:\s*)?最终发布动作未完成。(.+)/i.exec(compact);
+  if (finalPublishFailure) {
+    const detail = finalPublishFailure[1];
+    if (/系统异常|请重试|稍后重试|操作ID/i.test(detail)) {
+      return "最终点击发布时抖店返回系统异常：这通常是提交瞬时失败，系统会按可恢复发布错误重试。";
+    }
+    if (/系统将自动唤起图片编辑工具|商品完整边缘清晰/i.test(detail)) {
+      return "最终点击发布时抖店触发图片质量/自动编辑提示：系统会按可恢复发布错误重试该商品。";
+    }
+    return `最终点击发布未确认成功：${detail.length > 120 ? `${detail.slice(0, 120)}...` : detail}`;
+  }
+  if (/Execution context was destroyed|most likely because of a navigation|page context was lost|context was lost|Target closed/i.test(compact)) {
+    return "发布页正在跳转或刷新时被读取：这是页面导航竞态，系统会按可恢复页面上下文错误重试该商品。";
   }
   return compact.length > 500 ? `${compact.slice(0, 500)}... [truncated]` : compact;
 }
@@ -955,11 +995,14 @@ function shouldResumeCurrentFailure(): boolean {
   if (!resumeSourceImagePath || !fs.existsSync(path.resolve(rootDir, resumeSourceImagePath))) {
     return false;
   }
+  const resumeRuntimeDir = path.resolve(rootDir, resumeJob.runtimeDir || path.dirname(path.resolve(rootDir, resumeJob.resultFile || "")));
+  const resumeProductFolderCount = countResumeProductFolders(resumeJob);
   const reusableRawImageCount = countReusableRawImages(
-    path.resolve(rootDir, resumeJob.runtimeDir || path.dirname(path.resolve(rootDir, resumeJob.resultFile || ""))),
+    resumeRuntimeDir,
     resumeJob.input?.resumeTaskId
   );
-  if (!shouldResumeSourceImageForCurrentFeishuBatch(resumeSourceImagePath, reusableRawImageCount)) {
+  const reusableArtifactCount = Math.max(reusableRawImageCount, resumeProductFolderCount);
+  if (!shouldResumeSourceImageForCurrentFeishuBatch(resumeSourceImagePath, reusableArtifactCount)) {
     fs.rmSync(resumeJobFile, { force: true });
     return false;
   }
@@ -970,9 +1013,13 @@ function shouldResumeCurrentFailure(): boolean {
 
   const resultFile = path.resolve(rootDir, resumeJob.resultFile);
   const result = readJsonFile<AutoListingResultFile>(resultFile);
-  const shouldResume = !result || (result.ok !== true && result.status !== "success");
+  const publishResumeNeedsWork =
+    startStep === "published" &&
+    resumeProductFolderCount > 0 &&
+    countSafelyPublishedManifestEntries(resumeRuntimeDir) < resumeProductFolderCount;
+  const shouldResume = publishResumeNeedsWork || !result || (result.ok !== true && result.status !== "success");
   const latestRelevantFailure = findLatestFailedResultForResume();
-  if (!latestRelevantFailure || path.resolve(latestRelevantFailure.resultFile) !== resultFile) {
+  if (!publishResumeNeedsWork && (!latestRelevantFailure || path.resolve(latestRelevantFailure.resultFile) !== resultFile)) {
     fs.rmSync(resumeJobFile, { force: true });
     return false;
   }
@@ -980,7 +1027,7 @@ function shouldResumeCurrentFailure(): boolean {
     fs.rmSync(resumeJobFile, { force: true });
   }
   const failedTask = (result?.tasks || []).find((task) => task.status === "failed" || task.error);
-  if (shouldResume && failedTask) {
+  if (shouldResume && failedTask && !publishResumeNeedsWork) {
     if (taskHasExternalMainImageRawReuse(path.dirname(resultFile), failedTask.taskId)) {
       fs.rmSync(resumeJobFile, { force: true });
       return false;
@@ -1041,6 +1088,27 @@ function countReusableRawImages(runtimeDir: string, taskId: string | undefined):
         continue;
       }
       if (currentDir.includes(path.sep + "raw") && /^generated-\d+.*\.(png|jpg|jpeg|webp)$/i.test(entry.name)) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+function countResumeProductFolders(job: AutoListingJobFile | undefined): number {
+  const names = new Set((job?.input?.resumeProductFolderNames || []).map((item) => String(item || "")).filter(Boolean));
+  const shopRootDir = path.resolve(rootDir, job?.input?.shopRootDir || "input/auto-listing/shops");
+  if (names.size === 0 || !fs.existsSync(shopRootDir)) {
+    return 0;
+  }
+  let count = 0;
+  for (const shopEntry of fs.readdirSync(shopRootDir, { withFileTypes: true })) {
+    if (!shopEntry.isDirectory()) {
+      continue;
+    }
+    const shopFolder = path.join(shopRootDir, shopEntry.name);
+    for (const productEntry of fs.readdirSync(shopFolder, { withFileTypes: true })) {
+      if (productEntry.isDirectory() && names.has(productEntry.name)) {
         count += 1;
       }
     }
@@ -1194,13 +1262,13 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
     return undefined;
   }
 
+  if (shouldResumeCurrentFailure()) {
+    return readJsonFile<AutoListingJobFile>(resumeJobFile);
+  }
+
   const interrupted = findLatestInterruptedStateForResume();
   if (interrupted?.task.sourceImagePath) {
     return writeResumeJobFromInterruptedState(sourceJob, interrupted);
-  }
-
-  if (shouldResumeCurrentFailure()) {
-    return readJsonFile<AutoListingJobFile>(resumeJobFile);
   }
 
   const latest = findLatestFailedResultForResume();
@@ -1340,9 +1408,8 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     fs.rmSync(pauseFile);
   }
 
-  const selected = selectCommand();
   const beforeRefreshProgress = summarizeFeishuProgress();
-  if (!dryRun && selected.mode === "full-real-flow" && beforeRefreshProgress?.batchComplete === true) {
+  if (!dryRun && beforeRefreshProgress?.batchComplete === true) {
     runFeishuAssetsRefreshForStart();
     const afterRefreshProgress = summarizeFeishuProgress();
     const decision = resolveHermesStartAfterFeishuRefresh({
@@ -1365,6 +1432,7 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
       clearCurrentBatchProcessedImages();
     }
   }
+  const selected = selectCommand();
   const logFile = path.join(controlDir, `hermes-auto-listing-${timestampForFile()}.log`);
   if (dryRun) {
     const result = {

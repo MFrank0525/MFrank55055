@@ -35,4 +35,20 @@ assert.match(
   "CDP connect recovery must retry the real Playwright connection after relaunch"
 );
 
+assert.match(
+  launchSource,
+  /installPlaywrightDialogRaceGuard/,
+  "Reusable browser launch must install the Playwright dialog race guard"
+);
+assert.match(
+  launchSource,
+  /Page\\.handleJavaScriptDialog\\\): No dialog is showing/,
+  "Playwright dialog race guard must be limited to the no-dialog-showing protocol race"
+);
+assert.match(
+  launchSource,
+  /throw reason instanceof Error/,
+  "Playwright dialog race guard must rethrow unrelated unhandled rejections"
+);
+
 console.log("browser cdp recovery rule passed");

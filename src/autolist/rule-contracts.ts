@@ -14,6 +14,12 @@ export const RULE_CONTRACT_MARKERS = {
     "严格按照 8 个卖点顺序输出"
   ],
   posterPromptSourceRule: ["飞书 `DeepSeek提示词`", "主流程不打开 DeepSeek 网页", "提示词唯一来源"],
-  mainImageInstruction1: ["【产品海报设计】", "延草纲目医用膝盖喷剂", "延草纲目膝盖部位医用喷剂", "绿色对号"],
+  mainImageInstruction1: [
+    "【产品海报设计】",
+    "延草纲目医用膝盖喷剂",
+    "延草纲目膝盖部位医用喷剂",
+    "图案元素",
+    "不要在主图里增加作用部位前后对比效果图"
+  ],
   titleKeywordSourceRule: ["飞书 `标题关键词`", "主流程不打开豆包网页", "标题关键词唯一来源"]
 } as const;

@@ -74,8 +74,10 @@ import {
 import { saveTitlesFromRaw } from "../dist/src/doubao/save.js";
 
 const hermesRunnerSource = fs.readFileSync("src/cli/hermes-auto-listing-runner.ts", "utf8");
+const hermesSupervisorSource = fs.readFileSync("src/cli/hermes-auto-listing-supervisor.ts", "utf8");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
+const packageSource = fs.readFileSync("package.json", "utf8");
 assert.match(
   hermesRunnerSource,
   /inferResumeStartStepForTask/,
@@ -85,6 +87,26 @@ assert.match(
   hermesRunnerSource,
   /compactStatusLine/,
   "Hermes text status must compact very long log/error lines before returning them to Feishu"
+);
+assert.match(
+  hermesRunnerSource,
+  /基础信息模块未完成/,
+  "Hermes status must summarize basic-info publish failures in plain Chinese"
+);
+assert.match(
+  hermesRunnerSource,
+  /最终发布动作未完成/,
+  "Hermes status must summarize final publish-submit failures in plain Chinese"
+);
+assert.match(
+  packageSource,
+  /"auto-listing:hermes-status":\s*"[^"]*status --text"/,
+  "Hermes status script must default to concise human-readable text for Feishu/Hermes replies"
+);
+assert.match(
+  hermesSupervisorSource,
+  /latestTerminalResultAfter/,
+  "Hermes watchdog must detect a terminal result file and preserve the real child outcome instead of reporting no-progress timeout"
 );
 assert.match(
   hermesRunnerSource,
@@ -98,13 +120,43 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /findLatestInterruptedStateForResume\(\)[\s\S]*shouldResumeCurrentFailure\(\)/,
-  "Hermes runner must prefer interrupted in-place publish state over stale generated resume jobs"
+  /shouldResumeCurrentFailure\(\)[\s\S]*findLatestInterruptedStateForResume\(\)/,
+  "Hermes runner must preserve a valid current resume job before rebuilding one from interrupted state"
 );
 assert.match(
   hermesRunnerSource,
   /safelyPublishedCount/,
   "Hermes runner must rank interrupted resume candidates by publish-manifest progress before raw artifact count"
+);
+assert.match(
+  hermesRunnerSource,
+  /countResumeProductFolders/,
+  "Hermes resume must count restored product folders as reusable publish-stage artifacts"
+);
+assert.match(
+  hermesRunnerSource,
+  /const resumeProductFolderCount = countResumeProductFolders\(resumeJob\)[\s\S]*Math\.max\(reusableRawImageCount, resumeProductFolderCount\)/,
+  "Hermes resume must not require raw images when a published-stage resume job has restored product folders"
+);
+assert.match(
+  hermesRunnerSource,
+  /publishResumeNeedsWork[\s\S]*startStep === "published"[\s\S]*resumeProductFolderCount > 0[\s\S]*countSafelyPublishedManifestEntries\(resumeRuntimeDir\) < resumeProductFolderCount/,
+  "Hermes resume must continue publish-stage work when restored product folders exist but publish manifest is not safely complete"
+);
+assert.match(
+  hermesRunnerSource,
+  /const shouldResume = publishResumeNeedsWork \|\| !result \|\| \(result\.ok !== true && result\.status !== "success"\)/,
+  "Hermes resume must let publish-stage incomplete manifest override an incorrectly successful result file"
+);
+assert.match(
+  hermesRunnerSource,
+  /if \(!publishResumeNeedsWork && \(!latestRelevantFailure \|\| path\.resolve\(latestRelevantFailure\.resultFile\) !== resultFile\)\)/,
+  "Hermes resume must not discard a valid publish-stage resume job only because the stale result file was incorrectly marked successful"
+);
+assert.match(
+  hermesRunnerSource,
+  /if \(shouldResume && failedTask && !publishResumeNeedsWork\)/,
+  "Hermes resume must not let a stale failed task re-infer and overwrite a publish-stage resume job that still needs publish work"
 );
 assert.match(
   hermesRunnerSource,
@@ -122,6 +174,11 @@ assert.match(
   "Hermes start must require an explicit rerun flag before clearing completed batch progress"
 );
 assert.match(
+  hermesRunnerSource,
+  /const beforeRefreshProgress = summarizeFeishuProgress\(\)[\s\S]*const selected = selectCommand\(\)/,
+  "Hermes start must refresh a completed cached Feishu batch before selecting a stale resume job"
+);
+assert.match(
   publishSource,
   /onProgress\?/,
   "Publish stage must emit per-product progress callbacks instead of only updating publish-manifest"
@@ -135,6 +192,26 @@ assert.match(
   orchestratorSource,
   /appendEvent\(eventFile, createEvent\("info", step, message, current\.taskId\)\)/,
   "Orchestrator must append publish progress callback messages to events.ndjson for Hermes status"
+);
+assert.match(
+  orchestratorSource,
+  /function isProductFullyProcessed[\s\S]*publishArtifact\?\.results[\s\S]*publish_signal_confirmed/,
+  "Processed-image marking must require safe publish results, not only cleaned/done task status"
+);
+assert.match(
+  orchestratorSource,
+  /Recovered Feishu product identity for publish-stage resume/,
+  "Publish-stage resume must recover Feishu product identity without depending on saved Word prompt files"
+);
+assert.match(
+  orchestratorSource,
+  /Recovered distributed product folders from shop root directory[\s\S]*Recovered selling points and poster prompts from saved Word files/,
+  "Publish-stage resume must recover distributed product folders before falling back to Word prompt recovery"
+);
+assert.match(
+  orchestratorSource,
+  /!\(startIndex >= publishStepIndex && current\.shopDistributionArtifact\?\.distributedFolders\?\.length\)/,
+  "Publish-stage resume with restored product folders must not require saved Word prompt files"
 );
 
 const state = createRunState("test-run", ["/tmp/product.png"]);
@@ -222,6 +299,29 @@ assert.equal(pageNotReadyClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 0), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 2), false);
 assert.equal(shouldRetryPublishFailure("validation_blocked", 0), false);
+const freightDropdownClass = classifyPublishFailure(
+  "No visible freight template option matched keyword: 延草运费; visibleOptions=商品类目 > 标题推荐 > 必填项进度"
+);
+assert.equal(freightDropdownClass, "service_section_not_ready");
+assert.equal(shouldRetryPublishFailure(freightDropdownClass, 0), true);
+const basicFieldLocatorClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 基础信息模块未完成。Short title input not found on publish page."
+);
+assert.equal(basicFieldLocatorClass, "basic_info_field_not_ready");
+assert.equal(shouldRetryPublishFailure(basicFieldLocatorClass, 0), true);
+
+const finalSubmitTransientClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 最终发布动作未完成。系统将自动唤起图片编辑工具正反示例商品完整边缘清晰正面主题适当不完整不清晰非正面主体过小"
+);
+assert.equal(finalSubmitTransientClass, "final_publish_submit_transient");
+assert.equal(shouldRetryPublishFailure(finalSubmitTransientClass, 0), true);
+assert.equal(shouldRetryPublishFailure(finalSubmitTransientClass, 2), false);
+
+const navigationContextLostClass = classifyPublishFailure(
+  "page.evaluate: Execution context was destroyed, most likely because of a navigation"
+);
+assert.equal(navigationContextLostClass, "page_context_lost");
+assert.equal(shouldRetryPublishFailure(navigationContextLostClass, 0), true);
 
 assert.deepEqual(
   evaluateDetailImageCompletion({
@@ -562,7 +662,7 @@ assert.equal(
     refreshedBatchChanged: false,
     refreshedBatchComplete: false
   }),
-  false
+  true
 );
 assert.equal(
   shouldContinueFeishuAfterBatchRefresh({
@@ -1275,6 +1375,56 @@ assert.equal(
     generatedProductFolders: ["/work/shop/product-1"]
   }),
   "published"
+);
+assert.equal(
+  inferResumeStartStepForTask({
+    status: "failed",
+    error: {
+      step: "published",
+      message:
+        "Publish failed for /work/shop/product-1: Platform SPU query page was not ready after navigation: Doudian login is required before publishing can continue."
+    },
+    generatedProductFolders: ["/work/shop/product-1"],
+    shopDistributionArtifact: { distributedFolders: ["/work/shop/product-1"], simulated: false }
+  }),
+  "published",
+  "Publishing interruptions after assets are distributed must resume at published and must not regenerate main images."
+);
+assert.equal(
+  inferResumeStartStepForTask({
+    status: "published",
+    generatedProductFolders: ["/work/shop/product-1", "/work/shop/product-2"],
+    shopDistributionArtifact: { distributedFolders: ["/work/shop/product-1", "/work/shop/product-2"], simulated: false },
+    publishArtifact: {
+      results: [
+        {
+          ok: false,
+          status: "failed",
+          finalVerifyStatus: "needs_manual_review"
+        }
+      ]
+    }
+  }),
+  "published",
+  "Interrupted published-stage tasks without safe publish results must resume publishing, not cleanup."
+);
+assert.equal(
+  inferResumeStartStepForTask({
+    status: "published",
+    generatedProductFolders: ["/work/shop/product-1"],
+    shopDistributionArtifact: { distributedFolders: ["/work/shop/product-1"], simulated: false },
+    publishArtifact: {
+      results: [
+        {
+          ok: true,
+          status: "published",
+          finalVerifyStatus: "publish_signal_confirmed"
+        }
+      ]
+    }
+  }),
+  "cleaned",
+  "Published-stage tasks may advance to cleanup only after every distributed folder has a safe publish signal."
 );
 assert.equal(
   inferResumeStartStepForTask({

@@ -17,6 +17,25 @@ export interface ResumeTaskLike {
   shopDistributionArtifact?: {
     distributedFolders?: string[];
   };
+  publishArtifact?: {
+    results?: Array<{
+      ok?: boolean;
+      status?: string;
+      finalVerifyStatus?: string;
+    }>;
+  };
+}
+
+function hasSafePublishCompletion(task: ResumeTaskLike, distributedFolderCount: number): boolean {
+  const results = task.publishArtifact?.results || [];
+  if (distributedFolderCount <= 0 || results.length < distributedFolderCount) {
+    return false;
+  }
+  return results.every((result) =>
+    result.ok === true &&
+    result.status === "published" &&
+    (result.finalVerifyStatus === "publish_signal_confirmed" || result.finalVerifyStatus === "list_verified")
+  );
 }
 
 export function inferResumeStartStepForTask(task: ResumeTaskLike): AutoListingStep {
@@ -55,6 +74,9 @@ export function inferResumeStartStepForTask(task: ResumeTaskLike): AutoListingSt
   }
 
   const normalizedStatus = normalizeAutoListingStep(task.status as any);
+  if (normalizedStatus === "published") {
+    return hasSafePublishCompletion(task, distributedFolders.length) ? "cleaned" : "published";
+  }
   if (normalizedStatus === "source_images_discovered") {
     return "source_images_discovered";
   }

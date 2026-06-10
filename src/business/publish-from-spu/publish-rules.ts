@@ -299,10 +299,45 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("Failedtoactivatepublishsectiontab") && text.includes("actual=<unknown>")) {
     return "platform_page_not_ready";
   }
+  if (
+    text.includes("Novisiblefreighttemplateoptionmatchedkeyword") ||
+    text.includes("Novisiblefreighttemplatecomboboxmatchedkeyword") ||
+    text.includes("Servicesectionfreightlabelisnotvisibleaftertabactivation")
+  ) {
+    return "service_section_not_ready";
+  }
+  if (
+    text.includes("基础信息模块未完成") ||
+    text.includes("Titleinputnotfoundonpublishpage") ||
+    text.includes("Shorttitleinputnotfoundonpublishpage") ||
+    text.includes("Modelspecinputnotfoundonpublishpage") ||
+    text.includes("Basicinfogatefailed")
+  ) {
+    return "basic_info_field_not_ready";
+  }
+  if (
+    text.includes("最终发布动作未完成") &&
+    (
+      text.includes("系统异常") ||
+      text.includes("请重试") ||
+      text.includes("稍后重试") ||
+      text.includes("操作ID") ||
+      text.includes("系统将自动唤起图片编辑工具") ||
+      text.includes("商品完整边缘清晰")
+    )
+  ) {
+    return "final_publish_submit_transient";
+  }
   if (text.includes("Shopswitchfailed") && text.includes("couldnotfind切换组织/店铺")) {
     return "shop_switch_entry_unavailable";
   }
-  if (text.includes("contextwaslost") || text.includes("pagecontextwaslost") || text.includes("Targetclosed")) {
+  if (
+    text.includes("contextwaslost") ||
+    text.includes("pagecontextwaslost") ||
+    text.includes("Executioncontextwasdestroyed") ||
+    text.includes("mostlikelybecauseofanavigation") ||
+    text.includes("Targetclosed")
+  ) {
     return "page_context_lost";
   }
   if (
@@ -340,6 +375,9 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   return [
     "platform_page_not_ready",
     "platform_spu_prefill_failed",
+    "basic_info_field_not_ready",
+    "final_publish_submit_transient",
+    "service_section_not_ready",
     "page_context_lost",
     "shop_switch_entry_unavailable",
     "browser_remote_debugging_unavailable"

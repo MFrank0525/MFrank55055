@@ -490,7 +490,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
     model: config.model,
     prompt: promptText,
     n: 1,
-    size: config.size || "1024x1024",
+    size: config.size || "3840x2160",
     response_format: responseFormat,
     ...(config.requestExtra || {})
   });
@@ -503,7 +503,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
     form.set("model", config.model);
     form.set("prompt", promptText);
     form.set("n", "1");
-    form.set("size", config.size || "1024x1024");
+    form.set("size", config.size || "3840x2160");
     if (includeResponseFormat) {
       form.set("response_format", responseFormat);
     }
@@ -565,7 +565,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
             model: config.model,
             prompt: currentPromptText,
             n: 1,
-            size: config.size || "1024x1024",
+            size: config.size || "3840x2160",
             response_format: responseFormat,
             image: path.basename(options.sourceImagePath),
             imagePath: options.sourceImagePath,
