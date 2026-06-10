@@ -1,0 +1,17 @@
+{
+  "provider": "openai-compatible",
+  "apiUrl": "https://api.example.com/v1/media/generate",
+  "apiKey": "",
+  "model": "gpt-image-2",
+  "mode": "media-generate",
+  "size": "2048x2048",
+  "timeoutMs": 180000,
+  "pollIntervalMs": 5000,
+  "maxPollMs": 7200000,
+  "mediaParams": {
+    "images": ["https://cdn.example.com/product-reference.png"]
+  },
+  "requestExtra": {
+    "quality": "high"
+  }
+}

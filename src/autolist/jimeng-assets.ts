@@ -21,12 +21,17 @@ interface OpenAiCompatibleImageConfig {
   apiUrl: string;
   apiKey?: string;
   model: string;
-  mode?: "generations" | "edits";
+  mode?: "generations" | "edits" | "media-generate";
   size?: string;
   responseFormat?: "b64_json" | "url";
   timeoutMs?: number;
   maxTransientRetries?: number;
   requestExtra?: Record<string, unknown>;
+  mediaParams?: Record<string, unknown>;
+  statusUrl?: string;
+  pollIntervalMs?: number;
+  maxPollMs?: number;
+  allowMediaGenerateWithoutReference?: boolean;
 }
 
 function redactImageGenerationLogValue(value: unknown): unknown {
@@ -398,6 +403,68 @@ async function saveGeneratedImageItem(options: {
   return null;
 }
 
+function resolveMediaGenerateStatusUrl(apiUrl: string, configuredStatusUrl?: string): string {
+  if (configuredStatusUrl?.trim()) {
+    return configuredStatusUrl.trim();
+  }
+  const url = new URL(apiUrl);
+  url.pathname = "/v1/skills/task-status";
+  url.search = "";
+  return url.toString();
+}
+
+function extractMediaGenerateTaskId(payload: any): string {
+  const taskId =
+    payload?.data?.task_id ??
+    payload?.data?.["任务id"] ??
+    payload?.data?.["任务ID"] ??
+    (Array.isArray(payload?.data?.["任务ids"]) ? payload.data["任务ids"][0] : undefined);
+  if (taskId === undefined || taskId === null || String(taskId).trim() === "") {
+    throw normalizeImageGenerationError("Media generation response did not include task_id: " + JSON.stringify(redactImageGenerationLogValue(payload)).slice(0, 500));
+  }
+  return String(taskId);
+}
+
+function extractMediaGenerateResultUrl(payload: any): string {
+  const resultUrl = payload?.result_url ?? payload?.data?.result_url;
+  if (Array.isArray(resultUrl)) {
+    return String(resultUrl.find((item) => typeof item === "string" && item.trim()) || "");
+  }
+  return typeof resultUrl === "string" ? resultUrl.trim() : "";
+}
+
+function mediaGenerateSucceeded(payload: any): boolean {
+  return (
+    payload?.state === "success" ||
+    payload?.data?.state === "success" ||
+    payload?.status_group === "已完成" ||
+    payload?.data?.status_group === "已完成"
+  );
+}
+
+function mediaGenerateFailed(payload: any): boolean {
+  return (
+    payload?.state === "failed" ||
+    payload?.data?.state === "failed" ||
+    payload?.status_group === "失败" ||
+    payload?.data?.status_group === "失败"
+  );
+}
+
+function mediaGenerateIsFinal(payload: any): boolean {
+  return payload?.is_final === true || payload?.data?.is_final === true;
+}
+
+function hasMediaGenerateReferenceImage(params: Record<string, unknown>): boolean {
+  return ["images", "image_url", "img_url", "reference_urls"].some((key) => {
+    const value = params[key];
+    if (typeof value === "string") {
+      return value.trim().startsWith("http");
+    }
+    return Array.isArray(value) && value.some((item) => typeof item === "string" && item.trim().startsWith("http"));
+  });
+}
+
 async function generateWithOpenAiCompatibleProvider(options: {
   configFile: string;
   promptText: string;
@@ -409,7 +476,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
   fs.mkdirSync(options.downloadDir, { recursive: true });
 
   const config = readOpenAiCompatibleImageConfig(options.configFile);
-  const mode = config.mode || (config.apiUrl.includes("/images/edits") ? "edits" : "generations");
+  const mode = config.mode || (config.apiUrl.includes("/images/edits") ? "edits" : config.apiUrl.includes("/v1/media/generate") ? "media-generate" : "generations");
   const count = Math.max(1, options.expectedImageCount || 1);
   const imageIndexOffset = generatedImageIndexOffset(options.downloadDir);
   const responseFormat = config.responseFormat || "b64_json";
@@ -495,6 +562,46 @@ async function generateWithOpenAiCompatibleProvider(options: {
     ...(config.requestExtra || {})
   });
 
+  const buildMediaGenerateJsonBody = (promptText: string): Record<string, unknown> => {
+    const params = {
+      ...(config.size ? { size: config.size } : {}),
+      ...(config.mediaParams || {}),
+      ...(config.requestExtra || {})
+    };
+    if (!config.allowMediaGenerateWithoutReference && !hasMediaGenerateReferenceImage(params)) {
+      throw normalizeImageGenerationError(
+        "media-generate mode requires a public reference image URL in mediaParams.images/image_url/img_url/reference_urls for product main images. The provider does not accept local multipart source images."
+      );
+    }
+    return {
+      model: config.model,
+      prompt: promptText,
+      count: 1,
+      ...(Object.keys(params).length ? { params } : {})
+    };
+  };
+
+  const fetchMediaGenerateStatus = async (taskId: string): Promise<{ response: Response; text: string }> => {
+    const statusUrl = new URL(resolveMediaGenerateStatusUrl(config.apiUrl, config.statusUrl));
+    statusUrl.searchParams.set("task_id", taskId);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(statusUrl, {
+        headers: {
+          Authorization: "Bearer " + config.apiKey
+        },
+        signal: controller.signal
+      });
+      const text = await response.text();
+      return { response, text };
+    } catch (error) {
+      throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   const buildEditFormData = (includeResponseFormat: boolean, promptText: string): FormData => {
     if (!fs.existsSync(options.sourceImagePath)) {
       throw new Error("Source reference image not found for image edit: " + options.sourceImagePath);
@@ -571,9 +678,80 @@ async function generateWithOpenAiCompatibleProvider(options: {
             imagePath: options.sourceImagePath,
             requestExtra: redactImageGenerationLogValue(config.requestExtra || {})
           }
+        : mode === "media-generate"
+          ? (redactImageGenerationLogValue({
+              endpoint: config.apiUrl,
+              statusUrl: resolveMediaGenerateStatusUrl(config.apiUrl, config.statusUrl),
+              mode,
+              ...buildMediaGenerateJsonBody(currentPromptText)
+            }) as Record<string, unknown>)
         : (redactImageGenerationLogValue(buildGenerationJsonBody(currentPromptText)) as Record<string, unknown>);
     const requestSummary = buildRequestSummary(promptText);
     writeImageGenerationJsonLog(requestFile, requestSummary);
+
+    if (mode === "media-generate") {
+      options.onProgress?.(`Image ${imageIndex}: submitting media-generate request.`);
+      const { response, text } = await sendRequestWithTransportRetries(
+        imageIndex,
+        "initial",
+        () => JSON.stringify(buildMediaGenerateJsonBody(promptText)),
+        "application/json"
+      );
+      writeImageGenerationTextLog(responseFile, text);
+      if (!response.ok) {
+        throw normalizeImageGenerationError("Media generation submit failed with HTTP " + response.status + ": " + (text || response.statusText));
+      }
+
+      let submitPayload: any;
+      try {
+        submitPayload = JSON.parse(text);
+      } catch {
+        throw new Error("Media generation submit response was not JSON: " + text.slice(0, 500));
+      }
+      const taskId = extractMediaGenerateTaskId(submitPayload);
+      const pollIntervalMs = Math.max(1000, config.pollIntervalMs || 5000);
+      const maxPollMs = Math.max(pollIntervalMs, config.maxPollMs || timeoutMs);
+      const startedAt = Date.now();
+      let statusPayload: any;
+      for (let pollNo = 1; ; pollNo += 1) {
+        await sleep(pollIntervalMs);
+        const statusResult = await fetchMediaGenerateStatus(taskId);
+        const statusLogFile = path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-status-" + pollNo + ".json");
+        writeImageGenerationTextLog(statusLogFile, statusResult.text);
+        if (!statusResult.response.ok) {
+          throw normalizeImageGenerationError(
+            "Media generation status failed with HTTP " + statusResult.response.status + ": " + (statusResult.text || statusResult.response.statusText)
+          );
+        }
+        try {
+          statusPayload = JSON.parse(statusResult.text);
+        } catch {
+          throw new Error("Media generation status response was not JSON: " + statusResult.text.slice(0, 500));
+        }
+        const progress = statusPayload?.progress ?? statusPayload?.data?.progress ?? "";
+        const statusText = statusPayload?.status ?? statusPayload?.data?.status ?? "";
+        options.onProgress?.(`Image ${imageIndex}: media task ${taskId} status ${statusText || "pending"} ${progress || ""}.`.trim());
+        if (mediaGenerateIsFinal(statusPayload)) {
+          break;
+        }
+        if (Date.now() - startedAt > maxPollMs) {
+          throw normalizeImageGenerationError(`Media generation task ${taskId} did not finish within ${maxPollMs}ms.`);
+        }
+      }
+      if (!mediaGenerateSucceeded(statusPayload) || mediaGenerateFailed(statusPayload)) {
+        const errorMessage = statusPayload?.error ?? statusPayload?.data?.error ?? "unknown error";
+        throw normalizeImageGenerationError(`Media generation task ${taskId} failed: ${errorMessage}`);
+      }
+      const resultUrl = extractMediaGenerateResultUrl(statusPayload);
+      if (!resultUrl) {
+        throw normalizeImageGenerationError("Media generation task returned no result_url: " + JSON.stringify(redactImageGenerationLogValue(statusPayload)).slice(0, 500));
+      }
+      const targetFile = path.join(options.downloadDir, "generated-" + String(imageIndexOffset + imageIndex).padStart(2, "0") + getImageExtensionFromContentType(resultUrl));
+      await downloadGeneratedImage(resultUrl, targetFile, config.apiKey || "", timeoutMs);
+      options.onProgress?.(`Image ${imageIndex}: saved ${path.basename(targetFile)}.`);
+      generated.push({ file: targetFile, submitId: taskId });
+      continue;
+    }
 
     options.onProgress?.(`Image ${imageIndex}: submitting ${mode} request.`);
     let { response, text } =
