@@ -355,7 +355,7 @@ async function clickTopRightShopMenu(page: Page): Promise<boolean> {
     });
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const point = await page.evaluate(() => {
+    const clicked = await page.evaluate(() => {
       const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
       const candidates = Array.from(document.querySelectorAll("body *"))
         .map((node) => node as HTMLElement)
@@ -383,45 +383,23 @@ async function clickTopRightShopMenu(page: Page): Promise<boolean> {
             (marker.includes("user") ? 20 : 0) +
             (rect.top < 100 ? 15 : 0) -
             text.length / 4;
-          return {
-            x: rect.x + rect.width / 2,
-            y: rect.y + rect.height / 2,
-            score
-          };
+          return { el, score };
         })
         .filter(Boolean)
         .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-      return candidates[0] || null;
+      const target = candidates[0]?.el;
+      if (!target) {
+        return false;
+      }
+      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      return true;
     });
 
-    if (!point) {
-      const fallbackPoints = await page.evaluate(() =>
-        [48, 96, 150, 210, 280, 360].map((offset) => ({ x: Math.max(40, window.innerWidth - offset), y: 34 }))
-      );
-      for (const fallbackPoint of fallbackPoints) {
-        await page.mouse.click(fallbackPoint.x, fallbackPoint.y, { delay: 90 }).catch(() => {});
-        await page.waitForTimeout(450 + attempt * 200);
-        if (await menuVisible()) {
-          return true;
-        }
-      }
-      continue;
-    }
-    await page.mouse.click(point.x, point.y, { delay: 90 });
     await page.waitForTimeout(700 + attempt * 250);
-    if (await menuVisible()) {
+    if (clicked && await menuVisible()) {
       return true;
-    }
-
-    const fallbackPoints = await page.evaluate(() =>
-      [48, 96, 150, 210, 280, 360].map((offset) => ({ x: Math.max(40, window.innerWidth - offset), y: 34 }))
-    );
-    for (const fallbackPoint of fallbackPoints) {
-      await page.mouse.click(fallbackPoint.x, fallbackPoint.y, { delay: 90 }).catch(() => {});
-      await page.waitForTimeout(450 + attempt * 200);
-      if (await menuVisible()) {
-        return true;
-      }
     }
   }
   return false;
@@ -465,7 +443,7 @@ async function waitForTopRightShopMenuAnchor(page: Page, timeoutMs = 12000): Pro
 }
 
 async function clickVisibleActionText(page: Page, text: string): Promise<boolean> {
-  const point = await page.evaluate((targetText) => {
+  const clicked = await page.evaluate((targetText) => {
     const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
     const target = normalize(targetText);
     const matches = Array.from(document.querySelectorAll("body *"))
@@ -484,16 +462,22 @@ async function clickVisibleActionText(page: Page, text: string): Promise<boolean
         ) {
           return null;
         }
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        return el;
       })
       .filter(Boolean);
-    return matches[0] || null;
+    const match = matches[0];
+    if (!match) {
+      return false;
+    }
+    match.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+    match.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+    match.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    return true;
   }, text);
 
-  if (!point) {
+  if (!clicked) {
     return false;
   }
-  await page.mouse.click(point.x, point.y, { delay: 90 });
   await page.waitForTimeout(800);
   return true;
 }
@@ -522,7 +506,7 @@ async function isShopSwitchEntryVisible(page: Page): Promise<boolean> {
 }
 
 async function clickShopSwitchEntry(page: Page): Promise<boolean> {
-  const point = await page.evaluate(() => {
+  const clicked = await page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
     const target = normalize("切换组织/店铺");
     const items = Array.from(document.querySelectorAll("body *"))
@@ -547,21 +531,23 @@ async function clickShopSwitchEntry(page: Page): Promise<boolean> {
           (rect.width > 220 ? 30 : 0) +
           (rect.top < 520 ? 10 : 0) -
           Math.abs(rect.height - 44);
-        return {
-          x: rect.x + Math.min(rect.width - 28, rect.width * 0.88),
-          y: rect.y + rect.height / 2,
-          score
-        };
+        return { el, score };
       })
       .filter(Boolean)
       .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-    return items[0] || null;
+    const item = items[0]?.el;
+    if (!item) {
+      return false;
+    }
+    item.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+    item.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+    item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    return true;
   });
 
-  if (!point) {
+  if (!clicked) {
     return false;
   }
-  await page.mouse.click(point.x, point.y, { delay: 90 });
   await page.waitForTimeout(900);
   return true;
 }
@@ -663,15 +649,6 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
         })
         .catch(() => {});
       await page.waitForTimeout(350);
-      const centeredBox = await card.boundingBox().catch(() => null);
-      if (centeredBox) {
-        await page.mouse.click(centeredBox.x + centeredBox.width / 2, centeredBox.y + centeredBox.height / 2, { delay: 100 }).catch(() => {});
-        await page.waitForTimeout(1800);
-        const dialogStillVisible = await waitForChooseShopDialog(page);
-        if (!dialogStillVisible) {
-          return true;
-        }
-      }
       const domClicked = await card
         .locator(".index_introName__fRtLx")
         .first()
@@ -703,14 +680,7 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
         .then(() => true)
         .catch(() => false);
       if (!arrowClicked) {
-        const box = await card.boundingBox().catch(() => null);
-        if (!box) {
-          continue;
-        }
-
-        const clickX = box.x + Math.max(40, box.width - 24);
-        const clickY = box.y + box.height / 2;
-        await page.mouse.click(clickX, clickY).catch(() => {});
+        continue;
       }
       await page.waitForTimeout(1800);
       const dialogStillVisible = await waitForChooseShopDialog(page);
@@ -744,7 +714,7 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
 }
 
 async function selectShopFromDialogByVisibleText(page: Page, expectedShopName: string): Promise<boolean> {
-  const point = await page.evaluate((targetName) => {
+  const clicked = await page.evaluate((targetName) => {
     const normalize = (value: string): string => String(value || "").replace(/^\d+/, "").replace(/\s+/g, "").trim();
     const target = normalize(targetName);
     const isVisible = (el: HTMLElement): boolean => {
@@ -824,14 +794,17 @@ async function selectShopFromDialogByVisibleText(page: Page, expectedShopName: s
         .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0] as HTMLElement | undefined) ||
       card;
     const targetRect = clickTarget.getBoundingClientRect();
-    const x = clickTarget === card ? cardRect.x + Math.max(40, cardRect.width - 28) : targetRect.x + targetRect.width / 2;
-    const y = clickTarget === card ? Math.min(Math.max(cardRect.y + cardRect.height / 2, containerRect.y + 20), containerRect.bottom - 20) : targetRect.y + targetRect.height / 2;
-    return { x, y };
+    if (targetRect.width <= 0 || targetRect.height <= 0 || cardRect.bottom < containerRect.top || cardRect.top > containerRect.bottom) {
+      return false;
+    }
+    clickTarget.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+    clickTarget.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+    clickTarget.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    return true;
   }, expectedShopName).catch(() => null);
-  if (!point) {
+  if (!clicked) {
     return false;
   }
-  await page.mouse.click(point.x, point.y, { delay: 100 }).catch(() => {});
   await page.waitForTimeout(1800);
   return !(await waitForChooseShopDialog(page));
 }
@@ -965,20 +938,31 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
             Math.abs(cardRect.height - 88) -
             cardText.length / 5;
           return {
-            x: cardRect.x + Math.max(40, cardRect.width - 30),
-            y: cardRect.y + cardRect.height / 2,
+            card,
             text: cardText,
             score: exactScore
           };
         })
         .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.y || 0) - (b?.y || 0));
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
 
       if (cards[0]) {
+        const card = cards[0].card as HTMLElement;
+        const targetNode =
+          (Array.from(card.querySelectorAll("svg, [role='button'], button"))
+            .map((node) => node as HTMLElement)
+            .filter((el) => {
+              const rect = el.getBoundingClientRect();
+              const style = window.getComputedStyle(el);
+              return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+            })
+            .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0] as HTMLElement | undefined) ||
+          card;
+        targetNode.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+        targetNode.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+        targetNode.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
         return {
           found: true,
-          x: cards[0].x,
-          y: cards[0].y,
           scrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight + 40
         };
       }
@@ -994,8 +978,7 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
       return { found: false, scrollable: false };
     }, normalizedExpected);
 
-    if (candidate.found && typeof candidate.x === "number" && typeof candidate.y === "number") {
-      await page.mouse.click(candidate.x, candidate.y, { delay: 90 });
+    if (candidate.found) {
       await page.waitForTimeout(1800);
       const dialogStillVisible = await waitForChooseShopDialog(page);
       if (!dialogStillVisible) {
