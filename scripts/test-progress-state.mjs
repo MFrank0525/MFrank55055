@@ -52,6 +52,7 @@ import {
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
 import { inferResumeStartStepForTask } from "../dist/src/autolist/resume-rules.js";
+import { isProductFullyProcessed } from "../dist/src/autolist/processed-completion-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
 import { assertGeneratedTitlesBelongToProduct } from "../dist/src/autolist/title-rules.js";
@@ -76,6 +77,7 @@ import { saveTitlesFromRaw } from "../dist/src/doubao/save.js";
 const hermesRunnerSource = fs.readFileSync("src/cli/hermes-auto-listing-runner.ts", "utf8");
 const hermesSupervisorSource = fs.readFileSync("src/cli/hermes-auto-listing-supervisor.ts", "utf8");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
+const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const packageSource = fs.readFileSync("package.json", "utf8");
 assert.match(
@@ -194,9 +196,14 @@ assert.match(
   "Orchestrator must append publish progress callback messages to events.ndjson for Hermes status"
 );
 assert.match(
+  processedCompletionRulesSource,
+  /taskHasSafePublishArtifact[\s\S]*publish_signal_confirmed[\s\S]*manifestHasSafePublishCoverage/,
+  "Processed-image marking must accept safe publish evidence from task artifacts or publish-manifest, not only cleaned/done task status"
+);
+assert.match(
   orchestratorSource,
-  /function isProductFullyProcessed[\s\S]*publishArtifact\?\.results[\s\S]*publish_signal_confirmed/,
-  "Processed-image marking must require safe publish results, not only cleaned/done task status"
+  /loadPublishManifest\(resolved\.runtimeDir\)[\s\S]*appendProcessedImages/,
+  "Orchestrator must use publish-manifest coverage when marking a cleanup-resumed product as processed"
 );
 assert.match(
   orchestratorSource,
@@ -1063,6 +1070,43 @@ assert.deepEqual(
     currentCount: 0,
     notStartedCount: 1
   }
+);
+
+const cleanupResumeFolders = Array.from({ length: 20 }, (_, index) => `/work/shop/product-${index + 1}`);
+assert.equal(
+  isProductFullyProcessed({
+    task: {
+      taskId: "image-001",
+      sequenceNo: 1,
+      sourceImagePath: "/work/input/current.png",
+      sourceImageName: "current.png",
+      status: "done",
+      lastUpdatedAt: new Date().toISOString(),
+      generatedProductFolders: cleanupResumeFolders,
+      notes: [],
+      shopDistributionArtifact: {
+        distributedFolders: cleanupResumeFolders,
+        simulated: false
+      }
+    },
+    productIdentity: {
+      sourceImagePath: "/work/input/current.png",
+      recordId: "record-001"
+    },
+    publishManifestEntries: cleanupResumeFolders.map((productFolder, index) => ({
+      productFolder,
+      runtimeKey: `shop__product-${index + 1}`,
+      shopFolder: "/work/shop",
+      watermarkNo: index + 1,
+      sourceImagePath: "/work/input/current.png",
+      recordId: "record-001",
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      message: "ok",
+      updatedAt: new Date().toISOString()
+    }))
+  }),
+  true
 );
 assert.equal(
   resolveHermesStartAfterFeishuRefresh({

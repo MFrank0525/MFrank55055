@@ -39,6 +39,18 @@ function listImageFilesRecursive(dir: string): string[] {
   return collected.sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
 
+function listImageFilesDirect(dir: string): string[] {
+  if (!dir || !fs.existsSync(dir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(dir, entry.name))
+    .filter(isImageFile)
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
 function archiveTimestamp(date = new Date()): string {
   const pad = (value: number): string => String(value).padStart(2, "0");
   return [
@@ -63,11 +75,35 @@ function resolveUniqueArchiveDir(baseDir: string): string {
   throw new Error(`Archive target already exists and no unique suffix was available: ${baseDir}`);
 }
 
+function findCompleteProductArchive(options: {
+  archiveRootDir: string;
+  productFolderName: string;
+  expectedImageCount: number;
+}): string[] {
+  if (!fs.existsSync(options.archiveRootDir) || options.expectedImageCount <= 0) {
+    return [];
+  }
+  const archiveDirPattern = new RegExp(`^\\d{12}${options.productFolderName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:-\\d{2})?$`);
+  const candidates = fs
+    .readdirSync(options.archiveRootDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && archiveDirPattern.test(entry.name))
+    .map((entry) => path.join(options.archiveRootDir, entry.name))
+    .map((dir) => ({
+      dir,
+      files: listImageFilesDirect(dir),
+      mtimeMs: fs.statSync(dir).mtimeMs
+    }))
+    .filter((candidate) => candidate.files.length >= options.expectedImageCount)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates[0]?.files.slice(0, options.expectedImageCount) || [];
+}
+
 export function archiveUnwatermarkedMainImages(options: {
   mainImageArtifact?: MainImageArtifact;
   productName: string;
   archiveRootDir?: string;
   rawImageSearchDir?: string;
+  expectedImageCount?: number;
   simulateOnly: boolean;
 }): string[] {
   const archiveRootDir = options.archiveRootDir || DEFAULT_ARCHIVE_ROOT;
@@ -80,7 +116,16 @@ export function archiveUnwatermarkedMainImages(options: {
   const recoveredRawFiles = artifactRawFiles.length
     ? []
     : listImageFilesRecursive(options.rawImageSearchDir || "").filter(isGeneratedRawMainImage);
-  const rawFiles = artifactRawFiles.length ? artifactRawFiles : recoveredRawFiles;
+  const currentRawFiles = artifactRawFiles.length ? artifactRawFiles : recoveredRawFiles;
+  const archiveRecoveredFiles =
+    options.expectedImageCount && currentRawFiles.length < options.expectedImageCount
+      ? findCompleteProductArchive({
+          archiveRootDir,
+          productFolderName,
+          expectedImageCount: options.expectedImageCount
+        })
+      : [];
+  const rawFiles = archiveRecoveredFiles.length ? archiveRecoveredFiles : currentRawFiles;
 
   if (!rawFiles.length) {
     return [];

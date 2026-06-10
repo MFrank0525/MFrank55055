@@ -32,7 +32,8 @@ import { assertRuleTextIntegrity } from "./rule-text.js";
 import { applyResumeTaskId, createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed, markRunPaused, recordTaskProgress } from "./state-machine.js";
 import { assertDoudianPublishSessionReady } from "../business/publish-from-spu.js";
 import { logError, logInfo, setLogFile } from "../utils/logger.js";
-import type { PublishProductIdentity } from "./publish-manifest.js";
+import { loadPublishManifest, type PublishProductIdentity } from "./publish-manifest.js";
+import { isProductFullyProcessed } from "./processed-completion-rules.js";
 import type {
   AutoListingEvent,
   AutoListingJobFile,
@@ -140,22 +141,6 @@ function collectProtectedCleanupAssetFiles(feishuProductDataFile: string): strin
   } catch {
     return [];
   }
-}
-
-function isProductFullyProcessed(task: ImageTaskState): boolean {
-  if (task.status !== "cleaned" && task.status !== "done") {
-    return false;
-  }
-  const expectedPublishCount = task.shopDistributionArtifact?.distributedFolders?.length || task.generatedProductFolders.length;
-  const publishResults = task.publishArtifact?.results || [];
-  if (expectedPublishCount <= 0 || publishResults.length < expectedPublishCount) {
-    return false;
-  }
-  return publishResults.every((result) =>
-    result.ok === true &&
-    result.status === "published" &&
-    (result.finalVerifyStatus === "publish_signal_confirmed" || result.finalVerifyStatus === "list_verified")
-  );
 }
 
 function buildPublishProductIdentity(task: ImageTaskState): PublishProductIdentity {
@@ -761,6 +746,7 @@ async function executeTaskChain(
         productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact?.userCognitionName || current.sourceImageName,
         archiveRootDir: archiveMainImageDir,
         rawImageSearchDir: taskRuntimeDir,
+        expectedImageCount: categoryPlan.titleCount,
         simulateOnly
       });
       if (!simulateOnly && archivedFiles.length !== categoryPlan.titleCount) {
@@ -1074,7 +1060,15 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           lastUpdatedAt: new Date().toISOString()
         };
         persistState(resolved.stateFile, workingState);
-        if (!resolved.input.simulateOnly && isProductFullyProcessed(completedTask)) {
+        const publishManifest = loadPublishManifest(resolved.runtimeDir);
+        if (
+          !resolved.input.simulateOnly &&
+          isProductFullyProcessed({
+            task: completedTask,
+            publishManifestEntries: publishManifest.entries,
+            productIdentity: buildPublishProductIdentity(completedTask)
+          })
+        ) {
           appendProcessedImages(resolved.processedImageManifest, [task.sourceImagePath], feishuBatchFingerprint);
         }
         writeJson(

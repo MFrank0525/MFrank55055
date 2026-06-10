@@ -35,9 +35,9 @@ const result = seedCurrentProductMainImageReuse({
   sourceImagePath
 });
 
-assert.equal(result.copiedRawImageCount, 0);
+assert.equal(result.copiedRawImageCount, 2);
 assert.equal(fs.readFileSync(path.join(currentRawDir, "generated-01.png"), "utf8"), "current-1");
 assert.equal(fs.readFileSync(path.join(currentRawDir, "generated-02.png"), "utf8"), "current-2");
-assert.equal(fs.existsSync(path.join(currentRawDir, "generated-03.png")), false);
-assert.equal(fs.existsSync(path.join(currentRawDir, "generated-04.png")), false);
+assert.equal(fs.readFileSync(path.join(currentRawDir, "generated-03.png"), "utf8"), "old-3");
+assert.equal(fs.readFileSync(path.join(currentRawDir, "generated-04.png"), "utf8"), "old-4");
 assert.equal(fs.existsSync(path.join(currentRawDir, "generated-05.png")), false);
