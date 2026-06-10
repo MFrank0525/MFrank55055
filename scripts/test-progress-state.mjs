@@ -901,6 +901,17 @@ assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
     exitCode: 1,
     batchComplete: false,
+    retryableFailureMessage:
+      'Image generation failed with HTTP 502: {"error":{"message":"Upstream access forbidden, please contact administrator","type":"upstream_error"}}',
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  false
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
     retryableFailureMessage: "Refusing to generate paid titles while product folders already contain workbook(s): /work/shop/product-1 -> title.xlsx",
     recoveryAttempts: 0,
     maxRecoveryAttempts: 3
@@ -1206,6 +1217,18 @@ assert.deepEqual(
     maxRetries: 8,
     delayMs: [60000, 90000, 120000, 180000, 240000, 300000, 300000, 300000],
     reason: "provider_gateway_unavailable"
+  }
+);
+assert.deepEqual(
+  resolveImageGenerationHttpRetryPolicy({
+    status: 502,
+    responseText: '{"error":{"message":"Upstream access forbidden, please contact administrator","type":"upstream_error"}}',
+    configuredMaxRetries: undefined
+  }),
+  {
+    maxRetries: 0,
+    delayMs: [],
+    reason: "provider_upstream_forbidden"
   }
 );
 assert.deepEqual(
