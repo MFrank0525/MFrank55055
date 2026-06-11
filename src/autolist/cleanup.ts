@@ -186,9 +186,36 @@ function collectRunDirs(runtimeRootDir: string): string[] {
     .map((entry) => path.join(runtimeRootDir, entry.name));
 }
 
+function collectReusableRawMainImageRunDirs(runDirs: string[]): string[] {
+  const protectedRunDirs: string[] = [];
+  for (const runDir of runDirs) {
+    const tasksDir = path.join(runDir, "tasks");
+    if (!fs.existsSync(tasksDir)) {
+      continue;
+    }
+    const hasReusableRawImage = fs
+      .readdirSync(tasksDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .some((entry) => {
+        const rawDir = path.join(tasksDir, entry.name, "openai-compatible", "raw");
+        if (!fs.existsSync(rawDir)) {
+          return false;
+        }
+        return fs
+          .readdirSync(rawDir, { withFileTypes: true })
+          .some((file) => file.isFile() && /^generated-.*\.(png|jpe?g|webp)$/i.test(file.name));
+      });
+    if (hasReusableRawImage) {
+      protectedRunDirs.push(runDir);
+    }
+  }
+  return protectedRunDirs;
+}
+
 export function cleanupStaleRunHistory(options: {
   runtimeRootDir: string;
   activeRuntimeDir: string;
+  protectedRunDirs?: string[];
   cleanupAfterPublish: boolean;
   simulateOnly: boolean;
 }): CleanupArtifact {
@@ -200,9 +227,11 @@ export function cleanupStaleRunHistory(options: {
     };
   }
 
+  const runDirs = collectRunDirs(options.runtimeRootDir);
   const targets = selectStaleRunHistoryTargets({
-    runDirs: collectRunDirs(options.runtimeRootDir),
-    activeRunDir: options.activeRuntimeDir
+    runDirs,
+    activeRunDir: options.activeRuntimeDir,
+    protectedRunDirs: [...(options.protectedRunDirs || []), ...collectReusableRawMainImageRunDirs(runDirs)]
   });
 
   for (const target of targets) {

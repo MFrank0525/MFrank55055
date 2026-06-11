@@ -440,19 +440,35 @@ assert.deepEqual(
   }),
   ["/work/data/auto-listing/runs/20260609-195920"]
 );
+assert.deepEqual(
+  selectStaleRunHistoryTargets({
+    runDirs: [
+      "/work/data/auto-listing/runs/20260610-232736",
+      "/work/data/auto-listing/runs/20260611-032939"
+    ],
+    activeRunDir: "/work/data/auto-listing/runs/20260611-032939",
+    protectedRunDirs: ["/work/data/auto-listing/runs/20260610-232736"]
+  }),
+  [],
+  "pre-run cleanup must preserve failed paid-image run dirs that can contain reusable raw main images"
+);
 
 const cleanupRunRoot = path.join(tempDir, "runs");
 const oldRunDir = path.join(cleanupRunRoot, "20260609-195920");
 const activeRunDir = path.join(cleanupRunRoot, "20260609-203518");
 const nonRunDir = path.join(cleanupRunRoot, "control");
+const protectedPaidImageRunDir = path.join(cleanupRunRoot, "20260610-232736");
 fs.mkdirSync(oldRunDir, { recursive: true });
 fs.mkdirSync(activeRunDir, { recursive: true });
 fs.mkdirSync(nonRunDir, { recursive: true });
+fs.mkdirSync(protectedPaidImageRunDir, { recursive: true });
 fs.writeFileSync(path.join(oldRunDir, "state.json"), "{}\n");
 fs.writeFileSync(path.join(activeRunDir, "state.json"), "{}\n");
+fs.writeFileSync(path.join(protectedPaidImageRunDir, "state.json"), "{}\n");
 const staleRunCleanup = cleanupStaleRunHistory({
   runtimeRootDir: cleanupRunRoot,
   activeRuntimeDir: activeRunDir,
+  protectedRunDirs: [protectedPaidImageRunDir],
   cleanupAfterPublish: true,
   simulateOnly: false
 });
@@ -460,6 +476,7 @@ assert.deepEqual(staleRunCleanup.removedPaths, [oldRunDir]);
 assert.equal(fs.existsSync(oldRunDir), false);
 assert.equal(fs.existsSync(activeRunDir), true);
 assert.equal(fs.existsSync(nonRunDir), true);
+assert.equal(fs.existsSync(protectedPaidImageRunDir), true);
 
 const sameSpuFolderMatch = resolveFeishuAssetRecordForFolder({
   folderSearchParts: [
@@ -864,6 +881,17 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   true
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: "failed at main_images_generated: fetch failed",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  false,
+  "paid main-image transport failures must not restart full flow and risk repeated provider charges"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({

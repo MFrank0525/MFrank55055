@@ -29,15 +29,26 @@ export function resolveDefaultRetryableChildFailureRecoveryAttempts(): number {
   return 12;
 }
 
+function isPaidMainImageTransportFailure(message: string): boolean {
+  return (
+    /main_images_generated|main image/i.test(message) &&
+    /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR/i.test(message)
+  );
+}
+
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
+  const retryableFailureMessage = input.retryableFailureMessage || "";
   if (input.exitCode === 0 || input.batchComplete || input.recoveryAttempts >= input.maxRecoveryAttempts) {
     return false;
   }
-  if (/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(input.retryableFailureMessage || "")) {
+  if (/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(retryableFailureMessage)) {
+    return false;
+  }
+  if (isPaidMainImageTransportFailure(retryableFailureMessage)) {
     return false;
   }
   return /image generation|main image|timed out|timeout|fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|no progress|watchdog|product folders already contain workbook/i.test(
-    input.retryableFailureMessage || ""
+    retryableFailureMessage
   );
 }
 

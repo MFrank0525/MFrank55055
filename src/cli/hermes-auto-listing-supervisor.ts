@@ -107,7 +107,9 @@ function latestFailureMessage(): string {
       continue;
     }
     const failedTask = Array.isArray(result.tasks) ? result.tasks.find((task: any) => task.status === "failed" || task.error) : undefined;
-    return String(failedTask?.error?.message || result.error?.message || result.error || "");
+    const message = String(failedTask?.error?.message || result.error?.message || result.error || "");
+    const step = String(failedTask?.error?.step || failedTask?.status || result.error?.step || "");
+    return step && message ? `failed at ${step}: ${message}` : message;
   }
   return "";
 }
