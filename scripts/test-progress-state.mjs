@@ -38,7 +38,8 @@ import {
   isHermesRunningProcessConfirmed,
   selectHermesLatestResultFileForJobStatus,
   isExternalMainImageRawReuseMessage,
-  shouldClearPauseSignalOnHermesStart
+  shouldClearPauseSignalOnHermesStart,
+  summarizeHermesImageGenerationEvents
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -312,6 +313,22 @@ assert.deepEqual(latestEvent, {
   step: "main_images_generated",
   message: "Prompt 1/5: Image 2: submitting edits request."
 });
+assert.deepEqual(
+  summarizeHermesImageGenerationEvents([
+    { timestamp: "2026-05-23T10:01:00.000Z", message: "Prompt 4/5: Image 1: saved generated-01.png." },
+    { timestamp: "2026-05-23T10:02:00.000Z", message: "Prompt 4/5: Image 2: saved generated-02.png." },
+    { timestamp: "2026-05-23T10:03:00.000Z", message: "Prompt 4/5: Image 3: submitting edits request." }
+  ]),
+  {
+    status: "generating",
+    count: undefined,
+    latestMessage: "Prompt 4/5: Image 3: submitting edits request.",
+    latestSavedMessage: "Prompt 4/5: Image 2: saved generated-02.png.",
+    latestSavedImage: 2,
+    updatedAt: "2026-05-23T10:03:00.000Z",
+    latestSavedAt: "2026-05-23T10:02:00.000Z"
+  }
+);
 
 const pageNotReadyClass = classifyPublishFailure("Platform SPU query page was not ready after navigation.");
 assert.equal(pageNotReadyClass, "platform_page_not_ready");

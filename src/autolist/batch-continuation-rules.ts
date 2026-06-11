@@ -427,6 +427,48 @@ export function selectHermesLatestResultFileForJobStatus(input: {
   return input.hasControlJob ? undefined : input.latestResultFile;
 }
 
+export type HermesImageGenerationEvent = {
+  timestamp?: string;
+  message?: string;
+};
+
+export type HermesImageGenerationSummary = {
+  status: "reused_raw_images" | "ready" | "generating" | "in_progress";
+  count?: number;
+  latestMessage: string;
+  latestSavedMessage?: string;
+  latestSavedImage?: number;
+  updatedAt?: string;
+  latestSavedAt?: string;
+};
+
+export function summarizeHermesImageGenerationEvents(events: HermesImageGenerationEvent[]): HermesImageGenerationSummary | undefined {
+  const latest = events.at(-1);
+  if (!latest) {
+    return undefined;
+  }
+  const latestReuseEvent = [...events]
+    .reverse()
+    .find((event) => /Reused\s+\d+\s+current-product raw main image/i.test(event.message || ""));
+  const latestSavedEvent = [...events]
+    .reverse()
+    .find((event) => /saved generated-(\d+)/i.test(event.message || ""));
+  const reused = /Reused\s+(\d+)\s+current-product raw main image/i.exec(latestReuseEvent?.message || "");
+  const ready = /Main images ready:\s*(\d+)\s*file/i.exec(latest.message || "");
+  const saved = /saved generated-(\d+)/i.exec(latest.message || "");
+  const latestSaved = /saved generated-(\d+)/i.exec(latestSavedEvent?.message || "");
+  const submitting = /Prompt\s+(\d+)\/(\d+):\s*Image\s+(\d+)/i.exec(latest.message || "");
+  return {
+    status: reused ? "reused_raw_images" : ready ? "ready" : saved ? "generating" : submitting ? "generating" : "in_progress",
+    count: reused ? Number(reused[1]) : ready ? Number(ready[1]) : undefined,
+    latestMessage: reused ? latestReuseEvent?.message || "" : latest.message || "",
+    latestSavedMessage: latestSavedEvent?.message,
+    latestSavedImage: latestSaved ? Number(latestSaved[1]) : undefined,
+    updatedAt: reused ? latestReuseEvent?.timestamp : latest.timestamp,
+    latestSavedAt: latestSavedEvent?.timestamp
+  };
+}
+
 export function isExternalMainImageRawReuseMessage(input: {
   message?: string;
   currentRuntimeDir: string;

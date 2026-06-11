@@ -22,7 +22,8 @@ import {
   shouldResumeInterruptedTaskInPlace,
   shouldSuppressHistoricalResultInHermesStatus,
   shouldSuppressStateCurrentTaskInHermesStatus,
-  shouldUseExpectedResultFileInRunningStatus
+  shouldUseExpectedResultFileInRunningStatus,
+  summarizeHermesImageGenerationEvents
 } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
@@ -498,16 +499,15 @@ function summarizeImageGenerationProgress(runtimeDir: string | undefined, taskId
   const latestReuseEvent = [...events]
     .reverse()
     .find((event) => /Reused\s+\d+\s+current-product raw main image/i.test(event.message || ""));
-  const reused = /Reused\s+(\d+)\s+current-product raw main image/i.exec(latestReuseEvent?.message || "");
-  const ready = /Main images ready:\s*(\d+)\s*file/i.exec(latest.message || "");
-  const saved = /saved generated-(\d+)/i.exec(latest.message || "");
-  const submitting = /Prompt\s+(\d+)\/(\d+):\s*Image\s+(\d+)/i.exec(latest.message || "");
-  return {
-    status: reused ? "reused_raw_images" : ready ? "ready" : saved ? "generating" : submitting ? "generating" : "in_progress",
-    count: reused ? Number(reused[1]) : ready ? Number(ready[1]) : undefined,
-    latestMessage: compactStatusValue(reused ? latestReuseEvent?.message || "" : latest.message || ""),
-    updatedAt: reused ? latestReuseEvent?.timestamp : latest.timestamp
-  };
+  const summary = summarizeHermesImageGenerationEvents(events);
+  return summary
+    ? {
+        ...summary,
+        latestMessage: compactStatusValue(summary.latestMessage),
+        latestSavedMessage: summary.latestSavedMessage ? compactStatusValue(summary.latestSavedMessage) : undefined,
+        updatedAt: latestReuseEvent ? latestReuseEvent.timestamp : summary.updatedAt
+      }
+    : undefined;
 }
 
 function summarizeLatestPublishArtifact(runtimeDir: string, runtimeKey: string | undefined): Record<string, unknown> | undefined {
@@ -955,6 +955,9 @@ function formatStatusText(status: Record<string, unknown>): string {
       lines.push(`生图：已复用当前商品 raw 主图 ${String(imageProgress.count ?? "?")} 张；不会重新调用中转站生成。`);
     } else {
       lines.push(`生图：${String(imageProgress.latestMessage || imageProgress.status || "进行中")}`);
+      if (imageProgress.latestSavedMessage) {
+        lines.push(`生图最近保存：${String(imageProgress.latestSavedMessage)}`);
+      }
     }
   }
   if (progress) {
