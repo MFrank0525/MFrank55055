@@ -16,6 +16,11 @@ assert.equal(
   false,
   "basic-info readback gates must be read-only and must not switch the active publish tab"
 );
+assert.match(
+  basicGateSource,
+  /evaluateBasicInfoGateRecovery[\s\S]*PublishCreatePageReopenRequiredError/,
+  "basic-info readback must reopen the SPU-prefilled page when all expected fields disappear together"
+);
 
 const finalGraphicVerifierSource = sliceFunction("verifyForbiddenGraphicSectionsEmptyOnPage");
 assert.equal(

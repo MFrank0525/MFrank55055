@@ -29,6 +29,7 @@ import type {
 } from "./publish-from-spu/types.js";
 import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
 import {
+  evaluateBasicInfoGateRecovery,
   evaluateBasicPrefillReadiness,
   evaluateShopSwitchMenuState,
   evaluateDetailImageCompletion,
@@ -2530,6 +2531,19 @@ async function assertBasicPublishCompletionOnPage(
   const completion = await readBasicPublishCompletionOnPage(page, metadata);
   if (completion.missingFields.length) {
     const screenshotFile = await savePageScreenshot(page, runtimeDir, `publish-page-basic-gate-${gateName}.png`).catch(() => "");
+    const recovery = evaluateBasicInfoGateRecovery({
+      expectedFields: [
+        metadata.title ? "title" : "",
+        metadata.shortTitle ? "shortTitle" : "",
+        metadata.modelSpec ? "modelSpec" : ""
+      ].filter(Boolean),
+      missingFields: completion.missingFields
+    });
+    if (recovery.action === "reopen_from_platform_spu") {
+      throw new PublishCreatePageReopenRequiredError(
+        `${recovery.issue}${screenshotFile ? ` screenshot=${screenshotFile}` : ""}`
+      );
+    }
     throw new Error(
       `Basic info gate failed before ${gateName}: missing=${completion.missingFields.join(", ")}; values=${JSON.stringify(
         completion.fieldValues

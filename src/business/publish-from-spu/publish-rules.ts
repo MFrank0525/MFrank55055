@@ -132,6 +132,16 @@ export interface BasicPrefillReadinessDecision {
   issue: string;
 }
 
+export interface BasicInfoGateRecoveryInput {
+  expectedFields: string[];
+  missingFields: string[];
+}
+
+export interface BasicInfoGateRecoveryDecision {
+  action: "block" | "reopen_from_platform_spu";
+  issue: string;
+}
+
 const SUBMISSION_SUCCESS_TEXTS = [
   "发布成功",
   "提交成功",
@@ -201,6 +211,9 @@ export function evaluatePublishCreatePageReadiness(input: PublishCreatePageHealt
   ) {
     return { action: "wait_or_reload", issue: "Publish create page reported recoverable data/network error." };
   }
+  if (input.loading) {
+    return { action: "wait_or_reload", issue: "Publish create page is still loading." };
+  }
   if (input.usable) {
     return { action: "ready", issue: "" };
   }
@@ -214,6 +227,18 @@ export function evaluatePublishCreatePageReadiness(input: PublishCreatePageHealt
     return { action: "reopen_from_platform_spu", issue: "Publish create page has no publish sections after SPU query." };
   }
   return { action: "wait_or_reload", issue: "Publish create page is not ready yet." };
+}
+
+export function evaluateBasicInfoGateRecovery(input: BasicInfoGateRecoveryInput): BasicInfoGateRecoveryDecision {
+  const expected = new Set(input.expectedFields.filter(Boolean));
+  const missing = new Set(input.missingFields.filter(Boolean));
+  if (expected.size > 0 && expected.size === missing.size && [...expected].every((field) => missing.has(field))) {
+    return {
+      action: "reopen_from_platform_spu",
+      issue: "All expected basic-info fields disappeared from the publish page."
+    };
+  }
+  return { action: "block", issue: "Basic-info fields are incomplete." };
 }
 
 export function evaluateBasicPrefillReadiness(input: BasicPrefillReadinessInput): BasicPrefillReadinessDecision {
@@ -321,6 +346,9 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("Failedtoactivatepublishsectiontab") && text.includes("actual=<unknown>")) {
     return "platform_page_not_ready";
   }
+  if (text.includes("Allexpectedbasic-infofieldsdisappearedfromthepublishpage")) {
+    return "platform_page_not_ready";
+  }
   if (
     text.includes("Novisiblefreighttemplateoptionmatchedkeyword") ||
     text.includes("Novisiblefreighttemplatecomboboxmatchedkeyword") ||
@@ -406,6 +434,8 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "platform_spu_prefill_failed",
     "final_publish_submit_transient",
     "service_section_not_ready",
+    "basic_info_field_not_ready",
+    "spec_template_not_ready",
     "page_context_lost",
     "shop_switch_entry_unavailable",
     "browser_remote_debugging_unavailable"

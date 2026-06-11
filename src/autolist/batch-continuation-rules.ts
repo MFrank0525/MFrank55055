@@ -36,6 +36,15 @@ function isPaidMainImageTransportFailure(message: string): boolean {
   );
 }
 
+function isRetryablePublishPageFailure(message: string): boolean {
+  return (
+    /failed at published|publish failed|publish flow stopped/i.test(message) &&
+    /基础信息模块未完成|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|publish create page did not become ready|page context was lost|Execution context was destroyed|Target closed/i.test(
+      message
+    )
+  );
+}
+
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
   const retryableFailureMessage = input.retryableFailureMessage || "";
   if (input.exitCode === 0 || input.batchComplete || input.recoveryAttempts >= input.maxRecoveryAttempts) {
@@ -47,6 +56,9 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
   if (isPaidMainImageTransportFailure(retryableFailureMessage)) {
     return false;
   }
+  if (isRetryablePublishPageFailure(retryableFailureMessage)) {
+    return true;
+  }
   return /image generation|main image|timed out|timeout|fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|no progress|watchdog|product folders already contain workbook/i.test(
     retryableFailureMessage
   );
@@ -57,7 +69,10 @@ export type SupervisorFullFlowRecoveryInput = FeishuBatchRetryAfterFailureInput 
 };
 
 export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlowRecoveryInput): boolean {
-  return input.childMode === "full" && shouldResumeFeishuBatchAfterRetryableChildFailure(input);
+  if (!shouldResumeFeishuBatchAfterRetryableChildFailure(input)) {
+    return false;
+  }
+  return input.childMode === "full" || isRetryablePublishPageFailure(input.retryableFailureMessage || "");
 }
 
 export type InterruptedTaskResumeInput = {

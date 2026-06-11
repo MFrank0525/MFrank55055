@@ -318,17 +318,22 @@ const basicFieldLocatorClass = classifyPublishFailure(
 assert.equal(basicFieldLocatorClass, "basic_info_field_not_ready");
 assert.equal(
   shouldRetryPublishFailure(basicFieldLocatorClass, 0),
-  false,
-  "basic-info field readiness failures must stop instead of reopening the publish page repeatedly"
+  true,
+  "basic-info field readiness failures are transient publish-page failures and must retry with a fresh SPU-prefilled page"
 );
+const disappearedBasicFieldsClass = classifyPublishFailure(
+  "All expected basic-info fields disappeared from the publish page."
+);
+assert.equal(disappearedBasicFieldsClass, "platform_page_not_ready");
+assert.equal(shouldRetryPublishFailure(disappearedBasicFieldsClass, 0), true);
 const specTemplateMissingClass = classifyPublishFailure(
   "Sequential publish flow stopped: 价格库存模块未完成。Spec template selection did not match required keyword. expectedKeyword=买二送一; selectedTemplate=<empty>; keyword=买二送一"
 );
 assert.equal(specTemplateMissingClass, "spec_template_not_ready");
 assert.equal(
   shouldRetryPublishFailure(specTemplateMissingClass, 0),
-  false,
-  "spec-template readback failures must not trigger whole publish-flow refresh retries"
+  true,
+  "spec-template readback failures are transient publish-page failures and must receive bounded whole-flow retries"
 );
 
 const finalSubmitTransientClass = classifyPublishFailure(
@@ -950,6 +955,32 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   false
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage:
+      'failed at published: Publish failed: Sequential publish flow stopped: 基础信息模块未完成。Basic info gate failed before after_basic_fill: missing=title, shortTitle, modelSpec; values={"title":"","shortTitle":"","modelSpec":""}',
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true,
+  "Hermes resume children must automatically recover bounded transient publish-page failures"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage:
+      "failed at published: Sequential publish flow stopped: 价格库存模块未完成。Spec template selection did not match required keyword.",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true,
+  "Hermes resume children must automatically recover transient spec-template page failures"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
