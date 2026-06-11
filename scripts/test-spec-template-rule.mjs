@@ -8,12 +8,30 @@ import {
 
 assert.deepEqual(
   evaluateSpecTemplateCompletion({
+    selectedTemplate: "买二送一-四规格",
+    expectedTemplateKeyword: "买二送一",
     filledSpecValues: 4,
     expectedSpecValues: 4,
     priceRows: 4,
     blankSpecValueInputs: 0
   }),
   { passed: true, issue: "" }
+);
+
+assert.deepEqual(
+  evaluateSpecTemplateCompletion({
+    selectedTemplate: "单规格默认模板",
+    expectedTemplateKeyword: "买二送一",
+    filledSpecValues: 4,
+    expectedSpecValues: 4,
+    priceRows: 4,
+    blankSpecValueInputs: 0
+  }),
+  {
+    passed: false,
+    issue: 'Spec template selection did not match required keyword. expectedKeyword=买二送一; selectedTemplate=单规格默认模板'
+  },
+  "template identity must block continuation even when SKU rows look complete"
 );
 
 assert.deepEqual(
@@ -172,6 +190,11 @@ assert.match(
   publishSource,
   /const initialRule = evaluateSpecTemplateCompletion[\s\S]*if \(initialRule\.passed[\s\S]*\)/,
   "template verification must accept a completed template before deleting blank placeholder spec inputs"
+);
+assert.match(
+  publishSource,
+  /evaluateSpecTemplateCompletion\(\{\s*selectedTemplate,\s*expectedTemplateKeyword: keyword,/,
+  "template verification must pass the selected template text and required keyword into the rule layer"
 );
 
 assert.match(

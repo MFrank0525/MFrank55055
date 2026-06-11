@@ -30,6 +30,8 @@ export interface PublishRuleCheck {
 }
 
 export interface SpecTemplateCompletionRuleInput {
+  selectedTemplate?: string;
+  expectedTemplateKeyword?: string;
   filledSpecValues: number;
   expectedSpecValues: number;
   priceRows: number;
@@ -497,6 +499,16 @@ export function evaluatePriceInventoryCompletion(input: {
 }
 
 export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRuleInput): PublishRuleCheck {
+  const expectedTemplateKeyword = (input.expectedTemplateKeyword || "").trim();
+  const selectedTemplate = (input.selectedTemplate || "").trim();
+  if (expectedTemplateKeyword && !selectedTemplate.includes(expectedTemplateKeyword)) {
+    return {
+      passed: false,
+      issue: `Spec template selection did not match required keyword. expectedKeyword=${expectedTemplateKeyword}; selectedTemplate=${
+        selectedTemplate || "<empty>"
+      }`
+    };
+  }
   if (input.priceRows >= input.expectedSpecValues) {
     return { passed: true, issue: "" };
   }

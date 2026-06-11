@@ -4469,6 +4469,8 @@ async function applySpecTemplateWithVerificationOnPage(
     const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
     const blankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
     const initialRule = evaluateSpecTemplateCompletion({
+      selectedTemplate,
+      expectedTemplateKeyword: keyword,
       filledSpecValues: filledValues.length,
       expectedSpecValues: FIXED_SPEC_VALUES.length,
       priceRows: visiblePriceRows,
@@ -4490,6 +4492,8 @@ async function applySpecTemplateWithVerificationOnPage(
   const finalVisiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
   const finalBlankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
   const finalRule = evaluateSpecTemplateCompletion({
+    selectedTemplate,
+    expectedTemplateKeyword: keyword,
     filledSpecValues: finalValues.length,
     expectedSpecValues: FIXED_SPEC_VALUES.length,
     priceRows: finalVisiblePriceRows,
