@@ -55,7 +55,7 @@ import {
   resolveImageGenerationTransportRetryPolicy,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
-import { inferResumeStartStepForTask } from "../dist/src/autolist/resume-rules.js";
+import { inferResumeStartStepForTask, shouldReplaceStaleResumeStartStep } from "../dist/src/autolist/resume-rules.js";
 import { isProductFullyProcessed } from "../dist/src/autolist/processed-completion-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
@@ -1654,6 +1654,25 @@ assert.equal(
   }),
   "published",
   "Publishing interruptions after assets are distributed must resume at published and must not regenerate main images."
+);
+assert.equal(
+  shouldReplaceStaleResumeStartStep({
+    resumeStartStep: "main_images_generated",
+    inferredStateStartStep: "published",
+    stateProductFolderCount: 20,
+    safelyPublishedCount: 2
+  }),
+  true,
+  "Hermes must replace stale resume jobs when state/publish-manifest proves the flow has advanced to publishing."
+);
+assert.equal(
+  shouldReplaceStaleResumeStartStep({
+    resumeStartStep: "main_images_generated",
+    inferredStateStartStep: "main_images_generated",
+    stateProductFolderCount: 0,
+    safelyPublishedCount: 0
+  }),
+  false
 );
 assert.equal(
   inferResumeStartStepForTask({

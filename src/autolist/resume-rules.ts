@@ -86,3 +86,15 @@ export function inferResumeStartStepForTask(task: ResumeTaskLike): AutoListingSt
   }
   return AUTO_LISTING_STEPS[Math.min(currentIndex + 1, AUTO_LISTING_STEPS.length - 1)];
 }
+
+export function shouldReplaceStaleResumeStartStep(input: {
+  resumeStartStep?: string;
+  inferredStateStartStep?: string;
+  stateProductFolderCount: number;
+  safelyPublishedCount: number;
+}): boolean {
+  if (!input.resumeStartStep || !input.inferredStateStartStep || input.resumeStartStep === input.inferredStateStartStep) {
+    return false;
+  }
+  return input.stateProductFolderCount > 0 || input.safelyPublishedCount > 0;
+}

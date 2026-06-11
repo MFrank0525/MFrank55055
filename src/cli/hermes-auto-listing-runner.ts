@@ -31,7 +31,7 @@ import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, read
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
-import { inferResumeStartStepForTask } from "../autolist/resume-rules.js";
+import { inferResumeStartStepForTask, shouldReplaceStaleResumeStartStep } from "../autolist/resume-rules.js";
 
 interface RunnerJob {
   pid: number;
@@ -1051,6 +1051,26 @@ function shouldResumeCurrentFailure(): boolean {
   if (!shouldResumeSourceImageForCurrentFeishuBatch(resumeSourceImagePath, reusableArtifactCount)) {
     fs.rmSync(resumeJobFile, { force: true });
     return false;
+  }
+
+  const state = readJsonFile<AutoListingStateFile>(path.join(resumeRuntimeDir, "state.json"));
+  const stateTask = (state?.tasks || []).find((task) =>
+    (resumeJob.input?.resumeTaskId && task.taskId === resumeJob.input.resumeTaskId) ||
+    (task.sourceImagePath && path.resolve(rootDir, task.sourceImagePath) === path.resolve(rootDir, resumeSourceImagePath))
+  );
+  if (stateTask) {
+    const inferredStateStartStep = inferResumeStartStepForTask(stateTask);
+    if (
+      shouldReplaceStaleResumeStartStep({
+        resumeStartStep: String(startStep),
+        inferredStateStartStep,
+        stateProductFolderCount: collectResumeProductFolderNames(stateTask).length,
+        safelyPublishedCount: countSafelyPublishedManifestEntries(resumeRuntimeDir)
+      })
+    ) {
+      fs.rmSync(resumeJobFile, { force: true });
+      return false;
+    }
   }
 
   if (!resumeJob?.resultFile) {
