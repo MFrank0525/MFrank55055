@@ -4,6 +4,7 @@ import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import {
   resolveDefaultRetryableChildFailureRecoveryAttempts,
+  resolveHermesChildStallTimeoutMs,
   shouldContinueFullFlowAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
   shouldRecoverFullFlowAfterChildFailure,
@@ -89,6 +90,34 @@ function latestProgressMtimeMs(): number {
     }
   }
   return latest;
+}
+
+function latestProgressSnapshot(): { activeStep?: string; activeMessage?: string } {
+  const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
+  if (!fs.existsSync(runsDir)) {
+    return {};
+  }
+  const eventFiles = fs
+    .readdirSync(runsDir)
+    .map((runId) => path.join(runsDir, runId, "events.ndjson"))
+    .filter((file) => fs.existsSync(file))
+    .map((file) => ({ file, mtimeMs: fs.statSync(file).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const { file } of eventFiles) {
+    const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean);
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      try {
+        const event = JSON.parse(lines[index]) as { step?: string; message?: string };
+        return {
+          activeStep: event.step,
+          activeMessage: event.message
+        };
+      } catch {
+        continue;
+      }
+    }
+  }
+  return {};
 }
 
 function latestFailureMessage(): string {
@@ -202,7 +231,13 @@ async function runChild(label: string, command: string, args: string[]): Promise
       lastProgressSeenAt = Date.now();
       return;
     }
-    if (Date.now() - lastProgressSeenAt < childStallTimeoutMs) {
+    const activeProgress = latestProgressSnapshot();
+    const effectiveStallTimeoutMs = resolveHermesChildStallTimeoutMs({
+      defaultTimeoutMs: childStallTimeoutMs,
+      activeStep: activeProgress.activeStep,
+      activeMessage: activeProgress.activeMessage
+    });
+    if (Date.now() - lastProgressSeenAt < effectiveStallTimeoutMs) {
       return;
     }
     const terminalResult = latestTerminalResultAfter(childStartedAtMs);
@@ -222,7 +257,9 @@ async function runChild(label: string, command: string, args: string[]): Promise
       return;
     }
     killedForStall = true;
-    console.error(`Child ${label} made no progress for ${childStallTimeoutMs}ms; terminating process group ${child.pid}.`);
+    console.error(
+      `Child ${label} made no progress for ${effectiveStallTimeoutMs}ms during ${activeProgress.activeStep || "unknown"}; terminating process group ${child.pid}. latest=${activeProgress.activeMessage || ""}`
+    );
     if (child.pid) {
       terminateProcessGroup(child.pid);
       setTimeout(() => {

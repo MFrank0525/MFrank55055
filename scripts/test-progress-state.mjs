@@ -39,7 +39,8 @@ import {
   selectHermesLatestResultFileForJobStatus,
   isExternalMainImageRawReuseMessage,
   shouldClearPauseSignalOnHermesStart,
-  summarizeHermesImageGenerationEvents
+  summarizeHermesImageGenerationEvents,
+  resolveHermesChildStallTimeoutMs
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -432,6 +433,22 @@ const cdpContextManagementClass = classifyPublishFailure(
 );
 assert.equal(cdpContextManagementClass, "browser_remote_debugging_unavailable");
 assert.equal(shouldRetryPublishFailure(cdpContextManagementClass, 0), true);
+assert.equal(
+  resolveHermesChildStallTimeoutMs({
+    defaultTimeoutMs: 12 * 60 * 1000,
+    activeStep: "published",
+    activeMessage: "Retrying publish for 延草纲目医用面部冷敷贴水印03 (02延草纲目药品专营店): page_context_lost; attempt 1"
+  }),
+  4 * 60 * 1000
+);
+assert.equal(
+  resolveHermesChildStallTimeoutMs({
+    defaultTimeoutMs: 12 * 60 * 1000,
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 4/5: Image 2: transient transport error during initial; retry 6/8."
+  }),
+  12 * 60 * 1000
+);
 
 const alreadyInTargetShop = evaluateShopSwitchMenuState({
   expectedShopName: "延草纲目康复理疗专营店",

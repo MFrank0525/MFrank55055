@@ -184,6 +184,23 @@ export function resolveHermesProgressAgeSeconds(input: HermesProgressAgeInput): 
   return Math.max(0, Math.floor((nowMs - progressMs) / 1000));
 }
 
+export type HermesChildStallTimeoutInput = {
+  defaultTimeoutMs: number;
+  activeStep?: string;
+  activeMessage?: string;
+};
+
+export function resolveHermesChildStallTimeoutMs(input: HermesChildStallTimeoutInput): number {
+  const defaultTimeoutMs = Math.max(180000, input.defaultTimeoutMs);
+  const activeText = `${input.activeStep || ""} ${input.activeMessage || ""}`;
+  if (
+    /published|Publishing product folder|Retrying publish|Publish failed|page_context_lost|browser_remote_debugging_unavailable/i.test(activeText)
+  ) {
+    return Math.min(defaultTimeoutMs, 4 * 60 * 1000);
+  }
+  return defaultTimeoutMs;
+}
+
 export type HermesEffectiveProgressTimestampInput = {
   stateProgressTimestamp?: string;
   activePublishUpdatedAt?: string;
