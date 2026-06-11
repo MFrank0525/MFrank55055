@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  isHermesChildProcessCommand,
   isHermesSupervisorProcessCommand,
   isHermesRunningProcessConfirmed,
   isExternalMainImageRawReuseMessage,
@@ -152,6 +153,7 @@ interface LocalFeishuConfig {
 const rootDir = process.cwd();
 const controlDir = path.resolve(rootDir, "data/auto-listing/control");
 const jobFile = path.join(controlDir, "hermes-auto-listing-job.json");
+const childControlFile = path.join(controlDir, "hermes-auto-listing-child.json");
 const pauseFile = path.join(controlDir, "pause.requested");
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu-real.json");
@@ -193,6 +195,46 @@ function isRunnerJobRunning(job: RunnerJob): boolean {
     pidAlive: isPidRunning(job.pid),
     command
   });
+}
+
+async function cleanupRecordedHermesChild(): Promise<void> {
+  const child = readJsonFile<{ pid?: number }>(childControlFile);
+  const pid = child?.pid;
+  if (!pid || !isPidRunning(pid)) {
+    fs.rmSync(childControlFile, { force: true });
+    return;
+  }
+  const command = readProcessCommand(pid);
+  if (!command || !isHermesChildProcessCommand(command)) {
+    fs.rmSync(childControlFile, { force: true });
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      fs.rmSync(childControlFile, { force: true });
+      return;
+    }
+  }
+  const deadline = Date.now() + 5000;
+  while (isPidRunning(pid) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (isPidRunning(pid)) {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Process exited between the liveness check and termination.
+      }
+    }
+  }
+  fs.rmSync(childControlFile, { force: true });
 }
 
 function timestampForFile(date = new Date()): string {
@@ -1412,6 +1454,9 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     };
     console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
     return;
+  }
+  if (!dryRun) {
+    await cleanupRecordedHermesChild();
   }
 
   const beforeRefreshProgress = summarizeFeishuProgress();

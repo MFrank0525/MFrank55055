@@ -42,6 +42,7 @@ const rootDir = process.cwd();
 const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu-real.json");
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
+const childControlFile = path.resolve(rootDir, "data/auto-listing/control/hermes-auto-listing-child.json");
 const childStallExitCode = 124;
 const childStallTimeoutMs = Math.max(180000, Number(process.env.AUTO_LISTING_CHILD_STALL_TIMEOUT_MS || 12 * 60 * 1000));
 const maxChildRecoveryAttempts = Math.max(
@@ -166,6 +167,18 @@ function forceTerminateProcessGroup(pid: number): void {
   }
 }
 
+function writeHermesChildControl(pid: number, label: string): void {
+  fs.mkdirSync(path.dirname(childControlFile), { recursive: true });
+  fs.writeFileSync(childControlFile, `${JSON.stringify({ pid, label, startedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+}
+
+function clearHermesChildControl(pid: number): void {
+  const current = readJsonFile<{ pid?: number }>(childControlFile);
+  if (current?.pid === pid) {
+    fs.rmSync(childControlFile, { force: true });
+  }
+}
+
 async function runChild(label: string, command: string, args: string[]): Promise<number | null> {
   console.log(`\n== Hermes child: ${label} ==`);
   const child = spawn(command, args, {
@@ -174,6 +187,9 @@ async function runChild(label: string, command: string, args: string[]): Promise
     env: process.env,
     stdio: "inherit"
   });
+  if (child.pid) {
+    writeHermesChildControl(child.pid, label);
+  }
   const childStartedAtMs = Date.now();
   let lastProgressMtime = latestProgressMtimeMs();
   let lastProgressSeenAt = Date.now();
@@ -219,9 +235,18 @@ async function runChild(label: string, command: string, args: string[]): Promise
   watchdog.unref();
 
   return await new Promise<number | null>((resolve, reject) => {
-    child.once("error", reject);
+    child.once("error", (error) => {
+      clearInterval(watchdog);
+      if (child.pid) {
+        clearHermesChildControl(child.pid);
+      }
+      reject(error);
+    });
     child.once("exit", (code) => {
       clearInterval(watchdog);
+      if (child.pid) {
+        clearHermesChildControl(child.pid);
+      }
       resolve(terminalResultExitCode !== undefined ? terminalResultExitCode : killedForStall ? childStallExitCode : code);
     });
   });

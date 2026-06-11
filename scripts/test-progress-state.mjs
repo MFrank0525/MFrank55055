@@ -17,6 +17,7 @@ import {
   shouldRefreshFeishuAssetsBeforeFullFlow,
   shouldPreferActiveTaskStateSummary,
   selectHermesStatusResultFile,
+  isHermesChildProcessCommand,
   isHermesSupervisorProcessCommand,
   shouldResumeFeishuBatchAfterRetryableChildFailure,
   shouldRecoverFullFlowAfterChildFailure,
@@ -180,6 +181,16 @@ assert.match(
   hermesRunnerSource,
   /const beforeRefreshProgress = summarizeFeishuProgress\(\)[\s\S]*const selected = selectCommand\(\)/,
   "Hermes start must refresh a completed cached Feishu batch before selecting a stale resume job"
+);
+assert.match(
+  hermesRunnerSource,
+  /cleanupRecordedHermesChild/,
+  "Hermes start must clean a recorded orphan child process group before starting another supervisor"
+);
+assert.match(
+  hermesSupervisorSource,
+  /writeHermesChildControl/,
+  "Hermes supervisor must record each detached child process group for orphan recovery"
 );
 assert.match(
   publishSource,
@@ -878,6 +889,14 @@ assert.equal(
   isHermesSupervisorProcessCommand("node dist/src/cli/hermes-auto-listing-supervisor.js --initial full"),
   true
 );
+assert.equal(
+  isHermesChildProcessCommand(
+    "npm run business:auto-listing --job /work/input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json --allow-real"
+  ),
+  true
+);
+assert.equal(isHermesChildProcessCommand("node dist/src/cli/flow-mac-feishu.js --real"), true);
+assert.equal(isHermesChildProcessCommand("node dist/src/cli/auto-listing.js --job unrelated.json"), false);
 assert.equal(isHermesSupervisorProcessCommand("/usr/bin/yes 9485"), false);
 assert.equal(
   isHermesRunningProcessConfirmed({

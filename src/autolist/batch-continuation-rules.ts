@@ -405,6 +405,16 @@ export function isHermesSupervisorProcessCommand(command: string): boolean {
   return /\bnode\b/.test(command) && /dist\/src\/cli\/hermes-auto-listing-supervisor\.js/.test(command);
 }
 
+export function isHermesChildProcessCommand(command: string): boolean {
+  return (
+    /\bnpm run business:auto-listing\b/.test(command) &&
+    /auto-listing\.job\.mac-feishu-real\.resume\.generated\.json/.test(command)
+  ) || (
+    /\bnode\b/.test(command) &&
+    /dist\/src\/cli\/flow-mac-feishu\.js\s+--real\b/.test(command)
+  );
+}
+
 export function isHermesRunningProcessConfirmed(input: { pidAlive: boolean; command?: string }): boolean {
   return input.pidAlive && Boolean(input.command && isHermesSupervisorProcessCommand(input.command));
 }
