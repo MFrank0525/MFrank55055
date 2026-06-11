@@ -3599,6 +3599,88 @@ async function readDropdownValueByLabel(page: Page, labelText: string): Promise<
   }, labelText);
 }
 
+async function readSpecTemplateSelectedValue(page: Page, keyword: string): Promise<string> {
+  return page.evaluate((expectedKeyword) => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const visibleItems = Array.from(document.querySelectorAll("body *"))
+      .map((el) => {
+        const node = el as HTMLElement;
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const text = normalize(node.innerText || node.textContent || "");
+        if (!text || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        return {
+          node,
+          rect,
+          text,
+          marker: [String(node.className || ""), node.getAttribute("role") || "", node.tagName].join(" ").toLowerCase()
+        };
+      })
+      .filter(Boolean) as Array<{ node: HTMLElement; rect: DOMRect; text: string; marker: string }>;
+
+    const exactKeywordCandidates = visibleItems
+      .filter((item) => item.text.includes(expectedKeyword) && item.text.length <= 80)
+      .map((item) => {
+        const context = normalize(
+          [
+            item.text,
+            item.node.parentElement?.innerText || "",
+            item.node.parentElement?.parentElement?.innerText || ""
+          ].join(" ")
+        );
+        const score =
+          (context.includes("规格模板") ? 160 : 0) +
+          (context.includes("商品规格") ? 80 : 0) +
+          (item.marker.includes("select") ? 80 : 0) +
+          (item.marker.includes("dropdown") ? 60 : 0) +
+          (item.marker.includes("combobox") ? 60 : 0) -
+          item.text.length / 4;
+        return { text: item.text, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    if (exactKeywordCandidates[0]) {
+      return exactKeywordCandidates[0].text;
+    }
+
+    const label = visibleItems
+      .filter((item) => item.text.includes("规格模板"))
+      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
+    if (!label) {
+      return "";
+    }
+
+    const rowCandidates = visibleItems
+      .filter((item) => {
+        if (item.rect.left < label.rect.left - 20 || item.rect.left > label.rect.right + 900) {
+          return false;
+        }
+        if (Math.abs(item.rect.top - label.rect.top) > 60) {
+          return false;
+        }
+        return item.text.length <= 120;
+      })
+      .map((item) => {
+        const score =
+          (item.text.includes(expectedKeyword) ? 260 : 0) +
+          (item.text.includes("规格模板") ? 80 : 0) +
+          (item.marker.includes("select") ? 80 : 0) +
+          (item.marker.includes("dropdown") ? 60 : 0) +
+          (item.marker.includes("combobox") ? 60 : 0) -
+          Math.abs(item.rect.top - label.rect.top) -
+          item.text.length / 4;
+        return { text: item.text, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    return rowCandidates[0]?.text || "";
+  }, keyword);
+}
+
 async function findServiceFreightTemplateCombobox(page: Page): Promise<{ x: number; y: number; absY: number } | null> {
   return page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
@@ -4112,13 +4194,24 @@ async function chooseDynamicSpecTemplateOnPage(page: Page, title?: string): Prom
   const keyword = resolveSpecTemplateKeyword(title);
   await dismissTransientOverlays(page);
   await scrollLabelIntoView(page, "规格模板").catch(() => false);
-  let selectedValue = await chooseKeywordFromSearchDropdown(
+  let selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
+  if (selectedValue.includes(keyword)) {
+    return selectedValue;
+  }
+  selectedValue = await chooseKeywordFromSearchDropdown(
     page,
     ["\u4e00\u952e\u590d\u7528\u89c4\u683c\u4fe1\u606f", "\u89c4\u683c\u6a21\u677f"],
     keyword
   );
+  const readbackValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
+  if (readbackValue.includes(keyword)) {
+    return readbackValue;
+  }
   if (!selectedValue.includes(keyword)) {
     selectedValue = await readDropdownValueByLabel(page, "\u89c4\u683c\u6a21\u677f").catch(() => "");
+  }
+  if (!selectedValue.includes(keyword)) {
+    selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
   }
   if (!selectedValue.includes(keyword)) {
     throw new Error(`No visible spec template matched keyword: ${keyword}`);
@@ -4462,7 +4555,16 @@ async function applySpecTemplateWithVerificationOnPage(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await ensureManualSpecTemplateEntryModeOnPage(page);
-    selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title).catch(() => selectedTemplate);
+    try {
+      selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        selectedTemplate,
+        filledValues: [],
+        issue: `${message}; keyword=${keyword}`
+      };
+    }
     await waitForSpecTemplateReadback(page);
 
     const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);

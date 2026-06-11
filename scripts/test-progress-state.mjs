@@ -316,7 +316,20 @@ const basicFieldLocatorClass = classifyPublishFailure(
   "Sequential publish flow stopped: 基础信息模块未完成。Short title input not found on publish page."
 );
 assert.equal(basicFieldLocatorClass, "basic_info_field_not_ready");
-assert.equal(shouldRetryPublishFailure(basicFieldLocatorClass, 0), true);
+assert.equal(
+  shouldRetryPublishFailure(basicFieldLocatorClass, 0),
+  false,
+  "basic-info field readiness failures must stop instead of reopening the publish page repeatedly"
+);
+const specTemplateMissingClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 价格库存模块未完成。Spec template selection did not match required keyword. expectedKeyword=买二送一; selectedTemplate=<empty>; keyword=买二送一"
+);
+assert.equal(specTemplateMissingClass, "spec_template_not_ready");
+assert.equal(
+  shouldRetryPublishFailure(specTemplateMissingClass, 0),
+  false,
+  "spec-template readback failures must not trigger whole publish-flow refresh retries"
+);
 
 const finalSubmitTransientClass = classifyPublishFailure(
   "Sequential publish flow stopped: 最终发布动作未完成。系统将自动唤起图片编辑工具正反示例商品完整边缘清晰正面主题适当不完整不清晰非正面主体过小"

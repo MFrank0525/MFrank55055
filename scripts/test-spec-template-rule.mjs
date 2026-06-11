@@ -196,6 +196,25 @@ assert.match(
   /evaluateSpecTemplateCompletion\(\{\s*selectedTemplate,\s*expectedTemplateKeyword: keyword,/,
   "template verification must pass the selected template text and required keyword into the rule layer"
 );
+assert.match(
+  publishSource,
+  /async function readSpecTemplateSelectedValue/,
+  "spec template verification must use a dedicated selected-template readback instead of freight-template dropdown heuristics"
+);
+assert.match(
+  publishSource,
+  /readSpecTemplateSelectedValue\(page, keyword\)/,
+  "spec template application must read back the selected spec-template control text after choosing"
+);
+const applySpecTemplateSource = publishSource.slice(
+  publishSource.indexOf("async function applySpecTemplateWithVerificationOnPage"),
+  publishSource.indexOf("async function readSpecModuleErrorOnPage")
+);
+assert.doesNotMatch(
+  applySpecTemplateSource,
+  /chooseDynamicSpecTemplateOnPage\(page, title\)\.catch/,
+  "spec template selection failures must not be swallowed and deferred to price/inventory checks"
+);
 
 assert.match(
   publishSource,

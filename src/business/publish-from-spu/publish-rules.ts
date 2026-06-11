@@ -318,6 +318,13 @@ export function classifyPublishFailure(message: string): string {
     return "basic_info_field_not_ready";
   }
   if (
+    text.includes("Spectemplateselectiondidnotmatchrequiredkeyword") ||
+    text.includes("Novisiblespectemplatematchedkeyword") ||
+    text.includes("Manualspectemplateentrymodewasnotvisible")
+  ) {
+    return "spec_template_not_ready";
+  }
+  if (
     text.includes("最终发布动作未完成") &&
     (
       text.includes("系统异常") ||
@@ -377,7 +384,6 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   return [
     "platform_page_not_ready",
     "platform_spu_prefill_failed",
-    "basic_info_field_not_ready",
     "final_publish_submit_transient",
     "service_section_not_ready",
     "page_context_lost",
