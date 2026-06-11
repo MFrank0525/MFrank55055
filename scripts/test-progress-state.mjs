@@ -458,13 +458,19 @@ const oldRunDir = path.join(cleanupRunRoot, "20260609-195920");
 const activeRunDir = path.join(cleanupRunRoot, "20260609-203518");
 const nonRunDir = path.join(cleanupRunRoot, "control");
 const protectedPaidImageRunDir = path.join(cleanupRunRoot, "20260610-232736");
+const nestedPaidImageRunDir = path.join(cleanupRunRoot, "20260610-233000");
 fs.mkdirSync(oldRunDir, { recursive: true });
 fs.mkdirSync(activeRunDir, { recursive: true });
 fs.mkdirSync(nonRunDir, { recursive: true });
 fs.mkdirSync(protectedPaidImageRunDir, { recursive: true });
+fs.mkdirSync(path.join(nestedPaidImageRunDir, "tasks/image-001/main-image-01/openai-compatible/raw"), { recursive: true });
 fs.writeFileSync(path.join(oldRunDir, "state.json"), "{}\n");
 fs.writeFileSync(path.join(activeRunDir, "state.json"), "{}\n");
 fs.writeFileSync(path.join(protectedPaidImageRunDir, "state.json"), "{}\n");
+fs.writeFileSync(
+  path.join(nestedPaidImageRunDir, "tasks/image-001/main-image-01/openai-compatible/raw/generated-01.png"),
+  "paid raw image\n"
+);
 const staleRunCleanup = cleanupStaleRunHistory({
   runtimeRootDir: cleanupRunRoot,
   activeRuntimeDir: activeRunDir,
@@ -477,6 +483,11 @@ assert.equal(fs.existsSync(oldRunDir), false);
 assert.equal(fs.existsSync(activeRunDir), true);
 assert.equal(fs.existsSync(nonRunDir), true);
 assert.equal(fs.existsSync(protectedPaidImageRunDir), true);
+assert.equal(
+  fs.existsSync(nestedPaidImageRunDir),
+  true,
+  "stale run cleanup must automatically preserve nested main-image raw generated files"
+);
 
 const sameSpuFolderMatch = resolveFeishuAssetRecordForFolder({
   folderSearchParts: [

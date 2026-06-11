@@ -188,24 +188,25 @@ function collectRunDirs(runtimeRootDir: string): string[] {
 
 function collectReusableRawMainImageRunDirs(runDirs: string[]): string[] {
   const protectedRunDirs: string[] = [];
+  function hasReusableRawImage(dir: string): boolean {
+    if (!fs.existsSync(dir)) {
+      return false;
+    }
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isFile() && /^generated-.*\.(png|jpe?g|webp)$/i.test(entry.name) && path.basename(dir) === "raw") {
+        return true;
+      }
+      if (entry.isDirectory() && hasReusableRawImage(entryPath)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   for (const runDir of runDirs) {
     const tasksDir = path.join(runDir, "tasks");
-    if (!fs.existsSync(tasksDir)) {
-      continue;
-    }
-    const hasReusableRawImage = fs
-      .readdirSync(tasksDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .some((entry) => {
-        const rawDir = path.join(tasksDir, entry.name, "openai-compatible", "raw");
-        if (!fs.existsSync(rawDir)) {
-          return false;
-        }
-        return fs
-          .readdirSync(rawDir, { withFileTypes: true })
-          .some((file) => file.isFile() && /^generated-.*\.(png|jpe?g|webp)$/i.test(file.name));
-      });
-    if (hasReusableRawImage) {
+    if (hasReusableRawImage(tasksDir)) {
       protectedRunDirs.push(runDir);
     }
   }
