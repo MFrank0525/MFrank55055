@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { generateMainImageAssets } from "../dist/src/autolist/jimeng-assets.js";
+import { generateMainImageAssets, resolveOpenAiCompatibleGeneratedImageIndex } from "../dist/src/autolist/jimeng-assets.js";
 import { writeDeepSeekPromptWordFiles } from "../dist/src/autolist/deepseek-word-docs.js";
 import { getProductCategoryPlan, getShopSpecs } from "../dist/src/autolist/product-category.js";
 
@@ -160,5 +160,10 @@ assert.deepEqual(
     "延草纲目养生器械专营店"
   ]
 );
+
+assert.deepEqual(resolveOpenAiCompatibleGeneratedImageIndex({ imageIndexOffset: 1, localImageIndex: 1 }), {
+  absoluteImageIndex: 2,
+  paddedImageIndex: "02"
+});
 
 console.log("main image shop distribution rule passed");

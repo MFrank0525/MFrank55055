@@ -174,6 +174,17 @@ function generatedImageIndexOffset(dir: string): number {
   return listImageFiles(dir).filter((file) => /^generated-\d+/i.test(path.basename(file))).length;
 }
 
+export function resolveOpenAiCompatibleGeneratedImageIndex(input: {
+  imageIndexOffset: number;
+  localImageIndex: number;
+}): { absoluteImageIndex: number; paddedImageIndex: string } {
+  const absoluteImageIndex = Math.max(0, input.imageIndexOffset) + Math.max(1, input.localImageIndex);
+  return {
+    absoluteImageIndex,
+    paddedImageIndex: String(absoluteImageIndex).padStart(2, "0")
+  };
+}
+
 function isBillingError(message: string): boolean {
   return /余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(message);
 }
@@ -751,9 +762,15 @@ async function generateWithOpenAiCompatibleProvider(options: {
 
   const generated: Array<{ file: string; submitId: string }> = [];
   for (let imageIndex = 1; imageIndex <= count; imageIndex += 1) {
-    let promptText = buildPromptForImageIndex(imageIndex);
-    const requestFile = path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + ".json");
-    const responseFile = path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + ".json");
+    const resolvedImageIndex = resolveOpenAiCompatibleGeneratedImageIndex({
+      imageIndexOffset,
+      localImageIndex: imageIndex
+    });
+    const absoluteImageIndex = resolvedImageIndex.absoluteImageIndex;
+    const paddedImageIndex = resolvedImageIndex.paddedImageIndex;
+    let promptText = buildPromptForImageIndex(absoluteImageIndex);
+    const requestFile = path.join(options.downloadDir, "request-" + paddedImageIndex + ".json");
+    const responseFile = path.join(options.downloadDir, "response-" + paddedImageIndex + ".json");
     const buildRequestSummary = (currentPromptText: string): Record<string, unknown> =>
       mode === "edits"
         ? {
@@ -781,9 +798,9 @@ async function generateWithOpenAiCompatibleProvider(options: {
     writeImageGenerationJsonLog(requestFile, requestSummary);
 
     if (mode === "media-generate") {
-      options.onProgress?.(`Image ${imageIndex}: submitting media-generate request.`);
+      options.onProgress?.(`Image ${absoluteImageIndex}: submitting media-generate request.`);
       const { response, text } = await sendRequestWithTransportRetries(
-        imageIndex,
+        absoluteImageIndex,
         "initial",
         () => JSON.stringify(buildMediaGenerateJsonBody(promptText)),
         "application/json"
@@ -807,7 +824,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       for (let pollNo = 1; ; pollNo += 1) {
         await sleep(pollIntervalMs);
         const statusResult = await fetchMediaGenerateStatus(taskId);
-        const statusLogFile = path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-status-" + pollNo + ".json");
+        const statusLogFile = path.join(options.downloadDir, "response-" + paddedImageIndex + "-status-" + pollNo + ".json");
         writeImageGenerationTextLog(statusLogFile, statusResult.text);
         if (!statusResult.response.ok) {
           throw normalizeImageGenerationError(
@@ -821,7 +838,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
         }
         const progress = statusPayload?.progress ?? statusPayload?.data?.progress ?? "";
         const statusText = statusPayload?.status ?? statusPayload?.data?.status ?? "";
-        options.onProgress?.(`Image ${imageIndex}: media task ${taskId} status ${statusText || "pending"} ${progress || ""}.`.trim());
+        options.onProgress?.(`Image ${absoluteImageIndex}: media task ${taskId} status ${statusText || "pending"} ${progress || ""}.`.trim());
         if (mediaGenerateIsFinal(statusPayload)) {
           break;
         }
@@ -837,33 +854,33 @@ async function generateWithOpenAiCompatibleProvider(options: {
       if (!resultUrl) {
         throw normalizeImageGenerationError("Media generation task returned no result_url: " + JSON.stringify(redactImageGenerationLogValue(statusPayload)).slice(0, 500));
       }
-      const targetFile = path.join(options.downloadDir, "generated-" + String(imageIndexOffset + imageIndex).padStart(2, "0") + getImageExtensionFromContentType(resultUrl));
+      const targetFile = path.join(options.downloadDir, "generated-" + paddedImageIndex + getImageExtensionFromContentType(resultUrl));
       await downloadGeneratedImage(resultUrl, targetFile, config.apiKey || "", timeoutMs);
-      options.onProgress?.(`Image ${imageIndex}: saved ${path.basename(targetFile)}.`);
+      options.onProgress?.(`Image ${absoluteImageIndex}: saved ${path.basename(targetFile)}.`);
       generated.push({ file: targetFile, submitId: taskId });
       continue;
     }
 
-    options.onProgress?.(`Image ${imageIndex}: submitting ${mode} request.`);
+    options.onProgress?.(`Image ${absoluteImageIndex}: submitting ${mode} request.`);
     let { response, text } =
       mode === "edits"
-        ? await sendRequestWithTransportRetries(imageIndex, "initial", () => buildEditFormData(true, promptText))
-        : await sendRequestWithTransportRetries(imageIndex, "initial", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json");
+        ? await sendRequestWithTransportRetries(absoluteImageIndex, "initial", () => buildEditFormData(true, promptText))
+        : await sendRequestWithTransportRetries(absoluteImageIndex, "initial", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json");
     if (!response.ok && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(text)) {
       if (mode === "edits") {
         const retrySummary = { ...(requestSummary as Record<string, unknown>) };
         delete retrySummary.response_format;
-        writeImageGenerationJsonLog(path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-retry.json"), retrySummary);
-        ({ response, text } = await sendRequestWithTransportRetries(imageIndex, "response-format-retry", () => buildEditFormData(false, promptText)));
+        writeImageGenerationJsonLog(path.join(options.downloadDir, "request-" + paddedImageIndex + "-retry.json"), retrySummary);
+        ({ response, text } = await sendRequestWithTransportRetries(absoluteImageIndex, "response-format-retry", () => buildEditFormData(false, promptText)));
       } else {
         const retryBody = buildGenerationJsonBody(promptText);
         delete (retryBody as Record<string, unknown>).response_format;
-        writeImageGenerationJsonLog(path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-retry.json"), retryBody);
-        ({ response, text } = await sendRequestWithTransportRetries(imageIndex, "response-format-retry", () => JSON.stringify(retryBody), "application/json"));
+        writeImageGenerationJsonLog(path.join(options.downloadDir, "request-" + paddedImageIndex + "-retry.json"), retryBody);
+        ({ response, text } = await sendRequestWithTransportRetries(absoluteImageIndex, "response-format-retry", () => JSON.stringify(retryBody), "application/json"));
       }
     }
     if (shouldRetryImageGenerationWithPolicyPrompt({ responseOk: response.ok, responseText: text })) {
-      ({ response, text, promptText } = await sendPolicyPromptRetry(imageIndex, promptText, buildRequestSummary, "initial"));
+      ({ response, text, promptText } = await sendPolicyPromptRetry(absoluteImageIndex, promptText, buildRequestSummary, "initial"));
     }
     const httpRetryPolicy = resolveImageGenerationHttpRetryPolicy({
       status: response.status,
@@ -872,17 +889,17 @@ async function generateWithOpenAiCompatibleProvider(options: {
     });
     for (let attempt = 1; !response.ok && isTransientImageProviderStatus(response.status) && attempt <= httpRetryPolicy.maxRetries; attempt += 1) {
       writeImageGenerationTextLog(
-        path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-transient-" + attempt + ".json"),
+        path.join(options.downloadDir, "response-" + paddedImageIndex + "-transient-" + attempt + ".json"),
         text
       );
       options.onProgress?.(
-        `Image ${imageIndex}: transient HTTP ${response.status} (${httpRetryPolicy.reason}); retry ${attempt}/${httpRetryPolicy.maxRetries}.`
+        `Image ${absoluteImageIndex}: transient HTTP ${response.status} (${httpRetryPolicy.reason}); retry ${attempt}/${httpRetryPolicy.maxRetries}.`
       );
       await sleep(httpRetryPolicy.delayMs[attempt - 1] || httpRetryPolicy.delayMs.at(-1) || 3000 * attempt);
       ({ response, text } =
         mode === "edits"
-          ? await sendRequestWithTransportRetries(imageIndex, "http-transient-retry", () => buildEditFormData(true, promptText))
-          : await sendRequestWithTransportRetries(imageIndex, "http-transient-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
+          ? await sendRequestWithTransportRetries(absoluteImageIndex, "http-transient-retry", () => buildEditFormData(true, promptText))
+          : await sendRequestWithTransportRetries(absoluteImageIndex, "http-transient-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
     }
     if (!response.ok) {
       writeImageGenerationTextLog(responseFile, text);
@@ -900,7 +917,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       writeImageGenerationJsonLog(
         emptyAttempt === 0
           ? responseFile
-          : path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-empty-data-retry-" + emptyAttempt + ".json"),
+          : path.join(options.downloadDir, "response-" + paddedImageIndex + "-empty-data-retry-" + emptyAttempt + ".json"),
         payload
       );
 
@@ -913,18 +930,18 @@ async function generateWithOpenAiCompatibleProvider(options: {
       }
 
       const retryNo = emptyAttempt + 1;
-      options.onProgress?.(`Image ${imageIndex}: provider returned empty data; retry ${retryNo}/${maxTransientRetries}.`);
+      options.onProgress?.(`Image ${absoluteImageIndex}: provider returned empty data; retry ${retryNo}/${maxTransientRetries}.`);
       await sleep(3000 * retryNo);
       ({ response, text } =
         mode === "edits"
-          ? await sendRequestWithTransportRetries(imageIndex, "empty-data-retry", () => buildEditFormData(true, promptText))
-          : await sendRequestWithTransportRetries(imageIndex, "empty-data-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
+          ? await sendRequestWithTransportRetries(absoluteImageIndex, "empty-data-retry", () => buildEditFormData(true, promptText))
+          : await sendRequestWithTransportRetries(absoluteImageIndex, "empty-data-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
       if (shouldRetryImageGenerationWithPolicyPrompt({ responseOk: response.ok, responseText: text })) {
-        ({ response, text, promptText } = await sendPolicyPromptRetry(imageIndex, promptText, buildRequestSummary, "empty-data-retry-" + retryNo));
+        ({ response, text, promptText } = await sendPolicyPromptRetry(absoluteImageIndex, promptText, buildRequestSummary, "empty-data-retry-" + retryNo));
       }
       if (!response.ok) {
         writeImageGenerationTextLog(
-          path.join(options.downloadDir, "response-" + String(imageIndex).padStart(2, "0") + "-empty-data-retry-http-error-" + retryNo + ".json"),
+          path.join(options.downloadDir, "response-" + paddedImageIndex + "-empty-data-retry-http-error-" + retryNo + ".json"),
           text
         );
         throw normalizeImageGenerationError("Image generation retry failed with HTTP " + response.status + ": " + (text || response.statusText));
@@ -934,14 +951,14 @@ async function generateWithOpenAiCompatibleProvider(options: {
       item: items[0],
       payload,
       targetDir: options.downloadDir,
-      index: imageIndexOffset + imageIndex,
+      index: absoluteImageIndex,
       apiKey: config.apiKey || "",
       timeoutMs
     });
     if (!saved) {
       throw normalizeImageGenerationError("Image generation returned no downloadable image payloads: " + text.slice(0, 500));
     }
-    options.onProgress?.(`Image ${imageIndex}: saved ${path.basename(saved.file)}.`);
+    options.onProgress?.(`Image ${absoluteImageIndex}: saved ${path.basename(saved.file)}.`);
     generated.push(saved);
   }
 
