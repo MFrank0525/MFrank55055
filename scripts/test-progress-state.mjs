@@ -36,7 +36,8 @@ import {
   shouldResumeHistoricalFailureForCurrentFeishuBatch,
   isHermesRunningProcessConfirmed,
   selectHermesLatestResultFileForJobStatus,
-  isExternalMainImageRawReuseMessage
+  isExternalMainImageRawReuseMessage,
+  shouldClearPauseSignalOnHermesStart
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -785,6 +786,28 @@ assert.equal(
     running: true
   }),
   true
+);
+assert.equal(
+  shouldClearPauseSignalOnHermesStart({
+    pauseSignalExists: true,
+    runnerJobRunning: true
+  }),
+  true,
+  "Hermes continue/start must cancel a pending pause even while the previous child is still between safe checkpoints"
+);
+assert.equal(
+  shouldClearPauseSignalOnHermesStart({
+    pauseSignalExists: true,
+    runnerJobRunning: false
+  }),
+  true
+);
+assert.equal(
+  shouldClearPauseSignalOnHermesStart({
+    pauseSignalExists: false,
+    runnerJobRunning: true
+  }),
+  false
 );
 assert.equal(
   selectHermesActiveRunIdFromLogLines([

@@ -14,6 +14,7 @@ import {
   selectHermesLatestResultFileForJobStatus,
   selectHermesStatusResultFile,
   selectHermesStatusRuntimeDir,
+  shouldClearPauseSignalOnHermesStart,
   shouldExposePublishProgressInHermesStatus,
   shouldPreferActiveTaskStateSummary,
   shouldResumeHistoricalFailureForCurrentFeishuBatch,
@@ -1387,7 +1388,16 @@ function selectCommand(): {
 async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boolean): Promise<void> {
   fs.mkdirSync(controlDir, { recursive: true });
   const current = readJsonFile<RunnerJob>(jobFile);
-  if (current && isRunnerJobRunning(current)) {
+  const runnerJobRunning = Boolean(current && isRunnerJobRunning(current));
+  if (
+    shouldClearPauseSignalOnHermesStart({
+      pauseSignalExists: fs.existsSync(pauseFile),
+      runnerJobRunning
+    })
+  ) {
+    fs.rmSync(pauseFile);
+  }
+  if (current && runnerJobRunning) {
     const status = existingStatus();
     const result = {
       ok: true,
@@ -1402,10 +1412,6 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     };
     console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
     return;
-  }
-
-  if (fs.existsSync(pauseFile)) {
-    fs.rmSync(pauseFile);
   }
 
   const beforeRefreshProgress = summarizeFeishuProgress();

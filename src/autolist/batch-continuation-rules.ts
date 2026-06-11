@@ -213,6 +213,15 @@ export function shouldUseExpectedResultFileInRunningStatus(input: HermesExpected
   return !input.running || !input.activeRuntimeDir;
 }
 
+export type HermesStartPauseSignalInput = {
+  pauseSignalExists: boolean;
+  runnerJobRunning: boolean;
+};
+
+export function shouldClearPauseSignalOnHermesStart(input: HermesStartPauseSignalInput): boolean {
+  return input.pauseSignalExists;
+}
+
 export type HermesPublishProgressExposureInput = {
   running: boolean;
   publishProgressAvailable: boolean;
