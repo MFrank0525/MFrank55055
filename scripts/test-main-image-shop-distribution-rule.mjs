@@ -102,6 +102,9 @@ async function runRecoveredRawCategory(category) {
       fs.writeFileSync(path.join(rawDir, `generated-${String(imageIndex).padStart(2, "0")}.png`), fixturePng);
     }
   }
+  const staleStageDir = path.join(currentTaskDir, "staged", "03");
+  fs.mkdirSync(staleStageDir, { recursive: true });
+  fs.writeFileSync(path.join(staleStageDir, "wrong-watermark-leftover.png"), fixturePng);
 
   const plan = getProductCategoryPlan(category);
   return generateMainImageAssets({

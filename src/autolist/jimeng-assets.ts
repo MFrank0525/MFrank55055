@@ -1049,12 +1049,15 @@ async function recoverExistingRoundOutputs(options: {
     imageIndex: number;
   }> = [];
 
+  const startImageIndex = options.startImageIndex;
   let imageIndex = options.startImageIndex;
   const existingStagedFiles = listImageFiles(options.stageDir);
+  let invalidStagedFileFound = false;
   for (const stagedFile of existingStagedFiles) {
     const expectedWatermarkText = options.resolveWatermarkText(imageIndex);
     if (!path.basename(stagedFile).includes(expectedWatermarkText)) {
       fs.rmSync(stagedFile, { force: true });
+      invalidStagedFileFound = true;
       imageIndex += 1;
       continue;
     }
@@ -1066,8 +1069,15 @@ async function recoverExistingRoundOutputs(options: {
     });
     imageIndex += 1;
   }
-  if (existingStagedFiles.length > 0) {
+  if (existingStagedFiles.length > 0 && !invalidStagedFileFound) {
     return recovered;
+  }
+  if (invalidStagedFileFound) {
+    for (const item of recovered) {
+      fs.rmSync(item.stagedFile, { force: true });
+    }
+    recovered.length = 0;
+    imageIndex = startImageIndex;
   }
 
   const watermarkDir = path.join(options.roundDir, "watermark");
