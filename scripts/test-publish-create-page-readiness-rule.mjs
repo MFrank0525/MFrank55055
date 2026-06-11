@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   classifyPublishFailure,
   shouldRetryPublishFailure,
+  evaluateBasicPrefillReadiness,
   evaluatePublishCreatePageReadiness
 } from "../src/business/publish-from-spu/publish-rules.ts";
 
@@ -25,5 +26,27 @@ const sectionActivationFailureClass = classifyPublishFailure(
 );
 assert.equal(sectionActivationFailureClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(sectionActivationFailureClass, 0), true);
+
+assert.deepEqual(
+  evaluateBasicPrefillReadiness({
+    shortTitleRequired: true,
+    shortTitleFieldVisible: false
+  }),
+  {
+    action: "reopen_from_platform_spu",
+    issue: "Expected short-title field is missing from the SPU-prefilled publish page."
+  }
+);
+
+assert.deepEqual(
+  evaluateBasicPrefillReadiness({
+    shortTitleRequired: true,
+    shortTitleFieldVisible: true
+  }),
+  {
+    action: "ready",
+    issue: ""
+  }
+);
 
 console.log("publish create page readiness rule passed");

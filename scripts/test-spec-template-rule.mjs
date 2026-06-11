@@ -167,6 +167,11 @@ assert.match(
   /async function readBasicPublishCompletionOnPage/,
   "publish flow must read back basic-info completion from the page, not only remember attempted fill actions"
 );
+assert.match(
+  publishSource,
+  /findBasicInputCenterByFieldId[\s\S]*fallbackLabel/,
+  "basic-info input location must fall back to visible label proximity when attr-field-id is missing"
+);
 
 assert.match(
   publishSource,

@@ -122,6 +122,16 @@ export interface PublishCreatePageReadinessDecision {
   issue: string;
 }
 
+export interface BasicPrefillReadinessInput {
+  shortTitleRequired: boolean;
+  shortTitleFieldVisible: boolean;
+}
+
+export interface BasicPrefillReadinessDecision {
+  action: "ready" | "reopen_from_platform_spu";
+  issue: string;
+}
+
 const SUBMISSION_SUCCESS_TEXTS = [
   "发布成功",
   "提交成功",
@@ -204,6 +214,16 @@ export function evaluatePublishCreatePageReadiness(input: PublishCreatePageHealt
     return { action: "reopen_from_platform_spu", issue: "Publish create page has no publish sections after SPU query." };
   }
   return { action: "wait_or_reload", issue: "Publish create page is not ready yet." };
+}
+
+export function evaluateBasicPrefillReadiness(input: BasicPrefillReadinessInput): BasicPrefillReadinessDecision {
+  if (input.shortTitleRequired && !input.shortTitleFieldVisible) {
+    return {
+      action: "reopen_from_platform_spu",
+      issue: "Expected short-title field is missing from the SPU-prefilled publish page."
+    };
+  }
+  return { action: "ready", issue: "" };
 }
 
 export function evaluatePlatformSpuQueryPageReadiness(input: PlatformSpuQueryPageReadinessInput): PlatformSpuQueryPageReadinessDecision {

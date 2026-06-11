@@ -42,6 +42,12 @@ assert.equal(
 
 const titleInputFinderSource = sliceFunction("findTitleInputCenter");
 const shortTitleInputFinderSource = sliceFunction("findShortTitleInputCenter");
+const basicInputFinderSource = sliceFunction("findBasicInputCenterByFieldId");
+assert.doesNotMatch(
+  basicInputFinderSource,
+  /let fields = collectFields\(root \|\| document\)/,
+  "missing attr-field-id must not fall back to an arbitrary page input before the matching field label is found"
+);
 assert.match(
   titleInputFinderSource,
   /findBasicInputCenterByFieldId\(page, "\\u5546\\u54c1\\u6807\\u9898"/,
@@ -59,9 +65,12 @@ assert.doesNotMatch(
 );
 
 const publishFlowSource = sliceFunction("runPublishFlow");
-const publishInitialGoto = publishFlowSource.indexOf("await gotoWithTolerance(page, createPageUrl, 3500);");
 const publishBasicLoop = publishFlowSource.indexOf("for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1)");
-assert.notEqual(publishInitialGoto, -1, "publish flow must still open the create page once at the start");
+assert.match(
+  publishFlowSource.slice(0, publishBasicLoop),
+  /let page = await reuseOrOpenCreatePage\(context, createPageUrl\)/,
+  "publish flow must reuse the create page opened by the platform SPU publish action"
+);
 assert.notEqual(publishBasicLoop, -1, "publish flow basic-info retry loop not found");
 const publishBasicFirstAttemptWindow = publishFlowSource.slice(
   publishBasicLoop,
@@ -74,19 +83,31 @@ assert.doesNotMatch(
 );
 assert.match(
   publishBasicFirstAttemptWindow,
-  /if \(basicAttempt > 0\)[\s\S]*gotoWithTolerance\(page, createPageUrl, 3500\)/,
-  "publish flow may reopen the create page only for an explicit basic-info retry"
+  /if \(basicAttempt > 0\)[\s\S]*reuseOrOpenCreatePage\(context, createPageUrl, page\)/,
+  "publish flow must reuse a newly SPU-opened create page on an explicit basic-info retry"
 );
 assert.match(
   publishBasicFirstAttemptWindow,
   /waitForPublishCreatePageReady\([\s\S]*allowPageNavigationRecovery: basicAttempt > 0[\s\S]*\)/,
   "publish flow must not let the first basic-info readiness check reload the already-ready create page"
 );
+const publishBasicCatchWindow = publishFlowSource.slice(
+  publishFlowSource.indexOf("} catch (error) {", publishBasicLoop),
+  publishFlowSource.indexOf("if (!basicInfoCompleted)", publishBasicLoop)
+);
+assert.match(
+  publishBasicCatchWindow,
+  /PublishCreatePageReopenRequiredError[\s\S]*queryPlatformSpu/,
+  "publish flow must reopen an incomplete SPU-prefilled page from the platform SPU row"
+);
 
 const graphicFlowSource = sliceFunction("runGraphicFlow");
-const graphicInitialGoto = graphicFlowSource.indexOf("await gotoWithTolerance(page, createPageUrl, 3500);");
 const graphicBasicLoop = graphicFlowSource.indexOf("for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1)");
-assert.notEqual(graphicInitialGoto, -1, "graphic flow must still open the create page once at the start");
+assert.match(
+  graphicFlowSource.slice(0, graphicBasicLoop),
+  /let page = await reuseOrOpenCreatePage\(context, createPageUrl\)/,
+  "graphic flow must reuse the create page opened by the platform SPU publish action"
+);
 assert.notEqual(graphicBasicLoop, -1, "graphic flow basic-info retry loop not found");
 const graphicBasicFirstAttemptWindow = graphicFlowSource.slice(
   graphicBasicLoop,
@@ -99,13 +120,22 @@ assert.doesNotMatch(
 );
 assert.match(
   graphicBasicFirstAttemptWindow,
-  /if \(basicAttempt > 0\)[\s\S]*gotoWithTolerance\(page, createPageUrl, 3500\)/,
-  "graphic flow may reopen the create page only for an explicit basic-info retry"
+  /if \(basicAttempt > 0\)[\s\S]*reuseOrOpenCreatePage\(context, createPageUrl, page\)/,
+  "graphic flow must reuse a newly SPU-opened create page on an explicit basic-info retry"
 );
 assert.match(
   graphicBasicFirstAttemptWindow,
   /waitForPublishCreatePageReady\([\s\S]*allowPageNavigationRecovery: basicAttempt > 0[\s\S]*\)/,
   "graphic flow must not let the first basic-info readiness check reload the already-ready create page"
+);
+const graphicBasicCatchWindow = graphicFlowSource.slice(
+  graphicFlowSource.indexOf("} catch (error) {", graphicBasicLoop),
+  graphicFlowSource.indexOf("if (!basicInfoCompleted)", graphicBasicLoop)
+);
+assert.match(
+  graphicBasicCatchWindow,
+  /PublishCreatePageReopenRequiredError[\s\S]*queryPlatformSpu/,
+  "graphic flow must reopen an incomplete SPU-prefilled page from the platform SPU row"
 );
 
 assert.match(

@@ -4,7 +4,7 @@
 
 **Goal:** Recover Doudian publishing by reopening the product page from the platform SPU row when the expected short-title field is missing.
 
-**Architecture:** Add a rule-layer decision for basic prefill completeness, read the field state in the browser action layer, and route incomplete SPU-prefilled pages through the existing `queryPlatformSpu()` recovery path. Keep ordinary network/page health reload behavior unchanged.
+**Architecture:** Reuse the create page opened by the platform SPU publish action, add a rule-layer decision for basic prefill completeness, read the field state in the browser action layer, and route incomplete SPU-prefilled pages through the existing `queryPlatformSpu()` recovery path. Keep ordinary network/page health reload behavior unchanged.
 
 **Tech Stack:** TypeScript, Playwright, Node.js rule-check scripts
 

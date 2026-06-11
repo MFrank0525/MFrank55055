@@ -29,6 +29,7 @@ import type {
 } from "./publish-from-spu/types.js";
 import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
 import {
+  evaluateBasicPrefillReadiness,
   evaluateShopSwitchMenuState,
   evaluateDetailImageCompletion,
   evaluateDetailUploadOutcome,
@@ -138,6 +139,35 @@ async function closeCreatePagesExcept(
       await page.close().catch(() => {});
     }
   }
+}
+
+function findOpenCreatePage(
+  context: Awaited<ReturnType<typeof launchPersistentBrowser>>,
+  createPageUrl: string
+): Page | null {
+  return (
+    context.pages().find((page) => !page.isClosed() && page.url() === createPageUrl) ||
+    null
+  );
+}
+
+async function reuseOrOpenCreatePage(
+  context: Awaited<ReturnType<typeof launchPersistentBrowser>>,
+  createPageUrl: string,
+  currentPage?: Page
+): Promise<Page> {
+  const existingPage = findOpenCreatePage(context, createPageUrl);
+  const page =
+    existingPage ||
+    (currentPage && !currentPage.isClosed() ? currentPage : await context.newPage());
+  attachSafeDialogHandler(page);
+  await closeCreatePagesExcept(context, [page]);
+  await closeExtraPages(context, [page]);
+  await page.bringToFront();
+  if (page.url() !== createPageUrl) {
+    await gotoWithTolerance(page, createPageUrl, 3500);
+  }
+  return page;
 }
 
 function assertResolvedMetadata(
@@ -2064,7 +2094,8 @@ async function findBasicInputCenterByFieldId(page: Page, fieldId: string): Promi
   return page.evaluate((targetFieldId) => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
     const root = document.querySelector(`[attr-field-id="${targetFieldId}"]`) as HTMLElement | null;
-    const fields = Array.from(root?.querySelectorAll("input, textarea") || [])
+    const collectFields = (scope: ParentNode | Document = document): Array<{ x: number; y: number; top: number; score: number }> =>
+      Array.from(scope.querySelectorAll("input, textarea"))
       .map((el) => {
         const input = el as HTMLInputElement | HTMLTextAreaElement;
         const rect = input.getBoundingClientRect();
@@ -2098,8 +2129,49 @@ async function findBasicInputCenterByFieldId(page: Page, fieldId: string): Promi
             Math.abs(rect.top - (root?.getBoundingClientRect().top || rect.top))
         };
       })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.top || 0) - (b?.top || 0));
+      .filter(Boolean) as Array<{ x: number; y: number; top: number; score: number }>;
+
+    let fields = root
+      ? collectFields(root).sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.top || 0) - (b?.top || 0))
+      : [];
+
+    if (!fields.length && !root) {
+      const fallbackLabel = Array.from(document.querySelectorAll("body *"))
+        .map((el) => {
+          const node = el as HTMLElement;
+          const rect = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          const text = normalize(node.innerText || node.textContent || "");
+          if (
+            !text ||
+            rect.width <= 0 ||
+            rect.height <= 0 ||
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            !text.includes(targetFieldId)
+          ) {
+            return null;
+          }
+          return { rect, text, score: (text === targetFieldId ? 1000 : 0) - text.length };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.rect.top || 0) - (b?.rect.top || 0))[0];
+
+      if (fallbackLabel) {
+        const labelRect = fallbackLabel.rect;
+        fields = collectFields(document)
+          .map((field) => ({
+            ...field,
+            score:
+              field.score +
+              (field.y >= labelRect.top - 24 && field.y <= labelRect.bottom + 96 ? 220 : 0) +
+              (field.x >= labelRect.left - 20 ? 80 : 0) -
+              Math.abs(field.y - (labelRect.top + labelRect.height / 2))
+          }))
+          .filter((field) => field.score > 0)
+          .sort((a, b) => b.score - a.score || a.top - b.top);
+      }
+    }
 
     const target = fields[0];
     return target ? { x: target.x, y: target.y } : null;
@@ -2112,6 +2184,22 @@ async function findTitleInputCenter(page: Page): Promise<{ x: number; y: number 
 
 async function findShortTitleInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
   return findBasicInputCenterByFieldId(page, "\u5bfc\u8d2d\u77ed\u6807\u9898");
+}
+
+async function assertBasicPrefillReadyOnPage(
+  page: Page,
+  metadata: { shortTitle?: string }
+): Promise<void> {
+  const shortTitleFieldVisible = metadata.shortTitle
+    ? Boolean(await findShortTitleInputCenter(page))
+    : true;
+  const readiness = evaluateBasicPrefillReadiness({
+    shortTitleRequired: Boolean(metadata.shortTitle),
+    shortTitleFieldVisible
+  });
+  if (readiness.action === "reopen_from_platform_spu") {
+    throw new PublishCreatePageReopenRequiredError(readiness.issue);
+  }
 }
 
 async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
@@ -8332,13 +8420,8 @@ async function runPublishFlow(
 
   const context = await launchPersistentBrowser();
   try {
-    const page = await context.newPage();
-    attachSafeDialogHandler(page);
-    await closeCreatePagesExcept(context, [page]);
-    await closeExtraPages(context, [page]);
-    await page.bringToFront();
+    let page = await reuseOrOpenCreatePage(context, createPageUrl);
     try {
-      await gotoWithTolerance(page, createPageUrl, 3500);
       await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "publish-initial");
     } catch (error) {
       if (error instanceof PublishCreatePageReopenRequiredError && createPageResetAttempt < 2) {
@@ -8373,13 +8456,14 @@ async function runPublishFlow(
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
       if (basicAttempt > 0) {
-        await gotoWithTolerance(page, createPageUrl, 3500);
+        page = await reuseOrOpenCreatePage(context, createPageUrl, page);
       }
       await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-basic-${basicAttempt + 1}`, 3, {
         allowPageNavigationRecovery: basicAttempt > 0
       });
 
       try {
+        await assertBasicPrefillReadyOnPage(page, metadata);
         await verifyCategoryRegistrationGateOnPage(
           page,
           runtimeDir,
@@ -8418,6 +8502,14 @@ async function runPublishFlow(
         break;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (error instanceof PublishCreatePageReopenRequiredError && basicAttempt === 0) {
+          const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
+          screenshotFiles.push(retryQueryResult.screenshotFile);
+          createPageUrl = retryQueryResult.createPageUrl;
+          matchedRowText = retryQueryResult.matchedRowText;
+          page = await reuseOrOpenCreatePage(context, createPageUrl, page);
+          continue;
+        }
         const categoryMismatch = message.includes("Category registration mismatch before modelSpec fill.");
         if (categoryMismatch && basicAttempt === 0) {
           const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
@@ -8807,24 +8899,20 @@ async function runGraphicFlow(
 
   const context = await launchPersistentBrowser();
   try {
-    const page = await context.newPage();
-    attachSafeDialogHandler(page);
-    await closeCreatePagesExcept(context, [page]);
-    await closeExtraPages(context, [page]);
-    await page.bringToFront();
-    await gotoWithTolerance(page, createPageUrl, 3500);
+    let page = await reuseOrOpenCreatePage(context, createPageUrl);
     await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "graphic-initial");
     await ensureShopContext(page, runtimeDir, shopFolder);
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
       if (basicAttempt > 0) {
-        await gotoWithTolerance(page, createPageUrl, 3500);
+        page = await reuseOrOpenCreatePage(context, createPageUrl, page);
       }
       await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `graphic-basic-${basicAttempt + 1}`, 3, {
         allowPageNavigationRecovery: basicAttempt > 0
       });
 
       try {
+        await assertBasicPrefillReadyOnPage(page, metadata);
         await verifyCategoryRegistrationGateOnPage(
           page,
           runtimeDir,
@@ -8863,6 +8951,14 @@ async function runGraphicFlow(
         break;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (error instanceof PublishCreatePageReopenRequiredError && basicAttempt === 0) {
+          const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
+          screenshotFiles.push(retryQueryResult.screenshotFile);
+          createPageUrl = retryQueryResult.createPageUrl;
+          matchedRowText = retryQueryResult.matchedRowText;
+          page = await reuseOrOpenCreatePage(context, createPageUrl, page);
+          continue;
+        }
         const categoryMismatch = message.includes("Category registration mismatch before modelSpec fill.");
         if (categoryMismatch && basicAttempt === 0) {
           const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
