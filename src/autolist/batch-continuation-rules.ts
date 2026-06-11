@@ -342,11 +342,12 @@ export type FullFlowContinuationReason = "initial_full" | "same_batch_pending" |
 export type FullFlowFeishuRefreshInput = {
   continuationReason: FullFlowContinuationReason;
   currentBatchComplete?: boolean;
+  sameBatchRefreshAvailable?: boolean;
 };
 
 export function shouldRefreshFeishuAssetsBeforeFullFlow(input: FullFlowFeishuRefreshInput): boolean {
   if (input.currentBatchComplete === false) {
-    return false;
+    return input.sameBatchRefreshAvailable === true;
   }
   return input.continuationReason === "initial_full";
 }

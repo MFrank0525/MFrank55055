@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { shouldRefreshFeishuAssetsBeforeFullFlow } from "../autolist/batch-continuation-rules.js";
-import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
+import { validateFeishuPosterPromptBatch } from "../autolist/deepseek-prompts.js";
+import { buildFeishuBatchFingerprint, buildFeishuBatchIdentityFingerprint } from "../autolist/feishu-batch-rules.js";
 import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 
@@ -76,6 +77,18 @@ function runStep(label: string, command: string, args: string[], env: NodeJS.Pro
   }
 }
 
+function runStepCaptured(label: string, command: string, args: string[], env: NodeJS.ProcessEnv = process.env): void {
+  console.log(`\n== ${label} ==`);
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    env
+  });
+  if (result.status !== 0) {
+    const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+    throw new Error(`${label} failed with exit code ${result.status ?? "unknown"}: ${output}`);
+  }
+}
+
 function loadJobSummary(jobFile: string): AutoListingJobSummary {
   const resolved = path.resolve(jobFile);
   if (!fs.existsSync(resolved)) {
@@ -138,6 +151,50 @@ function readCurrentBatchComplete(jobFile: string): boolean | undefined {
   return progress.batchComplete;
 }
 
+function assertFeishuPosterPromptsReady(jobFile: string): void {
+  const job = loadJobSummary(jobFile);
+  const feishuProductDataFile = path.resolve(job.input?.feishuProductDataFile || "./data/feishu/products.json");
+  if (!fs.existsSync(feishuProductDataFile)) {
+    return;
+  }
+  const validation = validateFeishuPosterPromptBatch(loadFeishuProductRecords(feishuProductDataFile));
+  if (!validation.ok) {
+    throw new Error(validation.summary);
+  }
+  console.log(validation.summary);
+}
+
+function isOnlineFeishuSameBatch(jobFile: string, configFile: string, feishuEnv: NodeJS.ProcessEnv): boolean {
+  const job = loadJobSummary(jobFile);
+  const feishuProductDataFile = path.resolve(job.input?.feishuProductDataFile || "./data/feishu/products.json");
+  if (!fs.existsSync(feishuProductDataFile)) {
+    return true;
+  }
+  const currentRecords = loadFeishuProductRecords(feishuProductDataFile);
+  const currentIdentity = buildFeishuBatchIdentityFingerprint(currentRecords);
+  const candidateFile = path.resolve("data/auto-listing/control/feishu-products.refresh-candidate.json");
+  fs.mkdirSync(path.dirname(candidateFile), { recursive: true });
+  runStepCaptured("Feishu current-batch identity probe", "npm", [
+    "run",
+    "feishu:dump",
+    "--",
+    "--config",
+    configFile,
+    "--out",
+    candidateFile
+  ], feishuEnv);
+  const candidateRecords = loadFeishuProductRecords(candidateFile);
+  const candidateIdentity = buildFeishuBatchIdentityFingerprint(candidateRecords);
+  if (candidateIdentity === currentIdentity) {
+    console.log(`Online Feishu table is the same batch (${currentIdentity}); refreshing mutable fields and attachments.`);
+    return true;
+  }
+  console.log(
+    `Online Feishu table identity changed (${currentIdentity} -> ${candidateIdentity}); keeping locked current batch cache until pending products finish.`
+  );
+  return false;
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   const jobFile = args.real
@@ -169,11 +226,16 @@ function main(): void {
   );
   migrateLegacyProcessedManifestForCurrentCache(jobFile);
   const currentBatchComplete = readCurrentBatchComplete(jobFile);
+  const sameBatchRefreshAvailable =
+    currentBatchComplete === false && !args.skipFeishuAssetsRefresh
+      ? isOnlineFeishuSameBatch(jobFile, args.configFile, feishuEnv)
+      : false;
   const shouldRefreshFeishuAssets =
     !args.skipFeishuAssetsRefresh &&
     shouldRefreshFeishuAssetsBeforeFullFlow({
       continuationReason: args.continuationReason,
-      currentBatchComplete
+      currentBatchComplete,
+      sameBatchRefreshAvailable
     });
   if (!shouldRefreshFeishuAssets) {
     console.log("\n== Feishu assets ==");
@@ -190,6 +252,7 @@ function main(): void {
       "--cleanup-stale-assets"
     ], feishuEnv);
   }
+  assertFeishuPosterPromptsReady(jobFile);
   runStep("Auto-listing", "npm", [
     "run",
     "business:auto-listing",

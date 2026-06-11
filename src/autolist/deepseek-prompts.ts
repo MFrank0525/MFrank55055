@@ -2,10 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { sanitizeFileName } from "../doubao/paths.js";
 import type { DeepSeekArtifact } from "./types.js";
+import type { FeishuProductRecord } from "../feishu/types.js";
 import {
   assertDeepSeekPromptsBelongToCurrentProduct,
   buildDeepSeekPromptValidationContext
 } from "./deepseek-prompt-rules.js";
+import { getProductCategoryPlan } from "./product-category.js";
 
 function ensureTaskDir(runtimeDir: string, taskId: string): string {
   const taskDir = path.join(runtimeDir, "tasks", sanitizeFileName(taskId));
@@ -103,6 +105,56 @@ export function buildPosterPromptArtifactFromFeishu(options: {
     screenshotFile,
     prompts,
     simulated: options.simulated
+  };
+}
+
+export interface FeishuPosterPromptBatchValidationError {
+  recordId: string;
+  rowNumber: number;
+  userCognitionName: string;
+  spu: string;
+  requiredPromptCount: number;
+  message: string;
+}
+
+export interface FeishuPosterPromptBatchValidationResult {
+  ok: boolean;
+  errors: FeishuPosterPromptBatchValidationError[];
+  summary: string;
+}
+
+export function validateFeishuPosterPromptBatch(records: FeishuProductRecord[]): FeishuPosterPromptBatchValidationResult {
+  const errors: FeishuPosterPromptBatchValidationError[] = [];
+  records.forEach((record, index) => {
+    const promptCount = getProductCategoryPlan(record.productCategory).promptCount;
+    try {
+      const prompts = parseFeishuPosterPrompts(record.deepseekPromptText, promptCount);
+      const validationContext = buildDeepSeekPromptValidationContext({
+        sellingPointText: record.sellingPointText,
+        userCognitionName: record.userCognitionName,
+        brandedGenericName: `${record.brand}${record.genericName}`,
+        genericName: record.genericName
+      });
+      assertDeepSeekPromptsBelongToCurrentProduct(prompts, validationContext, promptCount);
+    } catch (error) {
+      errors.push({
+        recordId: record.recordId,
+        rowNumber: index + 1,
+        userCognitionName: record.userCognitionName,
+        spu: record.spu,
+        requiredPromptCount: promptCount,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+  return {
+    ok: errors.length === 0,
+    errors,
+    summary: errors.length
+      ? `Feishu DeepSeek提示词预检失败：${errors
+          .map((error) => `row ${error.rowNumber} ${error.recordId} ${error.userCognitionName}: ${error.message}`)
+          .join(" | ")}`
+      : `Feishu DeepSeek提示词预检通过：${records.length} record(s).`
   };
 }
 

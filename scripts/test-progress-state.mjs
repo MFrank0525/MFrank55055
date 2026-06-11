@@ -746,6 +746,15 @@ assert.equal(
 );
 assert.equal(
   shouldRefreshFeishuAssetsBeforeFullFlow({
+    continuationReason: "same_batch_pending",
+    currentBatchComplete: false,
+    sameBatchRefreshAvailable: true
+  }),
+  true,
+  "Same-batch pending flow must refresh Feishu assets when online identity matches the locked local batch."
+);
+assert.equal(
+  shouldRefreshFeishuAssetsBeforeFullFlow({
     continuationReason: "new_batch_after_refresh"
   }),
   false
@@ -763,6 +772,14 @@ assert.equal(
     currentBatchComplete: false
   }),
   false
+);
+assert.equal(
+  shouldRefreshFeishuAssetsBeforeFullFlow({
+    continuationReason: "initial_full",
+    currentBatchComplete: false,
+    sameBatchRefreshAvailable: true
+  }),
+  true
 );
 assert.equal(
   shouldPreferActiveTaskStateSummary({

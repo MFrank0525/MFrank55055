@@ -6,12 +6,11 @@ function attachmentIdentity(item: { fileToken?: string; name?: string; size?: nu
   return {
     fileToken: item.fileToken || "",
     name: item.name || "",
-    size: item.size || 0,
-    localFileName: item.localFile ? path.basename(item.localFile) : ""
+    size: item.size || 0
   };
 }
 
-export function buildFeishuBatchFingerprint(records: FeishuProductRecord[]): string {
+export function buildFeishuBatchIdentityFingerprint(records: FeishuProductRecord[]): string {
   const payload = records.map((record, index) => ({
     index,
     recordId: record.recordId || "",
@@ -19,11 +18,12 @@ export function buildFeishuBatchFingerprint(records: FeishuProductRecord[]): str
     genericName: record.genericName || "",
     brand: record.brand || "",
     spu: record.spu || "",
-    sellingPointText: record.sellingPointText || "",
-    shortTitle: record.shortTitle || "",
-    productCategory: record.productCategory || "",
     whiteBackgroundImages: (record.whiteBackgroundImages || []).map(attachmentIdentity),
     qualificationImages: (record.qualificationImages || []).map(attachmentIdentity)
   }));
   return crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24);
+}
+
+export function buildFeishuBatchFingerprint(records: FeishuProductRecord[]): string {
+  return buildFeishuBatchIdentityFingerprint(records);
 }
