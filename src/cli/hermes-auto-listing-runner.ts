@@ -22,6 +22,7 @@ import {
   shouldResumeInterruptedTaskInPlace,
   shouldSuppressHistoricalResultInHermesStatus,
   shouldSuppressStateCurrentTaskInHermesStatus,
+  shouldTerminateRecordedHermesProcessGroup,
   shouldUseExpectedResultFileInRunningStatus,
   summarizeHermesImageGenerationEvents
 } from "../autolist/batch-continuation-rules.js";
@@ -198,33 +199,50 @@ function isRunnerJobRunning(job: RunnerJob): boolean {
   });
 }
 
+function isProcessGroupRunning(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 async function cleanupRecordedHermesChild(): Promise<void> {
   const child = readJsonFile<{ pid?: number }>(childControlFile);
   const pid = child?.pid;
-  if (!pid || !isPidRunning(pid)) {
+  if (!pid) {
     fs.rmSync(childControlFile, { force: true });
     return;
   }
-  const command = readProcessCommand(pid);
-  if (!command || !isHermesChildProcessCommand(command)) {
+  const leaderRunning = isPidRunning(pid);
+  const command = leaderRunning ? readProcessCommand(pid) : undefined;
+  if (
+    !shouldTerminateRecordedHermesProcessGroup({
+      leaderRunning,
+      leaderCommandMatches: Boolean(command && isHermesChildProcessCommand(command))
+    })
+  ) {
     fs.rmSync(childControlFile, { force: true });
     return;
   }
   try {
     process.kill(-pid, "SIGTERM");
   } catch {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
-      fs.rmSync(childControlFile, { force: true });
-      return;
+    if (leaderRunning) {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        fs.rmSync(childControlFile, { force: true });
+        return;
+      }
     }
   }
   const deadline = Date.now() + 5000;
-  while (isPidRunning(pid) && Date.now() < deadline) {
+  while (isProcessGroupRunning(pid) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  if (isPidRunning(pid)) {
+  if (isProcessGroupRunning(pid)) {
     try {
       process.kill(-pid, "SIGKILL");
     } catch {

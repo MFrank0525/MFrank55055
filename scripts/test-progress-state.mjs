@@ -40,7 +40,9 @@ import {
   isExternalMainImageRawReuseMessage,
   shouldClearPauseSignalOnHermesStart,
   summarizeHermesImageGenerationEvents,
-  resolveHermesChildStallTimeoutMs
+  resolveHermesChildStallTimeoutMs,
+  isHermesProgressArtifactRelativePath,
+  shouldTerminateRecordedHermesProcessGroup
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -1115,6 +1117,47 @@ assert.equal(
   }),
   true,
   "Hermes resume children killed by the no-progress watchdog must automatically continue the locked current batch"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 124,
+    batchComplete: false,
+    retryableFailureMessage: "child made no progress before watchdog timeout",
+    activeStep: "published",
+    activeMessage: "Publishing product folder: product-1 (shop-1)",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  false,
+  "Hermes must not automatically retry an interrupted publish with uncertain external side effects"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: "failed at published: publish flow stopped because page context was lost",
+    activeStep: "published",
+    activeMessage: "Publish failed: product-3 (shop-2)",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  false,
+  "Hermes must not restart a full flow after any publish-stage failure because prior shops may already be published"
+);
+assert.equal(isHermesProgressArtifactRelativePath("publish/shop__product/screenshots/publish-page-images-uploaded.png"), true);
+assert.equal(isHermesProgressArtifactRelativePath("publish/shop__product/result.json"), true);
+assert.equal(isHermesProgressArtifactRelativePath("tasks/image-001/main-image-01/generated.png"), false);
+assert.equal(
+  shouldTerminateRecordedHermesProcessGroup({ leaderRunning: false }),
+  true,
+  "Hermes must terminate a recorded detached process group even after its leader exits"
+);
+assert.equal(
+  shouldTerminateRecordedHermesProcessGroup({ leaderRunning: true, leaderCommandMatches: false }),
+  false,
+  "Hermes must not terminate a live reused PID whose command is unrelated"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({

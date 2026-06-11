@@ -5,6 +5,7 @@ import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import {
   resolveDefaultRetryableChildFailureRecoveryAttempts,
   resolveHermesChildStallTimeoutMs,
+  isHermesProgressArtifactRelativePath,
   shouldContinueFullFlowAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
   shouldRecoverFullFlowAfterChildFailure,
@@ -50,6 +51,7 @@ const maxChildRecoveryAttempts = Math.max(
   0,
   Number(process.env.AUTO_LISTING_CHILD_RECOVERY_ATTEMPTS || resolveDefaultRetryableChildFailureRecoveryAttempts())
 );
+let latestChildStallProgress: { activeStep?: string; activeMessage?: string } = {};
 
 function readJsonFile<T>(file: string): T | undefined {
   if (!fs.existsSync(file)) {
@@ -86,6 +88,22 @@ function latestProgressMtimeMs(): number {
       const file = path.join(runtimeDir, fileName);
       if (fs.existsSync(file)) {
         latest = Math.max(latest, fs.statSync(file).mtimeMs);
+      }
+    }
+    const publishDir = path.join(runtimeDir, "publish");
+    const pendingDirs = fs.existsSync(publishDir) ? [publishDir] : [];
+    while (pendingDirs.length > 0) {
+      const currentDir = pendingDirs.pop()!;
+      for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+        const file = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          pendingDirs.push(file);
+          continue;
+        }
+        const relativePath = path.relative(runtimeDir, file);
+        if (isHermesProgressArtifactRelativePath(relativePath)) {
+          latest = Math.max(latest, fs.statSync(file).mtimeMs);
+        }
       }
     }
   }
@@ -224,6 +242,7 @@ async function runChild(label: string, command: string, args: string[]): Promise
   let lastProgressSeenAt = Date.now();
   let killedForStall = false;
   let terminalResultExitCode: number | null | undefined;
+  latestChildStallProgress = {};
   const watchdog = setInterval(() => {
     const progressMtime = latestProgressMtimeMs();
     if (progressMtime > lastProgressMtime) {
@@ -257,6 +276,7 @@ async function runChild(label: string, command: string, args: string[]): Promise
       return;
     }
     killedForStall = true;
+    latestChildStallProgress = activeProgress;
     console.error(
       `Child ${label} made no progress for ${effectiveStallTimeoutMs}ms during ${activeProgress.activeStep || "unknown"}; terminating process group ${child.pid}. latest=${activeProgress.activeMessage || ""}`
     );
@@ -426,12 +446,18 @@ async function main(): Promise<void> {
     }
 
     const failureMessage = exitCode === childStallExitCode ? "child made no progress before watchdog timeout" : latestFailureMessage();
+    const failureProgress =
+      latestChildStallProgress.activeStep || latestChildStallProgress.activeMessage
+        ? latestChildStallProgress
+        : latestProgressSnapshot();
     if (
       shouldRecoverFullFlowAfterChildFailure({
         childMode,
         exitCode,
         batchComplete: currentBatch.batchComplete,
         retryableFailureMessage: failureMessage,
+        activeStep: failureProgress.activeStep,
+        activeMessage: failureProgress.activeMessage,
         recoveryAttempts: childRecoveryAttempts,
         maxRecoveryAttempts: maxChildRecoveryAttempts
       })

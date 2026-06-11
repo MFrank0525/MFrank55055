@@ -70,6 +70,8 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
 
 export type SupervisorFullFlowRecoveryInput = FeishuBatchRetryAfterFailureInput & {
   childMode: SupervisorChildMode;
+  activeStep?: string;
+  activeMessage?: string;
 };
 
 export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlowRecoveryInput): boolean {
@@ -77,6 +79,10 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
     return false;
   }
   const failureMessage = input.retryableFailureMessage || "";
+  const activeText = `${input.activeStep || ""} ${input.activeMessage || ""}`;
+  if (/published|Publishing product folder|Retrying publish|Publish failed/i.test(activeText)) {
+    return false;
+  }
   return input.childMode === "full" || isRetryablePublishPageFailure(failureMessage) || isChildWatchdogFailure(failureMessage);
 }
 
@@ -199,6 +205,11 @@ export function resolveHermesChildStallTimeoutMs(input: HermesChildStallTimeoutI
     return Math.min(defaultTimeoutMs, 4 * 60 * 1000);
   }
   return defaultTimeoutMs;
+}
+
+export function isHermesProgressArtifactRelativePath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, "/").replace(/^\.?\//, "");
+  return normalized.startsWith("publish/") && /\.(?:json|ndjson|png|jpe?g|webp)$/i.test(normalized);
 }
 
 export type HermesEffectiveProgressTimestampInput = {
@@ -431,6 +442,13 @@ export function isHermesChildProcessCommand(command: string): boolean {
     /\bnode\b/.test(command) &&
     /dist\/src\/cli\/flow-mac-feishu\.js\s+--real\b/.test(command)
   );
+}
+
+export function shouldTerminateRecordedHermesProcessGroup(input: {
+  leaderRunning: boolean;
+  leaderCommandMatches?: boolean;
+}): boolean {
+  return !input.leaderRunning || input.leaderCommandMatches === true;
 }
 
 export function isHermesRunningProcessConfirmed(input: { pidAlive: boolean; command?: string }): boolean {
