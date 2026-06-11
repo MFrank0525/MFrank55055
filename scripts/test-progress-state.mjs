@@ -1029,6 +1029,28 @@ assert.equal(
     exitCode: 124,
     batchComplete: false,
     retryableFailureMessage: "child made no progress before watchdog timeout",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 124,
+    batchComplete: false,
+    retryableFailureMessage: "child made no progress before watchdog timeout",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true,
+  "Hermes resume children killed by the no-progress watchdog must automatically continue the locked current batch"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 124,
+    batchComplete: false,
+    retryableFailureMessage: "child made no progress before watchdog timeout",
     recoveryAttempts: 3,
     maxRecoveryAttempts: 3
   }),

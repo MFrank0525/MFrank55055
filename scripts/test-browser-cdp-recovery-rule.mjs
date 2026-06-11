@@ -5,6 +5,22 @@ const launchSource = fs.readFileSync("src/browser/launch.ts", "utf8");
 
 assert.match(
   launchSource,
+  /const DEBUG_ENDPOINT_REQUEST_TIMEOUT_MS = \d+/,
+  "CDP debug endpoint probes must have an explicit hard timeout"
+);
+assert.match(
+  launchSource,
+  /fetch\([^;]+signal: AbortSignal\.timeout\(DEBUG_ENDPOINT_REQUEST_TIMEOUT_MS\)/s,
+  "CDP debug endpoint fetches must abort instead of hanging indefinitely"
+);
+assert.match(
+  launchSource,
+  /chromium\.connectOverCDP\([^;]+timeout: CDP_CONNECT_TIMEOUT_MS/s,
+  "Playwright CDP connections must have an explicit hard timeout"
+);
+
+assert.match(
+  launchSource,
   /async function connectBrowserWithRecovery/,
   "launchPersistentBrowser must connect through a recovery wrapper"
 );

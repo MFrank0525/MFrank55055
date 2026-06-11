@@ -7,6 +7,8 @@ import { logInfo, logWarn } from "../utils/logger.js";
 import { getFallbackUserDataDir, getUserDataDir } from "./session.js";
 
 const REMOTE_DEBUGGING_PORTS = [9333, 9444];
+const DEBUG_ENDPOINT_REQUEST_TIMEOUT_MS = 3000;
+const CDP_CONNECT_TIMEOUT_MS = 10000;
 let activeRemoteDebuggingPort = REMOTE_DEBUGGING_PORTS[0];
 const DOUYIN_SHOP_URL = "https://fxg.jinritemai.com/ffa/g/spu-record";
 let playwrightDialogRaceGuardInstalled = false;
@@ -75,7 +77,9 @@ function getBrowserExecutable(): string {
 
 async function isDebugEndpointReady(port = activeRemoteDebuggingPort): Promise<boolean> {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+    const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+      signal: AbortSignal.timeout(DEBUG_ENDPOINT_REQUEST_TIMEOUT_MS)
+    });
     return response.ok;
   } catch {
     return false;
@@ -95,7 +99,9 @@ async function waitForDebugEndpoint(port = activeRemoteDebuggingPort, timeoutMs 
 
 async function canConnectOverCdp(port = activeRemoteDebuggingPort): Promise<boolean> {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+    const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+      signal: AbortSignal.timeout(DEBUG_ENDPOINT_REQUEST_TIMEOUT_MS)
+    });
     if (!response.ok) {
       return false;
     }
@@ -222,7 +228,9 @@ async function ensureRemoteBrowser(userDataDir: string, excludedPorts = new Set<
 }
 
 async function connectBrowser(): Promise<Browser> {
-  return chromium.connectOverCDP(`http://127.0.0.1:${activeRemoteDebuggingPort}`);
+  return chromium.connectOverCDP(`http://127.0.0.1:${activeRemoteDebuggingPort}`, {
+    timeout: CDP_CONNECT_TIMEOUT_MS
+  });
 }
 
 async function connectBrowserWithRecovery(userDataDir: string): Promise<Browser> {

@@ -45,6 +45,10 @@ function isRetryablePublishPageFailure(message: string): boolean {
   );
 }
 
+function isChildWatchdogFailure(message: string): boolean {
+  return /no progress|watchdog/i.test(message);
+}
+
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
   const retryableFailureMessage = input.retryableFailureMessage || "";
   if (input.exitCode === 0 || input.batchComplete || input.recoveryAttempts >= input.maxRecoveryAttempts) {
@@ -72,7 +76,8 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
   if (!shouldResumeFeishuBatchAfterRetryableChildFailure(input)) {
     return false;
   }
-  return input.childMode === "full" || isRetryablePublishPageFailure(input.retryableFailureMessage || "");
+  const failureMessage = input.retryableFailureMessage || "";
+  return input.childMode === "full" || isRetryablePublishPageFailure(failureMessage) || isChildWatchdogFailure(failureMessage);
 }
 
 export type InterruptedTaskResumeInput = {
