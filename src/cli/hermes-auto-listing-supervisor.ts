@@ -6,6 +6,7 @@ import {
   resolveDefaultRetryableChildFailureRecoveryAttempts,
   resolveHermesChildStallTimeoutMs,
   isHermesProgressArtifactRelativePath,
+  shouldTerminateChildAfterTerminalResult,
   shouldContinueFullFlowAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
   shouldRecoverFullFlowAfterChildFailure,
@@ -46,6 +47,7 @@ const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
 const childControlFile = path.resolve(rootDir, "data/auto-listing/control/hermes-auto-listing-child.json");
 const childStallExitCode = 124;
+const terminalResultGracePeriodMs = 5000;
 const childStallTimeoutMs = Math.max(180000, Number(process.env.AUTO_LISTING_CHILD_STALL_TIMEOUT_MS || 12 * 60 * 1000));
 const maxChildRecoveryAttempts = Math.max(
   0,
@@ -244,6 +246,29 @@ async function runChild(label: string, command: string, args: string[]): Promise
   let terminalResultExitCode: number | null | undefined;
   latestChildStallProgress = {};
   const watchdog = setInterval(() => {
+    const terminalResult = latestTerminalResultAfter(childStartedAtMs);
+    if (
+      terminalResult &&
+      shouldTerminateChildAfterTerminalResult({
+        terminalResultFound: true,
+        terminalResultAgeMs: Date.now() - terminalResult.mtimeMs,
+        gracePeriodMs: terminalResultGracePeriodMs
+      })
+    ) {
+      terminalResultExitCode = terminalResult.ok ? 0 : 1;
+      console.error(
+        `Child ${label} wrote terminal result ${terminalResult.status} but remained alive after ${terminalResultGracePeriodMs}ms; terminating process group ${child.pid}. result=${terminalResult.file}`
+      );
+      if (child.pid) {
+        terminateProcessGroup(child.pid);
+        setTimeout(() => {
+          if (!child.killed && child.pid) {
+            forceTerminateProcessGroup(child.pid);
+          }
+        }, 15000).unref();
+      }
+      return;
+    }
     const progressMtime = latestProgressMtimeMs();
     if (progressMtime > lastProgressMtime) {
       lastProgressMtime = progressMtime;
@@ -259,22 +284,6 @@ async function runChild(label: string, command: string, args: string[]): Promise
     if (Date.now() - lastProgressSeenAt < effectiveStallTimeoutMs) {
       return;
     }
-    const terminalResult = latestTerminalResultAfter(childStartedAtMs);
-    if (terminalResult) {
-      terminalResultExitCode = terminalResult.ok ? 0 : 1;
-      console.error(
-        `Child ${label} wrote terminal result ${terminalResult.status} but did not exit; terminating process group ${child.pid}. result=${terminalResult.file}`
-      );
-      if (child.pid) {
-        terminateProcessGroup(child.pid);
-        setTimeout(() => {
-          if (!child.killed && child.pid) {
-            forceTerminateProcessGroup(child.pid);
-          }
-        }, 15000).unref();
-      }
-      return;
-    }
     killedForStall = true;
     latestChildStallProgress = activeProgress;
     console.error(
@@ -288,7 +297,7 @@ async function runChild(label: string, command: string, args: string[]): Promise
         }
       }, 15000).unref();
     }
-  }, 30000);
+  }, 5000);
   watchdog.unref();
 
   return await new Promise<number | null>((resolve, reject) => {

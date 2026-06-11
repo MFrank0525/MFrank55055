@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { disconnectAutomationBrowserConnections } from "../browser/launch.js";
 import { runAutoListingJob } from "../autolist/orchestrator.js";
 import { inferResumeStartStepForTask } from "../autolist/resume-rules.js";
 import { AUTO_LISTING_STEPS } from "../autolist/types.js";
@@ -237,7 +238,7 @@ async function main(): Promise<void> {
   }
   printExternalCostSummary(job);
 
-  const result = await runAutoListingJob(job);
+  const result = await runAutoListingJob(job).finally(() => disconnectAutomationBrowserConnections());
   if (json) {
     console.log(JSON.stringify(result, null, 2));
   } else {

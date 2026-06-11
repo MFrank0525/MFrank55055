@@ -42,7 +42,8 @@ import {
   summarizeHermesImageGenerationEvents,
   resolveHermesChildStallTimeoutMs,
   isHermesProgressArtifactRelativePath,
-  shouldTerminateRecordedHermesProcessGroup
+  shouldTerminateRecordedHermesProcessGroup,
+  shouldTerminateChildAfterTerminalResult
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -85,6 +86,8 @@ const hermesSupervisorSource = fs.readFileSync("src/cli/hermes-auto-listing-supe
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
+const autoListingCliSource = fs.readFileSync("src/cli/auto-listing.ts", "utf8");
+const browserLaunchSource = fs.readFileSync("src/browser/launch.ts", "utf8");
 const packageSource = fs.readFileSync("package.json", "utf8");
 assert.match(
   hermesRunnerSource,
@@ -115,6 +118,16 @@ assert.match(
   hermesSupervisorSource,
   /latestTerminalResultAfter/,
   "Hermes watchdog must detect a terminal result file and preserve the real child outcome instead of reporting no-progress timeout"
+);
+assert.match(
+  autoListingCliSource,
+  /disconnectAutomationBrowserConnections/,
+  "Auto-listing CLI must release reusable CDP automation connections after every terminal result"
+);
+assert.match(
+  browserLaunchSource,
+  /connectedAutomationBrowsers/,
+  "Browser action layer must track reusable CDP connections so terminal cleanup can release them"
 );
 assert.match(
   hermesRunnerSource,
@@ -1158,6 +1171,24 @@ assert.equal(
   shouldTerminateRecordedHermesProcessGroup({ leaderRunning: true, leaderCommandMatches: false }),
   false,
   "Hermes must not terminate a live reused PID whose command is unrelated"
+);
+assert.equal(
+  shouldTerminateChildAfterTerminalResult({
+    terminalResultFound: true,
+    terminalResultAgeMs: 6000,
+    gracePeriodMs: 5000
+  }),
+  true,
+  "Hermes must promptly terminate a child that remains alive after writing a terminal result"
+);
+assert.equal(
+  shouldTerminateChildAfterTerminalResult({
+    terminalResultFound: true,
+    terminalResultAgeMs: 1000,
+    gracePeriodMs: 5000
+  }),
+  false,
+  "Hermes must allow a short grace period for terminal output and resource cleanup"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({

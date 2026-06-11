@@ -451,6 +451,14 @@ export function shouldTerminateRecordedHermesProcessGroup(input: {
   return !input.leaderRunning || input.leaderCommandMatches === true;
 }
 
+export function shouldTerminateChildAfterTerminalResult(input: {
+  terminalResultFound: boolean;
+  terminalResultAgeMs: number;
+  gracePeriodMs: number;
+}): boolean {
+  return input.terminalResultFound && input.terminalResultAgeMs >= Math.max(0, input.gracePeriodMs);
+}
+
 export function isHermesRunningProcessConfirmed(input: { pidAlive: boolean; command?: string }): boolean {
   return input.pidAlive && Boolean(input.command && isHermesSupervisorProcessCommand(input.command));
 }

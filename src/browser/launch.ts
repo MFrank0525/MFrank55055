@@ -12,6 +12,7 @@ const CDP_CONNECT_TIMEOUT_MS = 10000;
 let activeRemoteDebuggingPort = REMOTE_DEBUGGING_PORTS[0];
 const DOUYIN_SHOP_URL = "https://fxg.jinritemai.com/ffa/g/spu-record";
 let playwrightDialogRaceGuardInstalled = false;
+const connectedAutomationBrowsers = new Set<Browser>();
 
 const WORKSPACE_PAGE_SPECS = [
   { key: "shop", url: DOUYIN_SHOP_URL }
@@ -228,9 +229,12 @@ async function ensureRemoteBrowser(userDataDir: string, excludedPorts = new Set<
 }
 
 async function connectBrowser(): Promise<Browser> {
-  return chromium.connectOverCDP(`http://127.0.0.1:${activeRemoteDebuggingPort}`, {
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${activeRemoteDebuggingPort}`, {
     timeout: CDP_CONNECT_TIMEOUT_MS
   });
+  connectedAutomationBrowsers.add(browser);
+  browser.once("disconnected", () => connectedAutomationBrowsers.delete(browser));
+  return browser;
 }
 
 async function connectBrowserWithRecovery(userDataDir: string): Promise<Browser> {
@@ -349,4 +353,10 @@ export async function closeBrowser(_context: BrowserContext): Promise<void> {
   } catch {
     // Keep the reusable Chrome instance alive even if CDP disconnect close throws.
   }
+}
+
+export async function disconnectAutomationBrowserConnections(): Promise<void> {
+  const browsers = [...connectedAutomationBrowsers];
+  connectedAutomationBrowsers.clear();
+  await Promise.all(browsers.map((browser) => browser.close().catch(() => {})));
 }
