@@ -567,4 +567,80 @@ export function isExternalMainImageRawReuseMessage(input: {
   const normalizedRuntime = input.currentRuntimeDir.replace(/\/+$/, "");
   return normalizedSource !== normalizedRuntime && !normalizedSource.startsWith(normalizedRuntime + "/");
 }
+
+export type HermesCompactStatusTextInput = {
+  status?: string;
+  summary?: string;
+  productName?: string;
+  activeItemName?: string;
+  latestProgress?: string;
+  publishSafelyPublished?: number;
+  publishTotal?: number;
+  publishFailed?: number;
+  feishuCompleted?: number;
+  feishuTotal?: number;
+};
+
+function normalizeHermesStatusLabel(status?: string): string {
+  if (status === "running") return "运行中";
+  if (status === "failed") return "失败";
+  if (status === "completed") return "完成";
+  if (status === "external_service_wait") return "等待图片服务";
+  if (status === "pending_products") return "待继续";
+  if (status === "idle") return "空闲";
+  return status || "未知";
+}
+
+function cleanHermesProductName(name?: string): string {
+  const base = (name || "").split(/[\\/]/).pop() || "";
+  return base
+    .replace(/\.(png|jpe?g|webp)$/i, "")
+    .replace(/^[^-]+-/, "")
+    .replace(/-白底图-\d+$/i, "")
+    .replace(/水印\d+$/i, "")
+    .trim() || "未知商品";
+}
+
+function compactHermesReason(summary?: string): string {
+  const text = String(summary || "").replace(/\s+/g, " ").trim();
+  if (/Expected short-title field is missing|导购短标题.*缺失|short-title/i.test(text)) {
+    return "导购短标题字段缺失，已停止，可续跑。";
+  }
+  if (/page context was lost|Execution context was destroyed|Target closed/i.test(text)) {
+    return "发布页上下文丢失，已停止，可续跑。";
+  }
+  if (/fetch failed|network|socket|timeout|UND_ERR|ECONNRESET|ETIMEDOUT/i.test(text)) {
+    return "网络/中转站瞬断，已保留断点，可续跑。";
+  }
+  return text
+    .replace(/^发布基础信息未完成[:：]?/i, "基础信息失败：")
+    .replace(/；系统会按发布页控件未就绪处理并重试。?/g, "")
+    .slice(0, 80) || "暂无原因";
+}
+
+export function formatHermesCompactStatusText(input: HermesCompactStatusTextInput): string {
+  const publishTotal = input.publishTotal ?? "?";
+  const publishDone = input.publishSafelyPublished ?? 0;
+  const publishFailed = input.publishFailed ?? 0;
+  const feishuCompleted = input.feishuCompleted ?? "?";
+  const feishuTotal = input.feishuTotal ?? "?";
+  const lines = [
+    `状态：${normalizeHermesStatusLabel(input.status)}｜发布 ${publishDone}/${publishTotal}，失败 ${publishFailed}｜飞书 ${feishuCompleted}/${feishuTotal}`
+  ];
+
+  if (input.status === "failed") {
+    lines.push(`商品：${cleanHermesProductName(input.productName || input.activeItemName)}`);
+    lines.push(`原因：${compactHermesReason(input.summary)}`);
+    return lines.join("\n");
+  }
+
+  const active = cleanHermesProductName(input.activeItemName || input.productName);
+  lines.push(`当前：${active}`);
+  if (input.latestProgress) {
+    lines.push(`进度：${compactHermesReason(input.latestProgress)}`);
+  } else if (input.summary) {
+    lines.push(`进度：${compactHermesReason(input.summary)}`);
+  }
+  return lines.slice(0, 3).join("\n");
+}
 import { canResumeFeishuBatchArtifacts } from "./feishu-batch-rules.js";

@@ -24,7 +24,8 @@ import {
   shouldSuppressStateCurrentTaskInHermesStatus,
   shouldTerminateRecordedHermesProcessGroup,
   shouldUseExpectedResultFileInRunningStatus,
-  summarizeHermesImageGenerationEvents
+  summarizeHermesImageGenerationEvents,
+  formatHermesCompactStatusText
 } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
@@ -990,66 +991,23 @@ function existingStatus(): Record<string, unknown> {
 function formatStatusText(status: Record<string, unknown>): string {
   const state = status.state as Record<string, unknown> | undefined;
   const progress = status.publishProgress as Record<string, unknown> | undefined;
-  const result = status.result as Record<string, unknown> | undefined;
-  const lines = [
-    `上架状态：${String(status.status || "unknown")}`,
-    `${status.status === "failed" ? "失败原因" : "摘要"}：${String(status.summary || "暂无摘要")}`
-  ];
-  if (state) {
-    const currentTask = state.currentTask as Record<string, unknown> | undefined;
-    const latestProgress = state.latestProgress as Record<string, unknown> | undefined;
-    lines.push(`运行批次：${String(state.runId || path.basename(String(status.activeRuntimeDir || "")) || "unknown")}`);
-    if (currentTask?.sourceImageName) {
-      const error = currentTask.error as Record<string, unknown> | undefined;
-      const stage = currentTask.status === "failed" && error?.step ? `failed at ${String(error.step)}` : String(latestProgress?.step || currentTask.status || "unknown");
-      lines.push(`当前商品：${String(currentTask.sourceImageName)}（${stage}）`);
-    }
-    if (latestProgress?.message && currentTask?.status !== "failed") {
-      lines.push(`最新进度：${compactStatusValue(String(latestProgress.message))}`);
-    }
-    const error = currentTask?.error as Record<string, unknown> | undefined;
-    if (error?.message && status.status !== "failed") {
-      lines.push(`异常原因：${compactStatusValue(String(error.message))}`);
-    }
-  }
-  const imageProgress = status.imageProgress as Record<string, unknown> | undefined;
-  if (imageProgress) {
-    if (imageProgress.status === "reused_raw_images") {
-      lines.push(`生图：已复用当前商品 raw 主图 ${String(imageProgress.count ?? "?")} 张；不会重新调用中转站生成。`);
-    } else {
-      lines.push(`生图：${String(imageProgress.latestMessage || imageProgress.status || "进行中")}`);
-      if (imageProgress.latestSavedMessage) {
-        lines.push(`生图最近保存：${String(imageProgress.latestSavedMessage)}`);
-      }
-    }
-  }
-  if (progress) {
-    if (status.status === "failed" && Number(progress.safelyPublished || 0) === 0 && Number(progress.failed || 0) === 0) {
-      lines.push("发布：未开始真实发布；发布前预检已拦截。");
-    } else {
-      lines.push(`发布：${String(progress.safelyPublished ?? 0)}/${String(progress.total ?? "?")}，失败 ${String(progress.failed ?? 0)}，待处理 ${String(progress.pending ?? 0)}`);
-    }
-  }
   const feishuProgress = status.feishuProgress as Record<string, unknown> | undefined;
-  if (feishuProgress) {
-    if (status.feishuProgressDisplayMode === "resume_artifact_completion") {
-      lines.push(
-        `飞书批次：旧批次已完成 ${String(feishuProgress.processedRecordCount ?? "?")}/${String(feishuProgress.recordCount ?? "?")}；当前在收尾已有生图产物，完成后自动刷新新批次`
-      );
-    } else {
-      const counts = status.feishuBatchDisplayCounts as Record<string, unknown> | undefined;
-      if (counts) {
-        lines.push(
-          `飞书批次：已完成 ${String(counts.completedCount ?? "?")}/${String(counts.recordCount ?? "?")}，当前处理 ${String(counts.currentCount ?? 0)}，未开始 ${String(counts.notStartedCount ?? "?")}`
-        );
-      } else {
-        lines.push(`飞书批次：已处理 ${String(feishuProgress.processedRecordCount ?? "?")}/${String(feishuProgress.recordCount ?? "?")}，待处理 ${String(feishuProgress.pendingRecordCount ?? "?")}`);
-      }
-    }
-  } else if (result) {
-    lines.push(`最近结果：${String(result.status || "unknown")}，批次 ${String(result.runId || "unknown")}`);
-  }
-  return lines.join("\n");
+  const counts = status.feishuBatchDisplayCounts as Record<string, unknown> | undefined;
+  const currentTask = state?.currentTask as Record<string, unknown> | undefined;
+  const latestProgress = state?.latestProgress as Record<string, unknown> | undefined;
+  const active = progress?.active as Record<string, unknown> | undefined;
+  return formatHermesCompactStatusText({
+    status: String(status.status || "unknown"),
+    summary: String(status.summary || ""),
+    productName: currentTask?.sourceImageName ? String(currentTask.sourceImageName) : undefined,
+    activeItemName: active?.productFolder ? path.basename(String(active.productFolder)) : undefined,
+    latestProgress: latestProgress?.message ? compactStatusValue(String(latestProgress.message)) : undefined,
+    publishSafelyPublished: Number(progress?.safelyPublished ?? 0),
+    publishTotal: progress?.total === undefined ? undefined : Number(progress.total),
+    publishFailed: Number(progress?.failed ?? 0),
+    feishuCompleted: counts?.completedCount === undefined ? Number(feishuProgress?.processedRecordCount ?? 0) : Number(counts.completedCount),
+    feishuTotal: counts?.recordCount === undefined ? Number(feishuProgress?.recordCount ?? 0) : Number(counts.recordCount)
+  });
 }
 
 function writePauseSignal(): Record<string, unknown> {

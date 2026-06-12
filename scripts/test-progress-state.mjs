@@ -46,7 +46,8 @@ import {
   shouldTerminateChildAfterTerminalResult,
   isRetryableExternalServiceAvailabilityFailure,
   shouldConsumeSupervisorRecoveryAttempt,
-  resolveSupervisorRecoveryDelayMs
+  resolveSupervisorRecoveryDelayMs,
+  formatHermesCompactStatusText
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -1023,6 +1024,26 @@ assert.equal(
   }),
   true
 );
+const compactFailedStatus = formatHermesCompactStatusText({
+  status: "failed",
+  summary: "发布基础信息未完成：Expected short-title field is missing from the SPU-prefilled publish page.；系统会按发布页控件未就绪处理并重试。",
+  productName: "湘械注准20212140518-医用面部生物膜-白底图-01.png",
+  publishSafelyPublished: 14,
+  publishTotal: 20,
+  publishFailed: 1,
+  feishuCompleted: 2,
+  feishuTotal: 3
+});
+assert.deepEqual(
+  compactFailedStatus.split("\n"),
+  [
+    "状态：失败｜发布 14/20，失败 1｜飞书 2/3",
+    "商品：医用面部生物膜",
+    "原因：导购短标题字段缺失，已停止，可续跑。"
+  ],
+  "Hermes text status must be short, Chinese, and accurate for terminal publish failures"
+);
+assert.equal(/生图最近保存|运行批次|failed at|系统会按/.test(compactFailedStatus), false);
 assert.equal(
   selectHermesLatestResultFileForJobStatus({
     hasControlJob: true,
