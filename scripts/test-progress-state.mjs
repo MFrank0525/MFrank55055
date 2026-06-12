@@ -65,7 +65,11 @@ import {
   resolveImageGenerationTransportRetryPolicy,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
-import { inferResumeStartStepForTask, shouldReplaceStaleResumeStartStep } from "../dist/src/autolist/resume-rules.js";
+import {
+  inferResumeStartStepForTask,
+  shouldInvalidatePublishedResumeWithoutProductFolders,
+  shouldReplaceStaleResumeStartStep
+} from "../dist/src/autolist/resume-rules.js";
 import { recoverDistributedFoldersFromShopRoot } from "../dist/src/autolist/resume.js";
 import { isProductFullyProcessed } from "../dist/src/autolist/processed-completion-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
@@ -217,6 +221,16 @@ assert.match(
   hermesRunnerSource,
   /const resumeProductFolderCount = countResumeProductFolders\(resumeJob\)[\s\S]*Math\.max\(reusableRawImageCount, resumeProductFolderCount\)/,
   "Hermes resume must not require raw images when a published-stage resume job has restored product folders"
+);
+assert.match(
+  hermesRunnerSource,
+  /shouldInvalidatePublishedResumeWithoutProductFolders[\s\S]*fs\.rmSync\(resumeJobFile, \{ force: true \}\)/,
+  "Hermes resume must discard a published-stage resume job when its declared product folders are missing on disk"
+);
+assert.match(
+  hermesRunnerSource,
+  /inferResumeStartStepFromRuntimeFiles[\s\S]*openai-compatible[\s\S]*raw[\s\S]*main_images_generated/,
+  "Hermes resume must use real runtime raw/staged files to resume local main-image recovery before distribution/publish"
 );
 assert.match(
   hermesRunnerSource,
@@ -2129,6 +2143,23 @@ assert.equal(
     inferredStateStartStep: "main_images_generated",
     stateProductFolderCount: 0,
     safelyPublishedCount: 0
+  }),
+  false
+);
+assert.equal(
+  shouldInvalidatePublishedResumeWithoutProductFolders({
+    resumeStartStep: "published",
+    declaredProductFolderCount: 20,
+    actualProductFolderCount: 0
+  }),
+  true,
+  "Published-stage resume jobs must be invalidated when their declared product folders are missing on disk."
+);
+assert.equal(
+  shouldInvalidatePublishedResumeWithoutProductFolders({
+    resumeStartStep: "published",
+    declaredProductFolderCount: 20,
+    actualProductFolderCount: 20
   }),
   false
 );

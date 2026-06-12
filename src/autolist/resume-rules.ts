@@ -98,3 +98,15 @@ export function shouldReplaceStaleResumeStartStep(input: {
   }
   return input.stateProductFolderCount > 0 || input.safelyPublishedCount > 0;
 }
+
+export function shouldInvalidatePublishedResumeWithoutProductFolders(input: {
+  resumeStartStep?: string;
+  declaredProductFolderCount: number;
+  actualProductFolderCount: number;
+}): boolean {
+  return (
+    input.resumeStartStep === "published" &&
+    input.declaredProductFolderCount > 0 &&
+    input.actualProductFolderCount < input.declaredProductFolderCount
+  );
+}

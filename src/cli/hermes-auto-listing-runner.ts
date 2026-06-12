@@ -36,7 +36,11 @@ import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, read
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
-import { inferResumeStartStepForTask, shouldReplaceStaleResumeStartStep } from "../autolist/resume-rules.js";
+import {
+  inferResumeStartStepForTask,
+  shouldInvalidatePublishedResumeWithoutProductFolders,
+  shouldReplaceStaleResumeStartStep
+} from "../autolist/resume-rules.js";
 
 interface RunnerJob {
   pid: number;
@@ -1169,6 +1173,17 @@ function shouldResumeCurrentFailure(): boolean {
   }
   const resumeRuntimeDir = path.resolve(rootDir, resumeJob.runtimeDir || path.dirname(path.resolve(rootDir, resumeJob.resultFile || "")));
   const resumeProductFolderCount = countResumeProductFolders(resumeJob);
+  const declaredProductFolderCount = countDeclaredResumeProductFolders(resumeJob);
+  if (
+    shouldInvalidatePublishedResumeWithoutProductFolders({
+      resumeStartStep: String(startStep),
+      declaredProductFolderCount,
+      actualProductFolderCount: resumeProductFolderCount
+    })
+  ) {
+    fs.rmSync(resumeJobFile, { force: true });
+    return false;
+  }
   const reusableRawImageCount = countReusableRawImages(
     resumeRuntimeDir,
     resumeJob.input?.resumeTaskId
@@ -1312,6 +1327,58 @@ function countResumeProductFolders(job: AutoListingJobFile | undefined): number 
     }
   }
   return count;
+}
+
+function countDeclaredResumeProductFolders(job: AutoListingJobFile | undefined): number {
+  return new Set((job?.input?.resumeProductFolderNames || []).map((item) => String(item || "")).filter(Boolean)).size;
+}
+
+function listFilesRecursive(dir: string): string[] {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  const files: string[] = [];
+  const pending = [dir];
+  while (pending.length > 0) {
+    const currentDir = pending.pop() as string;
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(fullPath);
+      } else {
+        files.push(fullPath);
+      }
+    }
+  }
+  return files;
+}
+
+function inferResumeStartStepFromRuntimeFiles(
+  task: NonNullable<AutoListingStateFile["tasks"]>[number] | NonNullable<AutoListingResultFile["tasks"]>[number],
+  runtimeDir: string,
+  fallback: ReturnType<typeof inferResumeStartStepForTask>
+): ReturnType<typeof inferResumeStartStepForTask> {
+  if (fallback === "published") {
+    return fallback;
+  }
+  if (!task.taskId) {
+    return fallback;
+  }
+  const taskDir = path.join(runtimeDir, "tasks", task.taskId);
+  const files = listFilesRecursive(taskDir);
+  if (files.some((file) => file.includes(`${path.sep}staged${path.sep}`) && /\.(png|jpe?g|webp)$/i.test(file))) {
+    return "main_images_generated";
+  }
+  if (files.some((file) => file.includes(`${path.sep}openai-compatible${path.sep}raw${path.sep}`) && /^generated-\d+/i.test(path.basename(file)))) {
+    return "main_images_generated";
+  }
+  if (files.some((file) => file.includes(`${path.sep}poster-word-files${path.sep}`) && file.toLowerCase().endsWith(".docx"))) {
+    return "main_images_generated";
+  }
+  if (files.some((file) => path.basename(file) === "selling-points.txt")) {
+    return "poster_prompts_generated";
+  }
+  return fallback;
 }
 
 function taskHasExternalMainImageRawReuse(runtimeDir: string, taskId: string | undefined): boolean {
@@ -1459,6 +1526,11 @@ function writeResumeJobFromInterruptedState(
   sourceJob: AutoListingJobFile,
   interrupted: NonNullable<ReturnType<typeof findLatestInterruptedStateForResume>>
 ): AutoListingJobFile {
+  const startStep = inferResumeStartStepFromRuntimeFiles(
+    interrupted.task,
+    interrupted.runtimeDir,
+    inferResumeStartStepForTask(interrupted.task)
+  );
   const resumeJob: AutoListingJobFile = {
     ...sourceJob,
     runtimeDir: interrupted.runtimeDir,
@@ -1466,7 +1538,7 @@ function writeResumeJobFromInterruptedState(
     runId: interrupted.state.runId || path.basename(interrupted.runtimeDir),
     input: {
       ...sourceJob.input,
-      startStep: inferResumeStartStepForTask(interrupted.task),
+      startStep,
       endStep: "done",
       resumeSourceImagePath: interrupted.task.sourceImagePath,
       resumeTaskId: interrupted.task.taskId,
@@ -1506,10 +1578,15 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
     return undefined;
   }
 
-  const failedStep = inferResumeStartStepForTask(failedTask);
+  const failedRuntimeDir = latest.result.runtimeDir || path.dirname(latest.resultFile);
+  const failedStep = inferResumeStartStepFromRuntimeFiles(
+    failedTask,
+    failedRuntimeDir,
+    inferResumeStartStepForTask(failedTask)
+  );
   const resumeJob: AutoListingJobFile = {
     ...sourceJob,
-    runtimeDir: latest.result.runtimeDir || path.dirname(latest.resultFile),
+    runtimeDir: failedRuntimeDir,
     resultFile: latest.resultFile,
     runId: latest.result.runId || path.basename(path.dirname(latest.resultFile)),
     input: {
