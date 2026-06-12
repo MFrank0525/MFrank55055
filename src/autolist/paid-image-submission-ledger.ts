@@ -171,6 +171,14 @@ interface LedgerLockMetadata {
   acquiredAt: string;
   token: string;
   processIdentity?: string;
+  processIdentitySource?: ProcessIdentitySource;
+}
+
+type ProcessIdentitySource = "ps-lstart-command-sha256" | "local-process-start-sha256" | "local-fallback";
+
+interface ProcessIdentity {
+  identity: string;
+  source: ProcessIdentitySource;
 }
 
 const staleLockTimeoutMs = 60_000;
@@ -178,7 +186,7 @@ const currentProcessFallbackIdentity = sha256Text(
   `${process.pid}|${Math.round(Date.now() - process.uptime() * 1000)}|${process.execPath}`
 );
 
-function queryProcessIdentity(pid: number): string | undefined {
+function queryProcessIdentity(pid: number): ProcessIdentity | undefined {
   if (pid === process.pid) {
     return currentPaidImageLedgerProcessIdentity();
   }
@@ -188,22 +196,24 @@ function queryProcessIdentity(pid: number): string | undefined {
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1_000
     }).trim();
-    return output ? sha256Text(output) : undefined;
+    return output ? { identity: sha256Text(output), source: "ps-lstart-command-sha256" } : undefined;
   } catch {
     return undefined;
   }
 }
 
-export function currentPaidImageLedgerProcessIdentity(): string {
+export function currentPaidImageLedgerProcessIdentity(): ProcessIdentity {
   try {
     const output = execFileSync("/bin/ps", ["-p", String(process.pid), "-o", "lstart=,command="], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1_000
     }).trim();
-    return output ? sha256Text(output) : currentProcessFallbackIdentity;
+    return output
+      ? { identity: sha256Text(output), source: "ps-lstart-command-sha256" }
+      : { identity: currentProcessFallbackIdentity, source: "local-process-start-sha256" };
   } catch {
-    return currentProcessFallbackIdentity;
+    return { identity: currentProcessFallbackIdentity, source: "local-process-start-sha256" };
   }
 }
 
@@ -217,7 +227,11 @@ function readLockMetadata(lockFile: string): LedgerLockMetadata | undefined {
       typeof value.token === "string" &&
       /^[a-f0-9-]{16,}$/.test(value.token) &&
       (value.processIdentity === undefined ||
-        (typeof value.processIdentity === "string" && value.processIdentity.length > 0 && value.processIdentity.length <= 128))
+        (typeof value.processIdentity === "string" && value.processIdentity.length > 0 && value.processIdentity.length <= 128)) &&
+      (value.processIdentitySource === undefined ||
+        value.processIdentitySource === "ps-lstart-command-sha256" ||
+        value.processIdentitySource === "local-process-start-sha256" ||
+        value.processIdentitySource === "local-fallback")
     ) {
       return value as LedgerLockMetadata;
     }
@@ -249,8 +263,13 @@ function isProvablyStaleLock(metadata: LedgerLockMetadata): boolean {
     return true;
   }
   const currentIdentity = queryProcessIdentity(metadata.pid);
-  if (metadata.processIdentity && currentIdentity) {
-    return metadata.processIdentity !== currentIdentity;
+  if (
+    metadata.processIdentity &&
+    metadata.processIdentitySource !== "local-fallback" &&
+    currentIdentity &&
+    currentIdentity.source === metadata.processIdentitySource
+  ) {
+    return metadata.processIdentity !== currentIdentity.identity;
   }
   if (liveness === "alive") {
     return false;
@@ -259,11 +278,13 @@ function isProvablyStaleLock(metadata: LedgerLockMetadata): boolean {
 }
 
 function tryCreateMetadataLock(lockFile: string): LedgerLockMetadata | undefined {
+  const processIdentity = currentPaidImageLedgerProcessIdentity();
   const metadata: LedgerLockMetadata = {
     pid: process.pid,
     acquiredAt: new Date().toISOString(),
     token: crypto.randomUUID(),
-    processIdentity: currentPaidImageLedgerProcessIdentity()
+    processIdentity: processIdentity.identity,
+    processIdentitySource: processIdentity.source
   };
   const candidate = `${lockFile}.${metadata.token}.candidate.lock`;
   let fd: number | undefined;

@@ -31,7 +31,8 @@ const identity = {
 const ownerA = { runId: "run-a", taskId: "task-a", pid: 101 };
 const ownerB = { runId: "run-b", taskId: "task-b", pid: 202 };
 const currentProcessIdentity = currentPaidImageLedgerProcessIdentity();
-assert.ok(currentProcessIdentity);
+assert.ok(currentProcessIdentity.identity);
+assert.match(currentProcessIdentity.source, /^(ps-lstart-command-sha256|local-process-start-sha256)$/);
 
 const initialized = initializePaidImageProductLedger(identity);
 assert.equal(initialized.expectedSlotCount, 20);
@@ -415,7 +416,8 @@ fs.writeFileSync(
     pid: 2147483647,
     acquiredAt: "2000-01-01T00:00:00.000Z",
     token: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-    processIdentity: "dead-process-identity"
+    processIdentity: "dead-process-identity",
+    processIdentitySource: currentProcessIdentity.source
   }),
   "utf8"
 );
@@ -425,7 +427,8 @@ fs.writeFileSync(
     pid: 2147483647,
     acquiredAt: "2000-01-01T00:00:00.000Z",
     token: "cccccccc-cccc-cccc-cccc-cccccccccccc",
-    processIdentity: "dead-process-identity"
+    processIdentity: "dead-process-identity",
+    processIdentitySource: "ps-lstart-command-sha256"
   }),
   "utf8"
 );
@@ -456,7 +459,8 @@ fs.writeFileSync(
     pid: process.pid,
     acquiredAt: "2000-01-01T00:00:00.000Z",
     token: "dddddddd-dddd-dddd-dddd-dddddddddddd",
-    processIdentity: "different-process-start-identity"
+    processIdentity: "different-process-start-identity",
+    processIdentitySource: currentProcessIdentity.source
   }),
   "utf8"
 );
@@ -488,7 +492,8 @@ fs.writeFileSync(
     pid: process.pid,
     acquiredAt: "2000-01-01T00:00:00.000Z",
     token: liveLockToken,
-    processIdentity: currentProcessIdentity
+    processIdentity: currentProcessIdentity.identity,
+    processIdentitySource: currentProcessIdentity.source
   }),
   "utf8"
 );
@@ -509,6 +514,46 @@ assert.equal(JSON.parse(fs.readFileSync(liveLockFile, "utf8")).token, liveLockTo
 liveLockChild.kill("SIGTERM");
 await new Promise((resolve) => liveLockChild.on("close", resolve));
 fs.unlinkSync(liveLockFile);
+
+const fallbackIdentityProduct = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-fallback-identity-lock",
+  recordId: "record-fallback-identity-lock"
+});
+reservePaidImageSlot({
+  productDir: fallbackIdentityProduct.productDir,
+  slot: 1,
+  requestDigest: "fallback-identity-request",
+  promptDigest: "fallback-identity-prompt",
+  owner: ownerA
+});
+const fallbackIdentityLockFile = path.join(fallbackIdentityProduct.productDir, "slots", "01.json.lock");
+const fallbackIdentityToken = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+fs.writeFileSync(
+  fallbackIdentityLockFile,
+  JSON.stringify({
+    pid: process.pid,
+    acquiredAt: "2000-01-01T00:00:00.000Z",
+    token: fallbackIdentityToken,
+    processIdentity: "fallback-created-identity",
+    processIdentitySource: "local-fallback"
+  }),
+  "utf8"
+);
+const fallbackIdentityWorker = spawn(process.execPath, ["--input-type=module", "-e", `
+  import { recordPaidImageSubmitted } from ${JSON.stringify(ledgerModuleUrl)};
+  recordPaidImageSubmitted({
+    productDir: ${JSON.stringify(fallbackIdentityProduct.productDir)},
+    slot: 1,
+    providerTaskId: "must-not-steal-fallback-identity-lock"
+  });
+`], { stdio: ["ignore", "ignore", "pipe"] });
+await new Promise((resolve) => setTimeout(resolve, 300));
+assert.equal(fallbackIdentityWorker.exitCode, null, "fallback-created live lock must fail closed against authoritative check");
+assert.equal(JSON.parse(fs.readFileSync(fallbackIdentityLockFile, "utf8")).token, fallbackIdentityToken);
+fallbackIdentityWorker.kill("SIGTERM");
+await new Promise((resolve) => fallbackIdentityWorker.on("close", resolve));
+fs.unlinkSync(fallbackIdentityLockFile);
 
 function assertMalformedSlotRejected(label, mutate) {
   const malformedProduct = initializePaidImageProductLedger({
