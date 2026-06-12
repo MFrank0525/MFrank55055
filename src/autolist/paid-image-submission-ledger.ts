@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -169,12 +170,42 @@ interface LedgerLockMetadata {
   pid: number;
   acquiredAt: string;
   token: string;
+  processIdentity?: string;
 }
 
 const staleLockTimeoutMs = 60_000;
-// Ledger critical sections are synchronous and short. This hard lease cap prevents
-// PID reuse from turning an abandoned lock into a permanent block.
-const maxLockAgeMs = 5 * 60_000;
+const currentProcessFallbackIdentity = sha256Text(
+  `${process.pid}|${Math.round(Date.now() - process.uptime() * 1000)}|${process.execPath}`
+);
+
+function queryProcessIdentity(pid: number): string | undefined {
+  if (pid === process.pid) {
+    return currentPaidImageLedgerProcessIdentity();
+  }
+  try {
+    const output = execFileSync("/bin/ps", ["-p", String(pid), "-o", "lstart=,command="], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1_000
+    }).trim();
+    return output ? sha256Text(output) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function currentPaidImageLedgerProcessIdentity(): string {
+  try {
+    const output = execFileSync("/bin/ps", ["-p", String(process.pid), "-o", "lstart=,command="], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1_000
+    }).trim();
+    return output ? sha256Text(output) : currentProcessFallbackIdentity;
+  } catch {
+    return currentProcessFallbackIdentity;
+  }
+}
 
 function readLockMetadata(lockFile: string): LedgerLockMetadata | undefined {
   try {
@@ -184,7 +215,9 @@ function readLockMetadata(lockFile: string): LedgerLockMetadata | undefined {
       typeof value.acquiredAt === "string" &&
       Number.isFinite(Date.parse(value.acquiredAt)) &&
       typeof value.token === "string" &&
-      /^[a-f0-9-]{16,}$/.test(value.token)
+      /^[a-f0-9-]{16,}$/.test(value.token) &&
+      (value.processIdentity === undefined ||
+        (typeof value.processIdentity === "string" && value.processIdentity.length > 0 && value.processIdentity.length <= 128))
     ) {
       return value as LedgerLockMetadata;
     }
@@ -194,25 +227,43 @@ function readLockMetadata(lockFile: string): LedgerLockMetadata | undefined {
   return undefined;
 }
 
-function isProcessAlive(pid: number): boolean {
+function processLiveness(pid: number): "alive" | "dead" | "unknown" {
   try {
     process.kill(pid, 0);
-    return true;
+    return "alive";
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+      return "dead";
+    }
+    if ((error as NodeJS.ErrnoException).code === "EPERM") {
+      return "alive";
+    }
+    return "unknown";
   }
 }
 
 function isProvablyStaleLock(metadata: LedgerLockMetadata): boolean {
   const ageMs = Date.now() - Date.parse(metadata.acquiredAt);
-  return ageMs >= maxLockAgeMs || (ageMs >= staleLockTimeoutMs && !isProcessAlive(metadata.pid));
+  const liveness = processLiveness(metadata.pid);
+  if (liveness === "dead") {
+    return true;
+  }
+  const currentIdentity = queryProcessIdentity(metadata.pid);
+  if (metadata.processIdentity && currentIdentity) {
+    return metadata.processIdentity !== currentIdentity;
+  }
+  if (liveness === "alive") {
+    return false;
+  }
+  return ageMs >= staleLockTimeoutMs;
 }
 
 function tryCreateMetadataLock(lockFile: string): LedgerLockMetadata | undefined {
   const metadata: LedgerLockMetadata = {
     pid: process.pid,
     acquiredAt: new Date().toISOString(),
-    token: crypto.randomUUID()
+    token: crypto.randomUUID(),
+    processIdentity: currentPaidImageLedgerProcessIdentity()
   };
   const candidate = `${lockFile}.${metadata.token}.candidate.lock`;
   let fd: number | undefined;

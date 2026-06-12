@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  currentPaidImageLedgerProcessIdentity,
   initializePaidImageProductLedger,
   paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
@@ -29,6 +30,8 @@ const identity = {
 };
 const ownerA = { runId: "run-a", taskId: "task-a", pid: 101 };
 const ownerB = { runId: "run-b", taskId: "task-b", pid: 202 };
+const currentProcessIdentity = currentPaidImageLedgerProcessIdentity();
+assert.ok(currentProcessIdentity);
 
 const initialized = initializePaidImageProductLedger(identity);
 assert.equal(initialized.expectedSlotCount, 20);
@@ -408,12 +411,22 @@ const staleLockFile = path.join(staleLockProduct.productDir, "slots", "01.json.l
 const staleRecoveryLockFile = `${staleLockFile}.recovery.lock`;
 fs.writeFileSync(
   staleLockFile,
-  JSON.stringify({ pid: 2147483647, acquiredAt: "2000-01-01T00:00:00.000Z", token: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" }),
+  JSON.stringify({
+    pid: 2147483647,
+    acquiredAt: "2000-01-01T00:00:00.000Z",
+    token: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    processIdentity: "dead-process-identity"
+  }),
   "utf8"
 );
 fs.writeFileSync(
   staleRecoveryLockFile,
-  JSON.stringify({ pid: 2147483647, acquiredAt: "2000-01-01T00:00:00.000Z", token: "cccccccc-cccc-cccc-cccc-cccccccccccc" }),
+  JSON.stringify({
+    pid: 2147483647,
+    acquiredAt: "2000-01-01T00:00:00.000Z",
+    token: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+    processIdentity: "dead-process-identity"
+  }),
   "utf8"
 );
 assert.equal(
@@ -439,14 +452,19 @@ reservePaidImageSlot({
 const pidReuseLockFile = path.join(pidReuseProduct.productDir, "slots", "01.json.lock");
 fs.writeFileSync(
   pidReuseLockFile,
-  JSON.stringify({ pid: process.pid, acquiredAt: "2000-01-01T00:00:00.000Z", token: "dddddddd-dddd-dddd-dddd-dddddddddddd" }),
+  JSON.stringify({
+    pid: process.pid,
+    acquiredAt: "2000-01-01T00:00:00.000Z",
+    token: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    processIdentity: "different-process-start-identity"
+  }),
   "utf8"
 );
 assert.equal(
   recordPaidImageSubmitted({ productDir: pidReuseProduct.productDir, slot: 1, providerTaskId: "pid-reuse-recovered-task" })
     .state,
   "submitted",
-  "hard-expired lock must recover even when its pid was reused by a live process"
+  "same pid with different process-start identity must recover"
 );
 assert.equal(fs.existsSync(pidReuseLockFile), false);
 
@@ -466,7 +484,12 @@ const liveLockFile = path.join(liveLockProduct.productDir, "slots", "01.json.loc
 const liveLockToken = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 fs.writeFileSync(
   liveLockFile,
-  JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString(), token: liveLockToken }),
+  JSON.stringify({
+    pid: process.pid,
+    acquiredAt: "2000-01-01T00:00:00.000Z",
+    token: liveLockToken,
+    processIdentity: currentProcessIdentity
+  }),
   "utf8"
 );
 const liveLockWorker = `
@@ -481,7 +504,7 @@ const liveLockChild = spawn(process.execPath, ["--input-type=module", "-e", live
   stdio: ["ignore", "ignore", "pipe"]
 });
 await new Promise((resolve) => setTimeout(resolve, 300));
-assert.equal(liveLockChild.exitCode, null, "live lock must continue blocking a competing transition");
+assert.equal(liveLockChild.exitCode, null, "verified live old lock must continue blocking a competing transition");
 assert.equal(JSON.parse(fs.readFileSync(liveLockFile, "utf8")).token, liveLockToken);
 liveLockChild.kill("SIGTERM");
 await new Promise((resolve) => liveLockChild.on("close", resolve));
