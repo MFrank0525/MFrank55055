@@ -351,6 +351,41 @@ function compactStatusValue(value: string | undefined): string | undefined {
   return value ? compactStatusLine(value) : value;
 }
 
+function publishModuleLabel(moduleName: string): string {
+  if (moduleName === "basic_info") return "基础信息";
+  if (moduleName === "graphic_info") return "图文信息";
+  if (moduleName === "price_inventory") return "价格库存";
+  if (moduleName === "service_fulfillment") return "服务履约";
+  if (moduleName === "final_submit") return "最终提交";
+  return moduleName;
+}
+
+function summarizePublishLogProgress(logFile: string | undefined): Record<string, unknown> | undefined {
+  if (!logFile || !fs.existsSync(logFile)) {
+    return undefined;
+  }
+  const lines = tailFile(logFile, 240);
+  for (const line of [...lines].reverse()) {
+    const compact = line.replace(/\s+/g, " ").trim();
+    const timestamp = /^\[([^\]]+)\]/.exec(compact)?.[1];
+    const moduleMatch = /publish module started:\s*([a-z_]+)\s*\(([^)]+)\)/i.exec(compact);
+    if (moduleMatch) {
+      return {
+        timestamp,
+        message: `发布模块：${publishModuleLabel(moduleMatch[1])}（${moduleMatch[2]}）`
+      };
+    }
+    const spuMatch = /querying platform spu with brand=([^,]+),\s*spu=([^\s]+)/i.exec(compact);
+    if (spuMatch) {
+      return {
+        timestamp,
+        message: `标品检索：${spuMatch[1]} ${spuMatch[2]}`
+      };
+    }
+  }
+  return undefined;
+}
+
 function compactErrorObject<T extends { message?: string } | undefined>(error: T): T {
   if (!error?.message) {
     return error;
@@ -824,6 +859,7 @@ function existingStatus(): Record<string, unknown> {
   const publishProgress = summarizePublishProgress(runtimeDir);
   const feishuProgress = summarizeFeishuProgress();
   const state = summarizeState(runtimeDir);
+  const publishLogProgress = summarizePublishLogProgress(job.logFile);
   const currentTask = state?.currentTask as Record<string, unknown> | undefined;
   const imageProgress = summarizeImageGenerationProgress(runtimeDir, currentTask?.taskId ? String(currentTask.taskId) : undefined);
   const activeResumeReusableArtifactCount =
@@ -970,6 +1006,7 @@ function existingStatus(): Record<string, unknown> {
     state: statusState,
     progressHeartbeat,
     imageProgress,
+    publishLogProgress,
     publishProgress: exposePublishProgress ? publishProgress : undefined,
     feishuProgress,
     feishuProgressDisplayMode,
@@ -996,13 +1033,20 @@ function formatStatusText(status: Record<string, unknown>): string {
   const counts = status.feishuBatchDisplayCounts as Record<string, unknown> | undefined;
   const currentTask = state?.currentTask as Record<string, unknown> | undefined;
   const latestProgress = state?.latestProgress as Record<string, unknown> | undefined;
+  const publishLogProgress = status.publishLogProgress as Record<string, unknown> | undefined;
+  const latestProgressText =
+    typeof publishLogProgress?.message === "string"
+      ? String(publishLogProgress.message)
+      : latestProgress?.message
+        ? compactStatusValue(String(latestProgress.message))
+        : undefined;
   const active = progress?.active as Record<string, unknown> | undefined;
   return formatHermesCompactStatusText({
     status: String(status.status || "unknown"),
     summary: String(status.summary || ""),
     productName: currentTask?.sourceImageName ? String(currentTask.sourceImageName) : undefined,
     activeItemName: active?.productFolder ? path.basename(String(active.productFolder)) : undefined,
-    latestProgress: latestProgress?.message ? compactStatusValue(String(latestProgress.message)) : undefined,
+    latestProgress: latestProgressText,
     publishSafelyPublished: Number(progress?.safelyPublished ?? 0),
     publishTotal: progress?.total === undefined ? undefined : Number(progress.total),
     publishFailed: Number(progress?.failed ?? 0),

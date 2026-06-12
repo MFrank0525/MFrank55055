@@ -267,6 +267,11 @@ assert.match(
   "Orchestrator must append publish progress callback messages to events.ndjson for Hermes status"
 );
 assert.match(
+  hermesRunnerSource,
+  /summarizePublishLogProgress[\s\S]*publish module started[\s\S]*publishLogProgress[\s\S]*latestProgressText/,
+  "Hermes status must surface publish module log heartbeats so reports do not look stalled during long Doudian module actions"
+);
+assert.match(
   processedCompletionRulesSource,
   /taskHasSafePublishArtifact[\s\S]*publish_signal_confirmed[\s\S]*manifestHasSafePublishCoverage/,
   "Processed-image marking must accept safe publish evidence from task artifacts or publish-manifest, not only cleaned/done task status"
