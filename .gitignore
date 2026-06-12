@@ -44,6 +44,7 @@ input/auto-listing/shops/*/*
 input/auto-listing/*.generated.json
 
 # Browser/test artifacts
+.worktrees/
 playwright-report/
 test-results/
 screenshots/
