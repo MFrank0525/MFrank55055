@@ -219,8 +219,18 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /const resumeProductFolderCount = countResumeProductFolders\(resumeJob\)[\s\S]*Math\.max\(reusableRawImageCount, resumeProductFolderCount\)/,
-  "Hermes resume must not require raw images when a published-stage resume job has restored product folders"
+  /const resumeProductFolderCount = countResumeProductFolders\(resumeJob\)[\s\S]*const reusablePaidImageLedgerSlotCount = countReusablePaidImageLedgerSlots[\s\S]*Math\.max\(reusableRawImageCount, reusablePaidImageLedgerSlotCount, resumeProductFolderCount\)/,
+  "Hermes resume must not require raw images when a paid-image ledger or restored product folders exist"
+);
+assert.match(
+  hermesRunnerSource,
+  /countReusablePaidImageLedgerSlots/,
+  "Hermes resume must treat submitted paid-image ledger slots as reusable assets even before raw images are downloaded"
+);
+assert.match(
+  hermesRunnerSource,
+  /Math\.max\(reusableRawImageCount, reusablePaidImageLedgerSlotCount, resumeProductFolderCount\)/,
+  "Hermes resume must include paid-image ledger slots in reusable artifact counts to avoid starting a fresh paid batch"
 );
 assert.match(
   hermesRunnerSource,
@@ -234,8 +244,8 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /const resumeProductFolderCount = collectResumeProductFolderNames\(failedTask\)\.length[\s\S]*const reusableArtifactCount = Math\.max\(reusableRawImageCount, resumeProductFolderCount\)[\s\S]*shouldResumeSourceImageForCurrentFeishuBatch\([\s\S]*reusableArtifactCount/,
-  "Hermes failed-result resume selection must accept product-folder artifacts even when raw images are no longer available"
+  /const resumeProductFolderCount = collectResumeProductFolderNames\(failedTask\)\.length[\s\S]*const reusableArtifactCount = Math\.max\(reusableRawImageCount, reusablePaidImageLedgerSlotCount, resumeProductFolderCount\)[\s\S]*shouldResumeSourceImageForCurrentFeishuBatch\([\s\S]*reusableArtifactCount/,
+  "Hermes failed-result resume selection must accept paid-image ledger and product-folder artifacts even when raw images are no longer available"
 );
 assert.match(
   hermesRunnerSource,
@@ -622,14 +632,20 @@ const activeRunDir = path.join(cleanupRunRoot, "20260609-203518");
 const nonRunDir = path.join(cleanupRunRoot, "control");
 const protectedPaidImageRunDir = path.join(cleanupRunRoot, "20260610-232736");
 const nestedPaidImageRunDir = path.join(cleanupRunRoot, "20260610-233000");
+const submittedLedgerRunDir = path.join(cleanupRunRoot, "20260610-233500");
 fs.mkdirSync(oldRunDir, { recursive: true });
 fs.mkdirSync(activeRunDir, { recursive: true });
 fs.mkdirSync(nonRunDir, { recursive: true });
 fs.mkdirSync(protectedPaidImageRunDir, { recursive: true });
 fs.mkdirSync(path.join(nestedPaidImageRunDir, "tasks/image-001/main-image-01/openai-compatible/raw"), { recursive: true });
+fs.mkdirSync(path.join(submittedLedgerRunDir, "tasks/image-001/paid-image-ledger/batch/record/slots"), { recursive: true });
 fs.writeFileSync(path.join(oldRunDir, "state.json"), "{}\n");
 fs.writeFileSync(path.join(activeRunDir, "state.json"), "{}\n");
 fs.writeFileSync(path.join(protectedPaidImageRunDir, "state.json"), "{}\n");
+fs.writeFileSync(
+  path.join(submittedLedgerRunDir, "tasks/image-001/paid-image-ledger/batch/record/slots/01.json"),
+  JSON.stringify({ version: 1, slot: 1, state: "submitted", providerTaskId: "paid-task-1" }) + "\n"
+);
 fs.writeFileSync(
   path.join(nestedPaidImageRunDir, "tasks/image-001/main-image-01/openai-compatible/raw/generated-01.png"),
   "paid raw image\n"
@@ -650,6 +666,11 @@ assert.equal(
   fs.existsSync(nestedPaidImageRunDir),
   true,
   "stale run cleanup must automatically preserve nested main-image raw generated files"
+);
+assert.equal(
+  fs.existsSync(submittedLedgerRunDir),
+  true,
+  "stale run cleanup must preserve submitted paid-image ledger slots even before raw images exist"
 );
 
 const sameSpuFolderMatch = resolveFeishuAssetRecordForFolder({

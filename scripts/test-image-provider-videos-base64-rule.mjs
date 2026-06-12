@@ -35,6 +35,7 @@ assert.match(source, /mode === "videos-base64"/);
 assert.match(ruleDoc, /videos-base64.*Base64.*1:1.*1024x1024/s);
 assert.match(ruleDoc, /实际返回.*正方形.*2K.*4K/s);
 assert.match(ruleDoc, /提交结果不明确.*不得在同一子进程里自动重新提交/s);
+assert.match(ruleDoc, /paid-image-ledger.*付费资产.*续跑/s);
 assert.match(ruleDoc, /Hermes.*当前飞书批次.*续跑/s);
 assert.match(ruleDoc, /当前商品.*全部异步任务.*统一轮询/s);
 assert.match(ruleDoc, /其他.*串行/s);

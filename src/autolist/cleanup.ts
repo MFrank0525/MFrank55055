@@ -204,9 +204,32 @@ function collectReusableRawMainImageRunDirs(runDirs: string[]): string[] {
     return false;
   }
 
+  function hasReusablePaidImageLedgerSlot(dir: string): boolean {
+    if (!fs.existsSync(dir)) {
+      return false;
+    }
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isFile() && path.basename(path.dirname(entryPath)) === "slots" && /^\d+\.json$/i.test(entry.name)) {
+        try {
+          const slot = JSON.parse(fs.readFileSync(entryPath, "utf8")) as { state?: string; providerTaskId?: string };
+          if ((slot.state === "submitted" || slot.state === "completed") && typeof slot.providerTaskId === "string" && slot.providerTaskId) {
+            return true;
+          }
+        } catch {
+          continue;
+        }
+      }
+      if (entry.isDirectory() && hasReusablePaidImageLedgerSlot(entryPath)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   for (const runDir of runDirs) {
     const tasksDir = path.join(runDir, "tasks");
-    if (hasReusableRawImage(tasksDir)) {
+    if (hasReusableRawImage(tasksDir) || hasReusablePaidImageLedgerSlot(tasksDir)) {
       protectedRunDirs.push(runDir);
     }
   }
