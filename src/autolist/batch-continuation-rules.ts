@@ -497,8 +497,12 @@ export function shouldTerminateChildAfterTerminalResult(input: {
   return input.terminalResultFound && input.terminalResultAgeMs >= Math.max(0, input.gracePeriodMs);
 }
 
-export function isHermesRunningProcessConfirmed(input: { pidAlive: boolean; command?: string }): boolean {
-  return input.pidAlive && Boolean(input.command && isHermesSupervisorProcessCommand(input.command));
+export function isHermesRunningProcessConfirmed(input: {
+  pidAlive: boolean;
+  processGroupAlive?: boolean;
+  command?: string;
+}): boolean {
+  return input.pidAlive && (Boolean(input.command && isHermesSupervisorProcessCommand(input.command)) || input.processGroupAlive === true);
 }
 
 export function selectHermesLatestResultFileForJobStatus(input: {

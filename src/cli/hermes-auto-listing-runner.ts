@@ -207,6 +207,7 @@ function isRunnerJobRunning(job: RunnerJob): boolean {
   const command = readProcessCommand(job.pid);
   return isHermesRunningProcessConfirmed({
     pidAlive: isPidRunning(job.pid),
+    processGroupAlive: isProcessGroupRunning(job.pid),
     command
   });
 }

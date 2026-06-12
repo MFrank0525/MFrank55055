@@ -1010,6 +1010,15 @@ assert.equal(
 assert.equal(
   isHermesRunningProcessConfirmed({
     pidAlive: true,
+    processGroupAlive: true,
+    command: undefined
+  }),
+  true,
+  "Hermes status must use the detached supervisor process group when sandboxing blocks command inspection."
+);
+assert.equal(
+  isHermesRunningProcessConfirmed({
+    pidAlive: true,
     command: "node dist/src/cli/hermes-auto-listing-supervisor.js --initial full"
   }),
   true
