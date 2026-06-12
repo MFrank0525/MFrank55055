@@ -581,6 +581,100 @@ export type HermesCompactStatusTextInput = {
   feishuTotal?: number;
 };
 
+export type HermesRealtimeProgressSignalInput = {
+  jobStartedAt?: string;
+  activeRunId?: string;
+  status?: string;
+  statusSource?: string;
+  publishSafelyPublished?: number;
+  publishTotal?: number;
+  publishFailed?: number;
+  publishActiveRuntimeKey?: string;
+  publishActiveUpdatedAt?: string;
+  publishActiveMessage?: string;
+  latestArtifactUpdatedAt?: string;
+  latestArtifactName?: string;
+  publishLogTimestamp?: string;
+  publishLogMessage?: string;
+  stateLatestProgressTimestamp?: string;
+  stateLatestProgressMessage?: string;
+};
+
+export type HermesRealtimeProgressSignal = {
+  key: string;
+  timestamp?: string;
+  source: "publish_log" | "latest_artifact" | "publish_active" | "state" | "status";
+  message: string;
+};
+
+function compactRealtimeProgressPart(value: string | undefined): string {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+}
+
+export function resolveHermesRealtimeProgressSignal(
+  input: HermesRealtimeProgressSignalInput
+): HermesRealtimeProgressSignal | undefined {
+  const candidates = [
+    {
+      source: "publish_log" as const,
+      timestamp: input.publishLogTimestamp,
+      message: input.publishLogMessage
+    },
+    {
+      source: "latest_artifact" as const,
+      timestamp: input.latestArtifactUpdatedAt,
+      message: input.latestArtifactName ? `最近产物：${input.latestArtifactName}` : undefined
+    },
+    {
+      source: "publish_active" as const,
+      timestamp: input.publishActiveUpdatedAt,
+      message: input.publishActiveMessage
+    },
+    {
+      source: "state" as const,
+      timestamp: input.stateLatestProgressTimestamp,
+      message: input.stateLatestProgressMessage
+    }
+  ]
+    .filter((candidate) => Boolean(candidate.message || candidate.timestamp))
+    .sort((a, b) => {
+      const aTime = a.timestamp && Number.isFinite(Date.parse(a.timestamp)) ? Date.parse(a.timestamp) : 0;
+      const bTime = b.timestamp && Number.isFinite(Date.parse(b.timestamp)) ? Date.parse(b.timestamp) : 0;
+      return bTime - aTime;
+    });
+
+  const selected = candidates[0] || {
+    source: "status" as const,
+    timestamp: undefined,
+    message: input.status || ""
+  };
+  const activeKey = compactRealtimeProgressPart(input.publishActiveRuntimeKey || input.activeRunId);
+  const counts = `${input.publishSafelyPublished ?? 0}/${input.publishTotal ?? "?"}/${input.publishFailed ?? 0}`;
+  const message = compactRealtimeProgressPart(selected.message || input.status || "unknown");
+  const key = [
+    compactRealtimeProgressPart(input.jobStartedAt),
+    compactRealtimeProgressPart(input.activeRunId),
+    compactRealtimeProgressPart(input.status),
+    selected.source,
+    counts,
+    activeKey,
+    compactRealtimeProgressPart(selected.timestamp),
+    message
+  ].join("|");
+  if (!key.replace(/\|/g, "")) {
+    return undefined;
+  }
+  return {
+    key,
+    timestamp: selected.timestamp,
+    source: selected.source,
+    message
+  };
+}
+
 function normalizeHermesStatusLabel(status?: string): string {
   if (status === "running") return "运行中";
   if (status === "failed") return "失败";

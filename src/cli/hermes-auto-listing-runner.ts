@@ -15,6 +15,7 @@ import {
   selectHermesLatestResultFileForJobStatus,
   selectHermesStatusResultFile,
   selectHermesStatusRuntimeDir,
+  resolveHermesRealtimeProgressSignal,
   shouldClearPauseSignalOnHermesStart,
   shouldExposePublishProgressInHermesStatus,
   shouldPreferActiveTaskStateSummary,
@@ -975,6 +976,45 @@ function existingStatus(): Record<string, unknown> {
     : undefined;
   const failedError = (state?.currentTask as Record<string, unknown> | undefined)?.error as Record<string, unknown> | undefined;
   const failureSummary = failedError?.message ? compactStatusValue(String(failedError.message)) : undefined;
+  const realtimeProgress = resolveHermesRealtimeProgressSignal({
+    jobStartedAt: job.startedAt,
+    activeRunId: activeRuntimeDir ? path.basename(activeRuntimeDir) : typeof result?.runId === "string" ? result.runId : undefined,
+    status: resolvedStatus,
+    statusSource:
+      publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary
+        ? publishProgress
+          ? "publish-manifest"
+          : state
+            ? "state"
+            : "result-log"
+        : "state",
+    publishSafelyPublished: Number(publishProgress?.safelyPublished ?? 0),
+    publishTotal: publishProgress?.total === undefined ? undefined : Number(publishProgress.total),
+    publishFailed: Number(publishProgress?.failed ?? 0),
+    publishActiveRuntimeKey: String((publishProgress?.active as Record<string, unknown> | undefined)?.runtimeKey || ""),
+    publishActiveUpdatedAt:
+      typeof activePublishUpdatedAt === "string" ? activePublishUpdatedAt : undefined,
+    publishActiveMessage:
+      typeof (publishProgress?.active as Record<string, unknown> | undefined)?.message === "string"
+        ? String((publishProgress?.active as Record<string, unknown>).message)
+        : undefined,
+    latestArtifactUpdatedAt:
+      typeof latestArtifactUpdatedAt === "string" ? latestArtifactUpdatedAt : undefined,
+    latestArtifactName:
+      typeof (publishProgress?.latestArtifact as Record<string, unknown> | undefined)?.name === "string"
+        ? String((publishProgress?.latestArtifact as Record<string, unknown>).name)
+        : undefined,
+    publishLogTimestamp:
+      typeof publishLogProgress?.timestamp === "string" ? String(publishLogProgress.timestamp) : undefined,
+    publishLogMessage:
+      typeof publishLogProgress?.message === "string" ? String(publishLogProgress.message) : undefined,
+    stateLatestProgressTimestamp:
+      typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined,
+    stateLatestProgressMessage:
+      typeof (state?.latestProgress as Record<string, unknown> | undefined)?.message === "string"
+        ? String((state?.latestProgress as Record<string, unknown>).message)
+        : undefined
+  });
   return {
     ok: true,
     status: resolvedStatus,
@@ -1005,6 +1045,7 @@ function existingStatus(): Record<string, unknown> {
     externalServiceWait: activeWaitState,
     state: statusState,
     progressHeartbeat,
+    realtimeProgress,
     imageProgress,
     publishLogProgress,
     publishProgress: exposePublishProgress ? publishProgress : undefined,

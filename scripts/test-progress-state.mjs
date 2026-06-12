@@ -48,7 +48,8 @@ import {
   shouldConsumeSupervisorRecoveryAttempt,
   resolveSupervisorRecoveryDelayMs,
   formatHermesCompactStatusText,
-  selectHermesFailedResumeCandidate
+  selectHermesFailedResumeCandidate,
+  resolveHermesRealtimeProgressSignal
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -1075,6 +1076,46 @@ assert.deepEqual(
     "原因：标品检索页控件未加载完整，已停止，可续跑。"
   ],
   "Hermes text status must summarize Platform SPU query readiness failures without long local paths"
+);
+const realtimeProgressSignal = resolveHermesRealtimeProgressSignal({
+  jobStartedAt: "2026-06-12T12:41:37.337Z",
+  activeRunId: "20260612-205351",
+  status: "running",
+  statusSource: "publish-manifest",
+  publishSafelyPublished: 1,
+  publishTotal: 20,
+  publishFailed: 0,
+  publishActiveRuntimeKey: "01延草纲目大药房专营店__延草纲目医用重组胶原蛋白护理软膏水印02",
+  publishActiveUpdatedAt: "2026-06-12T13:01:42.256Z",
+  publishActiveMessage: "延草纲目医用重组胶原蛋白护理软膏水印02: basic_info_fill: basic_info_fill_attempt: 1",
+  latestArtifactUpdatedAt: "2026-06-12T13:01:47.923Z",
+  latestArtifactName: "publish-page-basic-filled.png",
+  publishLogTimestamp: "2026-06-12T13:01:47.930Z",
+  publishLogMessage: "发布模块：图文信息（01延草纲目大药房专营店）",
+  stateLatestProgressTimestamp: "2026-06-12T13:01:42.256Z",
+  stateLatestProgressMessage: "延草纲目医用重组胶原蛋白护理软膏水印02: basic_info_fill: basic_info_fill_attempt: 1"
+});
+assert.equal(realtimeProgressSignal?.source, "publish_log");
+assert.equal(realtimeProgressSignal?.timestamp, "2026-06-12T13:01:47.930Z");
+assert.match(
+  realtimeProgressSignal?.key || "",
+  /^2026-06-12T12:41:37\.337Z\|20260612-205351\|running\|publish_log\|1\/20\/0\|01延草纲目大药房专营店__延草纲目医用重组胶原蛋白护理软膏水印02\|2026-06-12T13:01:47\.930Z\|发布模块：图文信息/,
+  "Hermes realtime progress key must reset by run and change when publish sub-item progress advances"
+);
+assert.equal(
+  resolveHermesRealtimeProgressSignal({
+    jobStartedAt: "old-job",
+    activeRunId: "old-run",
+    status: "running",
+    publishSafelyPublished: 19,
+    publishTotal: 20,
+    publishFailed: 0,
+    publishActiveRuntimeKey: "old-product-19",
+    publishActiveUpdatedAt: "2026-06-12T12:00:00.000Z",
+    publishActiveMessage: "old progress"
+  })?.key === realtimeProgressSignal?.key,
+  false,
+  "Hermes realtime progress key must not collide across supervisor continuations or new active runs"
 );
 assert.equal(
   selectHermesFailedResumeCandidate([
