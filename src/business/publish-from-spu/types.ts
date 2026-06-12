@@ -26,6 +26,7 @@ export interface PublishFromSpuJobOptions {
   runId?: string;
   runtimeDir?: string;
   resultFile?: string;
+  onProgress?: (message: string) => void;
 }
 
 export interface PublishFromSpuJobResult {

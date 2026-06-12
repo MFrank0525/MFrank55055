@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const autolistPublishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 
 function sliceFunction(name) {
   const start = publishSource.indexOf(`async function ${name}`);
@@ -48,6 +49,11 @@ assert.equal(
 const titleInputFinderSource = sliceFunction("findTitleInputCenter");
 const shortTitleInputFinderSource = sliceFunction("findShortTitleInputCenter");
 const basicInputFinderSource = sliceFunction("findBasicInputCenterByFieldId");
+assert.match(
+  publishSource,
+  /resolveBasicFieldIdAliases/,
+  "basic-info field lookup must use rule-layer aliases for Doudian label variants"
+);
 assert.doesNotMatch(
   basicInputFinderSource,
   /let fields = collectFields\(root \|\| document\)/,
@@ -55,13 +61,13 @@ assert.doesNotMatch(
 );
 assert.match(
   titleInputFinderSource,
-  /findBasicInputCenterByFieldId\(page, "\\u5546\\u54c1\\u6807\\u9898"/,
-  "title input finder must use attr-field-id instead of fragile placeholder/type checks"
+  /resolveBasicFieldIdAliases\("title"\)/,
+  "title input finder must use rule-layer field aliases instead of fragile placeholder/type checks"
 );
 assert.match(
   shortTitleInputFinderSource,
-  /findBasicInputCenterByFieldId\(page, "\\u5bfc\\u8d2d\\u77ed\\u6807\\u9898"/,
-  "short-title input finder must use attr-field-id instead of fragile placeholder/type checks"
+  /resolveBasicFieldIdAliases\("shortTitle"\)/,
+  "short-title input finder must use rule-layer aliases instead of one exact label"
 );
 assert.doesNotMatch(
   shortTitleInputFinderSource,
@@ -108,6 +114,16 @@ assert.match(
   publishBasicFirstAttemptWindow,
   /waitForPublishCreatePageReady\([\s\S]*allowPageNavigationRecovery: basicAttempt > 0[\s\S]*\)/,
   "publish flow must not let the first basic-info readiness check reload the already-ready create page"
+);
+assert.match(
+  publishFlowSource,
+  /emitPublishFlowProgress\([\s\S]*basic_info_attempt[\s\S]*basicAttempt \+ 1/,
+  "basic-info attempts must emit progress heartbeats so Hermes watchdog does not kill a live Doudian recovery"
+);
+assert.match(
+  autolistPublishSource,
+  /runPublishFromSpuJob\([\s\S]*onProgress[\s\S]*upsertPublishManifestEntry[\s\S]*options\.onProgress/,
+  "publish-from-spu internal heartbeats must update publish manifest and outer task progress"
 );
 const publishBasicCatchWindow = publishFlowSource.slice(
   publishFlowSource.indexOf("} catch (error) {", publishBasicLoop),

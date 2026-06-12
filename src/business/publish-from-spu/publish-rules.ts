@@ -142,6 +142,18 @@ export interface BasicInfoGateRecoveryDecision {
   issue: string;
 }
 
+export type BasicFieldKey = "title" | "shortTitle" | "modelSpec";
+
+export function resolveBasicFieldIdAliases(field: BasicFieldKey): string[] {
+  if (field === "title") {
+    return ["商品标题"];
+  }
+  if (field === "shortTitle") {
+    return ["导购短标题", "短标题", "导购标题"];
+  }
+  return ["型号规格"];
+}
+
 const SUBMISSION_SUCCESS_TEXTS = [
   "发布成功",
   "提交成功",

@@ -368,7 +368,22 @@ export async function publishDistributedProducts(options: {
       },
       {
         runId: `auto-listing-${runtimeKey}`,
-        runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey)
+        runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
+        onProgress: (message) => {
+          const progressMessage = `${path.basename(productFolder)}: ${message}`;
+          upsertPublishManifestEntry(options.runtimeDir, {
+            productFolder,
+            runtimeKey,
+            shopFolder,
+            watermarkNo: extractWatermarkNo(productFolder),
+            status: "pending",
+            finalVerifyStatus: "not_checked",
+            resultFile: path.join(options.runtimeDir, "publish", runtimeKey, "result.json"),
+            message: progressMessage,
+            ...productIdentityFields
+          });
+          options.onProgress?.(progressMessage);
+        }
       }
     );
     let resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
@@ -409,7 +424,22 @@ export async function publishDistributedProducts(options: {
         },
         {
           runId: `auto-listing-${runtimeKey}-retry-${retryAttempt + 1}`,
-          runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey)
+          runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
+          onProgress: (message) => {
+            const progressMessage = `${path.basename(productFolder)}: ${message}`;
+            upsertPublishManifestEntry(options.runtimeDir, {
+              productFolder,
+              runtimeKey,
+              shopFolder,
+              watermarkNo: extractWatermarkNo(productFolder),
+              status: "pending",
+              finalVerifyStatus: "not_checked",
+              resultFile: path.join(options.runtimeDir, "publish", runtimeKey, "result.json"),
+              message: progressMessage,
+              ...productIdentityFields
+            });
+            options.onProgress?.(progressMessage);
+          }
         }
       );
       resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);

@@ -47,6 +47,7 @@ import {
   evaluateSpecTemplateCompletion,
   isDoudianLoginPageText,
   isUploadPlaceholderGraphicContext,
+  resolveBasicFieldIdAliases,
   resolvePriceInventoryRowInputRoles
 } from "./publish-from-spu/publish-rules.js";
 import type { ServiceFulfillmentState } from "./publish-from-spu/publish-rules.js";
@@ -2105,10 +2106,13 @@ async function inspectPublishPageOnPage(
   };
 }
 
-async function findBasicInputCenterByFieldId(page: Page, fieldId: string): Promise<{ x: number; y: number } | null> {
-  return page.evaluate((targetFieldId) => {
+async function findBasicInputCenterByFieldId(page: Page, fieldIds: string[]): Promise<{ x: number; y: number } | null> {
+  return page.evaluate((targetFieldIds) => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const root = document.querySelector(`[attr-field-id="${targetFieldId}"]`) as HTMLElement | null;
+    const root =
+      targetFieldIds
+        .map((fieldId) => document.querySelector(`[attr-field-id="${fieldId}"]`) as HTMLElement | null)
+        .find(Boolean) || null;
     const collectFields = (scope: ParentNode | Document = document): Array<{ x: number; y: number; top: number; score: number }> =>
       Array.from(scope.querySelectorAll("input, textarea"))
       .map((el) => {
@@ -2133,12 +2137,13 @@ async function findBasicInputCenterByFieldId(page: Page, fieldId: string): Promi
             input.parentElement?.parentElement?.textContent || ""
           ].join(" ")
         );
+        const contextAliasIndex = targetFieldIds.findIndex((fieldId) => context.includes(fieldId));
         return {
           x: rect.x + rect.width / 2,
           y: rect.y + rect.height / 2,
           top: rect.top,
           score:
-            (context.includes(targetFieldId) ? 200 : 0) +
+            (contextAliasIndex >= 0 ? 220 - contextAliasIndex * 20 : 0) +
             ((input as HTMLInputElement).type === "hidden" ? -500 : 0) +
             Math.min(120, rect.width / 8) -
             Math.abs(rect.top - (root?.getBoundingClientRect().top || rect.top))
@@ -2163,11 +2168,16 @@ async function findBasicInputCenterByFieldId(page: Page, fieldId: string): Promi
             rect.height <= 0 ||
             style.display === "none" ||
             style.visibility === "hidden" ||
-            !text.includes(targetFieldId)
+            !targetFieldIds.some((fieldId) => text.includes(fieldId))
           ) {
             return null;
           }
-          return { rect, text, score: (text === targetFieldId ? 1000 : 0) - text.length };
+          const aliasIndex = targetFieldIds.findIndex((fieldId) => text.includes(fieldId));
+          return {
+            rect,
+            text,
+            score: (targetFieldIds.some((fieldId) => text === fieldId) ? 1000 : 0) - aliasIndex * 20 - text.length
+          };
         })
         .filter(Boolean)
         .sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.rect.top || 0) - (b?.rect.top || 0))[0];
@@ -2190,23 +2200,47 @@ async function findBasicInputCenterByFieldId(page: Page, fieldId: string): Promi
 
     const target = fields[0];
     return target ? { x: target.x, y: target.y } : null;
-  }, fieldId);
+  }, fieldIds);
 }
 
 async function findTitleInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
-  return findBasicInputCenterByFieldId(page, "\u5546\u54c1\u6807\u9898");
+  return findBasicInputCenterByFieldId(page, resolveBasicFieldIdAliases("title"));
 }
 
 async function findShortTitleInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
-  return findBasicInputCenterByFieldId(page, "\u5bfc\u8d2d\u77ed\u6807\u9898");
+  return findBasicInputCenterByFieldId(page, resolveBasicFieldIdAliases("shortTitle"));
+}
+
+async function waitForBasicFieldCenter(
+  page: Page,
+  field: "title" | "shortTitle" | "modelSpec",
+  timeoutMs: number,
+  onProgress?: (message: string) => void
+): Promise<{ x: number; y: number } | null> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const center =
+      field === "title"
+        ? await findTitleInputCenter(page)
+        : field === "shortTitle"
+          ? await findShortTitleInputCenter(page)
+          : await findModelSpecInputCenter(page);
+    if (center) {
+      return center;
+    }
+    onProgress?.(`basic_info_wait_field: ${field}`);
+    await page.waitForTimeout(1500);
+  }
+  return null;
 }
 
 async function assertBasicPrefillReadyOnPage(
   page: Page,
-  metadata: { shortTitle?: string }
+  metadata: { shortTitle?: string },
+  onProgress?: (message: string) => void
 ): Promise<void> {
   const shortTitleFieldVisible = metadata.shortTitle
-    ? Boolean(await findShortTitleInputCenter(page))
+    ? Boolean(await waitForBasicFieldCenter(page, "shortTitle", 18000, onProgress))
     : true;
   const readiness = evaluateBasicPrefillReadiness({
     shortTitleRequired: Boolean(metadata.shortTitle),
@@ -2498,10 +2532,18 @@ async function readBasicPublishCompletionOnPage(
   page: Page,
   metadata: { title?: string; shortTitle?: string; modelSpec?: string }
 ): Promise<{ missingFields: string[]; fieldValues: Record<string, string> }> {
-  return page.evaluate((expected) => {
+  const fieldAliases = {
+    title: resolveBasicFieldIdAliases("title"),
+    shortTitle: resolveBasicFieldIdAliases("shortTitle"),
+    modelSpec: resolveBasicFieldIdAliases("modelSpec")
+  };
+  return page.evaluate(({ expected, aliases }) => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const readField = (fieldId: string): { value: string; hasRequiredError: boolean } => {
-      const root = document.querySelector(`[attr-field-id="${fieldId}"]`) as HTMLElement | null;
+    const readField = (fieldIds: string[]): { value: string; hasRequiredError: boolean } => {
+      const root =
+        fieldIds
+          .map((fieldId) => document.querySelector(`[attr-field-id="${fieldId}"]`) as HTMLElement | null)
+          .find(Boolean) || null;
       if (!root) {
         return { value: "", hasRequiredError: true };
       }
@@ -2514,9 +2556,9 @@ async function readBasicPublishCompletionOnPage(
       };
     };
 
-    const title = readField("\u5546\u54c1\u6807\u9898");
-    const shortTitle = readField("\u5bfc\u8d2d\u77ed\u6807\u9898");
-    const modelSpec = readField("\u578b\u53f7\u89c4\u683c");
+    const title = readField(aliases.title);
+    const shortTitle = readField(aliases.shortTitle);
+    const modelSpec = readField(aliases.modelSpec);
     const missingFields = [
       expected.title && (!title.value || title.hasRequiredError) ? "title" : "",
       expected.shortTitle && (!shortTitle.value || shortTitle.hasRequiredError) ? "shortTitle" : "",
@@ -2533,7 +2575,7 @@ async function readBasicPublishCompletionOnPage(
         modelSpec: modelSpec.value
       }
     };
-  }, metadata);
+  }, { expected: metadata, aliases: fieldAliases });
 }
 
 async function assertBasicPublishCompletionOnPage(
@@ -2644,7 +2686,8 @@ async function fillBasicPublishPageOnPage(
   page: Page,
   runtimeDir: string,
   metadata: { title?: string; shortTitle?: string; modelSpec?: string; spu?: string },
-  fileName: string
+  fileName: string,
+  onProgress?: (message: string) => void
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -2658,11 +2701,12 @@ async function fillBasicPublishPageOnPage(
   await page.waitForTimeout(800);
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    onProgress?.(`basic_info_fill_attempt: ${attempt + 1}`);
     const beforeSnapshot = await snapshotBasicInfoFields(page);
     const filledFields: string[] = [];
 
     if (metadata.title) {
-      const titleCenter = await findTitleInputCenter(page);
+      const titleCenter = await waitForBasicFieldCenter(page, "title", 12000, onProgress);
       if (!titleCenter) {
         throw new Error("Title input not found on publish page.");
       }
@@ -2672,7 +2716,7 @@ async function fillBasicPublishPageOnPage(
     }
 
     if (metadata.shortTitle) {
-      const shortTitleCenter = await findShortTitleInputCenter(page);
+      const shortTitleCenter = await waitForBasicFieldCenter(page, "shortTitle", 18000, onProgress);
       if (!shortTitleCenter) {
         throw new Error("Short title input not found on publish page.");
       }
@@ -8388,7 +8432,8 @@ async function runPublishFlow(
   publishPageUrl?: string,
   stopBeforePublish = false,
   graphicResetAttempt = 0,
-  createPageResetAttempt = 0
+  createPageResetAttempt = 0,
+  progress?: { onProgress?: (message: string) => void }
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -8415,6 +8460,11 @@ async function runPublishFlow(
   errorHints: string[];
   stages: PublishFlowStage[];
 }> {
+  const emitPublishFlowProgress = (step: string, message: string): void => {
+    const text = `${step}: ${message}`;
+    logInfo(text);
+    progress?.onProgress?.(text);
+  };
   const screenshotFiles: string[] = [];
   const stages: PublishFlowStage[] = [];
   const filledFields: string[] = [];
@@ -8464,7 +8514,8 @@ async function runPublishFlow(
           undefined,
           stopBeforePublish,
           graphicResetAttempt,
-          createPageResetAttempt + 1
+          createPageResetAttempt + 1,
+          progress
         );
         return {
           ...retryResult,
@@ -8484,6 +8535,7 @@ async function runPublishFlow(
     logInfo(`publish module started: basic_info (${path.basename(shopFolder)})`);
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
+      emitPublishFlowProgress("basic_info_attempt", `${basicAttempt + 1}/2 ${path.basename(shopFolder)}`);
       if (basicAttempt > 0) {
         page = await reuseOrOpenCreatePage(context, createPageUrl, page);
       }
@@ -8492,7 +8544,9 @@ async function runPublishFlow(
       });
 
       try {
-        await assertBasicPrefillReadyOnPage(page, metadata);
+        await assertBasicPrefillReadyOnPage(page, metadata, (message) =>
+          emitPublishFlowProgress("basic_info_wait", message)
+        );
         await verifyCategoryRegistrationGateOnPage(
           page,
           runtimeDir,
@@ -8509,7 +8563,8 @@ async function runPublishFlow(
               modelSpec: metadata.modelSpec,
               spu: metadata.spu
             },
-            "publish-page-basic-filled.png"
+            "publish-page-basic-filled.png",
+            (message) => emitPublishFlowProgress("basic_info_fill", message)
           );
           screenshotFiles.push(fillResult.screenshotFile);
           filledFields.length = 0;
@@ -8532,6 +8587,7 @@ async function runPublishFlow(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (error instanceof PublishCreatePageReopenRequiredError && basicAttempt === 0) {
+          emitPublishFlowProgress("basic_info_reopen", message);
           const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
           screenshotFiles.push(retryQueryResult.screenshotFile);
           createPageUrl = retryQueryResult.createPageUrl;
@@ -8541,6 +8597,7 @@ async function runPublishFlow(
         }
         const categoryMismatch = message.includes("Category registration mismatch before modelSpec fill.");
         if (categoryMismatch && basicAttempt === 0) {
+          emitPublishFlowProgress("basic_info_reopen", message);
           const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
           screenshotFiles.push(retryQueryResult.screenshotFile);
           createPageUrl = retryQueryResult.createPageUrl;
@@ -9210,7 +9267,10 @@ export async function runPublishFromSpuJob(
         assets,
         shopFolder,
         input.publishPageUrl,
-        true
+        true,
+        0,
+        0,
+        { onProgress: options.onProgress }
       );
       screenshots.push(...flowResult.screenshotFiles);
       browserData = {
@@ -9311,7 +9371,11 @@ export async function runPublishFromSpuJob(
         },
         assets,
         shopFolder,
-        input.publishPageUrl
+        input.publishPageUrl,
+        false,
+        0,
+        0,
+        { onProgress: options.onProgress }
       );
       screenshots.push(...flowResult.screenshotFiles);
       browserData = {

@@ -4,7 +4,8 @@ import {
   shouldRetryPublishFailure,
   evaluateBasicInfoGateRecovery,
   evaluateBasicPrefillReadiness,
-  evaluatePublishCreatePageReadiness
+  evaluatePublishCreatePageReadiness,
+  resolveBasicFieldIdAliases
 } from "../src/business/publish-from-spu/publish-rules.ts";
 
 assert.deepEqual(
@@ -63,6 +64,11 @@ assert.deepEqual(
     action: "ready",
     issue: ""
   }
+);
+assert.deepEqual(
+  resolveBasicFieldIdAliases("shortTitle"),
+  ["导购短标题", "短标题", "导购标题"],
+  "short-title field lookup must be rule-driven and tolerate Doudian label variants"
 );
 
 assert.deepEqual(
