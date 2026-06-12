@@ -48,7 +48,7 @@ import {
   shouldConsumeSupervisorRecoveryAttempt,
   resolveSupervisorRecoveryDelayMs
 } from "../dist/src/autolist/batch-continuation-rules.js";
-import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
+import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
 import { appendProcessedImages, clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
 import { selectCleanupTargets, selectStaleRunHistoryTargets } from "../dist/src/autolist/cleanup-rules.js";
@@ -62,6 +62,7 @@ import {
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
 import { inferResumeStartStepForTask, shouldReplaceStaleResumeStartStep } from "../dist/src/autolist/resume-rules.js";
+import { recoverDistributedFoldersFromShopRoot } from "../dist/src/autolist/resume.js";
 import { isProductFullyProcessed } from "../dist/src/autolist/processed-completion-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
@@ -90,6 +91,7 @@ const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8
 const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const autoListingCliSource = fs.readFileSync("src/cli/auto-listing.ts", "utf8");
+const resumeSource = fs.readFileSync("src/autolist/resume.ts", "utf8");
 const browserLaunchSource = fs.readFileSync("src/browser/launch.ts", "utf8");
 const packageSource = fs.readFileSync("package.json", "utf8");
 assert.match(
@@ -151,6 +153,26 @@ assert.match(
   hermesRunnerSource,
   /shouldResumeHistoricalFailureForCurrentFeishuBatch/,
   "Hermes runner must use the rule-layer guard before resuming historical failures"
+);
+assert.doesNotMatch(
+  resumeSource,
+  /options\.jimengImageDir/,
+  "Resume must recover Word prompts only from the current runtime task directory, never a shared global directory"
+);
+assert.match(
+  resumeSource,
+  /expectedProductFolderNames\.size === 0[\s\S]*throw new Error/,
+  "Shop-folder resume must fail closed when the resume job lacks an exact product-folder allowlist"
+);
+assert.match(
+  hermesRunnerSource,
+  /canResumeFeishuBatchArtifacts/,
+  "Hermes must require exact Feishu batch identity before selecting any historical resume artifacts"
+);
+assert.match(
+  orchestratorSource,
+  /canResumeFeishuBatchArtifacts/,
+  "The orchestrator must independently reject stale or unscoped resume jobs before using their artifacts"
 );
 assert.match(
   hermesRunnerSource,
@@ -1292,6 +1314,8 @@ assert.equal(
 );
 assert.equal(
   shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    currentBatchFingerprint: "batch-current",
+    resumeBatchFingerprint: "batch-current",
     failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
     pendingSourceImages: [
       "/work/input/auto-listing/feishu-images/product-1.png",
@@ -1303,6 +1327,8 @@ assert.equal(
 );
 assert.equal(
   shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    currentBatchFingerprint: "batch-current",
+    resumeBatchFingerprint: "batch-current",
     failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
     pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-2.png"],
     batchComplete: false
@@ -1311,6 +1337,8 @@ assert.equal(
 );
 assert.equal(
   shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    currentBatchFingerprint: "batch-current",
+    resumeBatchFingerprint: "batch-current",
     failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
     pendingSourceImages: [],
     batchComplete: true,
@@ -1320,6 +1348,8 @@ assert.equal(
 );
 assert.equal(
   shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    currentBatchFingerprint: "batch-current",
+    resumeBatchFingerprint: "batch-current",
     failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
     pendingSourceImages: [],
     batchComplete: true,
@@ -1329,12 +1359,31 @@ assert.equal(
 );
 assert.equal(
   shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    currentBatchFingerprint: "batch-current",
+    resumeBatchFingerprint: "batch-current",
     failedSourceImagePath: "/work/input/auto-listing/feishu-images/product-2.png",
     pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-3.png"],
     batchComplete: false,
     reusableArtifactCount: 0
   }),
   false
+);
+assert.equal(canResumeFeishuBatchArtifacts({ currentBatchFingerprint: "batch-a", resumeBatchFingerprint: "batch-a" }), true);
+assert.equal(canResumeFeishuBatchArtifacts({ currentBatchFingerprint: "batch-a", resumeBatchFingerprint: "batch-b" }), false);
+assert.equal(canResumeFeishuBatchArtifacts({ currentBatchFingerprint: "batch-a", resumeBatchFingerprint: undefined }), false);
+assert.equal(canResumeFeishuBatchArtifacts({ currentBatchFingerprint: undefined, resumeBatchFingerprint: "batch-a" }), false);
+const staleShopRoot = fs.mkdtempSync(path.join(os.tmpdir(), "stale-shop-resume-"));
+fs.mkdirSync(path.join(staleShopRoot, "01", "重复产品01"), { recursive: true });
+assert.throws(
+  () =>
+    recoverDistributedFoldersFromShopRoot({
+      shopRootDir: staleShopRoot,
+      requireWorkbook: false,
+      productNameCandidates: ["重复产品"],
+      expectedProductFolderNames: []
+    }),
+  /exact product-folder allowlist/,
+  "A product-name match must never be enough to recover folders from the shared shop root."
 );
 assert.equal(
   resolveHermesFeishuProgressDisplayMode({

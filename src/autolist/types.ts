@@ -64,6 +64,7 @@ export interface AutoListingJobInput {
   resumeSourceImagePath?: string;
   resumeTaskId?: string;
   resumeProductFolderNames?: string[];
+  feishuBatchFingerprint?: string;
   simulateOnly?: boolean;
   clearTestOutputsBeforeRun?: boolean;
   startStep?: AutoListingStepInput;
@@ -231,6 +232,7 @@ export interface ImageTaskState {
 
 export interface AutoListingRunState {
   runId: string;
+  feishuBatchFingerprint?: string;
   startedAt: string;
   lastUpdatedAt: string;
   status: "running" | "failed" | "completed" | "paused";
@@ -262,6 +264,7 @@ export interface AutoListingResolvedJob {
 export interface AutoListingRunResult {
   ok: boolean;
   runId: string;
+  feishuBatchFingerprint?: string;
   startedAt: string;
   finishedAt: string;
   runtimeDir: string;

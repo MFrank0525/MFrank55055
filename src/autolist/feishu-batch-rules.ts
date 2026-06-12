@@ -27,3 +27,14 @@ export function buildFeishuBatchIdentityFingerprint(records: FeishuProductRecord
 export function buildFeishuBatchFingerprint(records: FeishuProductRecord[]): string {
   return buildFeishuBatchIdentityFingerprint(records);
 }
+
+export function canResumeFeishuBatchArtifacts(input: {
+  currentBatchFingerprint?: string;
+  resumeBatchFingerprint?: string;
+}): boolean {
+  return Boolean(
+    input.currentBatchFingerprint &&
+      input.resumeBatchFingerprint &&
+      input.currentBatchFingerprint === input.resumeBatchFingerprint
+  );
+}

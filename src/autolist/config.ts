@@ -69,6 +69,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     resumeSourceImagePath: input.resumeSourceImagePath ? path.resolve(input.resumeSourceImagePath) : "",
     resumeTaskId: input.resumeTaskId || "",
     resumeProductFolderNames: input.resumeProductFolderNames || [],
+    feishuBatchFingerprint: input.feishuBatchFingerprint || "",
     simulateOnly: input.simulateOnly ?? true,
     clearTestOutputsBeforeRun: input.clearTestOutputsBeforeRun ?? false,
     startStep,

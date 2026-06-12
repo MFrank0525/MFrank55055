@@ -137,6 +137,8 @@ export function shouldResumeInterruptedTaskInPlace(input: InterruptedTaskResumeI
 }
 
 export type HistoricalFailureResumeInput = {
+  currentBatchFingerprint?: string;
+  resumeBatchFingerprint?: string;
   failedSourceImagePath?: string;
   pendingSourceImages: string[];
   batchComplete: boolean;
@@ -144,6 +146,9 @@ export type HistoricalFailureResumeInput = {
 };
 
 export function shouldResumeHistoricalFailureForCurrentFeishuBatch(input: HistoricalFailureResumeInput): boolean {
+  if (!canResumeFeishuBatchArtifacts(input)) {
+    return false;
+  }
   if (!input.failedSourceImagePath) {
     return false;
   }
@@ -558,3 +563,4 @@ export function isExternalMainImageRawReuseMessage(input: {
   const normalizedRuntime = input.currentRuntimeDir.replace(/\/+$/, "");
   return normalizedSource !== normalizedRuntime && !normalizedSource.startsWith(normalizedRuntime + "/");
 }
+import { canResumeFeishuBatchArtifacts } from "./feishu-batch-rules.js";

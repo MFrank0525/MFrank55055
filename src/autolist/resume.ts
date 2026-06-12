@@ -53,7 +53,6 @@ function selectExpectedProductFolders(options: {
 export function recoverArtifactsFromWordFiles(options: {
   runtimeDir: string;
   taskId: string;
-  jimengImageDir: string;
   feishuProductDataFile?: string;
   sourceImagePath?: string;
 }): {
@@ -61,10 +60,7 @@ export function recoverArtifactsFromWordFiles(options: {
   deepseekArtifact: DeepSeekArtifact;
   feishuProductRecord?: FeishuProductRecord;
 } {
-  const candidateDirs = [
-    path.join(options.runtimeDir, "tasks", options.taskId, "poster-word-files"),
-    options.jimengImageDir
-  ];
+  const candidateDirs = [path.join(options.runtimeDir, "tasks", options.taskId, "poster-word-files")];
   const wordDir = candidateDirs.find((dir) => fs.existsSync(dir) && fs.readdirSync(dir).some((name) => /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(name)));
   if (!wordDir) {
     throw new Error(
@@ -96,7 +92,7 @@ export function recoverArtifactsFromWordFiles(options: {
   }
   const expectedPromptCount = getProductCategoryPlan(feishuRuntimeRecord.record.productCategory).promptCount;
   if (wordFiles.length < expectedPromptCount) {
-    throw new Error(`Expected ${expectedPromptCount} Word prompt files in ${options.jimengImageDir}, got ${wordFiles.length}.`);
+    throw new Error(`Expected ${expectedPromptCount} Word prompt files in ${wordDir}, got ${wordFiles.length}.`);
   }
 
   const prompts = wordFiles.map((file) => {
@@ -147,6 +143,9 @@ export function recoverDistributedFoldersFromShopRoot(options: {
   const expectedProductFolderNames = new Set(
     (options.expectedProductFolderNames || []).map((item) => sanitizeFileName(item)).filter(Boolean)
   );
+  if (expectedProductFolderNames.size === 0) {
+    throw new Error("Resume requires an exact product-folder allowlist; refusing to scan shared shop folders by product name.");
+  }
   const distributedFolders = shopFolders
     .flatMap((shopFolder) =>
       fs
@@ -155,13 +154,7 @@ export function recoverDistributedFoldersFromShopRoot(options: {
         .map((entry) => path.join(shopFolder, entry.name))
     )
     .filter((productFolder) => {
-      if (expectedProductFolderNames.size > 0) {
-        return expectedProductFolderNames.has(path.basename(productFolder));
-      }
-      if (
-        productNameCandidates.length > 0 &&
-        !productNameCandidates.some((productName) => path.basename(productFolder).includes(productName))
-      ) {
+      if (!expectedProductFolderNames.has(path.basename(productFolder))) {
         return false;
       }
       if (options.requireWorkbook === false) {

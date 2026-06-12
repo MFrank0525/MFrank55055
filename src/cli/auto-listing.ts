@@ -189,6 +189,7 @@ function writeResumeJob(options: {
       resumeSourceImagePath: task.sourceImagePath,
       resumeTaskId: task.taskId,
       resumeProductFolderNames: collectResumeProductFolderNames(task),
+      feishuBatchFingerprint: options.state.feishuBatchFingerprint,
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
     }

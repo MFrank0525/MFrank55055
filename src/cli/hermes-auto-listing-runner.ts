@@ -27,7 +27,7 @@ import {
   summarizeHermesImageGenerationEvents
 } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
-import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
+import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
@@ -61,6 +61,7 @@ interface AutoListingJobFile {
     resumeSourceImagePath?: string;
     resumeTaskId?: string;
     resumeProductFolderNames?: string[];
+    feishuBatchFingerprint?: string;
     feishuProductDataFile?: string;
     processedImageManifest?: string;
     imageGenerationConfigFile?: string;
@@ -77,6 +78,7 @@ interface AutoListingJobFile {
 
 interface AutoListingResultFile {
   ok?: boolean;
+  feishuBatchFingerprint?: string;
   status?: string;
   runId?: string;
   runtimeDir?: string;
@@ -107,6 +109,7 @@ interface AutoListingResultFile {
 
 interface AutoListingStateFile {
   runId?: string;
+  feishuBatchFingerprint?: string;
   status?: string;
   tasks?: Array<{
     taskId?: string;
@@ -736,12 +739,26 @@ function summarizeCurrentFeishuBatchForResume(): { batchComplete: boolean; pendi
   };
 }
 
-function shouldResumeSourceImageForCurrentFeishuBatch(sourceImagePath: string | undefined, reusableArtifactCount = 0): boolean {
+function shouldResumeSourceImageForCurrentFeishuBatch(
+  sourceImagePath: string | undefined,
+  reusableArtifactCount = 0,
+  resumeBatchFingerprint?: string
+): boolean {
   const batch = summarizeCurrentFeishuBatchForResume();
-  if (!batch) {
-    return true;
+  const progress = summarizeFeishuProgress();
+  const currentBatchFingerprint = typeof progress?.batchFingerprint === "string" ? progress.batchFingerprint : undefined;
+  if (
+    !batch ||
+    !canResumeFeishuBatchArtifacts({
+      currentBatchFingerprint,
+      resumeBatchFingerprint
+    })
+  ) {
+    return false;
   }
   return shouldResumeHistoricalFailureForCurrentFeishuBatch({
+    currentBatchFingerprint,
+    resumeBatchFingerprint,
     failedSourceImagePath: sourceImagePath ? path.resolve(rootDir, sourceImagePath) : undefined,
     pendingSourceImages: batch.pendingSourceImages,
     batchComplete: batch.batchComplete,
@@ -1093,7 +1110,13 @@ function shouldResumeCurrentFailure(): boolean {
     resumeJob.input?.resumeTaskId
   );
   const reusableArtifactCount = Math.max(reusableRawImageCount, resumeProductFolderCount);
-  if (!shouldResumeSourceImageForCurrentFeishuBatch(resumeSourceImagePath, reusableArtifactCount)) {
+  if (
+    !shouldResumeSourceImageForCurrentFeishuBatch(
+      resumeSourceImagePath,
+      reusableArtifactCount,
+      resumeJob.input?.feishuBatchFingerprint
+    )
+  ) {
     fs.rmSync(resumeJobFile, { force: true });
     return false;
   }
@@ -1292,7 +1315,13 @@ function findLatestInterruptedStateForResume(): {
     if (taskHasExternalMainImageRawReuse(runtimeDir, task.taskId)) {
       continue;
     }
-    if (!shouldResumeSourceImageForCurrentFeishuBatch(task.sourceImagePath, reusableRawImageCount)) {
+    if (
+      !shouldResumeSourceImageForCurrentFeishuBatch(
+        task.sourceImagePath,
+        reusableRawImageCount,
+        state.feishuBatchFingerprint
+      )
+    ) {
       continue;
     }
     if (
@@ -1329,7 +1358,8 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
       if (
         shouldResumeSourceImageForCurrentFeishuBatch(
           failedTask.sourceImagePath,
-          countReusableRawImages(runtimeDir, failedTask.taskId)
+          countReusableRawImages(runtimeDir, failedTask.taskId),
+          result.feishuBatchFingerprint
         )
       ) {
         if (taskHasExternalMainImageRawReuse(runtimeDir, failedTask.taskId)) {
@@ -1358,6 +1388,7 @@ function writeResumeJobFromInterruptedState(
       resumeSourceImagePath: interrupted.task.sourceImagePath,
       resumeTaskId: interrupted.task.taskId,
       resumeProductFolderNames: collectResumeProductFolderNames(interrupted.task),
+      feishuBatchFingerprint: interrupted.state.feishuBatchFingerprint,
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
     }
@@ -1405,6 +1436,7 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
       resumeSourceImagePath: failedTask.sourceImagePath,
       resumeTaskId: failedTask.taskId,
       resumeProductFolderNames: collectResumeProductFolderNames(failedTask),
+      feishuBatchFingerprint: latest.result.feishuBatchFingerprint,
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
     }

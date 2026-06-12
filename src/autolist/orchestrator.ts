@@ -10,7 +10,7 @@ import { generateMainImageAssets } from "./jimeng-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
 import { collectFeishuProductAssetFiles } from "./audit-rules.js";
-import { buildFeishuBatchFingerprint } from "./feishu-batch-rules.js";
+import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "./feishu-batch-rules.js";
 import {
   loadFeishuProductRecords,
   loadFeishuProductRuntimeRecord,
@@ -291,7 +291,6 @@ async function executeTaskChain(
     const recovered = recoverArtifactsFromWordFiles({
       runtimeDir,
       taskId: current.taskId,
-      jimengImageDir: mainImageWorkDir,
       feishuProductDataFile,
       sourceImagePath: current.sourceImagePath
     });
@@ -830,6 +829,15 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     resolved.input.feishuProductDataFile && fs.existsSync(resolved.input.feishuProductDataFile)
       ? loadFeishuProductRecords(resolved.input.feishuProductDataFile)
       : [];
+  if (
+    resolved.input.resumeSourceImagePath &&
+    !canResumeFeishuBatchArtifacts({
+      currentBatchFingerprint: feishuBatchFingerprint,
+      resumeBatchFingerprint: resolved.input.feishuBatchFingerprint
+    })
+  ) {
+    throw new Error("Resume job Feishu batch fingerprint is missing or does not match the current Feishu batch.");
+  }
   const discoveredImages =
     resolved.input.resumeSourceImagePath
       ? [resolved.input.resumeSourceImagePath]
@@ -865,6 +873,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   const result: AutoListingRunResult = {
     ok: false,
     runId,
+    feishuBatchFingerprint,
     startedAt,
     finishedAt: startedAt,
     runtimeDir: resolved.runtimeDir,
@@ -882,7 +891,10 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     manualsRead: []
   };
 
-  const state = applyResumeTaskId(createRunState(runId, effectiveImages), resolved.input.resumeTaskId);
+  const state: AutoListingRunState = {
+    ...applyResumeTaskId(createRunState(runId, effectiveImages), resolved.input.resumeTaskId),
+    feishuBatchFingerprint
+  };
   result.tasks = state.tasks;
   const manualReadMap = new Map<string, ManualReadRecord>();
 
