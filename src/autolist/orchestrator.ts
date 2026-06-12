@@ -9,7 +9,7 @@ import { writeDeepSeekPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateMainImageAssets } from "./jimeng-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
-import { collectFeishuProductAssetFiles } from "./audit-rules.js";
+import { auditMainImageGeneration, collectFeishuProductAssetFiles } from "./audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "./feishu-batch-rules.js";
 import {
   loadFeishuProductRecords,
@@ -185,6 +185,28 @@ function isPauseRequested(signalFile: string): boolean {
 function assertNotPaused(signalFile: string, taskId?: string, step?: string): void {
   if (isPauseRequested(signalFile)) {
     throw new AutoListingPausedError(signalFile, taskId, step);
+  }
+}
+
+function assertMainImageCompletionGate(input: {
+  task: ImageTaskState;
+  expectedPromptCount: number;
+  expectedImagesPerPrompt: number;
+  simulateOnly: boolean;
+}): void {
+  const generatedFiles = input.task.mainImageArtifact?.generatedFiles || [];
+  const candidatePaths = generatedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder].filter(Boolean) as string[]);
+  const existingFiles = input.simulateOnly ? candidatePaths : candidatePaths.filter((filePath) => fs.existsSync(filePath));
+  const audit = auditMainImageGeneration({
+    tasks: [input.task],
+    existingFiles,
+    expectedPromptCount: input.expectedPromptCount,
+    expectedImagesPerPrompt: input.expectedImagesPerPrompt,
+    simulateOnly: input.simulateOnly
+  });
+  if (!audit.ok) {
+    const reason = audit.errors.map((issue) => issue.message).join("; ");
+    throw new Error(`Main image completion gate failed: ${reason || "generated main images are incomplete"}`);
   }
 }
 
@@ -511,6 +533,12 @@ async function executeTaskChain(
         lastUpdatedAt: new Date().toISOString(),
         notes: [...current.notes, `Main image generation produced ${mainImageArtifact.generatedFiles.length} file(s).`]
       };
+      assertMainImageCompletionGate({
+        task: current,
+        expectedPromptCount: productPlan.promptCount,
+        expectedImagesPerPrompt: mainImageExpectedCount,
+        simulateOnly
+      });
       appendEvent(
         eventFile,
         createEvent("info", step, `Main images ready: ${mainImageArtifact.generatedFiles.length} file(s).`, current.taskId)
@@ -523,6 +551,13 @@ async function executeTaskChain(
       if (!current.mainImageArtifact?.generatedFiles?.length) {
         throw new Error("Product folder step requires generated main image files.");
       }
+      const productPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
+      assertMainImageCompletionGate({
+        task: current,
+        expectedPromptCount: productPlan.promptCount,
+        expectedImagesPerPrompt: mainImageExpectedCount,
+        simulateOnly
+      });
       current = {
         ...current,
         status: step,
@@ -994,9 +1029,9 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     ) {
       appendEvent(
         resolved.eventFile,
-        createEvent("info", "preflight", "Checking Doudian publish browser login before paid image generation.")
+        createEvent("info", "preflight", "Checking Doudian login preflight before paid image generation.")
       );
-      logInfo("checking Doudian publish browser login before paid image generation");
+      logInfo("checking Doudian login preflight before paid image generation");
       await assertDoudianPublishSessionReady({
         runtimeDir: path.join(resolved.runtimeDir, "preflight"),
         label: "doudian-publish-session-preflight",
@@ -1004,7 +1039,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
       });
       appendEvent(
         resolved.eventFile,
-        createEvent("info", "preflight", "Doudian publish browser session is ready.")
+        createEvent("info", "preflight", "Doudian login preflight is ready.")
       );
     }
 

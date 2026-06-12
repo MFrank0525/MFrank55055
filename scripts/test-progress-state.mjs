@@ -179,6 +179,26 @@ assert.match(
   "The orchestrator must independently reject stale or unscoped resume jobs before using their artifacts"
 );
 assert.match(
+  orchestratorSource,
+  /auditMainImageGeneration/,
+  "Auto-listing orchestrator must run the main-image completeness audit before downstream title/distribution/publish steps"
+);
+assert.match(
+  orchestratorSource,
+  /Main image completion gate failed/,
+  "Auto-listing orchestrator must fail closed when generated raw/staged main images are incomplete"
+);
+assert.match(
+  orchestratorSource,
+  /Main image completion gate failed[\s\S]*Product folders ready/,
+  "Product folders must not be considered ready until the main-image completion gate has passed"
+);
+assert.match(
+  orchestratorSource,
+  /expectedImagesPerPrompt:\s*mainImageExpectedCount/,
+  "Main-image completion gate must use per-prompt expected image count, not per-shop distribution count"
+);
+assert.match(
   hermesRunnerSource,
   /shouldResumeCurrentFailure\(\)[\s\S]*findLatestInterruptedStateForResume\(\)/,
   "Hermes runner must preserve a valid current resume job before rebuilding one from interrupted state"
@@ -1230,6 +1250,20 @@ assert.equal(
   "external_service_wait",
   "A running supervisor with an active terminal main-image transport failure must report external-service wait, not normal running"
 );
+assert.equal(
+  resolveHermesRuntimeStatus({
+    running: false,
+    activeWaitState: false,
+    completed: false,
+    failed: true,
+    hasPendingFeishuProducts: false,
+    stateStatus: "paused",
+    resultStatus: "failed",
+    terminalFailureMessage: "Auto-listing pause requested by signal file: /work/data/auto-listing/control/pause.requested"
+  }),
+  "paused",
+  "Hermes status must report operator-requested pause as paused instead of failed"
+);
 const terminalFailureRealtimeProgress = resolveHermesRealtimeProgressSignal({
   jobStartedAt: "2026-06-12T13:00:00.000Z",
   activeRunId: "20260612-211433",
@@ -1360,6 +1394,20 @@ assert.equal(
 assert.equal(shouldConsumeSupervisorRecoveryAttempt(providerUnavailableMessage), false);
 assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 0 }), 10 * 60 * 1000);
 assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 3 }), 30 * 60 * 1000);
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(
+    "failed at main_images_generated: Image generation request timed out. The provider did not respond in time. Raw error: This operation was aborted"
+  ),
+  true,
+  "Main-image provider timeouts and aborts must enter external-service wait instead of fast paid resubmission"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(
+    "failed at main_images_generated: Image generation request timed out. The provider did not respond in time. Raw error: This operation was aborted"
+  ),
+  false,
+  "Main-image timeout/abort failures must not burn supervisor recovery attempts"
+);
 assert.equal(
   isRetryableExternalServiceAvailabilityFailure(
     'Image generation failed with HTTP 502: {"error":{"message":"Upstream access forbidden, please contact administrator"}}'

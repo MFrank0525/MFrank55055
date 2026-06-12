@@ -31,8 +31,14 @@ assert.match(
 
 assert.match(
   orchestratorSource,
+  /Checking Doudian login preflight before paid image generation/,
+  "Real auto-listing must report the pre-image Doudian check as login preflight, not as publish progress"
+);
+
+assert.doesNotMatch(
+  orchestratorSource,
   /Checking Doudian publish browser login before paid image generation/,
-  "Real auto-listing must check Doudian login before paid image generation starts"
+  "Hermes-visible progress must not make the pre-image login check look like actual publishing"
 );
 
 assert.match(

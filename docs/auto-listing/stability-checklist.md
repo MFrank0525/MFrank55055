@@ -239,6 +239,8 @@
 39. Hermes supervisor 以独立进程组运行。状态检查优先验证 PID 与命令；受限环境禁止 Node 读取 `ps` 命令行时，必须用该 supervisor 的独立进程组存活信号确认运行中，不能误报任务结束并允许重复启动。
 40. 外部服务长退避期间，动作层必须写入独立 `external_service_wait` 控制状态，包含等待原因、等待次数和下次重试时间；Hermes 状态必须优先展示该等待态。开始下一次执行时清除等待状态，禁止把正在自动等待供应商恢复误报为永久失败或正常执行中。
 41. Hermes 实时进度必须由项目状态命令输出统一的 `realtimeProgress` 信号，包含 supervisor 启动时间、active runId、发布计数、当前发布 runtimeKey、最新进度时间和来源。外层自动回复器只能按该信号去重；禁止继续用旧 `expectedResultFile`、旧 `state.currentTask`、历史发布计数或跨 run 残留的本地 watcher key 推断是否有新进度。当前 active run 已写入 terminal failed result 时，Hermes 状态必须优先展示终态失败/外部等待信号，禁止再用 terminal 之后异步图片任务追加的 events 误报为正常实时进度。
+42. 主图生成完成是标题、店铺分发、发布和清理前的硬门禁。每个当前商品必须先通过主图完整性审计：总数等于类目计划、每个 Word prompt 的图片数等于计划、raw 无水印文件、staged 水印文件和商品目录均真实存在。任何缺失、重复、数量不足或文件不存在都必须 fail closed，禁止继续进入标题、分发或抖店发布。
+43. 生图前允许做抖店登录预检以避免未登录后浪费图片费用，但 Hermes 可见进度必须明确标注为 `login preflight`。登录预检不是发布动作，禁止在状态文案里把它描述成发布进度；真正发布只能在主图、标题、资质、店铺分发全部完成并通过门禁后发生。
 
 ## 推荐执行顺序
 

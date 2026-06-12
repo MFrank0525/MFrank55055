@@ -44,7 +44,7 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
     isPaidMainImageTransportFailure(message) ||
     (/main_images_generated|image generation|main image/i.test(message) &&
       (/HTTP\s*(429|502|503|504)/i.test(message) ||
-        /temporarily unavailable|gateway unavailable|service unavailable|resource[_ -]?overloaded|server overloaded/i.test(message)))
+        /temporarily unavailable|gateway unavailable|service unavailable|resource[_ -]?overloaded|server overloaded|timed out|timeout|aborted/i.test(message)))
   );
 }
 
@@ -680,6 +680,7 @@ export function resolveHermesRealtimeProgressSignal(
 
 export type HermesResolvedStatus =
   | "running"
+  | "paused"
   | "completed"
   | "failed"
   | "external_service_wait"
@@ -692,6 +693,8 @@ export type HermesRuntimeStatusInput = {
   completed: boolean;
   failed: boolean;
   hasPendingFeishuProducts: boolean;
+  stateStatus?: string;
+  resultStatus?: string;
   terminalFailureMessage?: string;
 };
 
@@ -704,6 +707,13 @@ export function resolveHermesRuntimeStatus(input: HermesRuntimeStatusInput): Her
   }
   if (input.running) {
     return "running";
+  }
+  if (
+    input.stateStatus === "paused" ||
+    input.resultStatus === "paused" ||
+    /pause requested|pause\.requested|Auto-listing pause requested/i.test(input.terminalFailureMessage || "")
+  ) {
+    return "paused";
   }
   if (input.completed) {
     return "completed";
@@ -719,6 +729,7 @@ export function resolveHermesRuntimeStatus(input: HermesRuntimeStatusInput): Her
 
 function normalizeHermesStatusLabel(status?: string): string {
   if (status === "running") return "运行中";
+  if (status === "paused") return "已暂停";
   if (status === "failed") return "失败";
   if (status === "completed") return "完成";
   if (status === "external_service_wait") return "等待图片服务";

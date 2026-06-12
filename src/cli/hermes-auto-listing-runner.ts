@@ -951,6 +951,8 @@ function existingStatus(): Record<string, unknown> {
     completed: Boolean(completed),
     failed: Boolean(failed),
     hasPendingFeishuProducts,
+    stateStatus: typeof state?.status === "string" ? state.status : undefined,
+    resultStatus: typeof result?.status === "string" ? result.status : undefined,
     terminalFailureMessage
   });
   const suppressHistoricalResult = shouldSuppressHistoricalResultInHermesStatus({
