@@ -21,13 +21,14 @@ interface OpenAiCompatibleImageConfig {
   apiUrl: string;
   apiKey?: string;
   model: string;
-  mode?: "generations" | "edits" | "media-generate";
+  mode?: "generations" | "edits" | "media-generate" | "videos-base64";
   size?: string;
   responseFormat?: "b64_json" | "url";
   timeoutMs?: number;
   maxTransientRetries?: number;
   requestExtra?: Record<string, unknown>;
   mediaParams?: Record<string, unknown>;
+  videoMetadata?: Record<string, unknown>;
   statusUrl?: string;
   pollIntervalMs?: number;
   maxPollMs?: number;
@@ -42,6 +43,9 @@ interface OpenAiCompatibleImageConfig {
 function redactImageGenerationLogValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => redactImageGenerationLogValue(item));
+  }
+  if (typeof value === "string" && /^data:image\/[^;]+;base64,/i.test(value)) {
+    return "[redacted base64 image data url]";
   }
   if (!value || typeof value !== "object") {
     return value;
@@ -429,6 +433,55 @@ function resolveMediaGenerateStatusUrl(apiUrl: string, configuredStatusUrl?: str
   return url.toString();
 }
 
+function resolveVideosBase64TaskUrl(apiUrl: string, taskId: string, content = false): string {
+  const url = new URL(apiUrl);
+  url.pathname = url.pathname.replace(/\/+$/, "") + "/" + encodeURIComponent(taskId) + (content ? "/content" : "");
+  url.search = "";
+  return url.toString();
+}
+
+function extractVideosBase64TaskId(payload: any): string {
+  const taskId = payload?.id ?? payload?.task_id ?? payload?.data?.id ?? payload?.data?.task_id;
+  if (taskId === undefined || taskId === null || String(taskId).trim() === "") {
+    throw normalizeImageGenerationError(
+      "videos-base64 response did not include task id: " + JSON.stringify(redactImageGenerationLogValue(payload)).slice(0, 500)
+    );
+  }
+  return String(taskId);
+}
+
+function videosBase64Succeeded(payload: any): boolean {
+  return ["completed", "succeeded", "success"].includes(String(payload?.status ?? payload?.data?.status ?? "").toLowerCase());
+}
+
+function videosBase64Failed(payload: any): boolean {
+  return ["failed", "cancelled", "canceled"].includes(String(payload?.status ?? payload?.data?.status ?? "").toLowerCase());
+}
+
+function extractVideosBase64ResultUrl(payload: any): string {
+  const resultUrl =
+    payload?.video_url ??
+    payload?.url ??
+    payload?.data?.video_url ??
+    payload?.data?.url ??
+    payload?.result_url ??
+    payload?.data?.result_url;
+  return typeof resultUrl === "string" ? resultUrl.trim() : "";
+}
+
+function readVideosBase64SubmittedTask(responseFile: string): any | undefined {
+  if (!fs.existsSync(responseFile)) {
+    return undefined;
+  }
+  try {
+    const payload = JSON.parse(fs.readFileSync(responseFile, "utf8"));
+    extractVideosBase64TaskId(payload);
+    return payload;
+  } catch {
+    return undefined;
+  }
+}
+
 function extractMediaGenerateTaskId(payload: any): string {
   const taskId =
     payload?.data?.task_id ??
@@ -488,6 +541,14 @@ function getMimeTypeForImage(filePath: string): string {
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   if (ext === ".webp") return "image/webp";
   return "image/png";
+}
+
+function sourceImageToDataUrl(sourceImagePath: string): string {
+  if (!fs.existsSync(sourceImagePath)) {
+    throw normalizeImageGenerationError("videos-base64 reference image not found: " + sourceImagePath);
+  }
+  const mimeType = getMimeTypeForImage(sourceImagePath);
+  return `data:image/${mimeType.split("/")[1]};base64,${fs.readFileSync(sourceImagePath).toString("base64")}`;
 }
 
 function toTmpFilesDirectUrl(url: string): string {
@@ -567,7 +628,15 @@ async function generateWithOpenAiCompatibleProvider(options: {
   fs.mkdirSync(options.downloadDir, { recursive: true });
 
   const config = readOpenAiCompatibleImageConfig(options.configFile);
-  const mode = config.mode || (config.apiUrl.includes("/images/edits") ? "edits" : config.apiUrl.includes("/v1/media/generate") ? "media-generate" : "generations");
+  const mode =
+    config.mode ||
+    (config.apiUrl.includes("/images/edits")
+      ? "edits"
+      : config.apiUrl.includes("/v1/media/generate")
+        ? "media-generate"
+        : config.apiUrl.includes("/v1/videos")
+          ? "videos-base64"
+          : "generations");
   const count = Math.max(1, options.expectedImageCount || 1);
   const imageIndexOffset = generatedImageIndexOffset(options.downloadDir);
   const responseFormat = config.responseFormat || "b64_json";
@@ -683,6 +752,17 @@ async function generateWithOpenAiCompatibleProvider(options: {
     };
   };
 
+  const buildVideosBase64JsonBody = (promptText: string): Record<string, unknown> => ({
+    model: config.model,
+    prompt: promptText,
+    metadata: {
+      ...(config.videoMetadata || {}),
+      aspect_ratio: "1:1",
+      size: config.size || "1024x1024",
+      urls: [sourceImageToDataUrl(options.sourceImagePath)]
+    }
+  });
+
   const fetchMediaGenerateStatus = async (taskId: string): Promise<{ response: Response; text: string }> => {
     const statusUrl = new URL(resolveMediaGenerateStatusUrl(config.apiUrl, config.statusUrl));
     statusUrl.searchParams.set("task_id", taskId);
@@ -697,6 +777,23 @@ async function generateWithOpenAiCompatibleProvider(options: {
       });
       const text = await response.text();
       return { response, text };
+    } catch (error) {
+      throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const fetchVideosBase64Task = async (taskId: string, content = false): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(resolveVideosBase64TaskUrl(config.apiUrl, taskId, content), {
+        headers: {
+          Authorization: "Bearer " + config.apiKey
+        },
+        signal: controller.signal
+      });
     } catch (error) {
       throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -759,6 +856,92 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
     return { ...result, promptText: nextPromptText || currentPromptText };
   };
+
+  const generateVideosBase64Image = async (absoluteImageIndex: number): Promise<{ file: string; submitId: string }> => {
+    const paddedImageIndex = String(absoluteImageIndex).padStart(2, "0");
+    const promptText = buildPromptForImageIndex(absoluteImageIndex);
+    const requestFile = path.join(options.downloadDir, "request-" + paddedImageIndex + ".json");
+    const responseFile = path.join(options.downloadDir, "response-" + paddedImageIndex + ".json");
+    writeImageGenerationJsonLog(requestFile, {
+      endpoint: config.apiUrl,
+      mode,
+      ...buildVideosBase64JsonBody(promptText)
+    });
+    let submitPayload = readVideosBase64SubmittedTask(responseFile);
+    if (submitPayload) {
+      options.onProgress?.(`Image ${absoluteImageIndex}: resuming submitted videos-base64 task.`);
+    } else {
+      options.onProgress?.(`Image ${absoluteImageIndex}: submitting videos-base64 request.`);
+      // A videos-base64 submit request is not transport-retried because an ambiguous timeout may already have created a paid task.
+      const { response, text } = await sendRequest(JSON.stringify(buildVideosBase64JsonBody(promptText)), "application/json");
+      writeImageGenerationTextLog(responseFile, text);
+      if (!response.ok) {
+        throw normalizeImageGenerationError("videos-base64 submit failed with HTTP " + response.status + ": " + (text || response.statusText));
+      }
+      try {
+        submitPayload = JSON.parse(text);
+      } catch {
+        throw new Error("videos-base64 submit response was not JSON: " + text.slice(0, 500));
+      }
+    }
+    const taskId = extractVideosBase64TaskId(submitPayload);
+    const pollIntervalMs = Math.max(1000, config.pollIntervalMs || 10000);
+    const maxPollMs = Math.max(pollIntervalMs, config.maxPollMs || 1800000);
+    const startedAt = Date.now();
+    let statusPayload: any = submitPayload;
+    for (let pollNo = 1; !videosBase64Succeeded(statusPayload) && !videosBase64Failed(statusPayload); pollNo += 1) {
+      if (Date.now() - startedAt > maxPollMs) {
+        throw normalizeImageGenerationError(`videos-base64 task ${taskId} did not finish within ${maxPollMs}ms.`);
+      }
+      await sleep(pollIntervalMs);
+      const statusResponse = await fetchVideosBase64Task(taskId);
+      const statusText = await statusResponse.text();
+      writeImageGenerationTextLog(path.join(options.downloadDir, "response-" + paddedImageIndex + "-status-" + pollNo + ".json"), statusText);
+      if (!statusResponse.ok) {
+        throw normalizeImageGenerationError(
+          "videos-base64 status failed with HTTP " + statusResponse.status + ": " + (statusText || statusResponse.statusText)
+        );
+      }
+      try {
+        statusPayload = JSON.parse(statusText);
+      } catch {
+        throw new Error("videos-base64 status response was not JSON: " + statusText.slice(0, 500));
+      }
+      const status = statusPayload?.status ?? statusPayload?.data?.status ?? "pending";
+      const progress = statusPayload?.progress ?? statusPayload?.data?.progress ?? "";
+      options.onProgress?.(`Image ${absoluteImageIndex}: videos-base64 task ${taskId} status ${status} ${progress}.`.trim());
+    }
+    if (videosBase64Failed(statusPayload)) {
+      const errorMessage = statusPayload?.error ?? statusPayload?.data?.error ?? "unknown error";
+      throw normalizeImageGenerationError(`videos-base64 task ${taskId} failed: ${errorMessage}`);
+    }
+
+    const resultUrl = extractVideosBase64ResultUrl(statusPayload);
+    const targetFile = path.join(options.downloadDir, "generated-" + paddedImageIndex + ".png");
+    if (resultUrl) {
+      await downloadGeneratedImage(resultUrl, targetFile, config.apiKey || "", timeoutMs);
+    } else {
+      const contentResponse = await fetchVideosBase64Task(taskId, true);
+      if (!contentResponse.ok) {
+        const contentError = await contentResponse.text().catch(() => "");
+        throw normalizeImageGenerationError(
+          "videos-base64 content download failed with HTTP " + contentResponse.status + ": " + (contentError || contentResponse.statusText)
+        );
+      }
+      const contentType = contentResponse.headers.get("content-type") || "";
+      if (contentType && !/^image\/|application\/octet-stream/i.test(contentType)) {
+        throw normalizeImageGenerationError("videos-base64 content response was not an image: " + contentType);
+      }
+      fs.writeFileSync(targetFile, Buffer.from(await contentResponse.arrayBuffer()));
+    }
+    options.onProgress?.(`Image ${absoluteImageIndex}: saved ${path.basename(targetFile)}.`);
+    return { file: targetFile, submitId: taskId };
+  };
+
+  if (mode === "videos-base64") {
+    const videosBase64ImageIndexes = Array.from({ length: count }, (_, index) => imageIndexOffset + index + 1);
+    return Promise.all(videosBase64ImageIndexes.map((absoluteImageIndex) => generateVideosBase64Image(absoluteImageIndex)));
+  }
 
   const generated: Array<{ file: string; submitId: string }> = [];
   for (let imageIndex = 1; imageIndex <= count; imageIndex += 1) {
@@ -1508,9 +1691,9 @@ export async function generateMainImageAssets(options: {
     submitId?: string;
     imageIndex: number;
   }> = [];
-  let imageIndex = 1;
-
-  for (let promptIndex = 0; promptIndex < promptCount; promptIndex += 1) {
+  const processPromptRound = async (promptIndex: number) => {
+    const roundStagedFiles: typeof stagedFiles = [];
+    let imageIndex = promptIndex * options.mainImageExpectedCount + 1;
     const promptWordFile = options.wordFiles[promptIndex];
     const wordParagraphs = readSimpleWordDocument(promptWordFile);
     const promptText = buildImageEditPromptFromWord({
@@ -1546,7 +1729,7 @@ export async function generateMainImageAssets(options: {
       if (!shop) {
         throw new Error(`Recovered main image assignment missing shop folder for image ${recovered.imageIndex}.`);
       }
-      stagedFiles.push({
+      roundStagedFiles.push({
         stagedFile: recovered.stagedFile,
         rawImageFile: recovered.rawImageFile,
         shopFolder: shop.shopFolder,
@@ -1566,10 +1749,10 @@ export async function generateMainImageAssets(options: {
       options.mainImageCountStrategy !== "accept_all" &&
       recoveredFiles.length >= options.mainImageExpectedCount
     ) {
-      continue;
+      return roundStagedFiles;
     }
     if (remainingImageCount === 0) {
-      continue;
+      return roundStagedFiles;
     }
 
     options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: generating ${remainingImageCount} image(s).`);
@@ -1620,7 +1803,7 @@ export async function generateMainImageAssets(options: {
         watermarkedFile
       });
 
-      stagedFiles.push({
+      roundStagedFiles.push({
         stagedFile,
         rawImageFile: rawFile,
         shopFolder: shop.shopFolder,
@@ -1632,7 +1815,20 @@ export async function generateMainImageAssets(options: {
       imageIndex += 1;
     }
     options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: staged ${watermarkedFiles.length} image(s).`);
+    return roundStagedFiles;
+  };
+
+  const imageGenerationConfig = readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
+  const promptIndexes = Array.from({ length: promptCount }, (_, index) => index);
+  if (imageGenerationConfig.mode === "videos-base64") {
+    const concurrentRounds = await Promise.all(promptIndexes.map((promptIndex) => processPromptRound(promptIndex)));
+    stagedFiles.push(...concurrentRounds.flat());
+  } else {
+    for (const promptIndex of promptIndexes) {
+      stagedFiles.push(...(await processPromptRound(promptIndex)));
+    }
   }
+  stagedFiles.sort((left, right) => left.imageIndex - right.imageIndex);
 
   return {
     promptFile,

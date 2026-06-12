@@ -109,6 +109,9 @@
 20. OpenAI-compatible provider 第一次必须发送用户确认过的完整提示词；只有接口明确返回 `content_policy_violation`、`policy_violation`、`safety`、`moderation` 等内容策略拦截时，才允许自动重试一版平台兼容提示词。兼容提示词只做合规降级：保留输入参考图产品主体、主标题、副标题、使用步骤图示、适用部位图示、传统电商海报风格和 4 张差异化要求；去掉作用部位前后对比效果图、功效承诺、治疗暗示、夸大宣传和医学诊断表达。每次策略重试必须写入 `request-XX-policy-retry.json` 方便复盘。
 21. OpenAI-compatible provider 遇到 `429/500/502/503/504` 时视为中转站临时故障，必须自动退避重试并写入 `response-XX-transient-N.json`；普通 `429/500` 临时 HTTP 故障最多短退避 3 次。若返回内容包含 `system_memory_overloaded`、`memory overloaded`、`resource overloaded`、`server overloaded`、`do_request_failed`、`upstream error`，或状态码为 `502/503/504` 网关侧不可用，必须执行 8 次长退避重试（60s、90s、120s、180s、240s、300s、300s、300s），不能因为短时间网关过载或上游请求失败直接停止整批上架。遇到 `fetch failed`、网络断开、socket reset、timeout、`UND_ERR_*` 等传输层瞬断时，也必须自动退避重试至少 8 次，并写入 `response-XX-transport-transient-N.json`。流程重跑时如果当前轮已经有水印暂存图，只补齐缺失数量，不重复消费额度重生已暂存图片。
 22. 每个产品完成上架后，必须把无水印原始主图归档到 `/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><用户认知名>/`；时间前缀精确到分钟，例如 `202605201106宝元堂筋骨康凝胶`；归档完成后才允许删除运行目录。
+23. `videos-base64` 中转站必须使用当前商品白底图的 Base64 data URL 作为图生图参考，固定发送 `metadata.aspect_ratio=1:1` 和 `metadata.size=1024x1024`，不得退化为文生图；实际返回图片必须是正方形，允许中转站返回 1254x1254 等非 2K/4K 正方形尺寸。
+24. `videos-base64` 提交结果不明确（例如提交请求超时或连接中断）时不得自动重新提交付费任务，避免重复生图和重复计费；拿到任务 ID 后只允许轮询同一任务，并优先从完成响应的结果 URL 取回图片，缺失时才回退 `/content` 端点。
+25. `videos-base64` 必须先提交当前商品的全部异步任务，再统一轮询并下载全部结果，全部落地后才能进入水印、分发和后续上架步骤；任务 ID、轮询状态和结果必须按图片独立保存，支持失败续跑。其他同步或协议能力未知的中转站继续严格串行，不得自动套用异步并发逻辑。
 
 ## 失败条件
 

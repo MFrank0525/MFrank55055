@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+
+const source = fs.readFileSync("src/autolist/jimeng-assets.ts", "utf8");
+const example = JSON.parse(fs.readFileSync("input/image-generation.config.videos-base64.example.json", "utf8"));
+const ruleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
+
+assert.equal(example.mode, "videos-base64");
+assert.equal(example.apiUrl.endsWith("/v1/videos"), true);
+assert.equal(example.size, "1024x1024");
+assert.equal(example.videoMetadata.aspect_ratio, "1:1");
+assert.match(source, /mode\?: "generations" \| "edits" \| "media-generate" \| "videos-base64"/);
+assert.match(source, /buildVideosBase64JsonBody/);
+assert.match(source, /data:image\/\$\{mimeType\.split\("\/"\)\[1\]\};base64,/);
+assert.match(source, /resolveVideosBase64TaskUrl/);
+assert.match(source, /extractVideosBase64ResultUrl/);
+assert.match(source, /\/content/);
+assert.match(source, /videos-base64 submit request is not transport-retried/);
+assert.match(source, /\[redacted base64 image data url\]/);
+assert.match(source, /generateVideosBase64Image/);
+assert.match(source, /readVideosBase64SubmittedTask/);
+assert.match(source, /resuming submitted videos-base64 task/);
+assert.match(source, /Promise\.all\(videosBase64ImageIndexes\.map/);
+assert.match(source, /Promise\.all\(promptIndexes\.map/);
+assert.match(source, /mode === "videos-base64"/);
+assert.match(ruleDoc, /videos-base64.*Base64.*1:1.*1024x1024/s);
+assert.match(ruleDoc, /实际返回.*正方形.*2K.*4K/s);
+assert.match(ruleDoc, /提交结果不明确.*不得自动重新提交/s);
+assert.match(ruleDoc, /当前商品.*全部异步任务.*统一轮询/s);
+assert.match(ruleDoc, /其他.*串行/s);
