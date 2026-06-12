@@ -18,6 +18,18 @@ import {
   summarizePaidImageProductLedger
 } from "../dist/src/autolist/paid-image-submission-ledger.js";
 
+const ledgerSource = fs.readFileSync("src/autolist/paid-image-submission-ledger.ts", "utf8");
+assert.match(
+  ledgerSource,
+  /fs\.openSync\(file,\s*"wx"\)/,
+  "missing-slot reservation winner must be decided by wx creation of the slot file itself"
+);
+assert.match(
+  ledgerSource,
+  /export function summarizePaidImageProductLedger[\s\S]*readSlotRecord\(productDir,\s*slot\)/,
+  "ledger summaries must use the same bounded safe slot reader"
+);
+
 const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-ledger-"));
 const identity = {
   rootDir,
@@ -374,5 +386,19 @@ assertMalformedSlotRejected("result-file-type", (record) => (record.resultFile =
 assertMalformedSlotRejected("result-file-format", (record) => (record.resultFile = "relative/result.png"));
 assertMalformedSlotRejected("result-digest-format", (record) => (record.resultDigest = "not-a-sha256"));
 assertMalformedSlotRejected("audit-final-state", (record) => (record.audit.at(-1).state = "ambiguous"));
+assertMalformedSlotRejected(
+  "audit-owner-secret",
+  (record) => (record.audit[0].owner.runId = "Bearer existing-audit-owner-secret")
+);
+assertMalformedSlotRejected(
+  "audit-owner-extra-secret",
+  (record) => (record.audit[0].owner.token = "existing-audit-owner-token")
+);
+assertMalformedSlotRejected("top-level-owner-secret", (record) => (record.owner.taskId = "access_token=existing-secret"));
+assertMalformedSlotRejected(
+  "audit-reason-base64",
+  (record) => (record.audit[0].reason = "data:image/png;base64," + "A".repeat(200))
+);
+assertMalformedSlotRejected("top-level-reason-secret", (record) => (record.reason = "api_key=existing-secret"));
 
 console.log("paid image submission ledger tests passed");

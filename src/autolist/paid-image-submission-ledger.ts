@@ -209,6 +209,19 @@ function readJson(file: string): unknown {
   }
 }
 
+function readSlotJson(file: string): unknown {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    try {
+      return JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch (error) {
+      lastError = error;
+      wait(10);
+    }
+  }
+  throw new Error(`invalid ledger JSON at ${file}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
 function atomicWriteJson(file: string, value: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${crypto.randomUUID()}.tmp`);
@@ -266,6 +279,23 @@ function validateSlotRange(productDir: string, slot: number): PaidImageProductLe
   return ledger;
 }
 
+function isSafePersistedText(value: unknown): value is string {
+  return typeof value === "string" && cleanText(value) === value;
+}
+
+function isValidOwner(value: unknown): value is PaidImageSlotOwner {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const owner = value as PaidImageSlotOwner;
+  return (
+    Object.keys(value).every((key) => key === "runId" || key === "taskId" || key === "pid") &&
+    (owner.runId === undefined || isSafePersistedText(owner.runId)) &&
+    (owner.taskId === undefined || isSafePersistedText(owner.taskId)) &&
+    (owner.pid === undefined || Number.isInteger(owner.pid))
+  );
+}
+
 function validateAudit(value: unknown): value is PaidImageSlotAuditEntry[] {
   return (
     Array.isArray(value) &&
@@ -277,7 +307,8 @@ function validateAudit(value: unknown): value is PaidImageSlotAuditEntry[] {
         states.has((entry as PaidImageSlotAuditEntry).state) &&
         typeof (entry as PaidImageSlotAuditEntry).at === "string" &&
         ((entry as PaidImageSlotAuditEntry).reason === undefined ||
-          typeof (entry as PaidImageSlotAuditEntry).reason === "string")
+          isSafePersistedText((entry as PaidImageSlotAuditEntry).reason)) &&
+        ((entry as PaidImageSlotAuditEntry).owner === undefined || isValidOwner((entry as PaidImageSlotAuditEntry).owner))
     )
   );
 }
@@ -323,7 +354,8 @@ function validateSlotRecord(value: unknown, expectedSlot: number): PaidImageSlot
     (record.resultFile !== undefined && (typeof record.resultFile !== "string" || !path.isAbsolute(record.resultFile))) ||
     (record.resultDigest !== undefined &&
       (typeof record.resultDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.resultDigest))) ||
-    (record.reason !== undefined && typeof record.reason !== "string")
+    (record.reason !== undefined && !isSafePersistedText(record.reason)) ||
+    (record.owner !== undefined && !isValidOwner(record.owner))
   ) {
     throw new Error(`invalid paid image slot record for slot ${expectedSlot}`);
   }
@@ -339,7 +371,7 @@ function validateSlotRecord(value: unknown, expectedSlot: number): PaidImageSlot
 function readSlotRecordUnlocked(productDir: string, slot: number): PaidImageSlotRecord | undefined {
   validateSlotRange(productDir, slot);
   const file = slotFile(productDir, slot);
-  return fs.existsSync(file) ? validateSlotRecord(readJson(file), slot) : undefined;
+  return fs.existsSync(file) ? validateSlotRecord(readSlotJson(file), slot) : undefined;
 }
 
 function readSlotRecord(productDir: string, slot: number): PaidImageSlotRecord | undefined {
@@ -458,12 +490,30 @@ function createReservedRecord(input: ReservePaidImageSlotInput, audit: PaidImage
 
 export function reservePaidImageSlot(input: ReservePaidImageSlotInput): PaidImageSlotAction {
   validateSlotRange(input.productDir, input.slot);
+  const file = slotFile(input.productDir, input.slot);
+  const reserved = createReservedRecord(input);
+  let reservationFd: number | undefined;
+  try {
+    reservationFd = fs.openSync(file, "wx");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
+    }
+  }
+  if (reservationFd !== undefined) {
+    try {
+      fs.writeFileSync(reservationFd, JSON.stringify(reserved, null, 2) + "\n", "utf8");
+      fs.fsyncSync(reservationFd);
+    } finally {
+      fs.closeSync(reservationFd);
+    }
+    return { action: "submit", record: reserved };
+  }
+
   return withSlotLock(input.productDir, input.slot, () => {
     const existing = readSlotRecordUnlocked(input.productDir, input.slot);
     if (!existing) {
-      const reserved = createReservedRecord(input);
-      atomicWriteJson(slotFile(input.productDir, input.slot), reserved);
-      return { action: "submit", record: reserved };
+      throw new Error(`paid image slot ${input.slot} disappeared after reservation conflict`);
     }
     assertSlotIdentity(existing, input.requestDigest, input.promptDigest);
     if (existing.state !== "failed_before_acceptance") {
@@ -587,7 +637,10 @@ export function summarizePaidImageProductLedger(productDir: string): PaidImageLe
     if (slot < 1 || slot > product.expectedSlotCount) {
       throw new Error(`paid image slot ${slot} is outside expected range 1-${product.expectedSlotCount}`);
     }
-    const record = validateSlotRecord(readJson(path.join(productDir, "slots", file)), slot);
+    const record = readSlotRecord(productDir, slot);
+    if (!record) {
+      throw new Error(`paid image slot ${slot} disappeared while summarizing ledger`);
+    }
     summary.missing -= 1;
     if (record.state === "failed_before_acceptance") {
       summary.failedBeforeAcceptance += 1;
