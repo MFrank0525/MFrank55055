@@ -172,6 +172,9 @@ interface LedgerLockMetadata {
 }
 
 const staleLockTimeoutMs = 60_000;
+// Ledger critical sections are synchronous and short. This hard lease cap prevents
+// PID reuse from turning an abandoned lock into a permanent block.
+const maxLockAgeMs = 5 * 60_000;
 
 function readLockMetadata(lockFile: string): LedgerLockMetadata | undefined {
   try {
@@ -201,7 +204,8 @@ function isProcessAlive(pid: number): boolean {
 }
 
 function isProvablyStaleLock(metadata: LedgerLockMetadata): boolean {
-  return Date.now() - Date.parse(metadata.acquiredAt) >= staleLockTimeoutMs && !isProcessAlive(metadata.pid);
+  const ageMs = Date.now() - Date.parse(metadata.acquiredAt);
+  return ageMs >= maxLockAgeMs || (ageMs >= staleLockTimeoutMs && !isProcessAlive(metadata.pid));
 }
 
 function tryCreateMetadataLock(lockFile: string): LedgerLockMetadata | undefined {
@@ -712,11 +716,19 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
     }
     const resultFile = path.join(input.productDir, "results", `${String(input.slot).padStart(2, "0")}.png`);
     const tempResult = `${resultFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    let tempResultFd: number | undefined;
     try {
       fs.copyFileSync(input.sourceFile, tempResult, fs.constants.COPYFILE_EXCL);
+      tempResultFd = fs.openSync(tempResult, "r");
+      fs.fsyncSync(tempResultFd);
+      fs.closeSync(tempResultFd);
+      tempResultFd = undefined;
       fs.renameSync(tempResult, resultFile);
       fsyncDirectory(path.dirname(resultFile));
     } finally {
+      if (tempResultFd !== undefined) {
+        fs.closeSync(tempResultFd);
+      }
       if (fs.existsSync(tempResult)) {
         fs.unlinkSync(tempResult);
       }

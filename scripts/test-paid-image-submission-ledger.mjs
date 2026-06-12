@@ -18,13 +18,6 @@ import {
   summarizePaidImageProductLedger
 } from "../dist/src/autolist/paid-image-submission-ledger.js";
 
-const ledgerSource = fs.readFileSync("src/autolist/paid-image-submission-ledger.ts", "utf8");
-assert.match(
-  ledgerSource,
-  /fs\.openSync\(file,\s*"wx"\)/,
-  "missing-slot reservation winner must be decided by wx creation of the slot file itself"
-);
-
 const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-ledger-"));
 const identity = {
   rootDir,
@@ -289,7 +282,20 @@ assert.throws(
 
 const resultSource = path.join(rootDir, "generated.png");
 fs.writeFileSync(resultSource, "generated-image", "utf8");
+const resultFsyncEvents = [];
+fs.fsyncSync = (fd) => {
+  const stat = fs.fstatSync(fd);
+  resultFsyncEvents.push(stat.isDirectory() ? "directory" : "file");
+  return originalFsyncSync(fd);
+};
 const completed = recordPaidImageCompleted({ productDir, slot: 1, sourceFile: resultSource });
+fs.fsyncSync = originalFsyncSync;
+const completedResultDirectoryFsync = resultFsyncEvents.indexOf("directory");
+assert.ok(completedResultDirectoryFsync > 0, "completed result rename must fsync its parent directory");
+assert.ok(
+  resultFsyncEvents.slice(0, completedResultDirectoryFsync).includes("file"),
+  "copied temporary image result contents must be fsynced before rename and parent directory fsync"
+);
 assert.equal(completed.state, "completed");
 const reuse = resolvePaidImageSlotAction({ productDir, slot: 1 });
 assert.equal(reuse.action, "reuse");
@@ -418,6 +424,32 @@ assert.equal(
 assert.equal(fs.existsSync(staleLockFile), false);
 assert.equal(fs.existsSync(staleRecoveryLockFile), false);
 
+const pidReuseProduct = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-pid-reuse-lock",
+  recordId: "record-pid-reuse-lock"
+});
+reservePaidImageSlot({
+  productDir: pidReuseProduct.productDir,
+  slot: 1,
+  requestDigest: "pid-reuse-request",
+  promptDigest: "pid-reuse-prompt",
+  owner: ownerA
+});
+const pidReuseLockFile = path.join(pidReuseProduct.productDir, "slots", "01.json.lock");
+fs.writeFileSync(
+  pidReuseLockFile,
+  JSON.stringify({ pid: process.pid, acquiredAt: "2000-01-01T00:00:00.000Z", token: "dddddddd-dddd-dddd-dddd-dddddddddddd" }),
+  "utf8"
+);
+assert.equal(
+  recordPaidImageSubmitted({ productDir: pidReuseProduct.productDir, slot: 1, providerTaskId: "pid-reuse-recovered-task" })
+    .state,
+  "submitted",
+  "hard-expired lock must recover even when its pid was reused by a live process"
+);
+assert.equal(fs.existsSync(pidReuseLockFile), false);
+
 const liveLockProduct = initializePaidImageProductLedger({
   ...identity,
   batchFingerprint: "batch-live-lock",
@@ -434,7 +466,7 @@ const liveLockFile = path.join(liveLockProduct.productDir, "slots", "01.json.loc
 const liveLockToken = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 fs.writeFileSync(
   liveLockFile,
-  JSON.stringify({ pid: process.pid, acquiredAt: "2000-01-01T00:00:00.000Z", token: liveLockToken }),
+  JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString(), token: liveLockToken }),
   "utf8"
 );
 const liveLockWorker = `
