@@ -872,7 +872,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       options.onProgress?.(`Image ${absoluteImageIndex}: resuming submitted videos-base64 task.`);
     } else {
       options.onProgress?.(`Image ${absoluteImageIndex}: submitting videos-base64 request.`);
-      // A videos-base64 submit request is not transport-retried because an ambiguous timeout may already have created a paid task.
+      // A videos-base64 submit transport failure is recovered by Hermes so the rerun can reuse current-product task/raw artifacts.
       const { response, text } = await sendRequest(JSON.stringify(buildVideosBase64JsonBody(promptText)), "application/json");
       writeImageGenerationTextLog(responseFile, text);
       if (!response.ok) {

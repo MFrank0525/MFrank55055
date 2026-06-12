@@ -1071,8 +1071,22 @@ assert.equal(
     recoveryAttempts: 0,
     maxRecoveryAttempts: 12
   }),
-  false,
-  "paid main-image transport failures must not restart full flow and risk repeated provider charges"
+  true,
+  "paid main-image transport failures must resume the locked batch so current-product artifacts can be reused and pending products continue"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: "failed at main_images_generated: fetch failed",
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 5/5: Image 4: submitting videos-base64 request.",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "Hermes must recover a full-flow child after a transient main-image transport failure instead of stopping between products"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({

@@ -70,6 +70,19 @@ assert.doesNotMatch(
 );
 
 const publishFlowSource = sliceFunction("runPublishFlow");
+for (const marker of [
+  "publish module started: basic_info",
+  "publish module started: graphic_info",
+  "publish module started: price_inventory",
+  "publish module started: service_fulfillment",
+  "publish module started: final_submit"
+]) {
+  assert.match(
+    publishFlowSource,
+    new RegExp(marker),
+    `publish flow must emit business progress heartbeat: ${marker}`
+  );
+}
 const publishBasicLoop = publishFlowSource.indexOf("for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1)");
 assert.match(
   publishFlowSource.slice(0, publishBasicLoop),

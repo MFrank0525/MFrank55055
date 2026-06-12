@@ -91,7 +91,7 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
     return false;
   }
   if (isPaidMainImageTransportFailure(retryableFailureMessage)) {
-    return false;
+    return true;
   }
   if (isRetryablePublishPageFailure(retryableFailureMessage)) {
     return true;

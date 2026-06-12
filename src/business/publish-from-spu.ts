@@ -8467,6 +8467,7 @@ async function runPublishFlow(
     if (!shopVerifiedBeforeCreatePage) {
       await ensureShopContext(page, runtimeDir, shopFolder);
     }
+    logInfo(`publish module started: basic_info (${path.basename(shopFolder)})`);
     let basicInfoCompleted = false;
     for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
       if (basicAttempt > 0) {
@@ -8545,6 +8546,9 @@ async function runPublishFlow(
     for (let specAttempt = 0; specAttempt < 2; specAttempt += 1) {
       await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-before-images-${specAttempt + 1}`);
       await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_graphic_module");
+      if (specAttempt === 0) {
+        logInfo(`publish module started: graphic_info (${path.basename(shopFolder)})`);
+      }
       let imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
       screenshotFiles.push(imageResult.screenshotFile);
       uploadedGroups = imageResult.uploadedGroups;
@@ -8637,6 +8641,7 @@ async function runPublishFlow(
       }
 
       await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_price_inventory_module");
+      logInfo(`publish module started: price_inventory (${path.basename(shopFolder)})`);
       const priceInventoryResult = await applyPriceInventoryOnPage(page, runtimeDir, "publish-page-price-inventory-filled.png");
       screenshotFiles.push(priceInventoryResult.screenshotFile);
       filledPriceRows = priceInventoryResult.filledRows;
@@ -8690,6 +8695,7 @@ async function runPublishFlow(
       await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_service_module");
     }
 
+    logInfo(`publish module started: service_fulfillment (${path.basename(shopFolder)})`);
     const settingsResult = await applyFixedPublishSettingsOnPage(
       page,
       runtimeDir,
@@ -8796,6 +8802,7 @@ async function runPublishFlow(
     stages.push({ step: "run_publish_check", status: "completed" });
 
     if (!stopBeforePublish) {
+      logInfo(`publish module started: final_submit (${path.basename(shopFolder)})`);
       const finalForbiddenResult = await verifyForbiddenGraphicSectionsEmptyOnPage(
         page,
         runtimeDir,
