@@ -1199,6 +1199,31 @@ assert.equal(
   "Hermes resume children must automatically recover transient spec-template page failures"
 );
 assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage:
+      "failed at published: Publish failed for /work/shop/product-19: Manual spec template entry mode was not visible after clicking 切换手动填写.",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true,
+  "Hermes must classify missing manual spec-template entry controls as a retryable publish-page drift"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage:
+      "failed at published: Publish failed for /work/shop/product-19: Manual spec template entry mode was not visible after clicking 切换手动填写.",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true,
+  "Hermes resume children must continue after retryable spec-template entry drift"
+);
+assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
     childMode: "full",
     exitCode: 1,

@@ -229,7 +229,7 @@
 29. 用户手动重新启动 full-real-flow 时也必须先审计当前缓存批次。如果当前缓存还有待处理产品，即使飞书在线表格已经更新，也必须先跑完缓存批次，不能把新批次插队到旧批次之前。
 30. 同批次接力解析飞书素材时，必须先读取 `processedImageManifest` 并排除已处理记录，再校验未处理记录的白底图/资质图是否存在；已处理记录完成清理后本地素材缺失是正常状态，不能阻塞后续未处理记录。
 31. 主图 raw 复用只允许发生在当前失败续跑链路的同一个 `runtimeDir/tasks/<taskId>` 内。正常重新开始、飞书新批次、历史完成商品、其他 run 的旧 raw 图片不得因为源图路径、SPU 或飞书 recordId 相同而被复制复用。
-32. 抖店发布页处于 loading、基础信息所有预期字段同时消失、规格模板瞬时未读回、页面上下文丢失等发布页瞬态故障，只允许在单商品发布器内有限重试。发布阶段子流程失败后，Hermes supervisor 禁止切回新的 full-real-flow 自动重放；必须保留原 run 的 manifest 和 resume 断点，由下一次 Hermes 启动安全续跑并跳过已确认发布项。
+32. 抖店发布页处于 loading、基础信息所有预期字段同时消失、规格模板瞬时未读回、规格模板入口控件不可见、页面上下文丢失等发布页瞬态故障，只允许在单商品发布器内有限重试。发布阶段子流程失败后，Hermes supervisor 禁止切回新的 full-real-flow 自动重放；必须保留原 run 的 manifest 和 resume 断点，由下一次 Hermes 启动安全续跑并跳过已确认发布项。
 33. CDP 调试端口健康探测和 Playwright `connectOverCDP` 必须设置硬超时。发布子目录持续生成的截图、结果和检查点都属于有效进度心跳，Hermes watchdog 必须读取这些产物，禁止只因顶层 state/events 未更新就误杀仍在推进的发布流程。发布阶段若确实触发 watchdog，结果属于外部副作用不确定状态，禁止 supervisor 自动重启发布。
 34. Hermes supervisor 启动的每个 detached 子流程必须登记独立进程组。子流程正常退出时清除登记；supervisor 异常退出留下孤儿子流程时，下次 Hermes 启动必须终止该已登记进程组。即使进程组 leader 已退出，也必须继续清理其 npm/node 后代；只有 leader PID 仍存活且真实命令不匹配时才禁止终止，防止误杀复用 PID。
 35. 规则层必须把当前 child 启动后写出的可信 terminal `result.json` 视为权威终态。成功终态且飞书当前批次仍有待处理产品时，必须立即进入同批次下一产品；禁止继续按普通运行或 stall 状态等待。terminal result 只允许保留短暂资源释放宽限期。

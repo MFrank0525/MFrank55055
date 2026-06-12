@@ -4403,6 +4403,63 @@ async function isManualSpecTemplateEntryModeVisible(page: Page): Promise<boolean
   });
 }
 
+async function isSpecTemplateEntryControlVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const visibleItems = Array.from(document.querySelectorAll("body *"))
+      .map((el) => el as HTMLElement)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const text = normalize(el.innerText || el.textContent || "");
+        if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        return { el, rect, text };
+      })
+      .filter(Boolean) as Array<{ el: HTMLElement; rect: DOMRect; text: string }>;
+
+    const specLabel = visibleItems
+      .filter((item) => item.text === "商品规格")
+      .sort((a, b) => a.rect.top - b.rect.top)[0];
+    const templateLabel = visibleItems
+      .filter((item) => item.text.includes("规格模板"))
+      .filter((item) => !specLabel || item.rect.top >= specLabel.rect.top - 20)
+      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
+    if (!specLabel || !templateLabel) {
+      return false;
+    }
+
+    const controls = Array.from(document.querySelectorAll("input[type='search'], input[role='combobox']"))
+      .map((el) => el as HTMLInputElement)
+      .filter((input) => {
+        const rect = input.getBoundingClientRect();
+        const style = window.getComputedStyle(input);
+        const context = normalize(
+          [
+            input.value || "",
+            input.placeholder || "",
+            input.parentElement?.innerText || "",
+            input.parentElement?.parentElement?.innerText || "",
+            input.closest("div")?.innerText || ""
+          ].join(" ")
+        );
+        return (
+          rect.width > 120 &&
+          rect.height > 0 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          rect.top >= templateLabel.rect.top - 40 &&
+          rect.top <= templateLabel.rect.bottom + 90 &&
+          rect.left > templateLabel.rect.left &&
+          (context.includes("规格模板") || context.includes("买二送一") || context.includes("久光小泽"))
+        );
+      });
+
+    return controls.length > 0;
+  });
+}
+
 async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {
   const clickedByText = await page
     .getByText("切换手动填写", { exact: false })
@@ -4452,13 +4509,19 @@ async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void
     if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
       return;
     }
+    if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
+      return;
+    }
     await clickSwitchManualSpecEntryMode(page).catch(() => false);
     await page.waitForTimeout(1000);
     if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
       return;
     }
+    if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
+      return;
+    }
   }
-  throw new Error("Manual spec template entry mode was not visible after clicking 切换手动填写.");
+  throw new Error("Spec template entry control was not visible after opening manual goods-spec mode.");
 }
 
 async function waitForSpecTemplateReadback(page: Page): Promise<void> {

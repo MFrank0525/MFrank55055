@@ -237,6 +237,21 @@ assert.match(
   /ensureManualSpecTemplateEntryModeOnPage\(page\)[\s\S]*applySpecTemplateWithVerificationOnPage/,
   "spec template application must wait for manual spec template mode before choosing a template"
 );
+assert.match(
+  publishSource,
+  /async function isSpecTemplateEntryControlVisible[\s\S]*商品规格[\s\S]*规格模板[\s\S]*input\[type='search'\], input\[role='combobox'\]/,
+  "manual spec setup must recognize the spec-template control itself instead of depending only on the legacy switch button"
+);
+assert.match(
+  publishSource,
+  /isSpecTemplateEntryControlVisible\(page\)[\s\S]*return;/,
+  "manual spec setup must proceed when the current spec-template control is already visible"
+);
+assert.doesNotMatch(
+  publishSource,
+  /throw new Error\("Manual spec template entry mode was not visible after clicking 切换手动填写\."\)/,
+  "manual spec setup failures must be classified as spec-template control readiness, not hard-coded to a legacy switch click"
+);
 
 for (const forbiddenSpecTypeAction of [
   "ensureProductSpecTypeNameOnPage",

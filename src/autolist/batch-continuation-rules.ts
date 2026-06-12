@@ -66,7 +66,7 @@ export function resolveSupervisorRecoveryDelayMs(input: {
 function isRetryablePublishPageFailure(message: string): boolean {
   return (
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
-    /基础信息模块未完成|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|publish create page did not become ready|page context was lost|Execution context was destroyed|Target closed/i.test(
+    /基础信息模块未完成|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|page context was lost|Execution context was destroyed|Target closed/i.test(
       message
     )
   );
