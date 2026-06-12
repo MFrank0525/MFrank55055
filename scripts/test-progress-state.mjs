@@ -1408,6 +1408,36 @@ assert.equal(
   false,
   "Main-image timeout/abort failures must not burn supervisor recovery attempts"
 );
+const videosBase64PollTimeoutMessage = "failed at main_images_generated: videos-base64 task task_abc did not finish within 1800000ms.";
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(videosBase64PollTimeoutMessage),
+  true,
+  "videos-base64 submitted-task poll timeouts must wait for the existing paid tasks instead of submitting another batch"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(videosBase64PollTimeoutMessage),
+  false,
+  "videos-base64 submitted-task poll timeouts must not consume fast child recovery attempts"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: videosBase64PollTimeoutMessage,
+    externalServiceWaitAttempts: 0
+  }),
+  10 * 60 * 1000,
+  "videos-base64 submitted-task poll timeouts must use long external-service backoff"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64PollTimeoutMessage,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "videos-base64 poll failures must remain recoverable after the generic recovery budget is exhausted"
+);
 assert.equal(
   isRetryableExternalServiceAvailabilityFailure(
     'Image generation failed with HTTP 502: {"error":{"message":"Upstream access forbidden, please contact administrator"}}'

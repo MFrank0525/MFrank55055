@@ -241,6 +241,7 @@
 41. Hermes 实时进度必须由项目状态命令输出统一的 `realtimeProgress` 信号，包含 supervisor 启动时间、active runId、发布计数、当前发布 runtimeKey、最新进度时间和来源。外层自动回复器只能按该信号去重；禁止继续用旧 `expectedResultFile`、旧 `state.currentTask`、历史发布计数或跨 run 残留的本地 watcher key 推断是否有新进度。当前 active run 已写入 terminal failed result 时，Hermes 状态必须优先展示终态失败/外部等待信号，禁止再用 terminal 之后异步图片任务追加的 events 误报为正常实时进度。
 42. 主图生成完成是标题、店铺分发、发布和清理前的硬门禁。每个当前商品必须先通过主图完整性审计：总数等于类目计划、每个 Word prompt 的图片数等于计划、raw 无水印文件、staged 水印文件和商品目录均真实存在。任何缺失、重复、数量不足或文件不存在都必须 fail closed，禁止继续进入标题、分发或抖店发布。
 43. 生图前允许做抖店登录预检以避免未登录后浪费图片费用，但 Hermes 可见进度必须明确标注为 `login preflight`。登录预检不是发布动作，禁止在状态文案里把它描述成发布进度；真正发布只能在主图、标题、资质、店铺分发全部完成并通过门禁后发生。
+44. `videos-base64` 的单商品 20 张并发提交是允许的，但仅限首次提交当前商品当前批次的 20 个异步 task。同一商品只要已有 task ID、轮询状态、部分 raw 图片或暂存图，任何 `fetch failed`、轮询超时、abort、网络中断都必须进入外部服务等待/续查同一批 task；禁止 supervisor 快速重启生成新的 runtimeDir 后再次提交 20 个付费任务。
 
 ## 推荐执行顺序
 
