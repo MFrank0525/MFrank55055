@@ -47,7 +47,8 @@ import {
   isRetryableExternalServiceAvailabilityFailure,
   shouldConsumeSupervisorRecoveryAttempt,
   resolveSupervisorRecoveryDelayMs,
-  formatHermesCompactStatusText
+  formatHermesCompactStatusText,
+  selectHermesFailedResumeCandidate
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -1044,6 +1045,26 @@ assert.deepEqual(
   "Hermes text status must be short, Chinese, and accurate for terminal publish failures"
 );
 assert.equal(/生图最近保存|运行批次|failed at|系统会按/.test(compactFailedStatus), false);
+assert.equal(
+  selectHermesFailedResumeCandidate([
+    {
+      resultFile: "/runs/new-empty/result.json",
+      mtimeMs: 300,
+      safelyPublishedCount: 0,
+      resumeProductFolderCount: 0,
+      reusableRawImageCount: 0
+    },
+    {
+      resultFile: "/runs/older-publish-progress/result.json",
+      mtimeMs: 200,
+      safelyPublishedCount: 14,
+      resumeProductFolderCount: 20,
+      reusableRawImageCount: 20
+    }
+  ])?.resultFile,
+  "/runs/older-publish-progress/result.json",
+  "Hermes resume must prefer the failed run with real publish progress over a newer empty resume failure"
+);
 assert.equal(
   selectHermesLatestResultFileForJobStatus({
     hasControlJob: true,

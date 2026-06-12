@@ -643,4 +643,22 @@ export function formatHermesCompactStatusText(input: HermesCompactStatusTextInpu
   }
   return lines.slice(0, 3).join("\n");
 }
+
+export type HermesFailedResumeCandidate = {
+  resultFile: string;
+  mtimeMs: number;
+  safelyPublishedCount?: number;
+  resumeProductFolderCount?: number;
+  reusableRawImageCount?: number;
+};
+
+export function selectHermesFailedResumeCandidate<T extends HermesFailedResumeCandidate>(candidates: T[]): T | undefined {
+  return [...candidates].sort(
+    (a, b) =>
+      (b.safelyPublishedCount || 0) - (a.safelyPublishedCount || 0) ||
+      (b.resumeProductFolderCount || 0) - (a.resumeProductFolderCount || 0) ||
+      (b.reusableRawImageCount || 0) - (a.reusableRawImageCount || 0) ||
+      b.mtimeMs - a.mtimeMs
+  )[0];
+}
 import { canResumeFeishuBatchArtifacts } from "./feishu-batch-rules.js";

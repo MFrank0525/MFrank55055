@@ -25,7 +25,8 @@ import {
   shouldTerminateRecordedHermesProcessGroup,
   shouldUseExpectedResultFileInRunningStatus,
   summarizeHermesImageGenerationEvents,
-  formatHermesCompactStatusText
+  formatHermesCompactStatusText,
+  selectHermesFailedResumeCandidate
 } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
@@ -1306,6 +1307,14 @@ function findLatestInterruptedStateForResume(): {
 }
 
 function findLatestFailedResultForResume(): { resultFile: string; result: AutoListingResultFile } | undefined {
+  const candidates: Array<{
+    resultFile: string;
+    result: AutoListingResultFile;
+    mtimeMs: number;
+    safelyPublishedCount: number;
+    resumeProductFolderCount: number;
+    reusableRawImageCount: number;
+  }> = [];
   for (const resultFile of listResultFilesNewestFirst()) {
     const result = readJsonFile<AutoListingResultFile>(resultFile);
     if (!result || result.ok === true || result.status === "success") {
@@ -1314,21 +1323,30 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
     const failedTask = (result.tasks || []).find((task) => task.status === "failed" || task.error);
     if (failedTask?.sourceImagePath && fs.existsSync(path.resolve(rootDir, failedTask.sourceImagePath))) {
       const runtimeDir = result.runtimeDir || path.dirname(resultFile);
+      const reusableRawImageCount = countReusableRawImages(runtimeDir, failedTask.taskId);
       if (
         shouldResumeSourceImageForCurrentFeishuBatch(
           failedTask.sourceImagePath,
-          countReusableRawImages(runtimeDir, failedTask.taskId),
+          reusableRawImageCount,
           result.feishuBatchFingerprint
         )
       ) {
         if (taskHasExternalMainImageRawReuse(runtimeDir, failedTask.taskId)) {
-          return undefined;
+          continue;
         }
-        return { resultFile, result };
+        candidates.push({
+          resultFile,
+          result,
+          mtimeMs: fileMtimeMs(resultFile) || 0,
+          safelyPublishedCount: countSafelyPublishedManifestEntries(runtimeDir),
+          resumeProductFolderCount: collectResumeProductFolderNames(failedTask).length,
+          reusableRawImageCount
+        });
       }
     }
   }
-  return undefined;
+  const selected = selectHermesFailedResumeCandidate(candidates);
+  return selected ? { resultFile: selected.resultFile, result: selected.result } : undefined;
 }
 
 function writeResumeJobFromInterruptedState(
