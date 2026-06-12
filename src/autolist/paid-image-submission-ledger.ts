@@ -161,6 +161,46 @@ function slotFile(productDir: string, slot: number): string {
   return path.join(productDir, "slots", `${String(slot).padStart(2, "0")}.json`);
 }
 
+function wait(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+function acquireExclusiveLock(lockFile: string): number {
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    try {
+      return fs.openSync(lockFile, "wx");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw error;
+      }
+      wait(10);
+    }
+  }
+  throw new Error(`timed out waiting for paid image ledger lock: ${lockFile}`);
+}
+
+function withSlotLock<T>(productDir: string, slot: number, action: () => T): T {
+  const lockFile = `${slotFile(productDir, slot)}.lock`;
+  const fd = acquireExclusiveLock(lockFile);
+  try {
+    return action();
+  } finally {
+    fs.closeSync(fd);
+    fs.unlinkSync(lockFile);
+  }
+}
+
+function waitForSlotLock(productDir: string, slot: number): void {
+  const lockFile = `${slotFile(productDir, slot)}.lock`;
+  for (let attempt = 0; attempt < 500 && fs.existsSync(lockFile); attempt += 1) {
+    wait(10);
+  }
+  if (fs.existsSync(lockFile)) {
+    throw new Error(`timed out waiting for paid image ledger lock: ${lockFile}`);
+  }
+}
+
 function readJson(file: string): unknown {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -180,26 +220,6 @@ function atomicWriteJson(file: string, value: unknown): void {
       fs.unlinkSync(temp);
     }
   }
-}
-
-function writeExclusiveJson(file: string, value: unknown): boolean {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  let fd: number;
-  try {
-    fd = fs.openSync(file, "wx");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      return false;
-    }
-    throw error;
-  }
-  try {
-    fs.writeFileSync(fd, JSON.stringify(value, null, 2) + "\n", "utf8");
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-  return true;
 }
 
 function validateProductLedger(value: unknown, expected?: InitializePaidImageProductLedgerInput): PaidImageProductLedger {
@@ -255,7 +275,28 @@ function validateAudit(value: unknown): value is PaidImageSlotAuditEntry[] {
         entry &&
         typeof entry === "object" &&
         states.has((entry as PaidImageSlotAuditEntry).state) &&
-        typeof (entry as PaidImageSlotAuditEntry).at === "string"
+        typeof (entry as PaidImageSlotAuditEntry).at === "string" &&
+        ((entry as PaidImageSlotAuditEntry).reason === undefined ||
+          typeof (entry as PaidImageSlotAuditEntry).reason === "string")
+    )
+  );
+}
+
+function isSafeProviderTaskId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value);
+}
+
+function isPlainScalarRecord(value: unknown): value is Record<string, string | number | boolean | null> {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>).every(
+      (item) =>
+        (typeof item === "string" && cleanText(item) === item) ||
+        typeof item === "number" ||
+        typeof item === "boolean" ||
+        item === null
     )
   );
 }
@@ -275,7 +316,14 @@ function validateSlotRecord(value: unknown, expectedSlot: number): PaidImageSlot
     !states.has(record.state) ||
     typeof record.createdAt !== "string" ||
     typeof record.updatedAt !== "string" ||
-    !validateAudit(record.audit)
+    !validateAudit(record.audit) ||
+    record.audit.at(-1)?.state !== record.state ||
+    (record.providerTaskId !== undefined && !isSafeProviderTaskId(record.providerTaskId)) ||
+    (record.providerResponseSummary !== undefined && !isPlainScalarRecord(record.providerResponseSummary)) ||
+    (record.resultFile !== undefined && (typeof record.resultFile !== "string" || !path.isAbsolute(record.resultFile))) ||
+    (record.resultDigest !== undefined &&
+      (typeof record.resultDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.resultDigest))) ||
+    (record.reason !== undefined && typeof record.reason !== "string")
   ) {
     throw new Error(`invalid paid image slot record for slot ${expectedSlot}`);
   }
@@ -288,10 +336,16 @@ function validateSlotRecord(value: unknown, expectedSlot: number): PaidImageSlot
   return record;
 }
 
-function readSlotRecord(productDir: string, slot: number): PaidImageSlotRecord | undefined {
+function readSlotRecordUnlocked(productDir: string, slot: number): PaidImageSlotRecord | undefined {
   validateSlotRange(productDir, slot);
   const file = slotFile(productDir, slot);
   return fs.existsSync(file) ? validateSlotRecord(readJson(file), slot) : undefined;
+}
+
+function readSlotRecord(productDir: string, slot: number): PaidImageSlotRecord | undefined {
+  validateSlotRange(productDir, slot);
+  waitForSlotLock(productDir, slot);
+  return readSlotRecordUnlocked(productDir, slot);
 }
 
 function assertSlotIdentity(record: PaidImageSlotRecord, requestDigest: string, promptDigest: string): void {
@@ -301,10 +355,14 @@ function assertSlotIdentity(record: PaidImageSlotRecord, requestDigest: string, 
 }
 
 function cleanText(value: string): string {
-  if (/base64,|bearer\s|authorization|api[_-]?key|secret/i.test(value)) {
+  if (
+    value.length > 500 ||
+    /data:[^;,]+;base64,|bearer\s|authorization|api[_-]?key|access[_-]?token|secret/i.test(value) ||
+    (value.length >= 128 && /^[A-Za-z0-9+/_=-]+$/.test(value))
+  ) {
     return "[redacted]";
   }
-  return value.slice(0, 500);
+  return value;
 }
 
 function providerResponseSummary(value: unknown): Record<string, unknown> | undefined {
@@ -345,9 +403,19 @@ export function initializePaidImageProductLedger(input: InitializePaidImageProdu
     createdAt: new Date().toISOString(),
     productDir
   };
-  writeExclusiveJson(productFile(productDir), created);
-  const existing = validateProductLedger(readJson(productFile(productDir)), input);
-  return { ...existing, productDir };
+  const file = productFile(productDir);
+  const lockFile = `${file}.lock`;
+  const lockFd = acquireExclusiveLock(lockFile);
+  try {
+    if (!fs.existsSync(file)) {
+      atomicWriteJson(file, created);
+    }
+    const existing = validateProductLedger(readJson(file), input);
+    return { ...existing, productDir };
+  } finally {
+    fs.closeSync(lockFd);
+    fs.unlinkSync(lockFile);
+  }
 }
 
 function actionForRecord(record: PaidImageSlotRecord): PaidImageSlotAction {
@@ -390,41 +458,21 @@ function createReservedRecord(input: ReservePaidImageSlotInput, audit: PaidImage
 
 export function reservePaidImageSlot(input: ReservePaidImageSlotInput): PaidImageSlotAction {
   validateSlotRange(input.productDir, input.slot);
-  const reserved = createReservedRecord(input);
-  const file = slotFile(input.productDir, input.slot);
-  if (writeExclusiveJson(file, reserved)) {
-    return { action: "submit", record: reserved };
-  }
-
-  const existing = validateSlotRecord(readJson(file), input.slot);
-  assertSlotIdentity(existing, input.requestDigest, input.promptDigest);
-  if (existing.state !== "failed_before_acceptance") {
-    return actionForRecord(existing);
-  }
-
-  const lockFile = `${file}.reacquire.lock`;
-  let lockFd: number;
-  try {
-    lockFd = fs.openSync(lockFile, "wx");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      return actionForRecord(validateSlotRecord(readJson(file), input.slot));
+  return withSlotLock(input.productDir, input.slot, () => {
+    const existing = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (!existing) {
+      const reserved = createReservedRecord(input);
+      atomicWriteJson(slotFile(input.productDir, input.slot), reserved);
+      return { action: "submit", record: reserved };
     }
-    throw error;
-  }
-  try {
-    const current = validateSlotRecord(readJson(file), input.slot);
-    assertSlotIdentity(current, input.requestDigest, input.promptDigest);
-    if (current.state !== "failed_before_acceptance") {
-      return actionForRecord(current);
+    assertSlotIdentity(existing, input.requestDigest, input.promptDigest);
+    if (existing.state !== "failed_before_acceptance") {
+      return actionForRecord(existing);
     }
-    const reacquired = createReservedRecord(input, current.audit);
-    atomicWriteJson(file, reacquired);
+    const reacquired = createReservedRecord(input, existing.audit);
+    atomicWriteJson(slotFile(input.productDir, input.slot), reacquired);
     return { action: "submit", record: reacquired };
-  } finally {
-    fs.closeSync(lockFd);
-    fs.unlinkSync(lockFile);
-  }
+  });
 }
 
 export function resolvePaidImageSlotAction(input: ResolvePaidImageSlotActionInput): PaidImageSlotAction {
@@ -439,7 +487,18 @@ function transitionSlot(
   nextState: PaidImageSlotState,
   changes: Partial<PaidImageSlotRecord>
 ): PaidImageSlotRecord {
-  const record = readSlotRecord(productDir, slot);
+  validateSlotRange(productDir, slot);
+  return withSlotLock(productDir, slot, () => transitionSlotUnlocked(productDir, slot, allowedStates, nextState, changes));
+}
+
+function transitionSlotUnlocked(
+  productDir: string,
+  slot: number,
+  allowedStates: PaidImageSlotState[],
+  nextState: PaidImageSlotState,
+  changes: Partial<PaidImageSlotRecord>
+): PaidImageSlotRecord {
+  const record = readSlotRecordUnlocked(productDir, slot);
   if (!record || !allowedStates.includes(record.state)) {
     throw new Error(`invalid slot transition for slot ${slot}: ${record?.state || "missing"} -> ${nextState}`);
   }
@@ -456,33 +515,39 @@ function transitionSlot(
 }
 
 export function recordPaidImageSubmitted(input: RecordPaidImageSubmittedInput): PaidImageSlotRecord {
+  if (!isSafeProviderTaskId(input.providerTaskId)) {
+    throw new Error("providerTaskId must be a bounded safe scalar");
+  }
   return transitionSlot(input.productDir, input.slot, ["reserved"], "submitted", {
-    providerTaskId: requireNonEmpty(input.providerTaskId, "providerTaskId"),
+    providerTaskId: input.providerTaskId,
     providerResponseSummary: providerResponseSummary(input.providerResponse)
   });
 }
 
 export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): PaidImageSlotRecord {
-  const record = readSlotRecord(input.productDir, input.slot);
-  if (!record || record.state !== "submitted") {
-    throw new Error(`invalid slot transition for slot ${input.slot}: ${record?.state || "missing"} -> completed`);
-  }
   if (!fs.statSync(input.sourceFile).isFile()) {
     throw new Error(`completed paid image source is not a file: ${input.sourceFile}`);
   }
-  const resultFile = path.join(input.productDir, "results", `${String(input.slot).padStart(2, "0")}.png`);
-  const tempResult = `${resultFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try {
-    fs.copyFileSync(input.sourceFile, tempResult, fs.constants.COPYFILE_EXCL);
-    fs.renameSync(tempResult, resultFile);
-  } finally {
-    if (fs.existsSync(tempResult)) {
-      fs.unlinkSync(tempResult);
+  validateSlotRange(input.productDir, input.slot);
+  return withSlotLock(input.productDir, input.slot, () => {
+    const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (!record || record.state !== "submitted") {
+      throw new Error(`invalid slot transition for slot ${input.slot}: ${record?.state || "missing"} -> completed`);
     }
-  }
-  return transitionSlot(input.productDir, input.slot, ["submitted"], "completed", {
-    resultFile,
-    resultDigest: sha256File(resultFile)
+    const resultFile = path.join(input.productDir, "results", `${String(input.slot).padStart(2, "0")}.png`);
+    const tempResult = `${resultFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    try {
+      fs.copyFileSync(input.sourceFile, tempResult, fs.constants.COPYFILE_EXCL);
+      fs.renameSync(tempResult, resultFile);
+    } finally {
+      if (fs.existsSync(tempResult)) {
+        fs.unlinkSync(tempResult);
+      }
+    }
+    return transitionSlotUnlocked(input.productDir, input.slot, ["submitted"], "completed", {
+      resultFile,
+      resultDigest: sha256File(resultFile)
+    });
   });
 }
 

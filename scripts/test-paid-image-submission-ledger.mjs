@@ -68,6 +68,41 @@ assert.throws(
 
 const raceProduct = initializePaidImageProductLedger({ ...identity, batchFingerprint: "batch-race", recordId: "record-race" });
 const ledgerModuleUrl = pathToFileURL(path.resolve("dist/src/autolist/paid-image-submission-ledger.js")).href;
+const productRaceRoot = path.join(rootDir, "product-race-root");
+function raceProductInitialization(sourceImageDigest) {
+  const worker = `
+    import { initializePaidImageProductLedger } from ${JSON.stringify(ledgerModuleUrl)};
+    try {
+      initializePaidImageProductLedger({
+        rootDir: ${JSON.stringify(productRaceRoot)},
+        batchFingerprint: "same-batch",
+        recordId: "same-record",
+        expectedSlotCount: 20,
+        providerIdentity: "same-provider",
+        sourceImageDigest: ${JSON.stringify(sourceImageDigest)}
+      });
+      process.stdout.write("success");
+    } catch (error) {
+      process.stdout.write("rejected:" + error.message);
+    }
+  `;
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", worker], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve(stdout) : reject(new Error(stderr))));
+  });
+}
+const productRaceResults = await Promise.all([
+  raceProductInitialization("source-race-a"),
+  raceProductInitialization("source-race-b")
+]);
+assert.equal(productRaceResults.filter((item) => item === "success").length, 1);
+assert.equal(productRaceResults.filter((item) => /rejected:.*identity conflict/i.test(item)).length, 1);
+
 function raceReserve(owner) {
   const worker = `
     import { reservePaidImageSlot } from ${JSON.stringify(ledgerModuleUrl)};
@@ -92,6 +127,81 @@ function raceReserve(owner) {
 }
 const raceActions = await Promise.all([raceReserve(ownerA), raceReserve(ownerB)]);
 assert.deepEqual(raceActions.sort(), ["blocked_reserved", "submit"], "cross-process reservation race must have one winner");
+
+const resolutionRaceProduct = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-resolution-race",
+  recordId: "record-resolution-race"
+});
+const resolutionRaceWorker = `
+  import { reservePaidImageSlot } from ${JSON.stringify(ledgerModuleUrl)};
+  reservePaidImageSlot({
+    productDir: ${JSON.stringify(resolutionRaceProduct.productDir)},
+    slot: 1,
+    requestDigest: "resolution-race-request",
+    promptDigest: "resolution-race-prompt",
+    owner: ${JSON.stringify(ownerA)}
+  });
+`;
+const resolutionRaceChild = spawn(process.execPath, ["--input-type=module", "-e", resolutionRaceWorker], {
+  stdio: ["ignore", "ignore", "pipe"]
+});
+let resolutionRaceStderr = "";
+resolutionRaceChild.stderr.on("data", (chunk) => (resolutionRaceStderr += chunk));
+for (let attempt = 0; attempt < 200; attempt += 1) {
+  const action = resolvePaidImageSlotAction({ productDir: resolutionRaceProduct.productDir, slot: 1 }).action;
+  assert.match(action, /missing|blocked_reserved/);
+}
+await new Promise((resolve, reject) => {
+  resolutionRaceChild.on("error", reject);
+  resolutionRaceChild.on("close", (code) => (code === 0 ? resolve() : reject(new Error(resolutionRaceStderr))));
+});
+assert.equal(resolvePaidImageSlotAction({ productDir: resolutionRaceProduct.productDir, slot: 1 }).action, "blocked_reserved");
+
+const transitionRaceProduct = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-transition-race",
+  recordId: "record-transition-race"
+});
+reservePaidImageSlot({
+  productDir: transitionRaceProduct.productDir,
+  slot: 1,
+  requestDigest: "transition-race-request",
+  promptDigest: "transition-race-prompt",
+  owner: ownerA
+});
+function raceTransition(kind) {
+  const worker = `
+    import { recordPaidImageFailedBeforeAcceptance, recordPaidImageSubmitted } from ${JSON.stringify(ledgerModuleUrl)};
+    try {
+      const record = ${
+        kind === "submitted"
+          ? `recordPaidImageSubmitted({ productDir: ${JSON.stringify(transitionRaceProduct.productDir)}, slot: 1, providerTaskId: "race-provider-task" })`
+          : `recordPaidImageFailedBeforeAcceptance({ productDir: ${JSON.stringify(transitionRaceProduct.productDir)}, slot: 1, reason: "explicit rejection" })`
+      };
+      process.stdout.write("success:" + record.state);
+    } catch (error) {
+      process.stdout.write("rejected:" + error.message);
+    }
+  `;
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", worker], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve(stdout) : reject(new Error(stderr))));
+  });
+}
+const transitionRaceResults = await Promise.all([raceTransition("submitted"), raceTransition("failed")]);
+assert.equal(transitionRaceResults.filter((item) => item.startsWith("success:")).length, 1);
+assert.equal(transitionRaceResults.filter((item) => item.startsWith("rejected:invalid slot transition")).length, 1);
+const transitionRaceRecord = JSON.parse(
+  fs.readFileSync(path.join(transitionRaceProduct.productDir, "slots", "01.json"), "utf8")
+);
+assert.equal(transitionRaceRecord.audit.length, 2, "concurrent transition loser must not overwrite winner audit");
+assert.equal(transitionRaceRecord.audit.at(-1).state, transitionRaceRecord.state);
 
 const productDir = initialized.productDir;
 const first = reservePaidImageSlot({
@@ -139,6 +249,10 @@ const submitted = recordPaidImageSubmitted({
   providerResponse: {
     id: "provider-task-1",
     status: "submitted",
+    message: "A".repeat(2000),
+    error: "data:image/png;base64," + "B".repeat(2000),
+    token: "token-must-not-be-written",
+    api_key: "api-key-must-not-be-written",
     authorization: "Bearer must-not-be-written",
     image: "data:image/png;base64,must-not-be-written"
   }
@@ -146,6 +260,10 @@ const submitted = recordPaidImageSubmitted({
 assert.equal(submitted.state, "submitted");
 assert.equal(resolvePaidImageSlotAction({ productDir, slot: 1 }).action, "poll");
 assert.equal(resolvePaidImageSlotAction({ productDir, slot: 1 }).providerTaskId, "provider-task-1");
+assert.throws(
+  () => recordPaidImageSubmitted({ productDir, slot: 3, providerTaskId: "data:image/png;base64," + "X".repeat(1000) }),
+  /providerTaskId/i
+);
 
 const resultSource = path.join(rootDir, "generated.png");
 fs.writeFileSync(resultSource, "generated-image", "utf8");
@@ -222,9 +340,39 @@ const ledgerText = fs
   .map((file) => fs.readFileSync(path.join(productDir, "slots", file), "utf8"))
   .join("\n");
 assert.doesNotMatch(ledgerText, /Bearer must-not-be-written|must-not-be-written|must-not-write|base64,/i);
+assert.doesNotMatch(ledgerText, /A{100}|B{100}|token-must|api-key-must/i);
 
 const invalidSlotFile = path.join(productDir, "slots", "21.json");
 fs.writeFileSync(invalidSlotFile, JSON.stringify({ slot: 21, state: "reserved" }), "utf8");
 assert.throws(() => summarizePaidImageProductLedger(productDir), /outside expected range/i);
+
+function assertMalformedSlotRejected(label, mutate) {
+  const malformedProduct = initializePaidImageProductLedger({
+    ...identity,
+    batchFingerprint: `batch-malformed-${label}`,
+    recordId: `record-malformed-${label}`
+  });
+  reservePaidImageSlot({
+    productDir: malformedProduct.productDir,
+    slot: 1,
+    requestDigest: "malformed-request",
+    promptDigest: "malformed-prompt",
+    owner: ownerA
+  });
+  const file = path.join(malformedProduct.productDir, "slots", "01.json");
+  const record = JSON.parse(fs.readFileSync(file, "utf8"));
+  mutate(record);
+  fs.writeFileSync(file, JSON.stringify(record), "utf8");
+  assert.throws(() => resolvePaidImageSlotAction({ productDir: malformedProduct.productDir, slot: 1 }), /invalid paid image slot record/i);
+}
+assertMalformedSlotRejected("provider-task-type", (record) => (record.providerTaskId = { payload: true }));
+assertMalformedSlotRejected(
+  "provider-summary-secret",
+  (record) => (record.providerResponseSummary = { message: "Bearer existing-secret-must-fail-closed" })
+);
+assertMalformedSlotRejected("result-file-type", (record) => (record.resultFile = 123));
+assertMalformedSlotRejected("result-file-format", (record) => (record.resultFile = "relative/result.png"));
+assertMalformedSlotRejected("result-digest-format", (record) => (record.resultDigest = "not-a-sha256"));
+assertMalformedSlotRejected("audit-final-state", (record) => (record.audit.at(-1).state = "ambiguous"));
 
 console.log("paid image submission ledger tests passed");
