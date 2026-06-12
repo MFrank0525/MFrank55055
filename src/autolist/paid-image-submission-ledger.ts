@@ -165,35 +165,143 @@ function wait(milliseconds: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
-function acquireExclusiveLock(lockFile: string): number {
+interface LedgerLockMetadata {
+  pid: number;
+  acquiredAt: string;
+  token: string;
+}
+
+const staleLockTimeoutMs = 60_000;
+
+function readLockMetadata(lockFile: string): LedgerLockMetadata | undefined {
+  try {
+    const value = JSON.parse(fs.readFileSync(lockFile, "utf8")) as Partial<LedgerLockMetadata>;
+    if (
+      Number.isInteger(value.pid) &&
+      typeof value.acquiredAt === "string" &&
+      Number.isFinite(Date.parse(value.acquiredAt)) &&
+      typeof value.token === "string" &&
+      /^[a-f0-9-]{16,}$/.test(value.token)
+    ) {
+      return value as LedgerLockMetadata;
+    }
+  } catch {
+    // A lock without complete valid metadata cannot be proven stale.
+  }
+  return undefined;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+function isProvablyStaleLock(metadata: LedgerLockMetadata): boolean {
+  return Date.now() - Date.parse(metadata.acquiredAt) >= staleLockTimeoutMs && !isProcessAlive(metadata.pid);
+}
+
+function tryCreateMetadataLock(lockFile: string): LedgerLockMetadata | undefined {
+  const metadata: LedgerLockMetadata = {
+    pid: process.pid,
+    acquiredAt: new Date().toISOString(),
+    token: crypto.randomUUID()
+  };
+  const candidate = `${lockFile}.${metadata.token}.candidate.lock`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(candidate, "wx");
+    fs.writeFileSync(fd, JSON.stringify(metadata) + "\n", "utf8");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    try {
+      fs.linkSync(candidate, lockFile);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        return undefined;
+      }
+      throw error;
+    }
+    fsyncDirectory(path.dirname(lockFile));
+    return metadata;
+  } finally {
+    if (fd !== undefined) {
+      fs.closeSync(fd);
+    }
+    if (fs.existsSync(candidate)) {
+      fs.unlinkSync(candidate);
+    }
+  }
+}
+
+function removeProvablyStaleLock(lockFile: string): boolean {
+  const metadata = readLockMetadata(lockFile);
+  if (metadata && isProvablyStaleLock(metadata) && readLockMetadata(lockFile)?.token === metadata.token) {
+    fs.unlinkSync(lockFile);
+    fsyncDirectory(path.dirname(lockFile));
+    return true;
+  }
+  return false;
+}
+
+function recoverProvablyStaleLock(lockFile: string): boolean {
+  const recoveryLock = `${lockFile}.recovery.lock`;
+  const recoveryMetadata = tryCreateMetadataLock(recoveryLock);
+  if (!recoveryMetadata) {
+    removeProvablyStaleLock(recoveryLock);
+    return false;
+  }
+  try {
+    return removeProvablyStaleLock(lockFile);
+  } finally {
+    releaseExclusiveLock(recoveryLock, recoveryMetadata);
+  }
+}
+
+function acquireExclusiveLock(lockFile: string): LedgerLockMetadata {
   fs.mkdirSync(path.dirname(lockFile), { recursive: true });
   for (let attempt = 0; attempt < 500; attempt += 1) {
-    try {
-      return fs.openSync(lockFile, "wx");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw error;
-      }
+    if (fs.existsSync(`${lockFile}.recovery.lock`)) {
+      removeProvablyStaleLock(`${lockFile}.recovery.lock`);
       wait(10);
+      continue;
     }
+    const metadata = tryCreateMetadataLock(lockFile);
+    if (metadata) {
+      return metadata;
+    }
+    recoverProvablyStaleLock(lockFile);
+    wait(10);
   }
   throw new Error(`timed out waiting for paid image ledger lock: ${lockFile}`);
 }
 
+function releaseExclusiveLock(lockFile: string, metadata: LedgerLockMetadata): void {
+  if (readLockMetadata(lockFile)?.token !== metadata.token) {
+    throw new Error(`paid image ledger lock ownership changed before release: ${lockFile}`);
+  }
+  fs.unlinkSync(lockFile);
+  fsyncDirectory(path.dirname(lockFile));
+}
+
 function withSlotLock<T>(productDir: string, slot: number, action: () => T): T {
   const lockFile = `${slotFile(productDir, slot)}.lock`;
-  const fd = acquireExclusiveLock(lockFile);
+  const metadata = acquireExclusiveLock(lockFile);
   try {
     return action();
   } finally {
-    fs.closeSync(fd);
-    fs.unlinkSync(lockFile);
+    releaseExclusiveLock(lockFile, metadata);
   }
 }
 
 function waitForSlotLock(productDir: string, slot: number): void {
   const lockFile = `${slotFile(productDir, slot)}.lock`;
   for (let attempt = 0; attempt < 500 && fs.existsSync(lockFile); attempt += 1) {
+    recoverProvablyStaleLock(lockFile);
     wait(10);
   }
   if (fs.existsSync(lockFile)) {
@@ -225,13 +333,31 @@ function readSlotJson(file: string): unknown {
 function atomicWriteJson(file: string, value: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${crypto.randomUUID()}.tmp`);
+  let fd: number | undefined;
   try {
-    fs.writeFileSync(temp, JSON.stringify(value, null, 2) + "\n", { encoding: "utf8", flag: "wx" });
+    fd = fs.openSync(temp, "wx");
+    fs.writeFileSync(fd, JSON.stringify(value, null, 2) + "\n", "utf8");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
     fs.renameSync(temp, file);
+    fsyncDirectory(path.dirname(file));
   } finally {
+    if (fd !== undefined) {
+      fs.closeSync(fd);
+    }
     if (fs.existsSync(temp)) {
       fs.unlinkSync(temp);
     }
+  }
+}
+
+function fsyncDirectory(directory: string): void {
+  const fd = fs.openSync(directory, "r");
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
   }
 }
 
@@ -437,7 +563,7 @@ export function initializePaidImageProductLedger(input: InitializePaidImageProdu
   };
   const file = productFile(productDir);
   const lockFile = `${file}.lock`;
-  const lockFd = acquireExclusiveLock(lockFile);
+  const lockMetadata = acquireExclusiveLock(lockFile);
   try {
     if (!fs.existsSync(file)) {
       atomicWriteJson(file, created);
@@ -445,8 +571,7 @@ export function initializePaidImageProductLedger(input: InitializePaidImageProdu
     const existing = validateProductLedger(readJson(file), input);
     return { ...existing, productDir };
   } finally {
-    fs.closeSync(lockFd);
-    fs.unlinkSync(lockFile);
+    releaseExclusiveLock(lockFile, lockMetadata);
   }
 }
 
@@ -507,6 +632,7 @@ export function reservePaidImageSlot(input: ReservePaidImageSlotInput): PaidImag
     } finally {
       fs.closeSync(reservationFd);
     }
+    fsyncDirectory(path.dirname(file));
     return { action: "submit", record: reserved };
   }
 
@@ -589,6 +715,7 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
     try {
       fs.copyFileSync(input.sourceFile, tempResult, fs.constants.COPYFILE_EXCL);
       fs.renameSync(tempResult, resultFile);
+      fsyncDirectory(path.dirname(resultFile));
     } finally {
       if (fs.existsSync(tempResult)) {
         fs.unlinkSync(tempResult);
@@ -636,6 +763,9 @@ export function summarizePaidImageProductLedger(productDir: string): PaidImageLe
     const slot = Number(match[1]);
     if (slot < 1 || slot > product.expectedSlotCount) {
       throw new Error(`paid image slot ${slot} is outside expected range 1-${product.expectedSlotCount}`);
+    }
+    if (file !== `${String(slot).padStart(2, "0")}.json`) {
+      throw new Error(`noncanonical paid image slot ledger file: ${file}`);
     }
     const record = readSlotRecord(productDir, slot);
     if (!record) {

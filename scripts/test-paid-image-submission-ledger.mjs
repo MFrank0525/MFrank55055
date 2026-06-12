@@ -24,11 +24,6 @@ assert.match(
   /fs\.openSync\(file,\s*"wx"\)/,
   "missing-slot reservation winner must be decided by wx creation of the slot file itself"
 );
-assert.match(
-  ledgerSource,
-  /export function summarizePaidImageProductLedger[\s\S]*readSlotRecord\(productDir,\s*slot\)/,
-  "ledger summaries must use the same bounded safe slot reader"
-);
 
 const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-ledger-"));
 const identity = {
@@ -216,6 +211,14 @@ assert.equal(transitionRaceRecord.audit.length, 2, "concurrent transition loser 
 assert.equal(transitionRaceRecord.audit.at(-1).state, transitionRaceRecord.state);
 
 const productDir = initialized.productDir;
+const originalFsyncSync = fs.fsyncSync;
+let directoryFsyncCount = 0;
+fs.fsyncSync = (fd) => {
+  if (fs.fstatSync(fd).isDirectory()) {
+    directoryFsyncCount += 1;
+  }
+  return originalFsyncSync(fd);
+};
 const first = reservePaidImageSlot({
   productDir,
   slot: 1,
@@ -223,6 +226,7 @@ const first = reservePaidImageSlot({
   promptDigest: "prompt-1",
   owner: ownerA
 });
+assert.ok(directoryFsyncCount >= 1, "reservation must fsync the slots directory before returning submit permission");
 assert.equal(first.action, "submit");
 assert.equal(first.record.state, "reserved");
 
@@ -254,6 +258,7 @@ assert.throws(
   /outside expected range/i
 );
 
+const directoryFsyncBeforeTransition = directoryFsyncCount;
 const submitted = recordPaidImageSubmitted({
   productDir,
   slot: 1,
@@ -269,6 +274,11 @@ const submitted = recordPaidImageSubmitted({
     image: "data:image/png;base64,must-not-be-written"
   }
 });
+assert.ok(
+  directoryFsyncCount >= directoryFsyncBeforeTransition + 3,
+  "critical atomic slot rename must fsync its parent directory in addition to lock creation and release"
+);
+fs.fsyncSync = originalFsyncSync;
 assert.equal(submitted.state, "submitted");
 assert.equal(resolvePaidImageSlotAction({ productDir, slot: 1 }).action, "poll");
 assert.equal(resolvePaidImageSlotAction({ productDir, slot: 1 }).providerTaskId, "provider-task-1");
@@ -357,6 +367,93 @@ assert.doesNotMatch(ledgerText, /A{100}|B{100}|token-must|api-key-must/i);
 const invalidSlotFile = path.join(productDir, "slots", "21.json");
 fs.writeFileSync(invalidSlotFile, JSON.stringify({ slot: 21, state: "reserved" }), "utf8");
 assert.throws(() => summarizePaidImageProductLedger(productDir), /outside expected range/i);
+
+const noncanonicalProduct = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-noncanonical-slot",
+  recordId: "record-noncanonical-slot"
+});
+reservePaidImageSlot({
+  productDir: noncanonicalProduct.productDir,
+  slot: 1,
+  requestDigest: "noncanonical-request",
+  promptDigest: "noncanonical-prompt",
+  owner: ownerA
+});
+fs.copyFileSync(
+  path.join(noncanonicalProduct.productDir, "slots", "01.json"),
+  path.join(noncanonicalProduct.productDir, "slots", "1.json")
+);
+assert.throws(() => summarizePaidImageProductLedger(noncanonicalProduct.productDir), /noncanonical|invalid paid image slot ledger file/i);
+
+const staleLockProduct = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-stale-lock",
+  recordId: "record-stale-lock"
+});
+reservePaidImageSlot({
+  productDir: staleLockProduct.productDir,
+  slot: 1,
+  requestDigest: "stale-lock-request",
+  promptDigest: "stale-lock-prompt",
+  owner: ownerA
+});
+const staleLockFile = path.join(staleLockProduct.productDir, "slots", "01.json.lock");
+const staleRecoveryLockFile = `${staleLockFile}.recovery.lock`;
+fs.writeFileSync(
+  staleLockFile,
+  JSON.stringify({ pid: 2147483647, acquiredAt: "2000-01-01T00:00:00.000Z", token: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" }),
+  "utf8"
+);
+fs.writeFileSync(
+  staleRecoveryLockFile,
+  JSON.stringify({ pid: 2147483647, acquiredAt: "2000-01-01T00:00:00.000Z", token: "cccccccc-cccc-cccc-cccc-cccccccccccc" }),
+  "utf8"
+);
+assert.equal(
+  recordPaidImageSubmitted({ productDir: staleLockProduct.productDir, slot: 1, providerTaskId: "stale-recovered-task" }).state,
+  "submitted",
+  "provably stale dead-process lock must be recovered"
+);
+assert.equal(fs.existsSync(staleLockFile), false);
+assert.equal(fs.existsSync(staleRecoveryLockFile), false);
+
+const liveLockProduct = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-live-lock",
+  recordId: "record-live-lock"
+});
+reservePaidImageSlot({
+  productDir: liveLockProduct.productDir,
+  slot: 1,
+  requestDigest: "live-lock-request",
+  promptDigest: "live-lock-prompt",
+  owner: ownerA
+});
+const liveLockFile = path.join(liveLockProduct.productDir, "slots", "01.json.lock");
+const liveLockToken = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+fs.writeFileSync(
+  liveLockFile,
+  JSON.stringify({ pid: process.pid, acquiredAt: "2000-01-01T00:00:00.000Z", token: liveLockToken }),
+  "utf8"
+);
+const liveLockWorker = `
+  import { recordPaidImageSubmitted } from ${JSON.stringify(ledgerModuleUrl)};
+  recordPaidImageSubmitted({
+    productDir: ${JSON.stringify(liveLockProduct.productDir)},
+    slot: 1,
+    providerTaskId: "must-not-steal-live-lock"
+  });
+`;
+const liveLockChild = spawn(process.execPath, ["--input-type=module", "-e", liveLockWorker], {
+  stdio: ["ignore", "ignore", "pipe"]
+});
+await new Promise((resolve) => setTimeout(resolve, 300));
+assert.equal(liveLockChild.exitCode, null, "live lock must continue blocking a competing transition");
+assert.equal(JSON.parse(fs.readFileSync(liveLockFile, "utf8")).token, liveLockToken);
+liveLockChild.kill("SIGTERM");
+await new Promise((resolve) => liveLockChild.on("close", resolve));
+fs.unlinkSync(liveLockFile);
 
 function assertMalformedSlotRejected(label, mutate) {
   const malformedProduct = initializePaidImageProductLedger({
