@@ -41,11 +41,10 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
     return false;
   }
   return (
-    /main_images_generated|image generation|main image/i.test(message) &&
-    (
-      /HTTP\s*(429|502|503|504)/i.test(message) ||
-      /temporarily unavailable|gateway unavailable|service unavailable|resource[_ -]?overloaded|server overloaded/i.test(message)
-    )
+    isPaidMainImageTransportFailure(message) ||
+    (/main_images_generated|image generation|main image/i.test(message) &&
+      (/HTTP\s*(429|502|503|504)/i.test(message) ||
+        /temporarily unavailable|gateway unavailable|service unavailable|resource[_ -]?overloaded|server overloaded/i.test(message)))
   );
 }
 
@@ -586,6 +585,9 @@ export type HermesRealtimeProgressSignalInput = {
   activeRunId?: string;
   status?: string;
   statusSource?: string;
+  preferStatusMessage?: boolean;
+  statusMessage?: string;
+  statusTimestamp?: string;
   publishSafelyPublished?: number;
   publishTotal?: number;
   publishFailed?: number;
@@ -617,6 +619,11 @@ function compactRealtimeProgressPart(value: string | undefined): string {
 export function resolveHermesRealtimeProgressSignal(
   input: HermesRealtimeProgressSignalInput
 ): HermesRealtimeProgressSignal | undefined {
+  const statusCandidate = {
+    source: "status" as const,
+    timestamp: input.statusTimestamp,
+    message: input.statusMessage || input.status
+  };
   const candidates = [
     {
       source: "publish_log" as const,
@@ -646,11 +653,7 @@ export function resolveHermesRealtimeProgressSignal(
       return bTime - aTime;
     });
 
-  const selected = candidates[0] || {
-    source: "status" as const,
-    timestamp: undefined,
-    message: input.status || ""
-  };
+  const selected = input.preferStatusMessage && statusCandidate.message ? statusCandidate : candidates[0] || statusCandidate;
   const activeKey = compactRealtimeProgressPart(input.publishActiveRuntimeKey || input.activeRunId);
   const counts = `${input.publishSafelyPublished ?? 0}/${input.publishTotal ?? "?"}/${input.publishFailed ?? 0}`;
   const message = compactRealtimeProgressPart(selected.message || input.status || "unknown");
@@ -673,6 +676,45 @@ export function resolveHermesRealtimeProgressSignal(
     source: selected.source,
     message
   };
+}
+
+export type HermesResolvedStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "external_service_wait"
+  | "pending_products"
+  | "exited_unknown";
+
+export type HermesRuntimeStatusInput = {
+  running: boolean;
+  activeWaitState: boolean;
+  completed: boolean;
+  failed: boolean;
+  hasPendingFeishuProducts: boolean;
+  terminalFailureMessage?: string;
+};
+
+export function resolveHermesRuntimeStatus(input: HermesRuntimeStatusInput): HermesResolvedStatus {
+  if (input.activeWaitState) {
+    return "external_service_wait";
+  }
+  if (input.running && isRetryableExternalServiceAvailabilityFailure(input.terminalFailureMessage || "")) {
+    return "external_service_wait";
+  }
+  if (input.running) {
+    return "running";
+  }
+  if (input.completed) {
+    return "completed";
+  }
+  if (input.failed) {
+    return "failed";
+  }
+  if (input.hasPendingFeishuProducts) {
+    return "pending_products";
+  }
+  return "exited_unknown";
 }
 
 function normalizeHermesStatusLabel(status?: string): string {

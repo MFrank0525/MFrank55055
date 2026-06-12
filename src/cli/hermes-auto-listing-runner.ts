@@ -10,6 +10,7 @@ import {
   resolveHermesFeishuBatchDisplayCounts,
   resolveHermesFeishuProgressDisplayMode,
   resolveHermesProgressAgeSeconds,
+  resolveHermesRuntimeStatus,
   resolveHermesStartAfterFeishuRefresh,
   selectHermesActiveRunIdFromLogLines,
   selectHermesLatestResultFileForJobStatus,
@@ -934,17 +935,24 @@ function existingStatus(): Record<string, unknown> {
       (state?.status === "failed") ||
       (publishProgress && Number(publishProgress.failed || 0) > 0));
   const hasPendingFeishuProducts = !running && !batchComplete;
-  const resolvedStatus = activeWaitState
-    ? "external_service_wait"
-    : running
-      ? "running"
-      : completed
-        ? "completed"
-        : failed
-          ? "failed"
-          : hasPendingFeishuProducts
-            ? "pending_products"
-            : "exited_unknown";
+  const resultError = result?.error as Record<string, unknown> | undefined;
+  const stateError = (state?.currentTask as Record<string, unknown> | undefined)?.error as Record<string, unknown> | undefined;
+  const resultFailureText = resultError
+    ? [resultError.step, resultError.message].filter(Boolean).map(String).join(": ")
+    : undefined;
+  const stateFailureText = stateError ? [stateError.step, stateError.message].filter(Boolean).map(String).join(": ") : undefined;
+  const terminalFailureMessage =
+    running && ((result && (result.ok === false || result.status === "failed")) || state?.status === "failed")
+      ? compactStatusValue(resultFailureText || stateFailureText || "")
+      : undefined;
+  const resolvedStatus = resolveHermesRuntimeStatus({
+    running,
+    activeWaitState: Boolean(activeWaitState),
+    completed: Boolean(completed),
+    failed: Boolean(failed),
+    hasPendingFeishuProducts,
+    terminalFailureMessage
+  });
   const suppressHistoricalResult = shouldSuppressHistoricalResultInHermesStatus({
     running,
     publishProgressAvailable: exposePublishProgress,
@@ -974,12 +982,21 @@ function existingStatus(): Record<string, unknown> {
         ? `，最新进度：${compactStatusValue(String((state.latestProgress as Record<string, unknown>).message))}`
         : "")
     : undefined;
-  const failedError = (state?.currentTask as Record<string, unknown> | undefined)?.error as Record<string, unknown> | undefined;
+  const failedError = stateError || resultError;
   const failureSummary = failedError?.message ? compactStatusValue(String(failedError.message)) : undefined;
+  const terminalFailureMtimeMs = fileMtimeMs(resultFile);
+  const externalWaitReason = activeWaitState?.reason || terminalFailureMessage;
+  const externalRetryAt = activeWaitState?.retryAt || "供应商恢复后";
   const realtimeProgress = resolveHermesRealtimeProgressSignal({
     jobStartedAt: job.startedAt,
     activeRunId: activeRuntimeDir ? path.basename(activeRuntimeDir) : typeof result?.runId === "string" ? result.runId : undefined,
     status: resolvedStatus,
+    preferStatusMessage: Boolean(terminalFailureMessage && resolvedStatus === "external_service_wait"),
+    statusMessage:
+      terminalFailureMessage && resolvedStatus === "external_service_wait"
+        ? `图片服务暂时不可用：${terminalFailureMessage}`
+        : undefined,
+    statusTimestamp: terminalFailureMtimeMs ? new Date(terminalFailureMtimeMs).toISOString() : undefined,
     statusSource:
       publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary
         ? publishProgress
@@ -1028,7 +1045,7 @@ function existingStatus(): Record<string, unknown> {
     statusSource: publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary ? (publishProgress ? "publish-manifest" : state ? "state" : "result-log") : "state",
     summary:
       (resolvedStatus === "external_service_wait"
-        ? `图片服务暂时不可用，已保留当前飞书批次和断点；将在 ${String(activeWaitState?.retryAt || "稍后")} 自动重试。原因：${compactStatusValue(activeWaitState?.reason)}`
+        ? `图片服务暂时不可用，已保留当前飞书批次和断点；将在 ${String(externalRetryAt)} 自动重试。原因：${compactStatusValue(externalWaitReason)}`
         : resolvedStatus === "failed"
         ? failureSummary || stateSummary
         : publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary

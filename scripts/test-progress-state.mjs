@@ -49,7 +49,8 @@ import {
   resolveSupervisorRecoveryDelayMs,
   formatHermesCompactStatusText,
   selectHermesFailedResumeCandidate,
-  resolveHermesRealtimeProgressSignal
+  resolveHermesRealtimeProgressSignal,
+  resolveHermesRuntimeStatus
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -1187,6 +1188,63 @@ assert.equal(
   }),
   true,
   "paid main-image transport failures must resume the locked batch so current-product artifacts can be reused and pending products continue"
+);
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure("failed at main_images_generated: fetch failed"),
+  true,
+  "Main-image fetch failures are image-provider availability failures, not generic quick-retry failures"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt("failed at main_images_generated: fetch failed"),
+  false,
+  "Main-image transport failures must not burn the finite supervisor recovery budget"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: "failed at main_images_generated: fetch failed",
+    externalServiceWaitAttempts: 0
+  }),
+  10 * 60 * 1000,
+  "Main-image transport failures must use external-service long backoff"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: "failed at main_images_generated: fetch failed",
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "Main-image provider transport failures must remain recoverable after the normal recovery budget is exhausted"
+);
+assert.equal(
+  resolveHermesRuntimeStatus({
+    running: true,
+    activeWaitState: false,
+    completed: false,
+    failed: false,
+    hasPendingFeishuProducts: false,
+    terminalFailureMessage: "main_images_generated: fetch failed"
+  }),
+  "external_service_wait",
+  "A running supervisor with an active terminal main-image transport failure must report external-service wait, not normal running"
+);
+const terminalFailureRealtimeProgress = resolveHermesRealtimeProgressSignal({
+  jobStartedAt: "2026-06-12T13:00:00.000Z",
+  activeRunId: "20260612-211433",
+  status: "external_service_wait",
+  preferStatusMessage: true,
+  statusMessage: "图片服务暂时不可用：main_images_generated: fetch failed",
+  statusTimestamp: "2026-06-12T13:14:38.404Z",
+  stateLatestProgressTimestamp: "2026-06-12T13:14:45.000Z",
+  stateLatestProgressMessage: "Prompt 5/5: Image 4: submitting videos-base64 request."
+});
+assert.equal(terminalFailureRealtimeProgress?.source, "status");
+assert.match(
+  terminalFailureRealtimeProgress?.message || "",
+  /fetch failed/,
+  "Terminal failure status must override later async image-generation progress in Hermes realtime feedback"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
