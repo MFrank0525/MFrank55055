@@ -85,5 +85,10 @@ assert.match(
   /ensurePlatformSpuQueryPageActive/,
   "SPU query actions must force navigation back to the platform SPU page after shop switching"
 );
+assert.match(
+  publishSource,
+  /const maxPlatformSpuQueryRetries = 4[\s\S]*context\.newPage\(\)/,
+  "SPU query page recovery must open a fresh platform page after repeated incomplete-control states"
+);
 
 console.log("platform spu query page rule passed");

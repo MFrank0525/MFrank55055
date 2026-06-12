@@ -396,7 +396,8 @@ assert.deepEqual(
 const pageNotReadyClass = classifyPublishFailure("Platform SPU query page was not ready after navigation.");
 assert.equal(pageNotReadyClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 0), true);
-assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 2), false);
+assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 3), true);
+assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 4), false);
 assert.equal(shouldRetryPublishFailure("validation_blocked", 0), false);
 const freightDropdownClass = classifyPublishFailure(
   "No visible freight template option matched keyword: 延草运费; visibleOptions=商品类目 > 标题推荐 > 必填项进度"
@@ -1055,6 +1056,26 @@ assert.deepEqual(
   "Hermes text status must be short, Chinese, and accurate for terminal publish failures"
 );
 assert.equal(/生图最近保存|运行批次|failed at|系统会按/.test(compactFailedStatus), false);
+const compactPlatformFailedStatus = formatHermesCompactStatusText({
+  status: "failed",
+  summary:
+    "Publish failed for /work/shop/product-1: Platform SPU query page was not ready after navigation: Platform SPU query controls are incomplete.",
+  productName: "湘械注准20212140518-医用面部生物膜-白底图-01.png",
+  publishSafelyPublished: 14,
+  publishTotal: 20,
+  publishFailed: 1,
+  feishuCompleted: 2,
+  feishuTotal: 3
+});
+assert.deepEqual(
+  compactPlatformFailedStatus.split("\n"),
+  [
+    "状态：失败｜发布 14/20，失败 1｜飞书 2/3",
+    "商品：医用面部生物膜",
+    "原因：标品检索页控件未加载完整，已停止，可续跑。"
+  ],
+  "Hermes text status must summarize Platform SPU query readiness failures without long local paths"
+);
 assert.equal(
   selectHermesFailedResumeCandidate([
     {

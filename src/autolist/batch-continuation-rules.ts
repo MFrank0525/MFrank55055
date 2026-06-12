@@ -609,6 +609,9 @@ function compactHermesReason(summary?: string): string {
   if (/page context was lost|Execution context was destroyed|Target closed/i.test(text)) {
     return "发布页上下文丢失，已停止，可续跑。";
   }
+  if (/Platform SPU query page was not ready|Platform SPU query controls are incomplete|标品检索页.*控件/i.test(text)) {
+    return "标品检索页控件未加载完整，已停止，可续跑。";
+  }
   if (/fetch failed|network|socket|timeout|UND_ERR|ECONNRESET|ETIMEDOUT/i.test(text)) {
     return "网络/中转站瞬断，已保留断点，可续跑。";
   }

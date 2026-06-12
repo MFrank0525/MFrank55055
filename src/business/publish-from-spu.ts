@@ -54,6 +54,8 @@ import { makePublishActionResult } from "./publish-from-spu/publish-actions.js";
 
 export type { PublishFromSpuJobInput, PublishFromSpuJobOptions, PublishFromSpuJobResult } from "./publish-from-spu/types.js";
 
+const maxPlatformSpuQueryRetries = 4;
+
 class PublishCreatePageReopenRequiredError extends Error {
   constructor(message: string) {
     super(message);
@@ -1746,11 +1748,23 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
 
     const queryPageReady = await waitForPlatformSpuQueryPageReady(page);
     if (!queryPageReady.ready) {
-      if (retryNo < 2) {
+      if (retryNo < maxPlatformSpuQueryRetries) {
         await savePageScreenshot(page, runtimeDir, `platform-spu-query-page-not-ready-retry-${retryNo + 1}.png`).catch(() => "");
         await page.keyboard.press("Escape").catch(() => {});
-        await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + retryNo * 1500).catch(() => {});
-        await page.waitForTimeout(2000 + retryNo * 1000);
+        let retryPage = page;
+        if (retryNo >= 1) {
+          const freshPage = await context.newPage();
+          attachSafeDialogHandler(freshPage);
+          await freshPage.bringToFront().catch(() => {});
+          await gotoWithTolerance(freshPage, PLATFORM_SPU_URL, 6500 + retryNo * 1500).catch(() => {});
+          await page.close().catch(() => {});
+          await closeCreatePagesExcept(context, [freshPage]).catch(() => {});
+          await closeExtraPages(context, [freshPage]).catch(() => {});
+          retryPage = freshPage;
+        } else {
+          await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + retryNo * 1500).catch(() => {});
+        }
+        await retryPage.waitForTimeout(2000 + retryNo * 1000);
         return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
       }
       const error = new Error(`Platform SPU query page was not ready after navigation: ${queryPageReady.issue}`) as QueryDiagnosticError;

@@ -426,7 +426,8 @@ export function classifyPublishFailure(message: string): string {
 }
 
 export function shouldRetryPublishFailure(errorClass: string, retryAttempt: number, maxRetryAttempts = 2): boolean {
-  if (retryAttempt >= maxRetryAttempts) {
+  const effectiveMaxRetryAttempts = errorClass === "platform_page_not_ready" ? Math.max(maxRetryAttempts, 4) : maxRetryAttempts;
+  if (retryAttempt >= effectiveMaxRetryAttempts) {
     return false;
   }
   return [
