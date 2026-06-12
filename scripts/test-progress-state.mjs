@@ -198,6 +198,11 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
+  /const resumeProductFolderCount = collectResumeProductFolderNames\(failedTask\)\.length[\s\S]*const reusableArtifactCount = Math\.max\(reusableRawImageCount, resumeProductFolderCount\)[\s\S]*shouldResumeSourceImageForCurrentFeishuBatch\([\s\S]*reusableArtifactCount/,
+  "Hermes failed-result resume selection must accept product-folder artifacts even when raw images are no longer available"
+);
+assert.match(
+  hermesRunnerSource,
   /publishResumeNeedsWork[\s\S]*startStep === "published"[\s\S]*resumeProductFolderCount > 0[\s\S]*countSafelyPublishedManifestEntries\(resumeRuntimeDir\) < resumeProductFolderCount/,
   "Hermes resume must continue publish-stage work when restored product folders exist but publish manifest is not safely complete"
 );

@@ -1324,10 +1324,12 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
     if (failedTask?.sourceImagePath && fs.existsSync(path.resolve(rootDir, failedTask.sourceImagePath))) {
       const runtimeDir = result.runtimeDir || path.dirname(resultFile);
       const reusableRawImageCount = countReusableRawImages(runtimeDir, failedTask.taskId);
+      const resumeProductFolderCount = collectResumeProductFolderNames(failedTask).length;
+      const reusableArtifactCount = Math.max(reusableRawImageCount, resumeProductFolderCount);
       if (
         shouldResumeSourceImageForCurrentFeishuBatch(
           failedTask.sourceImagePath,
-          reusableRawImageCount,
+          reusableArtifactCount,
           result.feishuBatchFingerprint
         )
       ) {
@@ -1339,7 +1341,7 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
           result,
           mtimeMs: fileMtimeMs(resultFile) || 0,
           safelyPublishedCount: countSafelyPublishedManifestEntries(runtimeDir),
-          resumeProductFolderCount: collectResumeProductFolderNames(failedTask).length,
+          resumeProductFolderCount,
           reusableRawImageCount
         });
       }
