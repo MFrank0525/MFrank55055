@@ -233,6 +233,7 @@ async function executeTaskChain(
   eventFile: string,
   pauseSignalFile: string,
   simulateOnly: boolean,
+  feishuBatchFingerprint: string | undefined,
   resumeProductFolderNames: string[],
   protectedCleanupAssetFiles: string[],
   manualReadMap: Map<string, ManualReadRecord>,
@@ -519,6 +520,7 @@ async function executeTaskChain(
         shopCodes: productPlan.shopCodes,
         imagesPerShop: productPlan.imagesPerShop,
         feishuRecordId: current.feishuProductRecord?.recordId,
+        feishuBatchFingerprint,
         simulateOnly,
         onProgress: (message) => {
           appendEvent(eventFile, createEvent("info", step, message, current.taskId));
@@ -1082,6 +1084,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.eventFile,
           resolved.pauseSignalFile,
           resolved.input.simulateOnly,
+          feishuBatchFingerprint,
           resolved.input.resumeProductFolderNames,
           protectedCleanupAssetFiles,
           manualReadMap,

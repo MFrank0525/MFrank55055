@@ -12,6 +12,17 @@ import {
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { readManualTextBlock } from "./operation-manual.js";
+import {
+  initializePaidImageProductLedger,
+  recordPaidImageAmbiguous,
+  recordPaidImageCompleted,
+  recordPaidImageFailedBeforeAcceptance,
+  recordPaidImageSubmitted,
+  reservePaidImageSlot,
+  resolvePaidImageSlotAction,
+  sha256File,
+  sha256Text
+} from "./paid-image-submission-ledger.js";
 import { getShopSpecs, resolveMainImageShopAssignments, shopCodeFromFolder } from "./product-category.js";
 import { buildMainImageEditInstruction } from "./rule-text.js";
 import type { ImageGenerationProvider, MainImageArtifact, MainImageCountStrategy, MainImageGeneratedFile } from "./types.js";
@@ -623,6 +634,18 @@ async function generateWithOpenAiCompatibleProvider(options: {
   sourceImageReferenceUrl?: string;
   downloadDir: string;
   expectedImageCount: number;
+  paidImageLedger?: {
+    rootDir: string;
+    batchFingerprint: string;
+    recordId: string;
+    expectedSlotCount: number;
+    slotOffset: number;
+    owner: {
+      runId?: string;
+      taskId?: string;
+      pid?: number;
+    };
+  };
   onProgress?: (message: string) => void;
 }): Promise<Array<{ file: string; submitId: string }>> {
   fs.mkdirSync(options.downloadDir, { recursive: true });
@@ -763,6 +786,28 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
   });
 
+  const videosBase64Ledger =
+    mode === "videos-base64" && options.paidImageLedger
+      ? initializePaidImageProductLedger({
+          rootDir: options.paidImageLedger.rootDir,
+          batchFingerprint: options.paidImageLedger.batchFingerprint,
+          recordId: options.paidImageLedger.recordId,
+          expectedSlotCount: options.paidImageLedger.expectedSlotCount,
+          providerIdentity: sha256Text(
+            JSON.stringify({
+              apiUrl: config.apiUrl,
+              statusUrl: config.statusUrl || "",
+              model: config.model,
+              mode,
+              size: config.size || "1024x1024",
+              videoMetadata: config.videoMetadata || {},
+              requestExtra: config.requestExtra || {}
+            })
+          ),
+          sourceImageDigest: sha256File(options.sourceImagePath)
+        })
+      : undefined;
+
   const fetchMediaGenerateStatus = async (taskId: string): Promise<{ response: Response; text: string }> => {
     const statusUrl = new URL(resolveMediaGenerateStatusUrl(config.apiUrl, config.statusUrl));
     statusUrl.searchParams.set("task_id", taskId);
@@ -859,32 +904,125 @@ async function generateWithOpenAiCompatibleProvider(options: {
 
   const generateVideosBase64Image = async (absoluteImageIndex: number): Promise<{ file: string; submitId: string }> => {
     const paddedImageIndex = String(absoluteImageIndex).padStart(2, "0");
+    const ledgerSlot = (options.paidImageLedger?.slotOffset || 0) + absoluteImageIndex;
     const promptText = buildPromptForImageIndex(absoluteImageIndex);
+    const requestBody = JSON.stringify(buildVideosBase64JsonBody(promptText));
+    const requestDigest = sha256Text(requestBody);
+    const promptDigest = sha256Text(promptText);
     const requestFile = path.join(options.downloadDir, "request-" + paddedImageIndex + ".json");
     const responseFile = path.join(options.downloadDir, "response-" + paddedImageIndex + ".json");
+    const targetFile = path.join(options.downloadDir, "generated-" + paddedImageIndex + ".png");
     writeImageGenerationJsonLog(requestFile, {
       endpoint: config.apiUrl,
       mode,
-      ...buildVideosBase64JsonBody(promptText)
+      ...JSON.parse(requestBody)
     });
-    let submitPayload = readVideosBase64SubmittedTask(responseFile);
-    if (submitPayload) {
-      options.onProgress?.(`Image ${absoluteImageIndex}: resuming submitted videos-base64 task.`);
+
+    let submitPayload: any | undefined;
+    let taskId = "";
+    if (videosBase64Ledger) {
+      let slotAction = resolvePaidImageSlotAction({
+        productDir: videosBase64Ledger.productDir,
+        slot: ledgerSlot
+      });
+      if (slotAction.action === "missing" || slotAction.action === "retry_failed_before_acceptance") {
+        slotAction = reservePaidImageSlot({
+          productDir: videosBase64Ledger.productDir,
+          slot: ledgerSlot,
+          requestDigest,
+          promptDigest,
+          owner: options.paidImageLedger?.owner || { pid: process.pid }
+        });
+      }
+
+      if (slotAction.action === "reuse") {
+        fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+        if (!fs.existsSync(targetFile) || sha256File(targetFile) !== sha256File(slotAction.resultFile)) {
+          fs.copyFileSync(slotAction.resultFile, targetFile);
+        }
+        options.onProgress?.(`Image ${absoluteImageIndex}: reused completed paid image ledger result.`);
+        return { file: targetFile, submitId: slotAction.record.providerTaskId || "ledger-reuse" };
+      }
+      if (slotAction.action === "poll") {
+        taskId = slotAction.providerTaskId;
+        submitPayload = readVideosBase64SubmittedTask(responseFile) || { id: taskId };
+        options.onProgress?.(`Image ${absoluteImageIndex}: resuming submitted videos-base64 task from paid image ledger.`);
+      } else if (slotAction.action === "blocked_reserved" || slotAction.action === "blocked_ambiguous") {
+        throw normalizeImageGenerationError(
+          `videos-base64 paid image ledger blocked slot ${absoluteImageIndex}: ${slotAction.action}.`
+        );
+      } else {
+        submitPayload = readVideosBase64SubmittedTask(responseFile);
+        if (submitPayload) {
+          taskId = extractVideosBase64TaskId(submitPayload);
+          recordPaidImageSubmitted({
+            productDir: videosBase64Ledger.productDir,
+            slot: ledgerSlot,
+            providerTaskId: taskId,
+            providerResponse: submitPayload
+          });
+          options.onProgress?.(`Image ${absoluteImageIndex}: imported existing videos-base64 task into paid image ledger.`);
+        }
+      }
     } else {
+      submitPayload = readVideosBase64SubmittedTask(responseFile);
+      if (submitPayload) {
+        options.onProgress?.(`Image ${absoluteImageIndex}: resuming submitted videos-base64 task.`);
+      }
+    }
+
+    if (!submitPayload) {
       options.onProgress?.(`Image ${absoluteImageIndex}: submitting videos-base64 request.`);
-      // A videos-base64 submit transport failure is recovered by Hermes so the rerun can reuse current-product task/raw artifacts.
-      const { response, text } = await sendRequest(JSON.stringify(buildVideosBase64JsonBody(promptText)), "application/json");
+      let response: Response;
+      let text = "";
+      try {
+        const result = await sendRequest(requestBody, "application/json");
+        response = result.response;
+        text = result.text;
+      } catch (error) {
+        if (videosBase64Ledger) {
+          recordPaidImageAmbiguous({
+            productDir: videosBase64Ledger.productDir,
+            slot: ledgerSlot,
+            reason: error instanceof Error ? error.message : String(error)
+          });
+        }
+        throw error;
+      }
       writeImageGenerationTextLog(responseFile, text);
       if (!response.ok) {
+        if (videosBase64Ledger) {
+          recordPaidImageFailedBeforeAcceptance({
+            productDir: videosBase64Ledger.productDir,
+            slot: ledgerSlot,
+            reason: "HTTP " + response.status + ": " + (text || response.statusText)
+          });
+        }
         throw normalizeImageGenerationError("videos-base64 submit failed with HTTP " + response.status + ": " + (text || response.statusText));
       }
       try {
         submitPayload = JSON.parse(text);
       } catch {
+        if (videosBase64Ledger) {
+          recordPaidImageAmbiguous({
+            productDir: videosBase64Ledger.productDir,
+            slot: ledgerSlot,
+            reason: "submit response was not JSON"
+          });
+        }
         throw new Error("videos-base64 submit response was not JSON: " + text.slice(0, 500));
       }
+      taskId = extractVideosBase64TaskId(submitPayload);
+      if (videosBase64Ledger) {
+        recordPaidImageSubmitted({
+          productDir: videosBase64Ledger.productDir,
+          slot: ledgerSlot,
+          providerTaskId: taskId,
+          providerResponse: submitPayload
+        });
+      }
     }
-    const taskId = extractVideosBase64TaskId(submitPayload);
+    taskId = taskId || extractVideosBase64TaskId(submitPayload);
     const pollIntervalMs = Math.max(1000, config.pollIntervalMs || 10000);
     const maxPollMs = Math.max(pollIntervalMs, config.maxPollMs || 1800000);
     const startedAt = Date.now();
@@ -913,11 +1051,18 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
     if (videosBase64Failed(statusPayload)) {
       const errorMessage = statusPayload?.error ?? statusPayload?.data?.error ?? "unknown error";
+      if (videosBase64Ledger) {
+        recordPaidImageAmbiguous({
+          productDir: videosBase64Ledger.productDir,
+          slot: ledgerSlot,
+          reason: `provider task failed: ${errorMessage}`,
+          providerResponse: statusPayload
+        });
+      }
       throw normalizeImageGenerationError(`videos-base64 task ${taskId} failed: ${errorMessage}`);
     }
 
     const resultUrl = extractVideosBase64ResultUrl(statusPayload);
-    const targetFile = path.join(options.downloadDir, "generated-" + paddedImageIndex + ".png");
     if (resultUrl) {
       await downloadGeneratedImage(resultUrl, targetFile, config.apiKey || "", timeoutMs);
     } else {
@@ -933,6 +1078,13 @@ async function generateWithOpenAiCompatibleProvider(options: {
         throw normalizeImageGenerationError("videos-base64 content response was not an image: " + contentType);
       }
       fs.writeFileSync(targetFile, Buffer.from(await contentResponse.arrayBuffer()));
+    }
+    if (videosBase64Ledger) {
+      recordPaidImageCompleted({
+        productDir: videosBase64Ledger.productDir,
+        slot: ledgerSlot,
+        sourceFile: targetFile
+      });
     }
     options.onProgress?.(`Image ${absoluteImageIndex}: saved ${path.basename(targetFile)}.`);
     return { file: targetFile, submitId: taskId };
@@ -1480,6 +1632,7 @@ export async function generateMainImageAssets(options: {
   shopCodes?: string[];
   imagesPerShop?: number;
   feishuRecordId?: string;
+  feishuBatchFingerprint?: string;
   simulateOnly: boolean;
   onProgress?: (message: string) => void;
 }): Promise<MainImageArtifact> {
@@ -1616,6 +1769,18 @@ export async function generateMainImageAssets(options: {
       sourceImageReferenceUrl: options.sourceImageReferenceUrl,
       downloadDir: path.join(roundDir, "openai-compatible", "raw"),
       expectedImageCount: remainingImageCount,
+      paidImageLedger: {
+        rootDir: path.join(taskDir, "paid-image-ledger"),
+        batchFingerprint: options.feishuBatchFingerprint || options.taskId,
+        recordId: options.feishuRecordId || options.taskId,
+        expectedSlotCount: totalExpectedImageCount,
+        slotOffset: imageIndex - 1,
+        owner: {
+          runId: path.basename(options.runtimeDir),
+          taskId: options.taskId,
+          pid: process.pid
+        }
+      },
       onProgress: (message) => options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: ${message}`)
     });
 
