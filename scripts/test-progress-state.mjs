@@ -43,7 +43,10 @@ import {
   resolveHermesChildStallTimeoutMs,
   isHermesProgressArtifactRelativePath,
   shouldTerminateRecordedHermesProcessGroup,
-  shouldTerminateChildAfterTerminalResult
+  shouldTerminateChildAfterTerminalResult,
+  isRetryableExternalServiceAvailabilityFailure,
+  shouldConsumeSupervisorRecoveryAttempt,
+  resolveSupervisorRecoveryDelayMs
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -118,6 +121,16 @@ assert.match(
   hermesSupervisorSource,
   /latestTerminalResultAfter/,
   "Hermes watchdog must detect a terminal result file and preserve the real child outcome instead of reporting no-progress timeout"
+);
+assert.match(
+  hermesSupervisorSource,
+  /hermes-auto-listing-wait\.json/,
+  "Hermes supervisor must persist external-service waiting state for status reporting"
+);
+assert.match(
+  hermesRunnerSource,
+  /external_service_wait/,
+  "Hermes status must expose external-service waiting instead of looking permanently failed"
 );
 assert.match(
   autoListingCliSource,
@@ -1087,6 +1100,30 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   false
+);
+const providerUnavailableMessage =
+  'failed at main_images_generated: Image generation failed with HTTP 502: {"error":{"message":"Upstream service temporarily unavailable","type":"upstream_error"}}';
+assert.equal(isRetryableExternalServiceAvailabilityFailure(providerUnavailableMessage), true);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: providerUnavailableMessage,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "Temporary external-service outages must remain recoverable after the generic recovery budget is exhausted"
+);
+assert.equal(shouldConsumeSupervisorRecoveryAttempt(providerUnavailableMessage), false);
+assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 0 }), 10 * 60 * 1000);
+assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 3 }), 30 * 60 * 1000);
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(
+    'Image generation failed with HTTP 502: {"error":{"message":"Upstream access forbidden, please contact administrator"}}'
+  ),
+  false,
+  "Permission and access failures must never enter indefinite external-service waiting"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({

@@ -36,6 +36,33 @@ function isPaidMainImageTransportFailure(message: string): boolean {
   );
 }
 
+export function isRetryableExternalServiceAvailabilityFailure(message: string): boolean {
+  if (/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(message)) {
+    return false;
+  }
+  return (
+    /main_images_generated|image generation|main image/i.test(message) &&
+    (
+      /HTTP\s*(429|502|503|504)/i.test(message) ||
+      /temporarily unavailable|gateway unavailable|service unavailable|resource[_ -]?overloaded|server overloaded/i.test(message)
+    )
+  );
+}
+
+export function shouldConsumeSupervisorRecoveryAttempt(failureMessage: string): boolean {
+  return !isRetryableExternalServiceAvailabilityFailure(failureMessage);
+}
+
+export function resolveSupervisorRecoveryDelayMs(input: {
+  failureMessage: string;
+  externalServiceWaitAttempts: number;
+}): number {
+  if (!isRetryableExternalServiceAvailabilityFailure(input.failureMessage)) {
+    return 10000;
+  }
+  return Math.min(30 * 60 * 1000, 10 * 60 * 1000 * Math.pow(2, Math.max(0, input.externalServiceWaitAttempts)));
+}
+
 function isRetryablePublishPageFailure(message: string): boolean {
   return (
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
@@ -51,10 +78,16 @@ function isChildWatchdogFailure(message: string): boolean {
 
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
   const retryableFailureMessage = input.retryableFailureMessage || "";
-  if (input.exitCode === 0 || input.batchComplete || input.recoveryAttempts >= input.maxRecoveryAttempts) {
+  if (input.exitCode === 0 || input.batchComplete) {
     return false;
   }
   if (/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(retryableFailureMessage)) {
+    return false;
+  }
+  if (isRetryableExternalServiceAvailabilityFailure(retryableFailureMessage)) {
+    return true;
+  }
+  if (input.recoveryAttempts >= input.maxRecoveryAttempts) {
     return false;
   }
   if (isPaidMainImageTransportFailure(retryableFailureMessage)) {

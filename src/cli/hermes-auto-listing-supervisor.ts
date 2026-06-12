@@ -6,6 +6,9 @@ import {
   resolveDefaultRetryableChildFailureRecoveryAttempts,
   resolveHermesChildStallTimeoutMs,
   isHermesProgressArtifactRelativePath,
+  isRetryableExternalServiceAvailabilityFailure,
+  resolveSupervisorRecoveryDelayMs,
+  shouldConsumeSupervisorRecoveryAttempt,
   shouldTerminateChildAfterTerminalResult,
   shouldContinueFullFlowAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
@@ -46,6 +49,7 @@ const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
 const childControlFile = path.resolve(rootDir, "data/auto-listing/control/hermes-auto-listing-child.json");
+const externalServiceWaitFile = path.resolve(rootDir, "data/auto-listing/control/hermes-auto-listing-wait.json");
 const childStallExitCode = 124;
 const terminalResultGracePeriodMs = 5000;
 const childStallTimeoutMs = Math.max(180000, Number(process.env.AUTO_LISTING_CHILD_STALL_TIMEOUT_MS || 12 * 60 * 1000));
@@ -226,6 +230,25 @@ function clearHermesChildControl(pid: number): void {
   if (current?.pid === pid) {
     fs.rmSync(childControlFile, { force: true });
   }
+}
+
+function writeExternalServiceWait(reason: string, retryDelayMs: number, attempt: number): void {
+  fs.mkdirSync(path.dirname(externalServiceWaitFile), { recursive: true });
+  fs.writeFileSync(
+    externalServiceWaitFile,
+    `${JSON.stringify({
+      supervisorPid: process.pid,
+      status: "external_service_wait",
+      reason,
+      attempt,
+      retryAt: new Date(Date.now() + retryDelayMs).toISOString()
+    }, null, 2)}\n`,
+    "utf8"
+  );
+}
+
+function clearExternalServiceWait(): void {
+  fs.rmSync(externalServiceWaitFile, { force: true });
 }
 
 async function runChild(label: string, command: string, args: string[]): Promise<number | null> {
@@ -432,10 +455,13 @@ function runFullFlow(reason: FullFlowContinuationReason): Promise<number | null>
 }
 
 async function main(): Promise<void> {
+  clearExternalServiceWait();
   let nextMode: InitialMode | "" = parseInitialMode(process.argv.slice(2));
   let fullFlowReason: FullFlowContinuationReason = "initial_full";
   let childRecoveryAttempts = 0;
+  let externalServiceWaitAttempts = 0;
   while (nextMode) {
+    clearExternalServiceWait();
     const childMode = nextMode;
     const exitCode = childMode === "resume" ? await runResume() : await runFullFlow(fullFlowReason);
     fullFlowReason = "initial_full";
@@ -451,6 +477,7 @@ async function main(): Promise<void> {
       nextMode = "full";
       fullFlowReason = "same_batch_pending";
       childRecoveryAttempts = 0;
+      externalServiceWaitAttempts = 0;
       continue;
     }
 
@@ -471,11 +498,27 @@ async function main(): Promise<void> {
         maxRecoveryAttempts: maxChildRecoveryAttempts
       })
     ) {
-      childRecoveryAttempts += 1;
+      const consumeRecoveryAttempt = shouldConsumeSupervisorRecoveryAttempt(failureMessage);
+      if (consumeRecoveryAttempt) {
+        childRecoveryAttempts += 1;
+        externalServiceWaitAttempts = 0;
+      } else {
+        externalServiceWaitAttempts += 1;
+      }
+      const recoveryDelayMs = resolveSupervisorRecoveryDelayMs({
+        failureMessage,
+        externalServiceWaitAttempts: Math.max(0, externalServiceWaitAttempts - 1)
+      });
       console.log(
-        `Retryable child failure while current Feishu batch still has pending products; recovery ${childRecoveryAttempts}/${maxChildRecoveryAttempts}. Reason: ${failureMessage || "unknown"}`
+        isRetryableExternalServiceAvailabilityFailure(failureMessage)
+          ? `External image service is temporarily unavailable; preserving the locked current Feishu batch and retrying after ${recoveryDelayMs}ms. serviceWait=${externalServiceWaitAttempts}. Reason: ${failureMessage || "unknown"}`
+          : `Retryable child failure while current Feishu batch still has pending products; recovery ${childRecoveryAttempts}/${maxChildRecoveryAttempts}. Reason: ${failureMessage || "unknown"}`
       );
-      await sleep(10000);
+      if (!consumeRecoveryAttempt) {
+        writeExternalServiceWait(failureMessage, recoveryDelayMs, externalServiceWaitAttempts);
+      }
+      await sleep(recoveryDelayMs);
+      clearExternalServiceWait();
       nextMode = "full";
       fullFlowReason = "same_batch_pending";
       continue;

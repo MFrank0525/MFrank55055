@@ -234,6 +234,8 @@
 34. Hermes supervisor 启动的每个 detached 子流程必须登记独立进程组。子流程正常退出时清除登记；supervisor 异常退出留下孤儿子流程时，下次 Hermes 启动必须终止该已登记进程组。即使进程组 leader 已退出，也必须继续清理其 npm/node 后代；只有 leader PID 仍存活且真实命令不匹配时才禁止终止，防止误杀复用 PID。
 35. 规则层必须把当前 child 启动后写出的可信 terminal `result.json` 视为权威终态。成功终态且飞书当前批次仍有待处理产品时，必须立即进入同批次下一产品；禁止继续按普通运行或 stall 状态等待。terminal result 只允许保留短暂资源释放宽限期。
 36. 动作层必须在 auto-listing CLI 写出终态后统一释放当前进程建立的 CDP 自动化连接。若资源句柄仍阻止 child 自然退出，Hermes supervisor 必须在 terminal 宽限期后终止该已登记进程组，并按 terminal result 的真实成功/失败结果继续规则层决策。
+37. 图片供应商返回 `429/502/503/504`、`temporarily unavailable`、gateway unavailable 或资源过载时，规则层必须归类为外部服务可用性故障。此类故障不消耗普通流程有限恢复预算；必须保留当前飞书批次、当前产品断点和已验证 raw 图片，按 10 分钟起步、最长 30 分钟的长退避持续等待恢复。权限拒绝、access forbidden、业务校验错误和可能产生不确定外部副作用的错误禁止套用此规则。
+38. 外部服务长退避期间，动作层必须写入独立 `external_service_wait` 控制状态，包含等待原因、等待次数和下次重试时间；Hermes 状态必须优先展示该等待态。开始下一次执行时清除等待状态，禁止把正在自动等待供应商恢复误报为永久失败或正常执行中。
 
 ## 推荐执行顺序
 

@@ -46,6 +46,14 @@ interface RunnerJob {
   status: "running";
 }
 
+interface ExternalServiceWait {
+  supervisorPid?: number;
+  status?: "external_service_wait";
+  reason?: string;
+  attempt?: number;
+  retryAt?: string;
+}
+
 interface AutoListingJobFile {
   input?: {
     startStep?: string;
@@ -156,6 +164,7 @@ const rootDir = process.cwd();
 const controlDir = path.resolve(rootDir, "data/auto-listing/control");
 const jobFile = path.join(controlDir, "hermes-auto-listing-job.json");
 const childControlFile = path.join(controlDir, "hermes-auto-listing-child.json");
+const externalServiceWaitFile = path.join(controlDir, "hermes-auto-listing-wait.json");
 const pauseFile = path.join(controlDir, "pause.requested");
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu-real.json");
@@ -755,6 +764,11 @@ function existingStatus(): Record<string, unknown> {
     };
   }
   const running = isRunnerJobRunning(job);
+  const waitState = readJsonFile<ExternalServiceWait>(externalServiceWaitFile);
+  const activeWaitState =
+    running && waitState?.status === "external_service_wait" && waitState.supervisorPid === job.pid
+      ? waitState
+      : undefined;
   const activeRuntimeDir = findActiveRuntimeDirFromLog(job.logFile);
   const activeResultFile = activeRuntimeDir ? path.join(activeRuntimeDir, "result.json") : undefined;
   const latestResultFile = running
@@ -863,7 +877,17 @@ function existingStatus(): Record<string, unknown> {
       (state?.status === "failed") ||
       (publishProgress && Number(publishProgress.failed || 0) > 0));
   const hasPendingFeishuProducts = !running && !batchComplete;
-  const resolvedStatus = running ? "running" : completed ? "completed" : failed ? "failed" : hasPendingFeishuProducts ? "pending_products" : "exited_unknown";
+  const resolvedStatus = activeWaitState
+    ? "external_service_wait"
+    : running
+      ? "running"
+      : completed
+        ? "completed"
+        : failed
+          ? "failed"
+          : hasPendingFeishuProducts
+            ? "pending_products"
+            : "exited_unknown";
   const suppressHistoricalResult = shouldSuppressHistoricalResultInHermesStatus({
     running,
     publishProgressAvailable: exposePublishProgress,
@@ -907,7 +931,9 @@ function existingStatus(): Record<string, unknown> {
     activeRuntimeDir,
     statusSource: publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary ? (publishProgress ? "publish-manifest" : state ? "state" : "result-log") : "state",
     summary:
-      (resolvedStatus === "failed"
+      (resolvedStatus === "external_service_wait"
+        ? `图片服务暂时不可用，已保留当前飞书批次和断点；将在 ${String(activeWaitState?.retryAt || "稍后")} 自动重试。原因：${compactStatusValue(activeWaitState?.reason)}`
+        : resolvedStatus === "failed"
         ? failureSummary || stateSummary
         : publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary
           ? publishProgress?.progressText || stateSummary
@@ -920,6 +946,7 @@ function existingStatus(): Record<string, unknown> {
         ? "进程仍在运行时历史 result.json 可能保留上一次失败内容；实时进度以 publishProgress/publish-manifest 为准，历史失败 result 已从状态载荷中隐藏。"
         : undefined,
     result: suppressHistoricalResult ? undefined : result,
+    externalServiceWait: activeWaitState,
     state: statusState,
     progressHeartbeat,
     imageProgress,
