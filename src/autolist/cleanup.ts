@@ -4,6 +4,7 @@ import path from "node:path";
 import { DEFAULT_ARCHIVE_ROOT } from "./archive-main-images.js";
 import { selectCleanupTargets, selectStaleRunHistoryTargets } from "./cleanup-rules.js";
 import { selectMaintenanceResidueTargets } from "./maintenance-rules.js";
+import { runDirHasReusableMainImageArtifacts } from "./resume-artifacts.js";
 import type { CleanupArtifact } from "./types.js";
 
 function pathContains(parent: string, child: string): boolean {
@@ -188,48 +189,8 @@ function collectRunDirs(runtimeRootDir: string): string[] {
 
 function collectReusableRawMainImageRunDirs(runDirs: string[]): string[] {
   const protectedRunDirs: string[] = [];
-  function hasReusableRawImage(dir: string): boolean {
-    if (!fs.existsSync(dir)) {
-      return false;
-    }
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const entryPath = path.join(dir, entry.name);
-      if (entry.isFile() && /^generated-.*\.(png|jpe?g|webp)$/i.test(entry.name) && path.basename(dir) === "raw") {
-        return true;
-      }
-      if (entry.isDirectory() && hasReusableRawImage(entryPath)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  function hasReusablePaidImageLedgerSlot(dir: string): boolean {
-    if (!fs.existsSync(dir)) {
-      return false;
-    }
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const entryPath = path.join(dir, entry.name);
-      if (entry.isFile() && path.basename(path.dirname(entryPath)) === "slots" && /^\d+\.json$/i.test(entry.name)) {
-        try {
-          const slot = JSON.parse(fs.readFileSync(entryPath, "utf8")) as { state?: string; providerTaskId?: string };
-          if ((slot.state === "submitted" || slot.state === "completed") && typeof slot.providerTaskId === "string" && slot.providerTaskId) {
-            return true;
-          }
-        } catch {
-          continue;
-        }
-      }
-      if (entry.isDirectory() && hasReusablePaidImageLedgerSlot(entryPath)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   for (const runDir of runDirs) {
-    const tasksDir = path.join(runDir, "tasks");
-    if (hasReusableRawImage(tasksDir) || hasReusablePaidImageLedgerSlot(tasksDir)) {
+    if (runDirHasReusableMainImageArtifacts(runDir)) {
       protectedRunDirs.push(runDir);
     }
   }

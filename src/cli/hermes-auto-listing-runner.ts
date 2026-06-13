@@ -41,6 +41,7 @@ import {
   shouldInvalidatePublishedResumeWithoutProductFolders,
   shouldReplaceStaleResumeStartStep
 } from "../autolist/resume-rules.js";
+import { summarizeReusableTaskArtifacts } from "../autolist/resume-artifacts.js";
 
 interface RunnerJob {
   pid: number;
@@ -870,10 +871,7 @@ function existingStatus(): Record<string, unknown> {
   const imageProgress = summarizeImageGenerationProgress(runtimeDir, currentTask?.taskId ? String(currentTask.taskId) : undefined);
   const activeResumeReusableArtifactCount =
     job.mode === "resume-real-job" && runtimeDir && currentTask?.taskId
-      ? Math.max(
-          countReusableRawImages(runtimeDir, String(currentTask.taskId)),
-          countReusablePaidImageLedgerSlots(runtimeDir, String(currentTask.taskId))
-        )
+      ? summarizeReusableTaskArtifacts({ runtimeDir, taskId: String(currentTask.taskId) }).reusableArtifactCount
       : 0;
   const preferStateSummary = shouldPreferActiveTaskStateSummary({
     running,
@@ -1197,15 +1195,11 @@ function shouldResumeCurrentFailure(): boolean {
     fs.rmSync(resumeJobFile, { force: true });
     return false;
   }
-  const reusableRawImageCount = countReusableRawImages(
-    resumeRuntimeDir,
-    resumeJob.input?.resumeTaskId
-  );
-  const reusablePaidImageLedgerSlotCount = countReusablePaidImageLedgerSlots(
-    resumeRuntimeDir,
-    resumeJob.input?.resumeTaskId
-  );
-  const reusableArtifactCount = Math.max(reusableRawImageCount, reusablePaidImageLedgerSlotCount, resumeProductFolderCount);
+  const reusableTaskArtifacts = summarizeReusableTaskArtifacts({
+    runtimeDir: resumeRuntimeDir,
+    taskId: resumeJob.input?.resumeTaskId
+  });
+  const reusableArtifactCount = Math.max(reusableTaskArtifacts.reusableArtifactCount, resumeProductFolderCount);
   if (
     !shouldResumeSourceImageForCurrentFeishuBatch(
       resumeSourceImagePath,
@@ -1297,66 +1291,6 @@ function listStateFilesNewestFirst(): string[] {
     .map((file) => ({ file, mtimeMs: fs.statSync(file).mtimeMs }))
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .map((item) => item.file);
-}
-
-function countReusableRawImages(runtimeDir: string, taskId: string | undefined): number {
-  if (!taskId) {
-    return 0;
-  }
-  const taskDir = path.join(runtimeDir, "tasks", taskId);
-  if (!fs.existsSync(taskDir)) {
-    return 0;
-  }
-  let count = 0;
-  const pending = [taskDir];
-  while (pending.length > 0) {
-    const currentDir = pending.pop() as string;
-    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
-      const fullPath = path.join(currentDir, entry.name);
-      if (entry.isDirectory()) {
-        pending.push(fullPath);
-        continue;
-      }
-      if (currentDir.includes(path.sep + "raw") && /^generated-\d+.*\.(png|jpg|jpeg|webp)$/i.test(entry.name)) {
-        count += 1;
-      }
-    }
-  }
-  return count;
-}
-
-function countReusablePaidImageLedgerSlots(runtimeDir: string, taskId: string | undefined): number {
-  if (!taskId) {
-    return 0;
-  }
-  const taskDir = path.join(runtimeDir, "tasks", taskId);
-  if (!fs.existsSync(taskDir)) {
-    return 0;
-  }
-  let count = 0;
-  const pending = [taskDir];
-  while (pending.length > 0) {
-    const currentDir = pending.pop() as string;
-    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
-      const fullPath = path.join(currentDir, entry.name);
-      if (entry.isDirectory()) {
-        pending.push(fullPath);
-        continue;
-      }
-      if (path.basename(currentDir) !== "slots" || !/^\d+\.json$/i.test(entry.name)) {
-        continue;
-      }
-      try {
-        const slot = JSON.parse(fs.readFileSync(fullPath, "utf8")) as { state?: string; providerTaskId?: string };
-        if ((slot.state === "submitted" || slot.state === "completed") && typeof slot.providerTaskId === "string" && slot.providerTaskId) {
-          count += 1;
-        }
-      } catch {
-        // Ignore malformed ledger fragments; the main flow will fail closed if it reaches them.
-      }
-    }
-  }
-  return count;
 }
 
 function countResumeProductFolders(job: AutoListingJobFile | undefined): number {
@@ -1493,9 +1427,11 @@ function findLatestInterruptedStateForResume(): {
       continue;
     }
     const sourceImageExists = fs.existsSync(path.resolve(rootDir, task.sourceImagePath));
-    const reusableRawImageCount = countReusableRawImages(runtimeDir, task.taskId);
-    const reusablePaidImageLedgerSlotCount = countReusablePaidImageLedgerSlots(runtimeDir, task.taskId);
-    const reusableArtifactCount = Math.max(reusableRawImageCount, reusablePaidImageLedgerSlotCount);
+    const reusableTaskArtifacts = summarizeReusableTaskArtifacts({
+      runtimeDir,
+      taskId: task.taskId
+    });
+    const reusableArtifactCount = reusableTaskArtifacts.reusableArtifactCount;
     if (taskHasExternalMainImageRawReuse(runtimeDir, task.taskId)) {
       continue;
     }
@@ -1547,10 +1483,12 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
     const failedTask = (result.tasks || []).find((task) => task.status === "failed" || task.error);
     if (failedTask?.sourceImagePath && fs.existsSync(path.resolve(rootDir, failedTask.sourceImagePath))) {
       const runtimeDir = result.runtimeDir || path.dirname(resultFile);
-      const reusableRawImageCount = countReusableRawImages(runtimeDir, failedTask.taskId);
-      const reusablePaidImageLedgerSlotCount = countReusablePaidImageLedgerSlots(runtimeDir, failedTask.taskId);
       const resumeProductFolderCount = collectResumeProductFolderNames(failedTask).length;
-      const reusableArtifactCount = Math.max(reusableRawImageCount, reusablePaidImageLedgerSlotCount, resumeProductFolderCount);
+      const reusableTaskArtifacts = summarizeReusableTaskArtifacts({
+        runtimeDir,
+        taskId: failedTask.taskId
+      });
+      const reusableArtifactCount = Math.max(reusableTaskArtifacts.reusableArtifactCount, resumeProductFolderCount);
       if (
         shouldResumeSourceImageForCurrentFeishuBatch(
           failedTask.sourceImagePath,

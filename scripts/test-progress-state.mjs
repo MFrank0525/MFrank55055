@@ -70,6 +70,7 @@ import {
   shouldInvalidatePublishedResumeWithoutProductFolders,
   shouldReplaceStaleResumeStartStep
 } from "../dist/src/autolist/resume-rules.js";
+import { summarizeReusableTaskArtifacts } from "../dist/src/autolist/resume-artifacts.js";
 import { recoverDistributedFoldersFromShopRoot } from "../dist/src/autolist/resume.js";
 import { isProductFullyProcessed } from "../dist/src/autolist/processed-completion-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
@@ -219,18 +220,18 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /const resumeProductFolderCount = countResumeProductFolders\(resumeJob\)[\s\S]*const reusablePaidImageLedgerSlotCount = countReusablePaidImageLedgerSlots[\s\S]*Math\.max\(reusableRawImageCount, reusablePaidImageLedgerSlotCount, resumeProductFolderCount\)/,
-  "Hermes resume must not require raw images when a paid-image ledger or restored product folders exist"
+  /const resumeProductFolderCount = countResumeProductFolders\(resumeJob\)[\s\S]*summarizeReusableTaskArtifacts[\s\S]*Math\.max\(reusableTaskArtifacts\.reusableArtifactCount, resumeProductFolderCount\)/,
+  "Hermes resume must ask the autolist project layer whether paid/raw artifacts make a resume safe"
+);
+assert.doesNotMatch(
+  hermesRunnerSource,
+  /paid-image-ledger|countReusablePaidImageLedgerSlots/,
+  "Hermes must not directly parse paid-image ledger internals; reusable paid assets belong to the autolist project layer"
 );
 assert.match(
   hermesRunnerSource,
-  /countReusablePaidImageLedgerSlots/,
-  "Hermes resume must treat submitted paid-image ledger slots as reusable assets even before raw images are downloaded"
-);
-assert.match(
-  hermesRunnerSource,
-  /Math\.max\(reusableRawImageCount, reusablePaidImageLedgerSlotCount, resumeProductFolderCount\)/,
-  "Hermes resume must include paid-image ledger slots in reusable artifact counts to avoid starting a fresh paid batch"
+  /summarizeReusableTaskArtifacts/,
+  "Hermes may only ask the autolist project layer for reusable task artifact counts"
 );
 assert.match(
   hermesRunnerSource,
@@ -249,8 +250,8 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /const resumeProductFolderCount = collectResumeProductFolderNames\(failedTask\)\.length[\s\S]*const reusableArtifactCount = Math\.max\(reusableRawImageCount, reusablePaidImageLedgerSlotCount, resumeProductFolderCount\)[\s\S]*shouldResumeSourceImageForCurrentFeishuBatch\([\s\S]*reusableArtifactCount/,
-  "Hermes failed-result resume selection must accept paid-image ledger and product-folder artifacts even when raw images are no longer available"
+  /const resumeProductFolderCount = collectResumeProductFolderNames\(failedTask\)\.length[\s\S]*summarizeReusableTaskArtifacts[\s\S]*shouldResumeSourceImageForCurrentFeishuBatch\([\s\S]*reusableArtifactCount/,
+  "Hermes failed-result resume selection must delegate reusable paid/raw artifact counting to autolist project logic"
 );
 assert.match(
   hermesRunnerSource,
@@ -676,6 +677,30 @@ assert.equal(
   fs.existsSync(submittedLedgerRunDir),
   true,
   "stale run cleanup must preserve submitted paid-image ledger slots even before raw images exist"
+);
+const reusableArtifactRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "reusable-artifacts-"));
+fs.mkdirSync(path.join(reusableArtifactRuntimeDir, "tasks/image-001/paid-image-ledger/batch/record/slots"), { recursive: true });
+fs.mkdirSync(path.join(reusableArtifactRuntimeDir, "tasks/image-001/main-image-01/openai-compatible/raw"), { recursive: true });
+fs.writeFileSync(
+  path.join(reusableArtifactRuntimeDir, "tasks/image-001/paid-image-ledger/batch/record/slots/01.json"),
+  JSON.stringify({ version: 1, slot: 1, state: "submitted", providerTaskId: "paid-task-1" }) + "\n"
+);
+fs.writeFileSync(
+  path.join(reusableArtifactRuntimeDir, "tasks/image-001/paid-image-ledger/batch/record/slots/02.json"),
+  JSON.stringify({ version: 1, slot: 2, state: "reserved" }) + "\n"
+);
+fs.writeFileSync(
+  path.join(reusableArtifactRuntimeDir, "tasks/image-001/main-image-01/openai-compatible/raw/generated-01.png"),
+  "raw image\n"
+);
+assert.deepEqual(
+  summarizeReusableTaskArtifacts({ runtimeDir: reusableArtifactRuntimeDir, taskId: "image-001" }),
+  {
+    reusableRawImageCount: 1,
+    reusablePaidImageTaskCount: 1,
+    reusableArtifactCount: 1
+  },
+  "Autolist project logic must count reusable raw and paid ledger assets; reserved slots are not proof of billing"
 );
 
 const sameSpuFolderMatch = resolveFeishuAssetRecordForFolder({
