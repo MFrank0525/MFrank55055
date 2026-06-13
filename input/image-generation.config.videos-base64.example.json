@@ -6,6 +6,7 @@
   "mode": "videos-base64",
   "size": "1024x1024",
   "timeoutMs": 180000,
+  "submitConcurrency": 2,
   "pollIntervalMs": 10000,
   "maxPollMs": 1800000,
   "videoMetadata": {

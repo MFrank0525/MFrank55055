@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   providerExplicitlyProvesNoPaidTaskAccepted,
+  resolveOpenAiCompatibleImageMode,
+  resolvePaidImageLedgerFailureDisposition,
   resolveMissingFixedImageIndexes,
+  resolveVideosBase64SubmitConcurrency,
   resolveVideosBase64SubmitTimeoutMs
 } from "../dist/src/autolist/image-generation-rules.js";
 
@@ -18,6 +21,7 @@ assert.equal(example.mode, "videos-base64");
 assert.equal(example.apiUrl.endsWith("/v1/videos"), true);
 assert.equal(example.size, "1024x1024");
 assert.equal(example.videoMetadata.aspect_ratio, "1:1");
+assert.equal(example.submitConcurrency, 2);
 assert.match(source, /mode\?: "generations" \| "edits" \| "media-generate" \| "videos-base64"/);
 assert.match(source, /buildVideosBase64JsonBody/);
 assert.match(source, /data:image\/\$\{mimeType\.split\("\/"\)\[1\]\};base64,/);
@@ -60,17 +64,35 @@ assert.match(source, /resolveMissingFixedImageIndexes/);
 assert.match(source, /requestedImageIndexes: missingLocalIndexes/);
 assert.match(source, /roundStartImageIndex \+ missingLocalIndexes\[itemIndex\] - 1/);
 assert.match(source, /sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)/);
+assert.match(source, /createConcurrencyGate\(resolveVideosBase64SubmitConcurrency\(config\.submitConcurrency\)\)/);
+assert.match(source, /const videosBase64SubmitGate =[\s\S]*createConcurrencyGate\(resolveVideosBase64SubmitConcurrency\(imageGenerationConfig\.submitConcurrency\)\)/);
+assert.match(source, /videosBase64SubmitGate,\s*paidImageLedger:/);
+assert.match(source, /imageGenerationMode === "videos-base64" &&\s*\(!options\.feishuBatchFingerprint/);
+assert.match(source, /submitGate\.run\(\(\) => sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)\)/);
+assert.match(source, /fetchVideosBase64TaskWithTransportRetries\(taskId, false/);
+assert.match(source, /fetchVideosBase64TaskWithTransportRetries\(taskId, true/);
+assert.match(source, /downloadVideosBase64ResultWithTransportRetries\(resultUrl, targetFile/);
+assert.match(source, /summarizePaidImageProductLedger/);
+assert.match(source, /resolvePaidImageLedgerFailureDisposition/);
+assert.match(
+  source,
+  /settleConcurrentWork\(\s*promptIndexes\.map\(\(promptIndex\) => processPromptRound\(promptIndex\)\)[\s\S]*summarizePaidImageProductLedger/
+);
+assert.match(source, /fs\.existsSync\(productDir\)[\s\S]*summarizePaidImageProductLedger/);
 assert.match(imageGenerationRulesSource, /export function providerExplicitlyProvesNoPaidTaskAccepted/);
 assert.match(ruleDoc, /videos-base64.*Base64.*1:1.*1024x1024/s);
 assert.match(ruleDoc, /实际返回.*正方形.*2K.*4K/s);
 assert.match(ruleDoc, /提交结果不明确.*不得在同一子进程里自动重新提交/s);
 assert.match(ruleDoc, /paid-image-ledger.*付费资产.*续跑/s);
 assert.match(ruleDoc, /项目控制器.*当前飞书批次.*续跑/s);
-assert.match(ruleDoc, /当前商品.*全部异步任务.*统一轮询/s);
+assert.match(ruleDoc, /异步提交当前商品任务.*统一收敛.*下载全部结果/s);
 assert.match(ruleDoc, /其他.*串行/s);
 assert.match(ruleDoc, /禁止 supervisor 快速重启并重新提交/s);
 assert.match(ruleDoc, /固定文件槽位.*禁止按已有文件数量推算/s);
 assert.match(ruleDoc, /进入发布前.*固定 raw 槽位完整性/s);
+assert.match(ruleDoc, /提交准入并发.*默认.*2.*最高.*4/s);
+assert.match(ruleDoc, /已取得.*任务 ID.*状态查询.*结果下载.*传输层瞬断.*同一任务.*退避重试/s);
+assert.match(ruleDoc, /ambiguous.*reserved.*优先.*付费安全阻塞/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
@@ -78,5 +100,35 @@ assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(429, "rate limited"), fa
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(502, "upstream error"), false);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 1800000);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 60000), 180000);
+assert.equal(resolveOpenAiCompatibleImageMode(undefined, "https://relay.example/v1/videos"), "videos-base64");
+assert.equal(resolveOpenAiCompatibleImageMode("edits", "https://relay.example/v1/videos"), "edits");
+assert.equal(resolveVideosBase64SubmitConcurrency(undefined), 2);
+assert.equal(resolveVideosBase64SubmitConcurrency(1), 1);
+assert.equal(resolveVideosBase64SubmitConcurrency(3), 3);
+assert.equal(resolveVideosBase64SubmitConcurrency(20), 4);
+assert.equal(
+  resolvePaidImageLedgerFailureDisposition({
+    expectedSlotCount: 20,
+    missing: 0,
+    reserved: 0,
+    submitted: 1,
+    completed: 18,
+    failedBeforeAcceptance: 0,
+    ambiguous: 1
+  }),
+  "safety_block"
+);
+assert.equal(
+  resolvePaidImageLedgerFailureDisposition({
+    expectedSlotCount: 20,
+    missing: 0,
+    reserved: 0,
+    submitted: 2,
+    completed: 18,
+    failedBeforeAcceptance: 0,
+    ambiguous: 0
+  }),
+  "retryable_external_wait"
+);
 assert.deepEqual(resolveMissingFixedImageIndexes([2, 3, 4], 4), [1]);
 assert.deepEqual(resolveMissingFixedImageIndexes([1, 3], 4), [2, 4]);

@@ -7,6 +7,9 @@ import {
   resolveImageDownloadTimeoutMs,
   resolveImageGenerationRequestDeadlineMs,
   resolveMissingFixedImageIndexes,
+  resolveOpenAiCompatibleImageMode,
+  resolvePaidImageLedgerFailureDisposition,
+  resolveVideosBase64SubmitConcurrency,
   resolveVideosBase64SubmitTimeoutMs,
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
@@ -18,6 +21,7 @@ import { readManualTextBlock } from "./operation-manual.js";
 import {
   initializePaidImageProductLedger,
   migrateLegacyPaidImageProductLedgers,
+  paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
   recordPaidImageFailedBeforeAcceptance,
@@ -25,7 +29,8 @@ import {
   reservePaidImageSlot,
   resolvePaidImageSlotAction,
   sha256File,
-  sha256Text
+  sha256Text,
+  summarizePaidImageProductLedger
 } from "./paid-image-submission-ledger.js";
 import { getShopSpecs, resolveMainImageShopAssignments, shopCodeFromFolder } from "./product-category.js";
 import { buildMainImageEditInstruction } from "./rule-text.js";
@@ -41,6 +46,7 @@ interface OpenAiCompatibleImageConfig {
   responseFormat?: "b64_json" | "url";
   timeoutMs?: number;
   submitTimeoutMs?: number;
+  submitConcurrency?: number;
   maxTransientRetries?: number;
   requestExtra?: Record<string, unknown>;
   mediaParams?: Record<string, unknown>;
@@ -54,6 +60,10 @@ interface OpenAiCompatibleImageConfig {
     apiUrl?: string;
     enabled?: boolean;
   };
+}
+
+interface ConcurrencyGate {
+  run<T>(work: () => Promise<T>): Promise<T>;
 }
 
 function redactImageGenerationLogValue(value: unknown): unknown {
@@ -252,6 +262,37 @@ async function settleConcurrentWork<T>(work: Array<Promise<T>>, label: string): 
     );
   }
   return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
+}
+
+function createConcurrencyGate(maxConcurrent: number): ConcurrencyGate {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const acquire = async (): Promise<void> => {
+    if (active < maxConcurrent) {
+      active += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      waiting.push(() => {
+        active += 1;
+        resolve();
+      });
+    });
+  };
+  const release = (): void => {
+    active -= 1;
+    waiting.shift()?.();
+  };
+  return {
+    async run<T>(work: () => Promise<T>): Promise<T> {
+      await acquire();
+      try {
+        return await work();
+      } finally {
+        release();
+      }
+    }
+  };
 }
 
 function extractTitleLine(promptText: string, label: string): string {
@@ -657,6 +698,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
   downloadDir: string;
   expectedImageCount: number;
   requestedImageIndexes?: number[];
+  videosBase64SubmitGate?: ConcurrencyGate;
   paidImageLedger?: {
     rootDir: string;
     batchFingerprint: string;
@@ -674,20 +716,14 @@ async function generateWithOpenAiCompatibleProvider(options: {
   fs.mkdirSync(options.downloadDir, { recursive: true });
 
   const config = readOpenAiCompatibleImageConfig(options.configFile);
-  const mode =
-    config.mode ||
-    (config.apiUrl.includes("/images/edits")
-      ? "edits"
-      : config.apiUrl.includes("/v1/media/generate")
-        ? "media-generate"
-        : config.apiUrl.includes("/v1/videos")
-          ? "videos-base64"
-          : "generations");
+  const mode = resolveOpenAiCompatibleImageMode(config.mode, config.apiUrl);
   const count = Math.max(1, options.expectedImageCount || 1);
   const imageIndexOffset = generatedImageIndexOffset(options.downloadDir);
   const responseFormat = config.responseFormat || "b64_json";
   const timeoutMs = Math.max(30000, config.timeoutMs || 180000);
   const videosBase64SubmitTimeoutMs = resolveVideosBase64SubmitTimeoutMs(config.submitTimeoutMs || timeoutMs, config.maxPollMs);
+  const submitGate =
+    options.videosBase64SubmitGate || createConcurrencyGate(resolveVideosBase64SubmitConcurrency(config.submitConcurrency));
   const maxTransientRetries = Math.max(0, config.maxTransientRetries ?? 3);
   const transportRetryPolicy = resolveImageGenerationTransportRetryPolicy(config.maxTransientRetries);
   const configuredMediaParams = config.mediaParams || {};
@@ -896,6 +932,91 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
   };
 
+  const waitBeforeVideosBase64ReadRetry = async (
+    taskId: string,
+    imageIndex: number,
+    label: string,
+    attempt: number,
+    message: string
+  ): Promise<void> => {
+    const retryNo = attempt + 1;
+    const nextDelayMs = transportRetryPolicy.delayMs[attempt] || transportRetryPolicy.delayMs.at(-1) || 45000;
+    writeImageGenerationJsonLog(
+      path.join(
+        options.downloadDir,
+        `response-${String(imageIndex).padStart(2, "0")}-${label}-transport-transient-${retryNo}.json`
+      ),
+      {
+        taskId,
+        label,
+        retryNo,
+        maxTransientRetries: transportRetryPolicy.maxRetries,
+        error: message,
+        nextDelayMs
+      }
+    );
+    options.onProgress?.(
+      `Image ${imageIndex}: transient transport error during videos-base64 ${label}; retry ${retryNo}/${transportRetryPolicy.maxRetries}.`
+    );
+    await sleep(nextDelayMs);
+  };
+
+  const fetchVideosBase64TaskWithTransportRetries = async (
+    taskId: string,
+    content: boolean,
+    imageIndex: number,
+    label: string
+  ): Promise<Response> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const response = await fetchVideosBase64Task(taskId, content);
+        if (!isTransientImageProviderStatus(response.status)) {
+          return response;
+        }
+        if (attempt >= transportRetryPolicy.maxRetries) {
+          return response;
+        }
+        const responseText = await response.text().catch(() => "");
+        await waitBeforeVideosBase64ReadRetry(
+          taskId,
+          imageIndex,
+          label,
+          attempt,
+          `videos-base64 ${label} transient HTTP ${response.status}: ${responseText || response.statusText}`
+        );
+        continue;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!isTransientImageProviderErrorMessage(message) || attempt >= transportRetryPolicy.maxRetries) {
+          throw error;
+        }
+        await waitBeforeVideosBase64ReadRetry(taskId, imageIndex, label, attempt, message);
+      }
+    }
+  };
+
+  const downloadVideosBase64ResultWithTransportRetries = async (
+    resultUrl: string,
+    targetFile: string,
+    taskId: string,
+    imageIndex: number
+  ): Promise<void> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await downloadGeneratedImage(resultUrl, targetFile, config.apiKey || "", timeoutMs);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const transient =
+          isTransientImageProviderErrorMessage(message) || /HTTP\s+(429|500|502|503|504)\b/i.test(message);
+        if (!transient || attempt >= transportRetryPolicy.maxRetries) {
+          throw error;
+        }
+        await waitBeforeVideosBase64ReadRetry(taskId, imageIndex, "result-download", attempt, message);
+      }
+    }
+  };
+
   const buildEditFormData = (includeResponseFormat: boolean, promptText: string): FormData => {
     if (!fs.existsSync(options.sourceImagePath)) {
       throw new Error("Source reference image not found for image edit: " + options.sourceImagePath);
@@ -1026,7 +1147,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       let response: Response;
       let text = "";
       try {
-        const result = await sendRequest(requestBody, "application/json", videosBase64SubmitTimeoutMs);
+        const result = await submitGate.run(() => sendRequest(requestBody, "application/json", videosBase64SubmitTimeoutMs));
         response = result.response;
         text = result.text;
       } catch (error) {
@@ -1085,7 +1206,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
         throw normalizeImageGenerationError(`videos-base64 task ${taskId} did not finish within ${maxPollMs}ms.`);
       }
       await sleep(pollIntervalMs);
-      const statusResponse = await fetchVideosBase64Task(taskId);
+      const statusResponse = await fetchVideosBase64TaskWithTransportRetries(taskId, false, absoluteImageIndex, "status");
       const statusText = await statusResponse.text();
       writeImageGenerationTextLog(path.join(options.downloadDir, "response-" + paddedImageIndex + "-status-" + pollNo + ".json"), statusText);
       if (!statusResponse.ok) {
@@ -1117,9 +1238,9 @@ async function generateWithOpenAiCompatibleProvider(options: {
 
     const resultUrl = extractVideosBase64ResultUrl(statusPayload);
     if (resultUrl) {
-      await downloadGeneratedImage(resultUrl, targetFile, config.apiKey || "", timeoutMs);
+      await downloadVideosBase64ResultWithTransportRetries(resultUrl, targetFile, taskId, absoluteImageIndex);
     } else {
-      const contentResponse = await fetchVideosBase64Task(taskId, true);
+      const contentResponse = await fetchVideosBase64TaskWithTransportRetries(taskId, true, absoluteImageIndex, "content");
       if (!contentResponse.ok) {
         const contentError = await contentResponse.text().catch(() => "");
         throw normalizeImageGenerationError(
@@ -1755,8 +1876,13 @@ export async function generateMainImageAssets(options: {
   readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
 
   const imageGenerationConfig = readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
+  const imageGenerationMode = resolveOpenAiCompatibleImageMode(imageGenerationConfig.mode, imageGenerationConfig.apiUrl);
+  const videosBase64SubmitGate =
+    imageGenerationMode === "videos-base64"
+      ? createConcurrencyGate(resolveVideosBase64SubmitConcurrency(imageGenerationConfig.submitConcurrency))
+      : undefined;
   if (
-    imageGenerationConfig.mode === "videos-base64" &&
+    imageGenerationMode === "videos-base64" &&
     (!options.feishuBatchFingerprint || !options.feishuRecordId || !options.paidImageSubmissionLedgerDir)
   ) {
     throw new Error(
@@ -1847,6 +1973,7 @@ export async function generateMainImageAssets(options: {
       downloadDir: path.join(roundDir, "openai-compatible", "raw"),
       expectedImageCount: remainingImageCount,
       requestedImageIndexes: missingLocalIndexes,
+      videosBase64SubmitGate,
       paidImageLedger: {
         rootDir: options.paidImageSubmissionLedgerDir as string,
         batchFingerprint: options.feishuBatchFingerprint as string,
@@ -1915,12 +2042,30 @@ export async function generateMainImageAssets(options: {
   };
 
   const promptIndexes = Array.from({ length: promptCount }, (_, index) => index);
-  if (imageGenerationConfig.mode === "videos-base64") {
-    const concurrentRounds = await settleConcurrentWork(
-      promptIndexes.map((promptIndex) => processPromptRound(promptIndex)),
-      "videos-base64 prompt rounds"
-    );
-    stagedFiles.push(...concurrentRounds.flat());
+  if (imageGenerationMode === "videos-base64") {
+    try {
+      const concurrentRounds = await settleConcurrentWork(
+        promptIndexes.map((promptIndex) => processPromptRound(promptIndex)),
+        "videos-base64 prompt rounds"
+      );
+      stagedFiles.push(...concurrentRounds.flat());
+    } catch (error) {
+      const productDir = paidImageProductLedgerDir(
+        options.paidImageSubmissionLedgerDir as string,
+        options.feishuBatchFingerprint as string,
+        options.feishuRecordId as string
+      );
+      if (fs.existsSync(productDir)) {
+        const summary = summarizePaidImageProductLedger(productDir);
+        if (resolvePaidImageLedgerFailureDisposition(summary) === "safety_block") {
+          const original = error instanceof Error ? error.message : String(error);
+          throw normalizeImageGenerationError(
+            `paid submission safety block: paid image ledger has ambiguous=${summary.ambiguous}, reserved=${summary.reserved}; original: ${original}`
+          );
+        }
+      }
+      throw error;
+    }
   } else {
     for (const promptIndex of promptIndexes) {
       stagedFiles.push(...(await processPromptRound(promptIndex)));

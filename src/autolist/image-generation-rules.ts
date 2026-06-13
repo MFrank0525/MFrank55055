@@ -6,11 +6,63 @@ export function resolveImageGenerationRequestDeadlineMs(requestTimeoutMs: number
   return Math.max(60000, resolveImageDownloadTimeoutMs(requestTimeoutMs) + 30000);
 }
 
+export type OpenAiCompatibleImageMode = "generations" | "edits" | "media-generate" | "videos-base64";
+
+export function resolveOpenAiCompatibleImageMode(
+  configuredMode: OpenAiCompatibleImageMode | undefined,
+  apiUrl: string
+): OpenAiCompatibleImageMode {
+  if (configuredMode) {
+    return configuredMode;
+  }
+  if (apiUrl.includes("/images/edits")) {
+    return "edits";
+  }
+  if (apiUrl.includes("/v1/media/generate")) {
+    return "media-generate";
+  }
+  if (apiUrl.includes("/v1/videos")) {
+    return "videos-base64";
+  }
+  return "generations";
+}
+
 export function resolveVideosBase64SubmitTimeoutMs(
   requestTimeoutMs: number | undefined,
   maxPollMs: number | undefined
 ): number {
   return Math.max(resolveImageDownloadTimeoutMs(requestTimeoutMs), maxPollMs || 1800000);
+}
+
+export function resolveVideosBase64SubmitConcurrency(configuredConcurrency: number | undefined): number {
+  if (!Number.isFinite(configuredConcurrency)) {
+    return 2;
+  }
+  return Math.min(4, Math.max(1, Math.floor(configuredConcurrency as number)));
+}
+
+export interface PaidImageLedgerFailureSummary {
+  expectedSlotCount: number;
+  missing: number;
+  reserved: number;
+  submitted: number;
+  completed: number;
+  failedBeforeAcceptance: number;
+  ambiguous: number;
+}
+
+export type PaidImageLedgerFailureDisposition = "safety_block" | "retryable_external_wait" | "none";
+
+export function resolvePaidImageLedgerFailureDisposition(
+  summary: PaidImageLedgerFailureSummary
+): PaidImageLedgerFailureDisposition {
+  if (summary.ambiguous > 0 || summary.reserved > 0) {
+    return "safety_block";
+  }
+  if (summary.submitted > 0) {
+    return "retryable_external_wait";
+  }
+  return "none";
 }
 
 export function resolveMissingFixedImageIndexes(existingIndexes: number[], expectedCount: number): number[] {
