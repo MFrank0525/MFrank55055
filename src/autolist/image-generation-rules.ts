@@ -6,6 +6,13 @@ export function resolveImageGenerationRequestDeadlineMs(requestTimeoutMs: number
   return Math.max(60000, resolveImageDownloadTimeoutMs(requestTimeoutMs) + 30000);
 }
 
+export function resolveVideosBase64SubmitTimeoutMs(
+  requestTimeoutMs: number | undefined,
+  maxPollMs: number | undefined
+): number {
+  return Math.max(resolveImageDownloadTimeoutMs(requestTimeoutMs), maxPollMs || 1800000);
+}
+
 export interface ImageGenerationTransportRetryPolicy {
   maxRetries: number;
   delayMs: number[];

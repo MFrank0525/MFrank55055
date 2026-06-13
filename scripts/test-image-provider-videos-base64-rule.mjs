@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { providerExplicitlyProvesNoPaidTaskAccepted } from "../dist/src/autolist/image-generation-rules.js";
+import {
+  providerExplicitlyProvesNoPaidTaskAccepted,
+  resolveVideosBase64SubmitTimeoutMs
+} from "../dist/src/autolist/image-generation-rules.js";
 
 const source = fs.readFileSync("src/autolist/jimeng-assets.ts", "utf8");
 const configSource = fs.readFileSync("src/autolist/config.ts", "utf8");
@@ -50,6 +53,8 @@ assert.doesNotMatch(source, /rootDir: path\.join\(taskDir, "paid-image-ledger"\)
 assert.doesNotMatch(source, /batchFingerprint: options\.feishuBatchFingerprint \|\| options\.taskId/);
 assert.doesNotMatch(source, /recordId: options\.feishuRecordId \|\| options\.taskId/);
 assert.match(source, /providerExplicitlyProvesNoPaidTaskAccepted/);
+assert.match(source, /resolveVideosBase64SubmitTimeoutMs/);
+assert.match(source, /sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)/);
 assert.match(imageGenerationRulesSource, /export function providerExplicitlyProvesNoPaidTaskAccepted/);
 assert.match(ruleDoc, /videos-base64.*Base64.*1:1.*1024x1024/s);
 assert.match(ruleDoc, /实际返回.*正方形.*2K.*4K/s);
@@ -64,3 +69,5 @@ assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(429, "rate limited"), false);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(502, "upstream error"), false);
+assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 1800000);
+assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 60000), 180000);

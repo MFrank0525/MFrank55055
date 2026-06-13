@@ -97,6 +97,14 @@ export interface RecordPaidImageSubmittedInput {
   providerResponse?: unknown;
 }
 
+export interface ReconcileAmbiguousPaidImageTaskInput {
+  productDir: string;
+  slot: number;
+  providerTaskId: string;
+  reason: string;
+  providerResponse?: unknown;
+}
+
 export interface RecordPaidImageCompletedInput {
   productDir: string;
   slot: number;
@@ -843,6 +851,10 @@ export function resolvePaidImageSlotAction(input: ResolvePaidImageSlotActionInpu
   return record ? actionForRecord(record) : { action: "missing" };
 }
 
+export function readPaidImageSlotRecord(input: ResolvePaidImageSlotActionInput): PaidImageSlotRecord | undefined {
+  return readSlotRecord(input.productDir, input.slot);
+}
+
 function transitionSlot(
   productDir: string,
   slot: number,
@@ -884,6 +896,37 @@ export function recordPaidImageSubmitted(input: RecordPaidImageSubmittedInput): 
   return transitionSlot(input.productDir, input.slot, ["reserved"], "submitted", {
     providerTaskId: input.providerTaskId,
     providerResponseSummary: providerResponseSummary(input.providerResponse)
+  });
+}
+
+export function reconcileAmbiguousPaidImageTask(input: ReconcileAmbiguousPaidImageTaskInput): PaidImageSlotRecord {
+  if (!isSafeProviderTaskId(input.providerTaskId)) {
+    throw new Error("providerTaskId must be a bounded safe scalar");
+  }
+  validateSlotRange(input.productDir, input.slot);
+  return withSlotLock(input.productDir, input.slot, () => {
+    const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (!record || record.state !== "ambiguous") {
+      throw new Error(`invalid slot reconciliation for slot ${input.slot}: ${record?.state || "missing"} -> submitted`);
+    }
+    if (record.providerTaskId && record.providerTaskId !== input.providerTaskId) {
+      throw new Error(`provider task id mismatch for ambiguous slot ${input.slot}`);
+    }
+    for (const file of fs.readdirSync(path.join(input.productDir, "slots"))) {
+      const match = /^(\d+)\.json$/.exec(file);
+      if (!match || Number(match[1]) === input.slot) {
+        continue;
+      }
+      const other = readSlotRecordUnlocked(input.productDir, Number(match[1]));
+      if (other?.providerTaskId === input.providerTaskId) {
+        throw new Error(`provider task ${input.providerTaskId} already belongs to slot ${other.slot}`);
+      }
+    }
+    return transitionSlotUnlocked(input.productDir, input.slot, ["ambiguous"], "submitted", {
+      providerTaskId: input.providerTaskId,
+      reason: cleanText(requireNonEmpty(input.reason, "reason")),
+      providerResponseSummary: providerResponseSummary(input.providerResponse)
+    });
   });
 }
 

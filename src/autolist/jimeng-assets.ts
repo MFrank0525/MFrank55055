@@ -6,6 +6,7 @@ import { readSimpleWordDocument } from "./docx-lite.js";
 import {
   resolveImageDownloadTimeoutMs,
   resolveImageGenerationRequestDeadlineMs,
+  resolveVideosBase64SubmitTimeoutMs,
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   providerExplicitlyProvesNoPaidTaskAccepted,
@@ -38,6 +39,7 @@ interface OpenAiCompatibleImageConfig {
   size?: string;
   responseFormat?: "b64_json" | "url";
   timeoutMs?: number;
+  submitTimeoutMs?: number;
   maxTransientRetries?: number;
   requestExtra?: Record<string, unknown>;
   mediaParams?: Record<string, unknown>;
@@ -683,7 +685,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const imageIndexOffset = generatedImageIndexOffset(options.downloadDir);
   const responseFormat = config.responseFormat || "b64_json";
   const timeoutMs = Math.max(30000, config.timeoutMs || 180000);
-  const requestDeadlineMs = resolveImageGenerationRequestDeadlineMs(timeoutMs);
+  const videosBase64SubmitTimeoutMs = resolveVideosBase64SubmitTimeoutMs(config.submitTimeoutMs || timeoutMs, config.maxPollMs);
   const maxTransientRetries = Math.max(0, config.maxTransientRetries ?? 3);
   const transportRetryPolicy = resolveImageGenerationTransportRetryPolicy(config.maxTransientRetries);
   const configuredMediaParams = config.mediaParams || {};
@@ -695,10 +697,15 @@ async function generateWithOpenAiCompatibleProvider(options: {
           timeoutMs
         })
       : "";
-  const sendRequest = async (requestBody: BodyInit, contentType?: string): Promise<{ response: Response; text: string }> => {
+  const sendRequest = async (
+    requestBody: BodyInit,
+    contentType?: string,
+    operationTimeoutMs = timeoutMs
+  ): Promise<{ response: Response; text: string }> => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), operationTimeoutMs);
     let deadlineTimer: NodeJS.Timeout | undefined;
+    const requestDeadlineMs = resolveImageGenerationRequestDeadlineMs(operationTimeoutMs);
     try {
       const request = (async () => {
         const response = await fetch(config.apiUrl, {
@@ -1017,7 +1024,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       let response: Response;
       let text = "";
       try {
-        const result = await sendRequest(requestBody, "application/json");
+        const result = await sendRequest(requestBody, "application/json", videosBase64SubmitTimeoutMs);
         response = result.response;
         text = result.text;
       } catch (error) {

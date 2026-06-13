@@ -14,6 +14,7 @@ import {
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
   recordPaidImageFailedBeforeAcceptance,
+  reconcileAmbiguousPaidImageTask,
   recordPaidImageSubmitted,
   reservePaidImageSlot,
   resolvePaidImageSlotAction,
@@ -329,8 +330,88 @@ assert.equal(
     owner: ownerB
   }).action,
   "blocked_ambiguous",
-  "ambiguous slots must remain permanently blocked"
+  "ambiguous slots must remain permanently blocked from automatic resubmission"
 );
+const ambiguousSlotFile = path.join(productDir, "slots", "02.json");
+const ambiguousSlot = JSON.parse(fs.readFileSync(ambiguousSlotFile, "utf8"));
+const oldAmbiguousAt = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+ambiguousSlot.updatedAt = oldAmbiguousAt;
+ambiguousSlot.audit[ambiguousSlot.audit.length - 1].at = oldAmbiguousAt;
+fs.writeFileSync(ambiguousSlotFile, JSON.stringify(ambiguousSlot, null, 2) + "\n", "utf8");
+assert.equal(
+  reservePaidImageSlot({
+    productDir,
+    slot: 2,
+    requestDigest: "request-2",
+    promptDigest: "prompt-2",
+    owner: ownerB
+  }).action,
+  "blocked_ambiguous",
+  "elapsed time must never turn an uncertain paid submission into another paid submission"
+);
+const reconciledAmbiguous = reconcileAmbiguousPaidImageTask({
+  productDir,
+  slot: 2,
+  providerTaskId: "provider-task-2",
+  reason: "operator matched the only provider task missing from this product ledger"
+});
+assert.equal(reconciledAmbiguous.state, "submitted");
+assert.equal(resolvePaidImageSlotAction({ productDir, slot: 2 }).action, "poll");
+assert.equal(resolvePaidImageSlotAction({ productDir, slot: 2 }).providerTaskId, "provider-task-2");
+assert.deepEqual(reconciledAmbiguous.audit.map((entry) => entry.state), ["reserved", "ambiguous", "submitted"]);
+assert.match(reconciledAmbiguous.audit.at(-1).reason, /operator matched/);
+
+const ambiguousSubmittedReservation = reservePaidImageSlot({
+  productDir,
+  slot: 4,
+  requestDigest: "request-4",
+  promptDigest: "prompt-4",
+  owner: ownerA
+});
+assert.equal(ambiguousSubmittedReservation.action, "submit");
+recordPaidImageSubmitted({ productDir, slot: 4, providerTaskId: "provider-task-4" });
+recordPaidImageAmbiguous({ productDir, slot: 4, reason: "download timeout" });
+const ambiguousSubmittedAction = resolvePaidImageSlotAction({ productDir, slot: 4 });
+assert.equal(
+  ambiguousSubmittedAction.action,
+  "blocked_ambiguous",
+  "ambiguous slots must require explicit reconciliation even if an earlier task id is retained"
+);
+assert.throws(
+  () =>
+    reconcileAmbiguousPaidImageTask({
+      productDir,
+      slot: 4,
+      providerTaskId: "different-provider-task",
+      reason: "unsafe mismatch"
+    }),
+  /provider task id mismatch/i
+);
+reservePaidImageSlot({
+  productDir,
+  slot: 5,
+  requestDigest: "request-5",
+  promptDigest: "prompt-5",
+  owner: ownerA
+});
+recordPaidImageAmbiguous({ productDir, slot: 5, reason: "transport timeout" });
+assert.throws(
+  () =>
+    reconcileAmbiguousPaidImageTask({
+      productDir,
+      slot: 5,
+      providerTaskId: "provider-task-2",
+      reason: "unsafe duplicate"
+    }),
+  /already belongs to slot 2/i
+);
+reconcileAmbiguousPaidImageTask({
+  productDir,
+  slot: 4,
+  providerTaskId: "provider-task-4",
+  reason: "verified existing task is complete"
+});
+assert.equal(resolvePaidImageSlotAction({ productDir, slot: 4 }).action, "poll");
 
 reservePaidImageSlot({
   productDir,
@@ -362,9 +443,9 @@ assert.throws(() => recordPaidImageCompleted({ productDir, slot: 3, sourceFile: 
 const summary = summarizePaidImageProductLedger(productDir);
 assert.deepEqual(summary, {
   expectedSlotCount: 20,
-  missing: 17,
+  missing: 15,
   reserved: 1,
-  submitted: 0,
+  submitted: 2,
   completed: 1,
   failedBeforeAcceptance: 0,
   ambiguous: 1
