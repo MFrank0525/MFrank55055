@@ -1156,6 +1156,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
 
     let submitPayload: any | undefined;
     let taskId = "";
+    let allowExistingSubmittedTaskImport = true;
     if (videosBase64Ledger) {
       let slotAction = resolvePaidImageSlotAction({
         productDir: videosBase64Ledger.productDir,
@@ -1166,6 +1167,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
         slotAction.action === "retry_failed_before_acceptance" ||
         slotAction.action === "retry_failed_after_acceptance"
       ) {
+        allowExistingSubmittedTaskImport =
+          slotAction.action !== "retry_failed_before_acceptance" && slotAction.action !== "retry_failed_after_acceptance";
         slotAction = reservePaidImageSlot({
           productDir: videosBase64Ledger.productDir,
           slot: ledgerSlot,
@@ -1192,7 +1195,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
           `videos-base64 paid image ledger blocked slot ${absoluteImageIndex}: ${slotAction.action}.`
         );
       } else {
-        submitPayload = readVideosBase64SubmittedTask(responseFile);
+        submitPayload = allowExistingSubmittedTaskImport ? readVideosBase64SubmittedTask(responseFile) : undefined;
         if (submitPayload) {
           taskId = extractVideosBase64TaskId(submitPayload);
           recordPaidImageSubmitted({

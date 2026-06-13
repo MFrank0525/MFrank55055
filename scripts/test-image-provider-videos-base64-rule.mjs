@@ -76,6 +76,8 @@ assert.match(source, /requestedImageIndexes/);
 assert.match(source, /resolveMissingFixedImageIndexes/);
 assert.match(source, /requestedImageIndexes: missingLocalIndexes/);
 assert.match(source, /summarizeVideosBase64PaidResumePlan/);
+assert.match(source, /allowExistingSubmittedTaskImport/);
+assert.match(source, /allowExistingSubmittedTaskImport =[\s\S]*slotAction\.action !== "retry_failed_before_acceptance"[\s\S]*slotAction\.action !== "retry_failed_after_acceptance"/);
 assert.match(source, /submitSlots/);
 assert.match(source, /roundStartImageIndex \+ missingLocalIndexes\[itemIndex\] - 1/);
 assert.match(source, /sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)/);
