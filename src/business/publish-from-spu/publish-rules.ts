@@ -435,16 +435,13 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   const effectiveMaxRetryAttempts =
     errorClass === "platform_page_not_ready"
       ? Math.max(maxRetryAttempts, 4)
-      : errorClass === "final_publish_state_uncertain"
-        ? 1
-        : maxRetryAttempts;
+      : maxRetryAttempts;
   if (retryAttempt >= effectiveMaxRetryAttempts) {
     return false;
   }
   return [
     "platform_page_not_ready",
     "platform_spu_prefill_failed",
-    "final_publish_state_uncertain",
     "final_publish_submit_transient",
     "service_section_not_ready",
     "basic_info_field_not_ready",

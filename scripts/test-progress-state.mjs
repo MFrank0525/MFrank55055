@@ -511,8 +511,8 @@ const finalSubmitTransientClass = classifyPublishFailure(
 assert.equal(finalSubmitTransientClass, "final_publish_state_uncertain");
 assert.equal(
   shouldRetryPublishFailure(finalSubmitTransientClass, 0),
-  true,
-  "final publish failures are allowed to retry because throughput is preferred over stopping the whole batch"
+  false,
+  "final publish uncertainty is past the non-idempotent submit boundary and must not re-run the whole product"
 );
 
 const finalSubmitPageContextLostClass = classifyPublishFailure(
@@ -521,13 +521,8 @@ const finalSubmitPageContextLostClass = classifyPublishFailure(
 assert.equal(finalSubmitPageContextLostClass, "final_publish_state_uncertain");
 assert.equal(
   shouldRetryPublishFailure(finalSubmitPageContextLostClass, 0),
-  true,
-  "page loss after entering final submit must try to recover/re-submit instead of blocking the batch"
-);
-assert.equal(
-  shouldRetryPublishFailure(finalSubmitPageContextLostClass, 1),
   false,
-  "final submit uncertainty should receive one compensating re-submit, not unlimited duplicate attempts"
+  "page loss after entering final submit must be verified or marked uncertain, never blindly re-submitted"
 );
 
 const navigationContextLostClass = classifyPublishFailure(
