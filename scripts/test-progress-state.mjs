@@ -121,6 +121,11 @@ assert.match(
   /hasIncompleteFixedMainImageRoundFiles[\s\S]*return "main_images_generated"/,
   "AutoListingController must rewind publish-stage resumes when fixed main-image slots are incomplete"
 );
+assert.match(
+  hermesRunnerSource,
+  /function shouldResumeCurrentFailure[\s\S]*hasIncompleteFixedMainImageRoundFiles[\s\S]*fs\.rmSync\(resumeJobFile, \{ force: true \}\)/,
+  "AutoListingController must invalidate an already-generated publish resume job when fixed main-image slots are incomplete"
+);
 
 const incompleteFixedSlotsRun = fs.mkdtempSync(path.join(os.tmpdir(), "incomplete-fixed-slots-"));
 const incompleteFixedSlotsRaw = path.join(

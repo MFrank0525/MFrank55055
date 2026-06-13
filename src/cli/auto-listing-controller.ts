@@ -1239,6 +1239,17 @@ function shouldResumeCurrentFailure(): boolean {
     return false;
   }
   const resumeRuntimeDir = path.resolve(rootDir, resumeJob.runtimeDir || path.dirname(path.resolve(rootDir, resumeJob.resultFile || "")));
+  if (
+    resumeJob.input?.resumeTaskId &&
+    hasIncompleteFixedMainImageRoundFiles({
+      runtimeDir: resumeRuntimeDir,
+      taskId: resumeJob.input.resumeTaskId,
+      expectedImagesPerRound: 4
+    })
+  ) {
+    fs.rmSync(resumeJobFile, { force: true });
+    return false;
+  }
   const resumeProductFolderCount = countResumeProductFolders(resumeJob);
   const declaredProductFolderCount = countDeclaredResumeProductFolders(resumeJob);
   if (
