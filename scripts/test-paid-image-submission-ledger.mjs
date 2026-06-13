@@ -14,6 +14,7 @@ import {
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
   recordPaidImageFailedBeforeAcceptance,
+  reconcileAmbiguousPaidImageNoAcceptance,
   reconcileAmbiguousPaidImageTask,
   recordPaidImageSubmitted,
   reservePaidImageSlot,
@@ -415,6 +416,34 @@ assert.equal(resolvePaidImageSlotAction({ productDir, slot: 4 }).action, "poll")
 
 reservePaidImageSlot({
   productDir,
+  slot: 6,
+  requestDigest: "request-6",
+  promptDigest: "prompt-6",
+  owner: ownerA
+});
+recordPaidImageAmbiguous({ productDir, slot: 6, reason: "submit transport failed before provider task id" });
+const noAcceptance = reconcileAmbiguousPaidImageNoAcceptance({
+  productDir,
+  slot: 6,
+  reason: "operator verified provider dashboard has 19 accepted tasks and 19 charges; slot 6 has no provider task"
+});
+assert.equal(noAcceptance.state, "failed_before_acceptance");
+assert.equal(resolvePaidImageSlotAction({ productDir, slot: 6 }).action, "retry_failed_before_acceptance");
+const noAcceptanceRetry = reservePaidImageSlot({
+  productDir,
+  slot: 6,
+  requestDigest: "request-6",
+  promptDigest: "prompt-6",
+  owner: ownerB
+});
+assert.equal(noAcceptanceRetry.action, "submit");
+assert.deepEqual(
+  noAcceptanceRetry.record.audit.map((entry) => entry.state),
+  ["reserved", "ambiguous", "failed_before_acceptance", "reserved"]
+);
+
+reservePaidImageSlot({
+  productDir,
   slot: 3,
   requestDigest: "request-3",
   promptDigest: "prompt-3",
@@ -443,8 +472,8 @@ assert.throws(() => recordPaidImageCompleted({ productDir, slot: 3, sourceFile: 
 const summary = summarizePaidImageProductLedger(productDir);
 assert.deepEqual(summary, {
   expectedSlotCount: 20,
-  missing: 15,
-  reserved: 1,
+  missing: 14,
+  reserved: 2,
   submitted: 2,
   completed: 1,
   failedBeforeAcceptance: 0,

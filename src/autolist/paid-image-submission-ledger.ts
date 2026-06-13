@@ -105,6 +105,12 @@ export interface ReconcileAmbiguousPaidImageTaskInput {
   providerResponse?: unknown;
 }
 
+export interface ReconcileAmbiguousPaidImageNoAcceptanceInput {
+  productDir: string;
+  slot: number;
+  reason: string;
+}
+
 export interface RecordPaidImageCompletedInput {
   productDir: string;
   slot: number;
@@ -926,6 +932,24 @@ export function reconcileAmbiguousPaidImageTask(input: ReconcileAmbiguousPaidIma
       providerTaskId: input.providerTaskId,
       reason: cleanText(requireNonEmpty(input.reason, "reason")),
       providerResponseSummary: providerResponseSummary(input.providerResponse)
+    });
+  });
+}
+
+export function reconcileAmbiguousPaidImageNoAcceptance(
+  input: ReconcileAmbiguousPaidImageNoAcceptanceInput
+): PaidImageSlotRecord {
+  validateSlotRange(input.productDir, input.slot);
+  return withSlotLock(input.productDir, input.slot, () => {
+    const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (!record || record.state !== "ambiguous") {
+      throw new Error(`invalid slot reconciliation for slot ${input.slot}: ${record?.state || "missing"} -> failed_before_acceptance`);
+    }
+    if (record.providerTaskId) {
+      throw new Error(`ambiguous slot ${input.slot} has provider task id ${record.providerTaskId}; reconcile the task instead`);
+    }
+    return transitionSlotUnlocked(input.productDir, input.slot, ["ambiguous"], "failed_before_acceptance", {
+      reason: cleanText(requireNonEmpty(input.reason, "reason"))
     });
   });
 }

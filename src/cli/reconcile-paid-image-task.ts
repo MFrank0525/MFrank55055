@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { readPaidImageSlotRecord, reconcileAmbiguousPaidImageTask } from "../autolist/paid-image-submission-ledger.js";
+import {
+  readPaidImageSlotRecord,
+  reconcileAmbiguousPaidImageNoAcceptance,
+  reconcileAmbiguousPaidImageTask
+} from "../autolist/paid-image-submission-ledger.js";
 import { validatePaidImageProviderTaskForReconciliation } from "../autolist/paid-image-reconciliation.js";
 
 interface ImageProviderConfig {
@@ -14,6 +18,10 @@ function parseArgs(argv: string[]): Map<string, string> {
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
     const value = argv[index + 1];
+    if (key?.startsWith("--") && (!value || value.startsWith("--"))) {
+      args.set(key, "true");
+      continue;
+    }
     if (key?.startsWith("--") && value && !value.startsWith("--")) {
       args.set(key, value);
       index += 1;
@@ -38,8 +46,21 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const productDir = path.resolve(requireArg(args, "--product-dir"));
   const slot = Number(requireArg(args, "--slot"));
-  const taskId = requireArg(args, "--task-id");
   const reason = requireArg(args, "--reason");
+  if (args.has("--no-provider-task")) {
+    if (args.has("--task-id")) {
+      throw new Error("--task-id cannot be used with --no-provider-task");
+    }
+    const record = reconcileAmbiguousPaidImageNoAcceptance({
+      productDir,
+      slot,
+      reason
+    });
+    console.log(JSON.stringify({ ok: true, productDir, slot, noProviderTask: true, ledgerState: record.state }, null, 2));
+    return;
+  }
+
+  const taskId = requireArg(args, "--task-id");
   const configFile = path.resolve(args.get("--config") || "input/image-generation.config.json");
   const config = JSON.parse(fs.readFileSync(configFile, "utf8")) as ImageProviderConfig;
   if (!config.apiUrl || !config.apiKey) {
