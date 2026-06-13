@@ -66,6 +66,48 @@ interface ConcurrencyGate {
   run<T>(work: () => Promise<T>): Promise<T>;
 }
 
+export interface VideosBase64PaidResumePlan {
+  requestedSlots: number[];
+  submitSlots: number[];
+  reuseSlots: number[];
+  pollSlots: number[];
+  blockedSlots: number[];
+}
+
+function formatSlotList(slots: number[]): string {
+  return slots.length ? slots.join(",") : "none";
+}
+
+export function summarizeVideosBase64PaidResumePlan(
+  productDir: string | undefined,
+  requestedSlots: number[]
+): VideosBase64PaidResumePlan {
+  const plan: VideosBase64PaidResumePlan = {
+    requestedSlots: [...requestedSlots],
+    submitSlots: [],
+    reuseSlots: [],
+    pollSlots: [],
+    blockedSlots: []
+  };
+  if (!productDir || !fs.existsSync(productDir)) {
+    plan.submitSlots.push(...requestedSlots);
+    return plan;
+  }
+  for (const slot of requestedSlots) {
+    const action = resolvePaidImageSlotAction({ productDir, slot }).action;
+    if (action === "submit" || action === "missing" || action === "retry_failed_before_acceptance") {
+      plan.submitSlots.push(slot);
+    } else if (action === "reuse") {
+      plan.reuseSlots.push(slot);
+    } else if (action === "poll") {
+      plan.pollSlots.push(slot);
+    } else {
+      plan.blockedSlots.push(slot);
+    }
+  }
+  return plan;
+}
+
 function redactImageGenerationLogValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => redactImageGenerationLogValue(item));
@@ -1889,6 +1931,14 @@ export async function generateMainImageAssets(options: {
       "videos-base64 paid submission requires project-owned feishuBatchFingerprint, feishuRecordId, and paidImageSubmissionLedgerDir."
     );
   }
+  const videosBase64ProductLedgerDir =
+    imageGenerationMode === "videos-base64"
+      ? paidImageProductLedgerDir(
+          options.paidImageSubmissionLedgerDir as string,
+          options.feishuBatchFingerprint as string,
+          options.feishuRecordId as string
+        )
+      : undefined;
 
   const stagedFiles: Array<{
     stagedFile: string;
@@ -1964,7 +2014,20 @@ export async function generateMainImageAssets(options: {
       return roundStagedFiles;
     }
 
-    options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: generating ${remainingImageCount} image(s).`);
+    const requestedPaidSlots = missingLocalIndexes.map((localIndex) => promptIndex * options.mainImageExpectedCount + localIndex);
+    const paidResumePlan =
+      imageGenerationMode === "videos-base64"
+        ? summarizeVideosBase64PaidResumePlan(videosBase64ProductLedgerDir, requestedPaidSlots)
+        : undefined;
+    options.onProgress?.(
+      paidResumePlan
+        ? `Prompt ${promptIndex + 1}/${promptCount}: missing fixed slots=${formatSlotList(
+            requestedPaidSlots
+          )}; paid submit slots=${formatSlotList(paidResumePlan.submitSlots)}; reuse slots=${formatSlotList(
+            paidResumePlan.reuseSlots
+          )}; poll slots=${formatSlotList(paidResumePlan.pollSlots)}.`
+        : `Prompt ${promptIndex + 1}/${promptCount}: generating ${remainingImageCount} image(s).`
+    );
     const generationResults = await generateWithOpenAiCompatibleProvider({
       configFile: options.imageGenerationConfigFile,
       promptText,

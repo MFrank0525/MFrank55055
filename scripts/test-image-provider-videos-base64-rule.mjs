@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { summarizeVideosBase64PaidResumePlan } from "../dist/src/autolist/jimeng-assets.js";
 import {
   providerExplicitlyProvesNoPaidTaskAccepted,
   resolveOpenAiCompatibleImageMode,
@@ -8,6 +11,14 @@ import {
   resolveVideosBase64SubmitConcurrency,
   resolveVideosBase64SubmitTimeoutMs
 } from "../dist/src/autolist/image-generation-rules.js";
+import {
+  initializePaidImageProductLedger,
+  recordPaidImageAmbiguous,
+  recordPaidImageCompleted,
+  reconcileAmbiguousPaidImageNoAcceptance,
+  recordPaidImageSubmitted,
+  reservePaidImageSlot
+} from "../dist/src/autolist/paid-image-submission-ledger.js";
 
 const source = fs.readFileSync("src/autolist/jimeng-assets.ts", "utf8");
 const configSource = fs.readFileSync("src/autolist/config.ts", "utf8");
@@ -62,6 +73,8 @@ assert.match(source, /resolveVideosBase64SubmitTimeoutMs/);
 assert.match(source, /requestedImageIndexes/);
 assert.match(source, /resolveMissingFixedImageIndexes/);
 assert.match(source, /requestedImageIndexes: missingLocalIndexes/);
+assert.match(source, /summarizeVideosBase64PaidResumePlan/);
+assert.match(source, /submitSlots/);
 assert.match(source, /roundStartImageIndex \+ missingLocalIndexes\[itemIndex\] - 1/);
 assert.match(source, /sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)/);
 assert.match(source, /createConcurrencyGate\(resolveVideosBase64SubmitConcurrency\(config\.submitConcurrency\)\)/);
@@ -132,3 +145,46 @@ assert.equal(
 );
 assert.deepEqual(resolveMissingFixedImageIndexes([2, 3, 4], 4), [1]);
 assert.deepEqual(resolveMissingFixedImageIndexes([1, 3], 4), [2, 4]);
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "videos-base64-resume-plan-"));
+const product = initializePaidImageProductLedger({
+  rootDir: path.join(tmp, "ledger"),
+  batchFingerprint: "batch-a",
+  recordId: "record-a",
+  expectedSlotCount: 4,
+  providerIdentity: "provider-a",
+  sourceImageDigest: "source-a"
+});
+const completedImage = path.join(tmp, "completed.png");
+fs.writeFileSync(completedImage, "image-bytes");
+for (const slot of [1, 2, 4]) {
+  reservePaidImageSlot({
+    productDir: product.productDir,
+    slot,
+    requestDigest: `request-${slot}`,
+    promptDigest: `prompt-${slot}`,
+    owner: { runId: "run-a", taskId: "image-001" }
+  });
+  recordPaidImageSubmitted({ productDir: product.productDir, slot, providerTaskId: `provider-task-${slot}` });
+  recordPaidImageCompleted({ productDir: product.productDir, slot, sourceFile: completedImage });
+}
+reservePaidImageSlot({
+  productDir: product.productDir,
+  slot: 3,
+  requestDigest: "request-3",
+  promptDigest: "prompt-3",
+  owner: { runId: "run-a", taskId: "image-001" }
+});
+recordPaidImageAmbiguous({ productDir: product.productDir, slot: 3, reason: "submit transport failed before provider task id" });
+reconcileAmbiguousPaidImageNoAcceptance({
+  productDir: product.productDir,
+  slot: 3,
+  reason: "provider dashboard has no task id and no charge for slot 3"
+});
+assert.deepEqual(summarizeVideosBase64PaidResumePlan(product.productDir, [1, 2, 3, 4]), {
+  requestedSlots: [1, 2, 3, 4],
+  submitSlots: [3],
+  reuseSlots: [1, 2, 4],
+  pollSlots: [],
+  blockedSlots: []
+});
