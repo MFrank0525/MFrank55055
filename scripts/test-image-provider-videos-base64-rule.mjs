@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   providerExplicitlyProvesNoPaidTaskAccepted,
+  resolveMissingFixedImageIndexes,
   resolveVideosBase64SubmitTimeoutMs
 } from "../dist/src/autolist/image-generation-rules.js";
 
@@ -54,6 +55,10 @@ assert.doesNotMatch(source, /batchFingerprint: options\.feishuBatchFingerprint \
 assert.doesNotMatch(source, /recordId: options\.feishuRecordId \|\| options\.taskId/);
 assert.match(source, /providerExplicitlyProvesNoPaidTaskAccepted/);
 assert.match(source, /resolveVideosBase64SubmitTimeoutMs/);
+assert.match(source, /requestedImageIndexes/);
+assert.match(source, /resolveMissingFixedImageIndexes/);
+assert.match(source, /requestedImageIndexes: missingLocalIndexes/);
+assert.match(source, /roundStartImageIndex \+ missingLocalIndexes\[itemIndex\] - 1/);
 assert.match(source, /sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)/);
 assert.match(imageGenerationRulesSource, /export function providerExplicitlyProvesNoPaidTaskAccepted/);
 assert.match(ruleDoc, /videos-base64.*Base64.*1:1.*1024x1024/s);
@@ -64,6 +69,7 @@ assert.match(ruleDoc, /项目控制器.*当前飞书批次.*续跑/s);
 assert.match(ruleDoc, /当前商品.*全部异步任务.*统一轮询/s);
 assert.match(ruleDoc, /其他.*串行/s);
 assert.match(ruleDoc, /禁止 supervisor 快速重启并重新提交/s);
+assert.match(ruleDoc, /固定文件槽位.*禁止按已有文件数量推算/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
@@ -71,3 +77,5 @@ assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(429, "rate limited"), fa
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(502, "upstream error"), false);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 1800000);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 60000), 180000);
+assert.deepEqual(resolveMissingFixedImageIndexes([2, 3, 4], 4), [1]);
+assert.deepEqual(resolveMissingFixedImageIndexes([1, 3], 4), [2, 4]);

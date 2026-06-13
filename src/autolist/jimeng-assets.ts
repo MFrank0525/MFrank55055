@@ -6,6 +6,7 @@ import { readSimpleWordDocument } from "./docx-lite.js";
 import {
   resolveImageDownloadTimeoutMs,
   resolveImageGenerationRequestDeadlineMs,
+  resolveMissingFixedImageIndexes,
   resolveVideosBase64SubmitTimeoutMs,
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
@@ -655,6 +656,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
   sourceImageReferenceUrl?: string;
   downloadDir: string;
   expectedImageCount: number;
+  requestedImageIndexes?: number[];
   paidImageLedger?: {
     rootDir: string;
     batchFingerprint: string;
@@ -1142,7 +1144,10 @@ async function generateWithOpenAiCompatibleProvider(options: {
   };
 
   if (mode === "videos-base64") {
-    const videosBase64ImageIndexes = Array.from({ length: count }, (_, index) => imageIndexOffset + index + 1);
+    const videosBase64ImageIndexes =
+      options.requestedImageIndexes?.length
+        ? options.requestedImageIndexes
+        : Array.from({ length: count }, (_, index) => imageIndexOffset + index + 1);
     return settleConcurrentWork(
       videosBase64ImageIndexes.map((absoluteImageIndex) => generateVideosBase64Image(absoluteImageIndex)),
       "videos-base64 paid image slots"
@@ -1456,25 +1461,33 @@ async function recoverExistingRoundOutputs(options: {
   }> = [];
 
   const startImageIndex = options.startImageIndex;
-  let imageIndex = options.startImageIndex;
+  const rawCandidates = listImageFilesRecursive(options.roundDir).filter((file) => file.includes(path.sep + "raw" + path.sep));
+  const rawByLocalIndex = new Map(
+    rawCandidates.flatMap((file) => {
+      const match = /^generated-(\d+)/i.exec(path.basename(file));
+      return match ? [[Number(match[1]), file] as const] : [];
+    })
+  );
   const existingStagedFiles = listImageFiles(options.stageDir);
   let invalidStagedFileFound = false;
   for (const stagedFile of existingStagedFiles) {
-    const expectedWatermarkText = options.resolveWatermarkText(imageIndex);
-    if (!path.basename(stagedFile).includes(expectedWatermarkText)) {
+    const globalIndexMatch = /(\d+)(?=\.[^.]+$)/.exec(path.basename(stagedFile));
+    const imageIndex = Number(globalIndexMatch?.[1]);
+    const localIndex = imageIndex - startImageIndex + 1;
+    const rawImageFile = rawByLocalIndex.get(localIndex);
+    const expectedWatermarkText = Number.isInteger(imageIndex) ? options.resolveWatermarkText(imageIndex) : "";
+    if (!rawImageFile || !expectedWatermarkText || !path.basename(stagedFile).includes(expectedWatermarkText)) {
       fs.rmSync(stagedFile, { force: true });
       invalidStagedFileFound = true;
-      imageIndex += 1;
       continue;
     }
-    const rawCandidates = listImageFilesRecursive(options.roundDir).filter((file) => file.includes(path.sep + "raw" + path.sep));
     recovered.push({
       stagedFile,
-      rawImageFile: rawCandidates[recovered.length],
+      rawImageFile,
       imageIndex
     });
-    imageIndex += 1;
   }
+  recovered.sort((left, right) => left.imageIndex - right.imageIndex);
   if (existingStagedFiles.length > 0 && !invalidStagedFileFound) {
     return recovered;
   }
@@ -1483,22 +1496,21 @@ async function recoverExistingRoundOutputs(options: {
       fs.rmSync(item.stagedFile, { force: true });
     }
     recovered.length = 0;
-    imageIndex = startImageIndex;
   }
 
   const watermarkDir = path.join(options.roundDir, "watermark");
-  const existingRawFiles = listImageFilesRecursive(options.roundDir).filter((file) => file.includes(path.sep + "raw" + path.sep));
+  const existingRawFiles = [...rawByLocalIndex.entries()].sort((left, right) => left[0] - right[0]);
   if (existingRawFiles.length === 0) {
     return recovered;
   }
 
-  const watermarkCandidates = existingRawFiles.filter((rawFile) => fs.existsSync(rawFile));
+  const watermarkCandidates = existingRawFiles.filter(([, rawFile]) => fs.existsSync(rawFile));
   if (watermarkCandidates.length === 0) {
     return recovered;
   }
 
-  for (let itemIndex = 0; itemIndex < watermarkCandidates.length; itemIndex += 1) {
-    const rawImageFile = watermarkCandidates[itemIndex];
+  for (const [localIndex, rawImageFile] of watermarkCandidates) {
+    const imageIndex = startImageIndex + localIndex - 1;
     const watermarkText = options.resolveWatermarkText(imageIndex);
     const [watermarkedFile] = await applyLocalWatermark({
       inputFiles: [rawImageFile],
@@ -1517,10 +1529,9 @@ async function recoverExistingRoundOutputs(options: {
       rawImageFile,
       imageIndex
     });
-    imageIndex += 1;
   }
 
-  return recovered;
+  return recovered.sort((left, right) => left.imageIndex - right.imageIndex);
 }
 
 export const MAIN_IMAGE_REUSE_IDENTITY_FILE = "reuse-identity.json";
@@ -1764,7 +1775,7 @@ export async function generateMainImageAssets(options: {
   }> = [];
   const processPromptRound = async (promptIndex: number) => {
     const roundStagedFiles: typeof stagedFiles = [];
-    let imageIndex = promptIndex * options.mainImageExpectedCount + 1;
+    const roundStartImageIndex = promptIndex * options.mainImageExpectedCount + 1;
     const promptWordFile = options.wordFiles[promptIndex];
     const wordParagraphs = readSimpleWordDocument(promptWordFile);
     const promptText = buildImageEditPromptFromWord({
@@ -1791,7 +1802,7 @@ export async function generateMainImageAssets(options: {
         }
         return shop.watermarkText;
       },
-      startImageIndex: imageIndex
+      startImageIndex: roundStartImageIndex
     });
 
     for (const recovered of recoveredFiles) {
@@ -1808,13 +1819,14 @@ export async function generateMainImageAssets(options: {
         promptWordFile,
         imageIndex: recovered.imageIndex
       });
-      imageIndex = recovered.imageIndex + 1;
     }
 
+    const recoveredLocalIndexes = recoveredFiles.map((recovered) => recovered.imageIndex - roundStartImageIndex + 1);
+    const missingLocalIndexes = resolveMissingFixedImageIndexes(recoveredLocalIndexes, options.mainImageExpectedCount);
     const remainingImageCount =
       options.mainImageCountStrategy === "accept_all" && recoveredFiles.length > 0
         ? 0
-        : Math.max(0, options.mainImageExpectedCount - recoveredFiles.length);
+        : missingLocalIndexes.length;
 
     if (
       options.mainImageCountStrategy !== "accept_all" &&
@@ -1834,6 +1846,7 @@ export async function generateMainImageAssets(options: {
       sourceImageReferenceUrl: options.sourceImageReferenceUrl,
       downloadDir: path.join(roundDir, "openai-compatible", "raw"),
       expectedImageCount: remainingImageCount,
+      requestedImageIndexes: missingLocalIndexes,
       paidImageLedger: {
         rootDir: options.paidImageSubmissionLedgerDir as string,
         batchFingerprint: options.feishuBatchFingerprint as string,
@@ -1851,7 +1864,7 @@ export async function generateMainImageAssets(options: {
 
     const watermarkedFiles: string[] = [];
     for (let itemIndex = 0; itemIndex < generationResults.length; itemIndex += 1) {
-      const assignedImageIndex = imageIndex + itemIndex;
+      const assignedImageIndex = roundStartImageIndex + missingLocalIndexes[itemIndex] - 1;
       const assignment = assignments[assignedImageIndex - 1];
       const shop = assignment ? shopMap.get(assignment.shopCode) : undefined;
       if (!shop) {
@@ -1872,6 +1885,7 @@ export async function generateMainImageAssets(options: {
     for (let itemIndex = 0; itemIndex < watermarkedFiles.length; itemIndex += 1) {
       const rawFile = generationResults[itemIndex]?.file;
       const watermarkedFile = watermarkedFiles[itemIndex];
+      const imageIndex = roundStartImageIndex + missingLocalIndexes[itemIndex] - 1;
       const assignment = assignments[imageIndex - 1];
       const shop = assignment ? shopMap.get(assignment.shopCode) : undefined;
       if (!shop) {
@@ -1895,7 +1909,6 @@ export async function generateMainImageAssets(options: {
         submitId: generationResults[itemIndex]?.submitId,
         imageIndex
       });
-      imageIndex += 1;
     }
     options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: staged ${watermarkedFiles.length} image(s).`);
     return roundStagedFiles;

@@ -13,6 +13,11 @@ export function resolveVideosBase64SubmitTimeoutMs(
   return Math.max(resolveImageDownloadTimeoutMs(requestTimeoutMs), maxPollMs || 1800000);
 }
 
+export function resolveMissingFixedImageIndexes(existingIndexes: number[], expectedCount: number): number[] {
+  const existing = new Set(existingIndexes.filter((index) => Number.isInteger(index) && index >= 1 && index <= expectedCount));
+  return Array.from({ length: expectedCount }, (_, index) => index + 1).filter((index) => !existing.has(index));
+}
+
 export interface ImageGenerationTransportRetryPolicy {
   maxRetries: number;
   delayMs: number[];
