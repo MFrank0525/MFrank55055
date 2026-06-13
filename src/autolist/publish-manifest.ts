@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { atomicWriteJson } from "../utils/atomic-file.js";
 
 export type PublishFinalVerifyStatus = "not_checked" | "publish_signal_confirmed" | "list_verified" | "needs_manual_review";
 
@@ -85,26 +86,27 @@ export function loadPublishManifest(runtimeDir: string): PublishManifest {
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as PublishManifest;
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.entries)) {
+      throw new Error("entries must be an array");
+    }
     return {
       generatedAt: parsed.generatedAt || new Date().toISOString(),
-      entries: Array.isArray(parsed.entries) ? parsed.entries : []
+      entries: parsed.entries
     };
-  } catch {
-    return { generatedAt: new Date().toISOString(), entries: [] };
+  } catch (error) {
+    throw new Error(`Invalid publish manifest ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 export function savePublishManifest(runtimeDir: string, manifest: PublishManifest): string {
   const filePath = publishManifestFile(runtimeDir);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify({ ...manifest, generatedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+  atomicWriteJson(filePath, { ...manifest, generatedAt: new Date().toISOString() });
   return filePath;
 }
 
 export function savePublishPlan(runtimeDir: string, plan: PublishPlanItem[]): string {
   const filePath = publishPlanFile(runtimeDir);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify({ generatedAt: new Date().toISOString(), plan }, null, 2)}\n`, "utf8");
+  atomicWriteJson(filePath, { generatedAt: new Date().toISOString(), plan });
   return filePath;
 }
 

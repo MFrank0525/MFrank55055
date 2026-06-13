@@ -50,7 +50,9 @@ import {
   formatAutoListingControllerCompactStatusText,
   selectAutoListingControllerFailedResumeCandidate,
   resolveAutoListingControllerRealtimeProgressSignal,
-  resolveAutoListingControllerRuntimeStatus
+  resolveAutoListingControllerRuntimeStatus,
+  resolveAutoListingControllerIdleStatus,
+  resolveAutoListingControllerDryRunStartDecision
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -290,7 +292,7 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /const beforeRefreshProgress = summarizeFeishuProgress\(\)[\s\S]*const selected = selectCommand\(\)/,
+  /const beforeRefreshProgress = summarizeFeishuProgress\(\)[\s\S]*const selected = selectCommand\(forceFullFlow\)/,
   "AutoListingController start must refresh a completed cached Feishu batch before selecting a stale resume job"
 );
 assert.match(
@@ -1337,6 +1339,18 @@ assert.equal(
 );
 assert.equal(
   resolveAutoListingControllerRuntimeStatus({
+    running: true,
+    activeWaitState: false,
+    pauseSignalExists: true,
+    completed: false,
+    failed: false,
+    hasPendingFeishuProducts: false
+  }),
+  "pause_requested",
+  "Controller status must immediately expose a project-owned pause request before the child reaches its safe boundary"
+);
+assert.equal(
+  resolveAutoListingControllerRuntimeStatus({
     running: false,
     activeWaitState: false,
     completed: false,
@@ -1348,6 +1362,50 @@ assert.equal(
   }),
   "paused",
   "AutoListingController status must report operator-requested pause as paused instead of failed"
+);
+assert.equal(
+  resolveAutoListingControllerIdleStatus({
+    pauseSignalExists: true,
+    batchComplete: true,
+    latestResultOk: true,
+    latestResultStatus: "completed"
+  }),
+  "pause_requested",
+  "A project-owned pause signal must be visible even when no controller process is active"
+);
+assert.equal(
+  resolveAutoListingControllerIdleStatus({
+    batchComplete: true,
+    latestResultOk: true,
+    latestResultStatus: "completed"
+  }),
+  "completed",
+  "Controller status without an active control job must still report the completed current Feishu batch"
+);
+assert.equal(
+  resolveAutoListingControllerIdleStatus({
+    batchComplete: false,
+    latestResultOk: true,
+    latestResultStatus: "completed"
+  }),
+  "pending_products",
+  "Controller status without an active control job must expose pending Feishu products"
+);
+assert.equal(
+  resolveAutoListingControllerDryRunStartDecision({
+    batchComplete: true,
+    forceRerunCurrentBatch: false
+  }),
+  "require_rerun_confirmation",
+  "Read-only start must not advertise a stale historical resume when the current batch is complete"
+);
+assert.equal(
+  resolveAutoListingControllerDryRunStartDecision({
+    batchComplete: true,
+    forceRerunCurrentBatch: true
+  }),
+  "rerun_current_batch",
+  "Confirmed current-batch rerun must explicitly select a clean full-flow rerun"
 );
 const terminalFailureRealtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-12T13:00:00.000Z",

@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   isManifestEntrySafelyPublishedForIdentity,
-  normalizePublishProductIdentity
+  loadPublishManifest,
+  normalizePublishProductIdentity,
+  savePublishManifest
 } from "../dist/src/autolist/publish-manifest.js";
+import { loadCheckpoint, saveCheckpoint } from "../dist/src/business/publish-from-spu/checkpoint.js";
 
 const oldGenericEntry = {
   productFolder: "/tmp/shop/延草纲目医用重组胶原蛋白护理软膏水印01",
@@ -62,3 +68,39 @@ assert.equal(
   true,
   "Legacy callers without identity keep the original safe-published behavior."
 );
+
+const manifestRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "publish-manifest-"));
+fs.writeFileSync(path.join(manifestRuntimeDir, "publish-manifest.json"), '{"entries":[', "utf8");
+assert.throws(
+  () => loadPublishManifest(manifestRuntimeDir),
+  /invalid publish manifest/i,
+  "A damaged publish checkpoint must fail closed instead of being treated as an empty manifest."
+);
+fs.rmSync(manifestRuntimeDir, { recursive: true, force: true });
+
+const savedManifestRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "publish-manifest-save-"));
+savePublishManifest(savedManifestRuntimeDir, {
+  generatedAt: "2026-06-13T00:00:00.000Z",
+  entries: [rowFiveEntry]
+});
+assert.equal(loadPublishManifest(savedManifestRuntimeDir).entries.length, 1);
+assert.equal(
+  fs.readdirSync(savedManifestRuntimeDir).some((name) => name.includes(".tmp")),
+  false,
+  "Atomic publish manifest writes must not leave temporary files after success."
+);
+fs.rmSync(savedManifestRuntimeDir, { recursive: true, force: true });
+
+const checkpointRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "publish-checkpoint-"));
+fs.writeFileSync(path.join(checkpointRuntimeDir, "publish-checkpoint.json"), "[", "utf8");
+assert.throws(
+  () => loadCheckpoint(checkpointRuntimeDir),
+  /invalid publish checkpoint/i,
+  "A damaged publish-stage checkpoint must stop recovery instead of replaying stages from an empty checkpoint."
+);
+fs.rmSync(checkpointRuntimeDir, { recursive: true, force: true });
+
+const savedCheckpointRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "publish-checkpoint-save-"));
+saveCheckpoint(savedCheckpointRuntimeDir, [{ step: "publish_flow", status: "completed" }]);
+assert.deepEqual(loadCheckpoint(savedCheckpointRuntimeDir), [{ step: "publish_flow", status: "completed" }]);
+fs.rmSync(savedCheckpointRuntimeDir, { recursive: true, force: true });

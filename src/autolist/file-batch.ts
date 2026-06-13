@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { atomicWriteJson } from "../utils/atomic-file.js";
 
 interface ProcessedImageManifestV2 {
   version: 2;
@@ -65,7 +66,7 @@ export function clearProcessedImagesForBatch(manifestFile: string, batchFingerpr
   }
   parsed.batches[batchFingerprint] = [];
   parsed.currentBatchFingerprint = batchFingerprint;
-  fs.writeFileSync(manifestFile, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  atomicWriteJson(manifestFile, parsed);
   return true;
 }
 
@@ -86,8 +87,7 @@ export function migrateLegacyProcessedImagesToBatch(manifestFile: string, batchF
     },
     legacyImages: processed
   };
-  fs.mkdirSync(path.dirname(manifestFile), { recursive: true });
-  fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  atomicWriteJson(manifestFile, manifest);
   return true;
 }
 
@@ -146,7 +146,7 @@ export function appendProcessedImages(manifestFile: string, imagePaths: string[]
     for (const filePath of imagePaths) {
       processed.add(normalizePath(filePath));
     }
-    fs.writeFileSync(manifestFile, `${JSON.stringify([...processed], null, 2)}\n`, "utf8");
+    atomicWriteJson(manifestFile, [...processed]);
     return;
   }
 
@@ -171,6 +171,5 @@ export function appendProcessedImages(manifestFile: string, imagePaths: string[]
     processed.add(normalizePath(filePath));
   }
   manifest.batches[batchFingerprint] = [...processed];
-  fs.mkdirSync(path.dirname(manifestFile), { recursive: true });
-  fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  atomicWriteJson(manifestFile, manifest);
 }

@@ -11,6 +11,8 @@ import {
   resolveAutoListingControllerFeishuProgressDisplayMode,
   resolveAutoListingControllerProgressAgeSeconds,
   resolveAutoListingControllerRuntimeStatus,
+  resolveAutoListingControllerIdleStatus,
+  resolveAutoListingControllerDryRunStartDecision,
   resolveAutoListingControllerStartAfterFeishuRefresh,
   selectAutoListingControllerActiveRunIdFromLogLines,
   selectAutoListingControllerLatestResultFileForJobStatus,
@@ -42,6 +44,7 @@ import {
   shouldReplaceStaleResumeStartStep
 } from "../autolist/resume-rules.js";
 import { summarizeReusableTaskArtifacts } from "../autolist/resume-artifacts.js";
+import { atomicWriteJson } from "../utils/atomic-file.js";
 
 interface RunnerJob {
   pid: number;
@@ -817,12 +820,38 @@ function existingStatus(): Record<string, unknown> {
     const latestResultFile = findLatestResultFile();
     const latestResult = summarizeResult(latestResultFile);
     const latestRuntimeDir = typeof latestResult?.runtimeDir === "string" ? latestResult.runtimeDir : latestResultFile ? path.dirname(latestResultFile) : undefined;
+    const feishuProgress = summarizeFeishuProgress();
+    const publishProgress = summarizePublishProgress(latestRuntimeDir);
+    const status = resolveAutoListingControllerIdleStatus({
+      pauseSignalExists: fs.existsSync(pauseFile),
+      batchComplete: typeof feishuProgress?.batchComplete === "boolean" ? feishuProgress.batchComplete : undefined,
+      latestResultOk: typeof latestResult?.ok === "boolean" ? latestResult.ok : undefined,
+      latestResultStatus: typeof latestResult?.status === "string" ? latestResult.status : undefined
+    });
     return {
       ok: true,
-      status: "idle",
+      status,
       jobFile,
       latestResult,
-      publishProgress: summarizePublishProgress(latestRuntimeDir)
+      publishProgress,
+      feishuProgress,
+      feishuBatchDisplayCounts: feishuProgress
+        ? resolveAutoListingControllerFeishuBatchDisplayCounts({
+            recordCount: Number(feishuProgress.recordCount || 0),
+            processedRecordCount: Number(feishuProgress.processedRecordCount || 0),
+            pendingSourceImages: Array.isArray(feishuProgress.pendingSourceImages)
+              ? feishuProgress.pendingSourceImages.map((item) => path.resolve(rootDir, String(item)))
+              : []
+          })
+        : undefined,
+      summary:
+        status === "pause_requested"
+          ? "项目已收到暂停请求；继续上架会清除暂停信号并从安全断点续跑。"
+          : status === "completed"
+          ? "当前飞书批次已全部处理完成。"
+          : status === "pending_products"
+            ? "当前飞书批次仍有待处理产品。"
+            : undefined
     };
   }
   const running = isRunnerJobRunning(job);
@@ -953,6 +982,7 @@ function existingStatus(): Record<string, unknown> {
   const resolvedStatus = resolveAutoListingControllerRuntimeStatus({
     running,
     activeWaitState: Boolean(activeWaitState),
+    pauseSignalExists: fs.existsSync(pauseFile),
     completed: Boolean(completed),
     failed: Boolean(failed),
     hasPendingFeishuProducts,
@@ -1550,8 +1580,7 @@ function writeResumeJobFromInterruptedState(
       clearTestOutputsBeforeRun: false
     }
   };
-  fs.mkdirSync(path.dirname(resumeJobFile), { recursive: true });
-  fs.writeFileSync(resumeJobFile, JSON.stringify(resumeJob, null, 2) + "\n", "utf8");
+  atomicWriteJson(resumeJobFile, resumeJob);
   return resumeJob;
 }
 
@@ -1604,8 +1633,7 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
     }
   };
 
-  fs.mkdirSync(path.dirname(resumeJobFile), { recursive: true });
-  fs.writeFileSync(resumeJobFile, JSON.stringify(resumeJob, null, 2) + "\n", "utf8");
+  atomicWriteJson(resumeJobFile, resumeJob);
   return resumeJob;
 }
 
@@ -1663,14 +1691,14 @@ async function assertRealFlowNetworkPreflight(imageGenerationConfigFile: string 
   await probeImageGenerationEndpoint(apiUrl);
 }
 
-function selectCommand(): {
+function selectCommand(forceFullFlow = false): {
   command: string;
   args: string[];
   mode: RunnerJob["mode"];
   expectedResultFile?: string;
   imageGenerationConfigFile?: string;
 } {
-  const resumeJob = ensureResumeJobFromLatestFailure();
+  const resumeJob = forceFullFlow ? undefined : ensureResumeJobFromLatestFailure();
   if (resumeJob) {
     return {
       command: "node",
@@ -1722,6 +1750,24 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
   }
 
   const beforeRefreshProgress = summarizeFeishuProgress();
+  const dryRunDecision = dryRun
+    ? resolveAutoListingControllerDryRunStartDecision({
+        batchComplete: typeof beforeRefreshProgress?.batchComplete === "boolean" ? beforeRefreshProgress.batchComplete : undefined,
+        forceRerunCurrentBatch
+      })
+    : undefined;
+  if (dryRunDecision === "require_rerun_confirmation") {
+    const result = {
+      ok: true,
+      dryRun: true,
+      status: "rerun_confirmation_required",
+      feishuProgress: beforeRefreshProgress,
+      message: "当前飞书批次产品已全部上架完成；只读检查不会选择历史失败断点。"
+    };
+    console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
+    return;
+  }
+  let forceFullFlow = dryRunDecision === "rerun_current_batch";
   if (!dryRun && beforeRefreshProgress?.batchComplete === true) {
     runFeishuAssetsRefreshForStart();
     const afterRefreshProgress = summarizeFeishuProgress();
@@ -1743,9 +1789,10 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     }
     if (decision === "rerun_current_batch") {
       clearCurrentBatchProcessedImages();
+      forceFullFlow = true;
     }
   }
-  const selected = selectCommand();
+  const selected = selectCommand(forceFullFlow);
   const logFile = path.join(controlDir, `auto-listing-controller-${timestampForFile()}.log`);
   if (dryRun) {
     const result = {
@@ -1788,7 +1835,7 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     mode: selected.mode,
     status: "running"
   };
-  fs.writeFileSync(jobFile, JSON.stringify(job, null, 2) + "\n");
+  atomicWriteJson(jobFile, job);
   const result = {
     ok: true,
     status: "started",

@@ -413,6 +413,16 @@ export function resolveAutoListingControllerStartAfterFeishuRefresh(
   return "require_rerun_confirmation";
 }
 
+export function resolveAutoListingControllerDryRunStartDecision(input: {
+  batchComplete?: boolean;
+  forceRerunCurrentBatch: boolean;
+}): "start_pending_batch" | "require_rerun_confirmation" | "rerun_current_batch" {
+  if (input.batchComplete !== true) {
+    return "start_pending_batch";
+  }
+  return input.forceRerunCurrentBatch ? "rerun_current_batch" : "require_rerun_confirmation";
+}
+
 export type FullFlowContinuationReason = "initial_full" | "same_batch_pending" | "new_batch_after_refresh";
 
 export type FullFlowFeishuRefreshInput = {
@@ -692,6 +702,7 @@ export function resolveAutoListingControllerRealtimeProgressSignal(
 
 export type AutoListingControllerResolvedStatus =
   | "running"
+  | "pause_requested"
   | "paused"
   | "completed"
   | "failed"
@@ -699,9 +710,31 @@ export type AutoListingControllerResolvedStatus =
   | "pending_products"
   | "exited_unknown";
 
+export function resolveAutoListingControllerIdleStatus(input: {
+  pauseSignalExists?: boolean;
+  batchComplete?: boolean;
+  latestResultOk?: boolean;
+  latestResultStatus?: string;
+}): AutoListingControllerResolvedStatus | "idle" {
+  if (input.pauseSignalExists) {
+    return "pause_requested";
+  }
+  if (input.batchComplete === true) {
+    return "completed";
+  }
+  if (input.batchComplete === false) {
+    return "pending_products";
+  }
+  if (input.latestResultOk === false || input.latestResultStatus === "failed") {
+    return "failed";
+  }
+  return "idle";
+}
+
 export type AutoListingControllerRuntimeStatusInput = {
   running: boolean;
   activeWaitState: boolean;
+  pauseSignalExists?: boolean;
   completed: boolean;
   failed: boolean;
   hasPendingFeishuProducts: boolean;
@@ -711,6 +744,9 @@ export type AutoListingControllerRuntimeStatusInput = {
 };
 
 export function resolveAutoListingControllerRuntimeStatus(input: AutoListingControllerRuntimeStatusInput): AutoListingControllerResolvedStatus {
+  if (input.pauseSignalExists) {
+    return "pause_requested";
+  }
   if (input.activeWaitState) {
     return "external_service_wait";
   }
@@ -741,6 +777,7 @@ export function resolveAutoListingControllerRuntimeStatus(input: AutoListingCont
 
 function normalizeAutoListingControllerStatusLabel(status?: string): string {
   if (status === "running") return "运行中";
+  if (status === "pause_requested") return "正在安全暂停";
   if (status === "paused") return "已暂停";
   if (status === "failed") return "失败";
   if (status === "completed") return "完成";

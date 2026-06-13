@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import {
   currentPaidImageLedgerProcessIdentity,
   initializePaidImageProductLedger,
+  migrateLegacyPaidImageProductLedgers,
   paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
@@ -597,5 +598,44 @@ assertMalformedSlotRejected(
   (record) => (record.audit[0].reason = "data:image/png;base64," + "A".repeat(200))
 );
 assertMalformedSlotRejected("top-level-reason-secret", (record) => (record.reason = "api_key=existing-secret"));
+
+const migrationRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-ledger-migration-"));
+const migrationIdentity = {
+  batchFingerprint: "migration-batch",
+  recordId: "migration-record",
+  expectedSlotCount: 2,
+  providerIdentity: "migration-provider",
+  sourceImageDigest: "migration-source"
+};
+const legacyOne = initializePaidImageProductLedger({ rootDir: path.join(migrationRoot, "legacy-one"), ...migrationIdentity });
+const legacyTwo = initializePaidImageProductLedger({ rootDir: path.join(migrationRoot, "legacy-two"), ...migrationIdentity });
+const shared = initializePaidImageProductLedger({ rootDir: path.join(migrationRoot, "shared"), ...migrationIdentity });
+for (const [product, providerTaskId] of [[legacyOne, "legacy-task-one"], [legacyTwo, "legacy-task-two"]]) {
+  reservePaidImageSlot({ productDir: product.productDir, slot: 1, requestDigest: "request-one", promptDigest: "prompt-one", owner: ownerA });
+  recordPaidImageSubmitted({ productDir: product.productDir, slot: 1, providerTaskId });
+}
+reservePaidImageSlot({ productDir: legacyOne.productDir, slot: 2, requestDigest: "request-two", promptDigest: "prompt-two", owner: ownerA });
+recordPaidImageSubmitted({ productDir: legacyOne.productDir, slot: 2, providerTaskId: "completed-task" });
+const completedMigrationSource = path.join(migrationRoot, "completed.png");
+fs.writeFileSync(completedMigrationSource, "completed-result");
+recordPaidImageCompleted({ productDir: legacyOne.productDir, slot: 2, sourceFile: completedMigrationSource });
+assert.equal(
+  migrateLegacyPaidImageProductLedgers({
+    productDir: shared.productDir,
+    legacyProductDirs: [legacyOne.productDir, legacyTwo.productDir]
+  }),
+  2
+);
+assert.equal(
+  resolvePaidImageSlotAction({ productDir: shared.productDir, slot: 1 }).action,
+  "blocked_ambiguous",
+  "Multiple historical provider task IDs for one paid slot must migrate to a fail-closed ambiguous state."
+);
+assert.equal(
+  resolvePaidImageSlotAction({ productDir: shared.productDir, slot: 2 }).action,
+  "reuse",
+  "A valid completed historical paid image must migrate into the shared project ledger for reuse."
+);
+fs.rmSync(migrationRoot, { recursive: true, force: true });
 
 console.log("paid image submission ledger tests passed");

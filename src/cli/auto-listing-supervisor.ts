@@ -19,6 +19,7 @@ import {
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
+import { atomicWriteJson } from "../utils/atomic-file.js";
 
 type InitialMode = "resume" | "full";
 
@@ -221,8 +222,7 @@ function forceTerminateProcessGroup(pid: number): void {
 }
 
 function writeAutoListingControllerChildControl(pid: number, label: string): void {
-  fs.mkdirSync(path.dirname(childControlFile), { recursive: true });
-  fs.writeFileSync(childControlFile, `${JSON.stringify({ pid, label, startedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+  atomicWriteJson(childControlFile, { pid, label, startedAt: new Date().toISOString() });
 }
 
 function clearAutoListingControllerChildControl(pid: number): void {
@@ -233,18 +233,13 @@ function clearAutoListingControllerChildControl(pid: number): void {
 }
 
 function writeExternalServiceWait(reason: string, retryDelayMs: number, attempt: number): void {
-  fs.mkdirSync(path.dirname(externalServiceWaitFile), { recursive: true });
-  fs.writeFileSync(
-    externalServiceWaitFile,
-    `${JSON.stringify({
-      supervisorPid: process.pid,
-      status: "external_service_wait",
-      reason,
-      attempt,
-      retryAt: new Date(Date.now() + retryDelayMs).toISOString()
-    }, null, 2)}\n`,
-    "utf8"
-  );
+  atomicWriteJson(externalServiceWaitFile, {
+    supervisorPid: process.pid,
+    status: "external_service_wait",
+    reason,
+    attempt,
+    retryAt: new Date(Date.now() + retryDelayMs).toISOString()
+  });
 }
 
 function clearExternalServiceWait(): void {

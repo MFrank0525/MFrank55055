@@ -4,6 +4,7 @@ import type { Locator, Page } from "playwright";
 import { launchPersistentBrowser } from "../browser/launch.js";
 import { getSelectAllShortcut } from "../utils/platform.js";
 import { logInfo, logWarn } from "../utils/logger.js";
+import { atomicWriteJson } from "../utils/atomic-file.js";
 import { classifyAssets, validateMainImageAspectRatio } from "./publish-from-spu/assets.js";
 import {
   FIXED_FREIGHT_TEMPLATE_KEYWORD,
@@ -112,8 +113,7 @@ async function savePageScreenshot(page: Page, runtimeDir: string, fileName: stri
 
 function writePublishJobResult(result: PublishFromSpuJobResult): PublishFromSpuJobResult {
   const resultFile = result.artifacts.resultFile || path.join(result.runtimeDir, "result.json");
-  fs.mkdirSync(path.dirname(resultFile), { recursive: true });
-  fs.writeFileSync(resultFile, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  atomicWriteJson(resultFile, result);
   return result;
 }
 

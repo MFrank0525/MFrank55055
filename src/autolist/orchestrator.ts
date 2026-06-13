@@ -32,6 +32,7 @@ import { assertRuleTextIntegrity } from "./rule-text.js";
 import { applyResumeTaskId, createEvent, createRunState, failTask, getPlannedSteps, markRunCompleted, markRunFailed, markRunPaused, recordTaskProgress } from "./state-machine.js";
 import { assertDoudianPublishSessionReady } from "../business/publish-from-spu.js";
 import { logError, logInfo, setLogFile } from "../utils/logger.js";
+import { atomicWriteJson } from "../utils/atomic-file.js";
 import { loadPublishManifest, type PublishProductIdentity } from "./publish-manifest.js";
 import { isProductFullyProcessed } from "./processed-completion-rules.js";
 import type {
@@ -117,8 +118,7 @@ function filterResumeSourceImage(images: string[], resumeSourceImagePath: string
 }
 
 function writeJson(filePath: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  atomicWriteJson(filePath, value);
 }
 
 function redactSensitiveText(value: string): string {

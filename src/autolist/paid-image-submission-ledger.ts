@@ -72,6 +72,11 @@ export interface InitializePaidImageProductLedgerInput {
   sourceImageDigest: string;
 }
 
+export interface MigrateLegacyPaidImageProductLedgersInput {
+  productDir: string;
+  legacyProductDirs: string[];
+}
+
 export interface ReservePaidImageSlotInput {
   productDir: string;
   slot: number;
@@ -649,6 +654,86 @@ export function initializePaidImageProductLedger(input: InitializePaidImageProdu
   } finally {
     releaseExclusiveLock(lockFile, lockMetadata);
   }
+}
+
+export function migrateLegacyPaidImageProductLedgers(input: MigrateLegacyPaidImageProductLedgersInput): number {
+  const currentProduct = readJson(productFile(input.productDir)) as PaidImageProductLedger;
+  let migrated = 0;
+  for (let slot = 1; slot <= currentProduct.expectedSlotCount; slot += 1) {
+    if (readSlotRecord(input.productDir, slot)) {
+      continue;
+    }
+    const candidates = input.legacyProductDirs
+      .filter((directory) => path.resolve(directory) !== path.resolve(input.productDir))
+      .flatMap((directory) => {
+        const legacyProductFile = productFile(directory);
+        const legacySlotFile = slotFile(directory, slot);
+        if (!fs.existsSync(legacyProductFile) || !fs.existsSync(legacySlotFile)) {
+          return [];
+        }
+        const legacyProduct = readJson(legacyProductFile) as PaidImageProductLedger;
+        if (
+          legacyProduct.batchFingerprint !== currentProduct.batchFingerprint ||
+          legacyProduct.recordId !== currentProduct.recordId ||
+          legacyProduct.providerIdentity !== currentProduct.providerIdentity ||
+          legacyProduct.sourceImageDigest !== currentProduct.sourceImageDigest
+        ) {
+          return [];
+        }
+        return [validateSlotRecord(readSlotJson(legacySlotFile), slot)];
+      });
+    if (!candidates.length) {
+      continue;
+    }
+    const identities = new Set(candidates.map((record) => `${record.requestDigest}:${record.promptDigest}`));
+    if (identities.size !== 1) {
+      throw new Error(`legacy paid image ledger identity conflict for slot ${slot}`);
+    }
+    const newest = [...candidates].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+    const completed = candidates
+      .filter(
+        (record) =>
+          record.state === "completed" &&
+          Boolean(record.resultFile && record.resultDigest) &&
+          fs.existsSync(record.resultFile!) &&
+          sha256File(record.resultFile!) === record.resultDigest
+      )
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+    let selected: PaidImageSlotRecord;
+    if (completed) {
+      const resultFile = path.join(input.productDir, "results", `${String(slot).padStart(2, "0")}.png`);
+      fs.copyFileSync(completed.resultFile!, resultFile);
+      selected = {
+        ...completed,
+        resultFile,
+        resultDigest: sha256File(resultFile),
+        updatedAt: new Date().toISOString(),
+        audit: [...completed.audit, { state: "completed", at: new Date().toISOString(), reason: "migrated from legacy runtime ledger" }]
+      };
+    } else {
+      const submittedTaskIds = new Set(candidates.filter((record) => record.state === "submitted").map((record) => record.providerTaskId));
+      selected =
+        submittedTaskIds.size === 1 && candidates.every((record) => record.state === "submitted")
+          ? newest
+          : {
+              ...newest,
+              state: "ambiguous",
+              reason: "multiple or unsafe legacy paid submissions require operator reconciliation",
+              updatedAt: new Date().toISOString(),
+              audit: [
+                ...newest.audit,
+                {
+                  state: "ambiguous",
+                  at: new Date().toISOString(),
+                  reason: "multiple or unsafe legacy paid submissions require operator reconciliation"
+                }
+              ]
+            };
+    }
+    atomicWriteJson(slotFile(input.productDir, slot), selected);
+    migrated += 1;
+  }
+  return migrated;
 }
 
 function actionForRecord(record: PaidImageSlotRecord): PaidImageSlotAction {
