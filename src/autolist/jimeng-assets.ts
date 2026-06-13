@@ -24,6 +24,7 @@ import {
   paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
+  recordPaidImageFailedAfterAcceptance,
   recordPaidImageFailedBeforeAcceptance,
   recordPaidImageSubmitted,
   reservePaidImageSlot,
@@ -95,7 +96,12 @@ export function summarizeVideosBase64PaidResumePlan(
   }
   for (const slot of requestedSlots) {
     const action = resolvePaidImageSlotAction({ productDir, slot }).action;
-    if (action === "submit" || action === "missing" || action === "retry_failed_before_acceptance") {
+    if (
+      action === "submit" ||
+      action === "missing" ||
+      action === "retry_failed_before_acceptance" ||
+      action === "retry_failed_after_acceptance"
+    ) {
       plan.submitSlots.push(slot);
     } else if (action === "reuse") {
       plan.reuseSlots.push(slot);
@@ -572,6 +578,23 @@ function videosBase64Succeeded(payload: any): boolean {
 
 function videosBase64Failed(payload: any): boolean {
   return ["failed", "cancelled", "canceled"].includes(String(payload?.status ?? payload?.data?.status ?? "").toLowerCase());
+}
+
+function formatProviderFailureReason(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "unknown error";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(redactImageGenerationLogValue(value)).slice(0, 500);
+  } catch {
+    return String(value);
+  }
 }
 
 function extractVideosBase64ResultUrl(payload: any): string {
@@ -1138,7 +1161,11 @@ async function generateWithOpenAiCompatibleProvider(options: {
         productDir: videosBase64Ledger.productDir,
         slot: ledgerSlot
       });
-      if (slotAction.action === "missing" || slotAction.action === "retry_failed_before_acceptance") {
+      if (
+        slotAction.action === "missing" ||
+        slotAction.action === "retry_failed_before_acceptance" ||
+        slotAction.action === "retry_failed_after_acceptance"
+      ) {
         slotAction = reservePaidImageSlot({
           productDir: videosBase64Ledger.productDir,
           slot: ledgerSlot,
@@ -1266,9 +1293,9 @@ async function generateWithOpenAiCompatibleProvider(options: {
       options.onProgress?.(`Image ${absoluteImageIndex}: videos-base64 task ${taskId} status ${status} ${progress}.`.trim());
     }
     if (videosBase64Failed(statusPayload)) {
-      const errorMessage = statusPayload?.error ?? statusPayload?.data?.error ?? "unknown error";
+      const errorMessage = formatProviderFailureReason(statusPayload?.error ?? statusPayload?.data?.error);
       if (videosBase64Ledger) {
-        recordPaidImageAmbiguous({
+        recordPaidImageFailedAfterAcceptance({
           productDir: videosBase64Ledger.productDir,
           slot: ledgerSlot,
           reason: `provider task failed: ${errorMessage}`,

@@ -15,6 +15,7 @@ import {
   initializePaidImageProductLedger,
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
+  recordPaidImageFailedAfterAcceptance,
   reconcileAmbiguousPaidImageNoAcceptance,
   recordPaidImageSubmitted,
   reservePaidImageSlot
@@ -40,6 +41,7 @@ assert.match(source, /resolveVideosBase64TaskUrl/);
 assert.match(source, /extractVideosBase64ResultUrl/);
 assert.match(source, /\/content/);
 assert.match(source, /recordPaidImageAmbiguous/);
+assert.match(source, /recordPaidImageFailedAfterAcceptance/);
 assert.match(source, /recordPaidImageFailedBeforeAcceptance/);
 assert.match(source, /\[redacted base64 image data url\]/);
 assert.match(source, /generateVideosBase64Image/);
@@ -106,6 +108,7 @@ assert.match(ruleDoc, /进入发布前.*固定 raw 槽位完整性/s);
 assert.match(ruleDoc, /提交准入并发.*默认.*2.*最高.*4/s);
 assert.match(ruleDoc, /已取得.*任务 ID.*状态查询.*结果下载.*传输层瞬断.*同一任务.*退避重试/s);
 assert.match(ruleDoc, /ambiguous.*reserved.*优先.*付费安全阻塞/s);
+assert.match(ruleDoc, /failed_after_acceptance.*固定 slot.*允许.*重试/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
@@ -127,6 +130,7 @@ assert.equal(
     submitted: 1,
     completed: 18,
     failedBeforeAcceptance: 0,
+    failedAfterAcceptance: 0,
     ambiguous: 1
   }),
   "safety_block"
@@ -139,6 +143,7 @@ assert.equal(
     submitted: 2,
     completed: 18,
     failedBeforeAcceptance: 0,
+    failedAfterAcceptance: 0,
     ambiguous: 0
   }),
   "retryable_external_wait"
@@ -182,6 +187,55 @@ reconcileAmbiguousPaidImageNoAcceptance({
   reason: "provider dashboard has no task id and no charge for slot 3"
 });
 assert.deepEqual(summarizeVideosBase64PaidResumePlan(product.productDir, [1, 2, 3, 4]), {
+  requestedSlots: [1, 2, 3, 4],
+  submitSlots: [3],
+  reuseSlots: [1, 2, 4],
+  pollSlots: [],
+  blockedSlots: []
+});
+
+const providerFailedProduct = initializePaidImageProductLedger({
+  rootDir: path.join(tmp, "provider-failed-ledger"),
+  batchFingerprint: "batch-provider-failed",
+  recordId: "record-provider-failed",
+  expectedSlotCount: 4,
+  providerIdentity: "provider-a",
+  sourceImageDigest: "source-a"
+});
+for (const slot of [1, 2, 4]) {
+  reservePaidImageSlot({
+    productDir: providerFailedProduct.productDir,
+    slot,
+    requestDigest: `provider-failed-request-${slot}`,
+    promptDigest: `provider-failed-prompt-${slot}`,
+    owner: { runId: "run-a", taskId: "image-001" }
+  });
+  recordPaidImageSubmitted({
+    productDir: providerFailedProduct.productDir,
+    slot,
+    providerTaskId: `provider-failed-task-${slot}`
+  });
+  recordPaidImageCompleted({ productDir: providerFailedProduct.productDir, slot, sourceFile: completedImage });
+}
+reservePaidImageSlot({
+  productDir: providerFailedProduct.productDir,
+  slot: 3,
+  requestDigest: "provider-failed-request-3",
+  promptDigest: "provider-failed-prompt-3",
+  owner: { runId: "run-a", taskId: "image-001" }
+});
+recordPaidImageSubmitted({
+  productDir: providerFailedProduct.productDir,
+  slot: 3,
+  providerTaskId: "provider-failed-task-3"
+});
+recordPaidImageFailedAfterAcceptance({
+  productDir: providerFailedProduct.productDir,
+  slot: 3,
+  reason: "provider task failed: upstream failed",
+  providerResponse: { id: "provider-failed-task-3", status: "failed", error: { message: "upstream failed" } }
+});
+assert.deepEqual(summarizeVideosBase64PaidResumePlan(providerFailedProduct.productDir, [1, 2, 3, 4]), {
   requestedSlots: [1, 2, 3, 4],
   submitSlots: [3],
   reuseSlots: [1, 2, 4],

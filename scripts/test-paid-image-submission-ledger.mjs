@@ -13,7 +13,9 @@ import {
   paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
+  recordPaidImageFailedAfterAcceptance,
   recordPaidImageFailedBeforeAcceptance,
+  reconcileAmbiguousPaidImageProviderFailure,
   reconcileAmbiguousPaidImageNoAcceptance,
   reconcileAmbiguousPaidImageTask,
   recordPaidImageSubmitted,
@@ -416,6 +418,62 @@ assert.equal(resolvePaidImageSlotAction({ productDir, slot: 4 }).action, "poll")
 
 reservePaidImageSlot({
   productDir,
+  slot: 7,
+  requestDigest: "request-7",
+  promptDigest: "prompt-7",
+  owner: ownerA
+});
+recordPaidImageSubmitted({ productDir, slot: 7, providerTaskId: "provider-task-7" });
+const failedAfterAcceptance = recordPaidImageFailedAfterAcceptance({
+  productDir,
+  slot: 7,
+  reason: "provider task failed: upstream model failed",
+  providerResponse: { id: "provider-task-7", status: "failed", progress: 100, error: { message: "upstream model failed" } }
+});
+assert.equal(failedAfterAcceptance.state, "failed_after_acceptance");
+assert.equal(
+  resolvePaidImageSlotAction({ productDir, slot: 7 }).action,
+  "retry_failed_after_acceptance",
+  "provider-accepted tasks that explicitly fail must retry only the same fixed slot"
+);
+const failedAfterAcceptanceRetry = reservePaidImageSlot({
+  productDir,
+  slot: 7,
+  requestDigest: "request-7",
+  promptDigest: "prompt-7",
+  owner: ownerB
+});
+assert.equal(failedAfterAcceptanceRetry.action, "submit");
+assert.deepEqual(
+  failedAfterAcceptanceRetry.record.audit.map((entry) => entry.state),
+  ["reserved", "submitted", "failed_after_acceptance", "reserved"]
+);
+
+reservePaidImageSlot({
+  productDir,
+  slot: 8,
+  requestDigest: "request-8",
+  promptDigest: "prompt-8",
+  owner: ownerA
+});
+recordPaidImageSubmitted({ productDir, slot: 8, providerTaskId: "provider-task-8" });
+recordPaidImageAmbiguous({
+  productDir,
+  slot: 8,
+  reason: "provider task failed: legacy classification",
+  providerResponse: { id: "provider-task-8", status: "failed", error: { message: "legacy failed task" } }
+});
+const reconciledProviderFailure = reconcileAmbiguousPaidImageProviderFailure({
+  productDir,
+  slot: 8,
+  providerTaskId: "provider-task-8",
+  reason: "legacy ambiguous slot was an explicit provider task failure"
+});
+assert.equal(reconciledProviderFailure.state, "failed_after_acceptance");
+assert.equal(resolvePaidImageSlotAction({ productDir, slot: 8 }).action, "retry_failed_after_acceptance");
+
+reservePaidImageSlot({
+  productDir,
   slot: 6,
   requestDigest: "request-6",
   promptDigest: "prompt-6",
@@ -472,11 +530,12 @@ assert.throws(() => recordPaidImageCompleted({ productDir, slot: 3, sourceFile: 
 const summary = summarizePaidImageProductLedger(productDir);
 assert.deepEqual(summary, {
   expectedSlotCount: 20,
-  missing: 14,
-  reserved: 2,
+  missing: 12,
+  reserved: 3,
   submitted: 2,
   completed: 1,
   failedBeforeAcceptance: 0,
+  failedAfterAcceptance: 1,
   ambiguous: 1
 });
 

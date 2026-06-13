@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   readPaidImageSlotRecord,
   reconcileAmbiguousPaidImageNoAcceptance,
+  reconcileAmbiguousPaidImageProviderFailure,
   reconcileAmbiguousPaidImageTask
 } from "../autolist/paid-image-submission-ledger.js";
 import { validatePaidImageProviderTaskForReconciliation } from "../autolist/paid-image-reconciliation.js";
@@ -47,6 +48,17 @@ async function main(): Promise<void> {
   const productDir = path.resolve(requireArg(args, "--product-dir"));
   const slot = Number(requireArg(args, "--slot"));
   const reason = requireArg(args, "--reason");
+  if (args.has("--provider-failure")) {
+    const taskId = requireArg(args, "--task-id");
+    const record = reconcileAmbiguousPaidImageProviderFailure({
+      productDir,
+      slot,
+      providerTaskId: taskId,
+      reason
+    });
+    console.log(JSON.stringify({ ok: true, productDir, slot, taskId, providerFailure: true, ledgerState: record.state }, null, 2));
+    return;
+  }
   if (args.has("--no-provider-task")) {
     if (args.has("--task-id")) {
       throw new Error("--task-id cannot be used with --no-provider-task");

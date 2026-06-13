@@ -115,13 +115,13 @@
 26. 主图断点复用只允许读取当前 `runtimeDir/tasks/<taskId>` 自身已经落地的 raw、异步 task ID 和 staged 文件。禁止从其他历史 run 复制 raw 主图；飞书 `recordId`、SPU、商品名或源图路径在新批次中可能重复，均不能作为跨 run 主图复用依据。
 27. `videos-base64` 付费提交权限账本必须由项目自身持久化到 `data/auto-listing/paid-image-submissions/<批次>/<recordId>/`，禁止放在 `runtimeDir` 或 task 临时目录。每个固定图片位 `01-20` 的身份只由当前飞书批次、recordId 和固定 slot 决定，不得随恢复进度、runtimeDir 或 taskId 改变。
 28. 20 个付费 slot 和 5 个提示词轮次允许并发 worker，但提交动作必须经过共享有界准入；父流程必须等待全部并发 worker settle 后才能退出。单个 worker 失败时，其他已提交 worker仍必须被持续观察并落账，禁止因 `Promise.all` 提前 reject 留下无人管理的付费任务。
-29. 提交请求只有在供应商明确证明“未受理”时才能标记为 `failed_before_acceptance` 并允许重试。`429/5xx`、超时、断线、非 JSON、缺失 task ID 等不确定结果必须标记为 `ambiguous`。整轮失败分类必须读取持久付费账本；账本存在 `ambiguous` 或 `reserved` 时，必须优先报告付费安全阻塞，项目 supervisor 必须停止自动重启，禁止把汇总错误中的普通 `fetch failed` 误判为可等待重试。
+29. 提交请求只有在供应商明确证明“未受理”时才能标记为 `failed_before_acceptance` 并允许重试。已经取得 task ID 后，供应商任务明确失败、取消或拒绝时必须标记为 `failed_after_acceptance`，保留已受理/可能已计费的审计记录，但该固定 slot 允许在后续续跑中重新提交补图。`429/5xx`、超时、断线、非 JSON、缺失 task ID 等不确定结果必须标记为 `ambiguous`。整轮失败分类必须读取持久付费账本；账本存在 `ambiguous` 或 `reserved` 时，必须优先报告付费安全阻塞，项目 supervisor 必须停止自动重启，禁止把汇总错误中的普通 `fetch failed` 误判为可等待重试。
 30. 部分图片恢复后，固定 slot 不得重新编号。每个提示词轮次固定占用自己的 4 个 slot；已恢复图片只让项目轮询、复用或补齐对应缺失 slot。
 31. 项目级共享账本首次接管旧运行目录时，必须自动导入同一批次、同一飞书 recordId、同一供应商和同一源图的历史 `paid-image-ledger`。历史 slot 有有效完成结果时迁移后复用；同一 slot 存在多个 task ID、保留态或其他不安全分歧时必须迁移为 `ambiguous` 并阻断，禁止选择其中一个继续或再次提交。
 32. 项目级共享账本只属于当前批次未完成产品的恢复控制状态，不是历史主图库。产品确认安全发布、无水印主图归档完成并准备写入 processed manifest 时，必须立即删除该产品账本；批次完成时必须删除整个批次账本；明确重跑当前批次时也必须先删除整个批次账本，强制重新生图。
 33. `videos-base64` 提交等待时间必须与普通下载/状态查询超时分离，默认至少覆盖该供应商的完整异步轮询窗口。供应商已经受理但提交响应较慢时，项目必须继续等待任务 ID，不能因为普通 180 秒请求超时提前制造 `ambiguous` 槽位。
-34. 无法自动找回任务 ID 的 `ambiguous` 槽位永久禁止因时间经过而自动重新提交。只有通过项目自有的显式对账恢复动作，验证供应商任务 ID 和状态、确认任务未失败并写入审计原因后，才能把该槽位恢复为 `submitted`；恢复后只允许轮询同一个任务 ID。若中转站后台明确证明该槽位未受理、无任务 ID 且未扣费，操作员必须写入证据原因并通过显式无任务对账把该槽位恢复为 `failed_before_acceptance`，随后才允许正常重试提交。
-35. 断点恢复必须按固定文件槽位识别已有和缺失图片，禁止按已有文件数量推算下一槽位。例如当前轮存在 `generated-02/03/04` 且缺少 `generated-01` 时，只能恢复或补齐第 1 张，不能重复复用第 4 张凑数量；staged 文件必须与同槽位 raw 原图一一对应。`videos-base64` 每轮续跑进入 provider 前必须输出固定缺失 slot、真正付费提交 slot、复用 slot 和轮询 slot；真正提交数量必须等于当前账本中 missing 或 `failed_before_acceptance` 的固定 slot 数，禁止因本地 raw/staged 缺失而重新提交已完成账本 slot。
+34. 无法自动找回任务 ID 的 `ambiguous` 槽位永久禁止因时间经过而自动重新提交。只有通过项目自有的显式对账恢复动作，验证供应商任务 ID 和状态、确认任务未失败并写入审计原因后，才能把该槽位恢复为 `submitted`；恢复后只允许轮询同一个任务 ID。若中转站后台明确证明该槽位未受理、无任务 ID 且未扣费，操作员必须写入证据原因并通过显式无任务对账把该槽位恢复为 `failed_before_acceptance`，随后才允许正常重试提交。若旧版本把“供应商任务明确失败”误记为 `ambiguous`，只能通过项目自有的显式 provider-failure 对账动作，把同一 task ID 的槽位转为 `failed_after_acceptance` 后再允许只补该固定 slot。
+35. 断点恢复必须按固定文件槽位识别已有和缺失图片，禁止按已有文件数量推算下一槽位。例如当前轮存在 `generated-02/03/04` 且缺少 `generated-01` 时，只能恢复或补齐第 1 张，不能重复复用第 4 张凑数量；staged 文件必须与同槽位 raw 原图一一对应。`videos-base64` 每轮续跑进入 provider 前必须输出固定缺失 slot、真正付费提交 slot、复用 slot 和轮询 slot；真正提交数量必须等于当前账本中 missing、`failed_before_acceptance` 或 `failed_after_acceptance` 的固定 slot 数，禁止因本地 raw/staged 缺失而重新提交已完成账本 slot。
 36. 续跑控制器在进入发布前必须重新验证每个已存在主图轮次的固定 raw 槽位完整性。任一轮次缺少 `generated-01..04` 中的任何槽位时，即使旧状态已记录为发布阶段，也必须强制回到 `main_images_generated` 修复并验证，禁止信任旧的“主图完成”标记直接发布。
 
 ## 失败条件

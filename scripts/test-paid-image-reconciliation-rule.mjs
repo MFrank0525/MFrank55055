@@ -43,11 +43,14 @@ assert.throws(
 );
 assert.match(cliSource, /reconcileAmbiguousPaidImageTask/);
 assert.match(cliSource, /reconcileAmbiguousPaidImageNoAcceptance/);
+assert.match(cliSource, /reconcileAmbiguousPaidImageProviderFailure/);
 assert.match(cliSource, /validatePaidImageProviderTaskForReconciliation/);
 assert.match(cliSource, /readPaidImageSlotRecord/);
 assert.match(cliSource, /Authorization: "Bearer " \+ config\.apiKey/);
 assert.match(cliSource, /--no-provider-task/);
+assert.match(cliSource, /--provider-failure/);
 assert.match(packageJson.scripts["auto-listing:reconcile-paid-image-task"], /reconcile-paid-image-task/);
 assert.match(ruleDoc, /显式对账恢复/);
 assert.match(ruleDoc, /验证供应商任务 ID 和状态/);
 assert.match(ruleDoc, /未受理/);
+assert.match(ruleDoc, /供应商任务明确失败/);

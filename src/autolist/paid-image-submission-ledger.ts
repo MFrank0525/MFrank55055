@@ -3,7 +3,13 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-export type PaidImageSlotState = "reserved" | "submitted" | "completed" | "failed_before_acceptance" | "ambiguous";
+export type PaidImageSlotState =
+  | "reserved"
+  | "submitted"
+  | "completed"
+  | "failed_before_acceptance"
+  | "failed_after_acceptance"
+  | "ambiguous";
 
 export interface PaidImageSlotAuditEntry {
   state: PaidImageSlotState;
@@ -53,6 +59,7 @@ export interface PaidImageLedgerSummary {
   submitted: number;
   completed: number;
   failedBeforeAcceptance: number;
+  failedAfterAcceptance: number;
   ambiguous: number;
 }
 
@@ -61,7 +68,7 @@ export type PaidImageSlotAction =
   | { action: "poll"; record: PaidImageSlotRecord; providerTaskId: string }
   | { action: "reuse"; record: PaidImageSlotRecord; resultFile: string }
   | { action: "blocked_reserved" | "blocked_ambiguous"; record: PaidImageSlotRecord }
-  | { action: "missing" | "retry_failed_before_acceptance"; record?: PaidImageSlotRecord };
+  | { action: "missing" | "retry_failed_before_acceptance" | "retry_failed_after_acceptance"; record?: PaidImageSlotRecord };
 
 export interface InitializePaidImageProductLedgerInput {
   rootDir: string;
@@ -111,6 +118,13 @@ export interface ReconcileAmbiguousPaidImageNoAcceptanceInput {
   reason: string;
 }
 
+export interface ReconcileAmbiguousPaidImageProviderFailureInput {
+  productDir: string;
+  slot: number;
+  providerTaskId: string;
+  reason: string;
+}
+
 export interface RecordPaidImageCompletedInput {
   productDir: string;
   slot: number;
@@ -130,11 +144,19 @@ export interface RecordPaidImageFailedBeforeAcceptanceInput {
   reason: string;
 }
 
+export interface RecordPaidImageFailedAfterAcceptanceInput {
+  productDir: string;
+  slot: number;
+  reason: string;
+  providerResponse?: unknown;
+}
+
 const states = new Set<PaidImageSlotState>([
   "reserved",
   "submitted",
   "completed",
   "failed_before_acceptance",
+  "failed_after_acceptance",
   "ambiguous"
 ]);
 
@@ -791,6 +813,8 @@ function actionForRecord(record: PaidImageSlotRecord): PaidImageSlotAction {
       return { action: "blocked_ambiguous", record };
     case "failed_before_acceptance":
       return { action: "retry_failed_before_acceptance", record };
+    case "failed_after_acceptance":
+      return { action: "retry_failed_after_acceptance", record };
   }
 }
 
@@ -843,7 +867,7 @@ export function reservePaidImageSlot(input: ReservePaidImageSlotInput): PaidImag
       throw new Error(`paid image slot ${input.slot} disappeared after reservation conflict`);
     }
     assertSlotIdentity(existing, input.requestDigest, input.promptDigest);
-    if (existing.state !== "failed_before_acceptance") {
+    if (existing.state !== "failed_before_acceptance" && existing.state !== "failed_after_acceptance") {
       return actionForRecord(existing);
     }
     const reacquired = createReservedRecord(input, existing.audit);
@@ -954,6 +978,30 @@ export function reconcileAmbiguousPaidImageNoAcceptance(
   });
 }
 
+export function reconcileAmbiguousPaidImageProviderFailure(
+  input: ReconcileAmbiguousPaidImageProviderFailureInput
+): PaidImageSlotRecord {
+  if (!isSafeProviderTaskId(input.providerTaskId)) {
+    throw new Error("providerTaskId must be a bounded safe scalar");
+  }
+  validateSlotRange(input.productDir, input.slot);
+  return withSlotLock(input.productDir, input.slot, () => {
+    const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (!record || record.state !== "ambiguous") {
+      throw new Error(`invalid slot reconciliation for slot ${input.slot}: ${record?.state || "missing"} -> failed_after_acceptance`);
+    }
+    if (record.providerTaskId !== input.providerTaskId) {
+      throw new Error(`provider task id mismatch for ambiguous slot ${input.slot}`);
+    }
+    if (!/provider task failed|failed provider task|explicit provider.*fail|legacy ambiguous/i.test(input.reason)) {
+      throw new Error(`provider failure reconciliation reason must state the explicit provider failure evidence`);
+    }
+    return transitionSlotUnlocked(input.productDir, input.slot, ["ambiguous"], "failed_after_acceptance", {
+      reason: cleanText(requireNonEmpty(input.reason, "reason"))
+    });
+  });
+}
+
 export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): PaidImageSlotRecord {
   if (!fs.statSync(input.sourceFile).isFile()) {
     throw new Error(`completed paid image source is not a file: ${input.sourceFile}`);
@@ -1003,6 +1051,13 @@ export function recordPaidImageFailedBeforeAcceptance(input: RecordPaidImageFail
   });
 }
 
+export function recordPaidImageFailedAfterAcceptance(input: RecordPaidImageFailedAfterAcceptanceInput): PaidImageSlotRecord {
+  return transitionSlot(input.productDir, input.slot, ["submitted"], "failed_after_acceptance", {
+    reason: cleanText(requireNonEmpty(input.reason, "reason")),
+    providerResponseSummary: providerResponseSummary(input.providerResponse)
+  });
+}
+
 export function summarizePaidImageProductLedger(productDir: string): PaidImageLedgerSummary {
   const product = readProductLedger(productDir);
   const summary: PaidImageLedgerSummary = {
@@ -1012,6 +1067,7 @@ export function summarizePaidImageProductLedger(productDir: string): PaidImageLe
     submitted: 0,
     completed: 0,
     failedBeforeAcceptance: 0,
+    failedAfterAcceptance: 0,
     ambiguous: 0
   };
   for (const file of fs.readdirSync(path.join(productDir, "slots"))) {
@@ -1036,6 +1092,8 @@ export function summarizePaidImageProductLedger(productDir: string): PaidImageLe
     summary.missing -= 1;
     if (record.state === "failed_before_acceptance") {
       summary.failedBeforeAcceptance += 1;
+    } else if (record.state === "failed_after_acceptance") {
+      summary.failedAfterAcceptance += 1;
     } else {
       summary[record.state] += 1;
     }

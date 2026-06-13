@@ -48,6 +48,7 @@ export interface PaidImageLedgerFailureSummary {
   submitted: number;
   completed: number;
   failedBeforeAcceptance: number;
+  failedAfterAcceptance: number;
   ambiguous: number;
 }
 
