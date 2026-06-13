@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { auditAutoListingContinuity, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { auditAutoListingContinuity, auditCompletedBatchResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
+import { paidImageBatchLedgerDir } from "../autolist/paid-image-submission-ledger.js";
 import type { AutoListingJobFile, AutoListingRunState } from "../autolist/types.js";
 
 interface Args {
@@ -117,6 +118,7 @@ function resolveFromJob(jobFile: string): {
   shopRootDir: string;
   processedImageManifest: string;
   runtimeRootDir: string;
+  paidImageSubmissionLedgerDir: string;
   mainImageExpectedCount: number;
   simulateOnly: boolean;
 } {
@@ -133,6 +135,7 @@ function resolveFromJob(jobFile: string): {
     shopRootDir: path.resolve(job.input.shopRootDir),
     processedImageManifest: path.resolve(job.input.processedImageManifest || "data/auto-listing/processed-images.json"),
     runtimeRootDir: path.resolve(job.input.runtimeRootDir || "data/auto-listing/runs"),
+    paidImageSubmissionLedgerDir: path.resolve(job.input.paidImageSubmissionLedgerDir || "data/auto-listing/paid-image-submissions"),
     mainImageExpectedCount: job.input.mainImageExpectedCount ?? 4,
     simulateOnly: job.input.simulateOnly ?? true
   };
@@ -157,9 +160,10 @@ function printText(input: {
   feishuBatch: ReturnType<typeof summarizeFeishuBatchProgress>;
   generation: ReturnType<typeof auditMainImageGeneration>;
   publish: ReturnType<typeof auditPublishCoverage>;
+  residue: ReturnType<typeof auditCompletedBatchResidue>;
   context: Record<string, string | number | undefined>;
 }): void {
-  const ok = mergeAuditResults([input.continuity, input.generation, input.publish]);
+  const ok = mergeAuditResults([input.continuity, input.generation, input.publish, input.residue]);
   const batchStatus = input.feishuBatch.batchComplete ? "完成" : "待继续";
   const lines = [
     `自动上架审计：${ok ? "通过" : "失败"}`,
@@ -168,12 +172,13 @@ function printText(input: {
     `生图：审计任务 ${input.generation.summary.auditedTaskCount}，生成图片 ${input.generation.summary.generatedImageCount}/${input.generation.summary.expectedImageCount}`,
     `发布：审计任务 ${input.publish.summary.auditedTaskCount}，安全发布 ${input.publish.summary.safelyPublishedCount}/${input.publish.summary.expectedPublishCount}`,
     `本地素材文件：${input.continuity.summary.existingFileCount}`,
+    `历史运行目录：${input.residue.summary.runDirCount}`,
     input.context.runStatus ? `最新运行状态：${input.context.runStatus}` : undefined,
     input.context.discoveredRunImageCount !== undefined ? `最新运行发现产品：${input.context.discoveredRunImageCount}` : undefined
   ].filter(Boolean) as string[];
 
-  printIssueLines(lines, "错误：", [...input.continuity.errors, ...input.generation.errors, ...input.publish.errors]);
-  printIssueLines(lines, "警告：", [...input.continuity.warnings, ...input.generation.warnings, ...input.publish.warnings]);
+  printIssueLines(lines, "错误：", [...input.continuity.errors, ...input.generation.errors, ...input.publish.errors, ...input.residue.errors]);
+  printIssueLines(lines, "警告：", [...input.continuity.warnings, ...input.generation.warnings, ...input.publish.warnings, ...input.residue.warnings]);
 
   console.log(lines.join("\n"));
 }
@@ -215,7 +220,15 @@ async function main(): Promise<void> {
     tasks: state?.tasks || [],
     manifestEntries: manifest.entries
   });
-  const ok = mergeAuditResults([continuity, generation, publish]);
+  const runDirCount = fs.existsSync(resolved.runtimeRootDir)
+    ? fs.readdirSync(resolved.runtimeRootDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[0-9]{8}-[0-9]{6}$/.test(entry.name)).length
+    : 0;
+  const residue = auditCompletedBatchResidue({
+    batchComplete: feishuBatch.batchComplete,
+    runDirCount,
+    paidLedgerBatchExists: fs.existsSync(paidImageBatchLedgerDir(resolved.paidImageSubmissionLedgerDir, batchFingerprint))
+  });
+  const ok = mergeAuditResults([continuity, generation, publish, residue]);
 
   const output = {
     ok,
@@ -232,7 +245,8 @@ async function main(): Promise<void> {
     feishuBatch,
     continuity,
     generation,
-    publish
+    publish,
+    residue
   };
 
   if (args.json) {
@@ -243,6 +257,7 @@ async function main(): Promise<void> {
       feishuBatch,
       generation,
       publish,
+      residue,
       context: {
         runStatus: state?.status,
         discoveredRunImageCount

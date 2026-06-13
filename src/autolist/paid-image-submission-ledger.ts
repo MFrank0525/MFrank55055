@@ -153,10 +153,36 @@ function sanitizePathSegment(value: string, name: string): string {
 export function paidImageProductLedgerDir(rootDir: string, batchFingerprint: string, recordId: string): string {
   requireNonEmpty(rootDir, "rootDir");
   return path.join(
-    path.resolve(rootDir),
-    sanitizePathSegment(batchFingerprint, "batchFingerprint"),
+    paidImageBatchLedgerDir(rootDir, batchFingerprint),
     sanitizePathSegment(recordId, "recordId")
   );
+}
+
+export function paidImageBatchLedgerDir(rootDir: string, batchFingerprint: string): string {
+  requireNonEmpty(rootDir, "rootDir");
+  return path.join(path.resolve(rootDir), sanitizePathSegment(batchFingerprint, "batchFingerprint"));
+}
+
+export function removePaidImageProductLedger(rootDir: string, batchFingerprint: string, recordId: string): boolean {
+  const productDir = paidImageProductLedgerDir(rootDir, batchFingerprint, recordId);
+  if (!fs.existsSync(productDir)) {
+    return false;
+  }
+  fs.rmSync(productDir, { recursive: true, force: true });
+  const batchDir = paidImageBatchLedgerDir(rootDir, batchFingerprint);
+  if (fs.existsSync(batchDir) && fs.readdirSync(batchDir).length === 0) {
+    fs.rmSync(batchDir, { recursive: true, force: true });
+  }
+  return true;
+}
+
+export function removePaidImageBatchLedger(rootDir: string, batchFingerprint: string): boolean {
+  const batchDir = paidImageBatchLedgerDir(rootDir, batchFingerprint);
+  if (!fs.existsSync(batchDir)) {
+    return false;
+  }
+  fs.rmSync(batchDir, { recursive: true, force: true });
+  return true;
 }
 
 function productFile(productDir: string): string {

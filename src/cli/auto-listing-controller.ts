@@ -45,6 +45,7 @@ import {
 } from "../autolist/resume-rules.js";
 import { summarizeReusableTaskArtifacts } from "../autolist/resume-artifacts.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
+import { removePaidImageBatchLedger } from "../autolist/paid-image-submission-ledger.js";
 
 interface RunnerJob {
   pid: number;
@@ -76,6 +77,7 @@ interface AutoListingJobFile {
     feishuBatchFingerprint?: string;
     feishuProductDataFile?: string;
     processedImageManifest?: string;
+    paidImageSubmissionLedgerDir?: string;
     imageGenerationConfigFile?: string;
     imageGenerationProvider?: string;
     shopRootDir?: string;
@@ -771,6 +773,20 @@ function clearCurrentBatchProcessedImages(): boolean {
   const fingerprint = typeof progress?.batchFingerprint === "string" ? progress.batchFingerprint : "";
   const processedManifestFile = path.resolve(rootDir, job?.input?.processedImageManifest || "data/auto-listing/processed-images.json");
   return clearProcessedImagesForBatch(processedManifestFile, fingerprint);
+}
+
+function clearCurrentBatchPaidImageLedger(): boolean {
+  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  const progress = summarizeFeishuProgress();
+  const fingerprint = typeof progress?.batchFingerprint === "string" ? progress.batchFingerprint : "";
+  if (!fingerprint) {
+    return false;
+  }
+  const ledgerRoot = path.resolve(
+    rootDir,
+    job?.input?.paidImageSubmissionLedgerDir || "data/auto-listing/paid-image-submissions"
+  );
+  return removePaidImageBatchLedger(ledgerRoot, fingerprint);
 }
 
 function summarizeCurrentFeishuBatchForResume(): { batchComplete: boolean; pendingSourceImages: string[] } | undefined {
@@ -1788,6 +1804,7 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
       return;
     }
     if (decision === "rerun_current_batch") {
+      clearCurrentBatchPaidImageLedger();
       clearCurrentBatchProcessedImages();
       forceFullFlow = true;
     }

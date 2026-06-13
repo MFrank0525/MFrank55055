@@ -20,6 +20,8 @@ import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
+import { cleanupStaleRunHistory } from "../autolist/cleanup.js";
+import { removePaidImageBatchLedger } from "../autolist/paid-image-submission-ledger.js";
 
 type InitialMode = "resume" | "full";
 
@@ -27,6 +29,7 @@ interface AutoListingJobFile {
   input?: {
     feishuProductDataFile?: string;
     processedImageManifest?: string;
+    paidImageSubmissionLedgerDir?: string;
   };
 }
 
@@ -424,6 +427,26 @@ function readBatchProgress(): { batchComplete: boolean; fingerprint: string; rec
   };
 }
 
+function cleanupCompletedBatchArtifacts(batchFingerprint: string): void {
+  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  const paidImageSubmissionLedgerDir = path.resolve(
+    rootDir,
+    job?.input?.paidImageSubmissionLedgerDir || "data/auto-listing/paid-image-submissions"
+  );
+  removePaidImageBatchLedger(paidImageSubmissionLedgerDir, batchFingerprint);
+  const latestResult = latestTerminalResultAfter(0);
+  const activeRuntimeDir = latestResult ? path.dirname(latestResult.file) : "";
+  if (!activeRuntimeDir) {
+    return;
+  }
+  cleanupStaleRunHistory({
+    runtimeRootDir: path.resolve(rootDir, "data/auto-listing/runs"),
+    activeRuntimeDir,
+    cleanupAfterPublish: true,
+    simulateOnly: false
+  });
+}
+
 function runResume(): Promise<number | null> {
   return runChild("resume-real-job", "npm", [
     "run",
@@ -520,6 +543,7 @@ async function main(): Promise<void> {
     }
 
     if (exitCode === 0 && currentBatch.batchComplete) {
+      cleanupCompletedBatchArtifacts(currentBatch.fingerprint);
       const refreshExitCode = runFeishuAssetsRefresh();
       if (refreshExitCode !== 0) {
         process.exitCode = refreshExitCode ?? 1;

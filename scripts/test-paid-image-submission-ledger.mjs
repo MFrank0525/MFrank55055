@@ -8,6 +8,8 @@ import {
   currentPaidImageLedgerProcessIdentity,
   initializePaidImageProductLedger,
   migrateLegacyPaidImageProductLedgers,
+  removePaidImageBatchLedger,
+  removePaidImageProductLedger,
   paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
@@ -637,5 +639,28 @@ assert.equal(
   "A valid completed historical paid image must migrate into the shared project ledger for reuse."
 );
 fs.rmSync(migrationRoot, { recursive: true, force: true });
+
+const cleanupLedgerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-ledger-cleanup-"));
+const cleanupProductA = initializePaidImageProductLedger({
+  rootDir: cleanupLedgerRoot,
+  batchFingerprint: "cleanup-batch",
+  recordId: "cleanup-record-a",
+  expectedSlotCount: 1,
+  providerIdentity: "cleanup-provider",
+  sourceImageDigest: "cleanup-source-a"
+});
+initializePaidImageProductLedger({
+  rootDir: cleanupLedgerRoot,
+  batchFingerprint: "cleanup-batch",
+  recordId: "cleanup-record-b",
+  expectedSlotCount: 1,
+  providerIdentity: "cleanup-provider",
+  sourceImageDigest: "cleanup-source-b"
+});
+assert.equal(removePaidImageProductLedger(cleanupLedgerRoot, "cleanup-batch", "cleanup-record-a"), true);
+assert.equal(fs.existsSync(cleanupProductA.productDir), false, "A safely completed product ledger must be removable immediately.");
+assert.equal(removePaidImageBatchLedger(cleanupLedgerRoot, "cleanup-batch"), true);
+assert.equal(fs.readdirSync(cleanupLedgerRoot).length, 0, "Confirmed batch rerun or batch completion must remove the whole batch ledger.");
+fs.rmSync(cleanupLedgerRoot, { recursive: true, force: true });
 
 console.log("paid image submission ledger tests passed");

@@ -6,6 +6,7 @@ import { readLatestTaskProgressEvent } from "../dist/src/autolist/progress-event
 import { buildFeishuSellingPointText } from "../dist/src/autolist/selling-point-rules.js";
 import {
   auditAutoListingContinuity,
+  auditCompletedBatchResidue,
   summarizeFeishuBatchProgress,
   auditMainImageGeneration,
   auditPublishCoverage
@@ -199,6 +200,21 @@ assert.match(
   orchestratorSource,
   /Main image completion gate failed[\s\S]*Product folders ready/,
   "Product folders must not be considered ready until the main-image completion gate has passed"
+);
+assert.match(
+  orchestratorSource,
+  /isProductFullyProcessed[\s\S]*appendProcessedImages[\s\S]*removePaidImageProductLedger/,
+  "A safely completed product must be atomically marked processed before its project-owned paid-image ledger is deleted"
+);
+assert.match(
+  hermesSupervisorSource,
+  /currentBatch\.batchComplete[\s\S]*cleanupCompletedBatchArtifacts/,
+  "The project supervisor must clean completed-batch ledgers and stale run history automatically"
+);
+assert.match(
+  hermesRunnerSource,
+  /decision === "rerun_current_batch"[\s\S]*clearCurrentBatchPaidImageLedger[\s\S]*clearCurrentBatchProcessedImages/,
+  "Confirmed current-batch rerun must delete the completed batch paid-image ledger before starting fresh generation"
 );
 assert.match(
   orchestratorSource,
@@ -609,6 +625,34 @@ assert.deepEqual(cleanupTargets.sort(), [
   "/work/input/auto-listing/qualifications/product-1-cert.png"
 ]);
 
+assert.equal(
+  auditCompletedBatchResidue({
+    batchComplete: true,
+    runDirCount: 3,
+    paidLedgerBatchExists: true
+  }).ok,
+  false,
+  "A completed batch with historical runs or a shared paid ledger must fail the project audit"
+);
+assert.equal(
+  auditCompletedBatchResidue({
+    batchComplete: false,
+    runDirCount: 3,
+    paidLedgerBatchExists: true
+  }).ok,
+  true,
+  "Incomplete batches may retain recovery runs and paid ledgers"
+);
+assert.equal(
+  auditCompletedBatchResidue({
+    batchComplete: true,
+    runDirCount: 1,
+    paidLedgerBatchExists: false
+  }).ok,
+  true,
+  "A completed batch may retain only its latest status run and no paid ledger"
+);
+
 assert.deepEqual(
   selectStaleRunHistoryTargets({
     runDirs: [
@@ -665,20 +709,20 @@ const staleRunCleanup = cleanupStaleRunHistory({
   cleanupAfterPublish: true,
   simulateOnly: false
 });
-assert.deepEqual(staleRunCleanup.removedPaths, [oldRunDir]);
+assert.deepEqual(staleRunCleanup.removedPaths, [oldRunDir, nestedPaidImageRunDir, submittedLedgerRunDir]);
 assert.equal(fs.existsSync(oldRunDir), false);
 assert.equal(fs.existsSync(activeRunDir), true);
 assert.equal(fs.existsSync(nonRunDir), true);
 assert.equal(fs.existsSync(protectedPaidImageRunDir), true);
 assert.equal(
   fs.existsSync(nestedPaidImageRunDir),
-  true,
-  "stale run cleanup must automatically preserve nested main-image raw generated files"
+  false,
+  "full-flow stale run cleanup must not permanently preserve an unrelated historical run merely because it contains raw images"
 );
 assert.equal(
   fs.existsSync(submittedLedgerRunDir),
-  true,
-  "stale run cleanup must preserve submitted paid-image ledger slots even before raw images exist"
+  false,
+  "project-level shared ledgers must own paid-task recovery; historical runtime ledgers must not permanently block run cleanup"
 );
 const reusableArtifactRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "reusable-artifacts-"));
 fs.mkdirSync(path.join(reusableArtifactRuntimeDir, "tasks/image-001/paid-image-ledger/batch/record/slots"), { recursive: true });

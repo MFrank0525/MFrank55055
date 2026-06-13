@@ -244,7 +244,7 @@
 42. 主图生成完成是标题、店铺分发、发布和清理前的硬门禁。每个当前商品必须先通过主图完整性审计：总数等于类目计划、每个 Word prompt 的图片数等于计划、raw 无水印文件、staged 水印文件和商品目录均真实存在。任何缺失、重复、数量不足或文件不存在都必须 fail closed，禁止继续进入标题、分发或抖店发布。
 43. 生图前允许做抖店登录预检以避免未登录后浪费图片费用，但项目状态命令对 Hermes 展示的进度必须明确标注为 `login preflight`。登录预检不是发布动作，禁止在状态文案里把它描述成发布进度；真正发布只能在主图、标题、资质、店铺分发全部完成并通过门禁后发生。
 44. `videos-base64` 的单商品 20 张并发提交是允许的，但仅限首次提交当前商品当前批次的 20 个异步 task。同一商品只要已有 task ID、轮询状态、部分 raw 图片或暂存图，任何 `fetch failed`、轮询超时、abort、网络中断都必须进入外部服务等待/续查同一批 task；禁止 supervisor 快速重启生成新的 runtimeDir 后再次提交 20 个付费任务。
-45. 付费图片账本属于项目级控制状态，固定保存在 `data/auto-listing/paid-image-submissions`，不得放在 runtime task 目录。项目 controller/supervisor、清理和续跑都必须尊重该共享账本；Hermes 不读取、不修改账本。
+45. 付费图片账本属于当前未完成产品的项目级恢复控制状态，固定保存在 `data/auto-listing/paid-image-submissions`，不得放在 runtime task 目录。项目 controller/supervisor、清理和续跑都必须尊重该共享账本；Hermes 不读取、不修改账本。产品安全完成后删除产品账本，批次完成或确认重跑时删除整批账本，禁止把共享账本长期保存为历史主图库。
 46. 20 个 slot 和 5 个提示词轮次必须使用 all-settled 协调。任一 worker 失败时必须等待其他 worker 落账后再退出；`reserved` 或 `ambiguous` 是安全阻断，项目 supervisor 禁止自动重启或再次提交。
 
 ## 推荐执行顺序

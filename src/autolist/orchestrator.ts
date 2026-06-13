@@ -35,6 +35,7 @@ import { logError, logInfo, setLogFile } from "../utils/logger.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { loadPublishManifest, type PublishProductIdentity } from "./publish-manifest.js";
 import { isProductFullyProcessed } from "./processed-completion-rules.js";
+import { removePaidImageProductLedger } from "./paid-image-submission-ledger.js";
 import type {
   AutoListingEvent,
   AutoListingJobFile,
@@ -1124,6 +1125,13 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           })
         ) {
           appendProcessedImages(resolved.processedImageManifest, [task.sourceImagePath], feishuBatchFingerprint);
+          if (feishuBatchFingerprint && completedTask.feishuProductRecord?.recordId) {
+            removePaidImageProductLedger(
+              resolved.input.paidImageSubmissionLedgerDir,
+              feishuBatchFingerprint,
+              completedTask.feishuProductRecord.recordId
+            );
+          }
         }
         writeJson(
           resolved.manualsReadFile,

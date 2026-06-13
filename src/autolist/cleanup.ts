@@ -4,7 +4,6 @@ import path from "node:path";
 import { DEFAULT_ARCHIVE_ROOT } from "./archive-main-images.js";
 import { selectCleanupTargets, selectStaleRunHistoryTargets } from "./cleanup-rules.js";
 import { selectMaintenanceResidueTargets } from "./maintenance-rules.js";
-import { runDirHasReusableMainImageArtifacts } from "./resume-artifacts.js";
 import type { CleanupArtifact } from "./types.js";
 
 function pathContains(parent: string, child: string): boolean {
@@ -187,16 +186,6 @@ function collectRunDirs(runtimeRootDir: string): string[] {
     .map((entry) => path.join(runtimeRootDir, entry.name));
 }
 
-function collectReusableRawMainImageRunDirs(runDirs: string[]): string[] {
-  const protectedRunDirs: string[] = [];
-  for (const runDir of runDirs) {
-    if (runDirHasReusableMainImageArtifacts(runDir)) {
-      protectedRunDirs.push(runDir);
-    }
-  }
-  return protectedRunDirs;
-}
-
 export function cleanupStaleRunHistory(options: {
   runtimeRootDir: string;
   activeRuntimeDir: string;
@@ -216,7 +205,7 @@ export function cleanupStaleRunHistory(options: {
   const targets = selectStaleRunHistoryTargets({
     runDirs,
     activeRunDir: options.activeRuntimeDir,
-    protectedRunDirs: [...(options.protectedRunDirs || []), ...collectReusableRawMainImageRunDirs(runDirs)]
+    protectedRunDirs: options.protectedRunDirs || []
   });
 
   for (const target of targets) {

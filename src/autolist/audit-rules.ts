@@ -50,6 +50,16 @@ export interface FeishuBatchProgressSummary {
   batchComplete: boolean;
 }
 
+export interface CompletedBatchResidueAuditResult {
+  ok: boolean;
+  summary: {
+    runDirCount: number;
+    paidLedgerBatchExists: boolean;
+  };
+  errors: AutoListingAuditIssue[];
+  warnings: AutoListingAuditIssue[];
+}
+
 export interface MainImageGenerationAuditInput {
   tasks: ImageTaskState[];
   existingFiles: Iterable<string>;
@@ -123,6 +133,29 @@ function issue(
   filePath?: string
 ): AutoListingAuditIssue {
   return { severity, code, message, recordId, filePath };
+}
+
+export function auditCompletedBatchResidue(input: {
+  batchComplete: boolean;
+  runDirCount: number;
+  paidLedgerBatchExists: boolean;
+}): CompletedBatchResidueAuditResult {
+  const errors: AutoListingAuditIssue[] = [];
+  if (input.batchComplete && input.runDirCount > 1) {
+    errors.push(issue("error", "completed_batch_stale_runs", `Completed batch retains ${input.runDirCount} run directories; at most the latest status run may remain.`));
+  }
+  if (input.batchComplete && input.paidLedgerBatchExists) {
+    errors.push(issue("error", "completed_batch_paid_ledger_residue", "Completed batch still retains a paid-image submission ledger."));
+  }
+  return {
+    ok: errors.length === 0,
+    summary: {
+      runDirCount: input.runDirCount,
+      paidLedgerBatchExists: input.paidLedgerBatchExists
+    },
+    errors,
+    warnings: []
+  };
 }
 
 export function auditAutoListingContinuity(input: AutoListingContinuityAuditInput): AutoListingContinuityAuditResult {
