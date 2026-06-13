@@ -7765,6 +7765,52 @@ async function readPublishSubmissionStateFromContext(
   };
 }
 
+async function waitForPublishSubmissionFromContext(
+  context: Awaited<ReturnType<Page["context"]>>,
+  fallbackPage: Page,
+  publishClickAttempted = false,
+  timeoutMs = 45000
+): Promise<{ page: Page; submitted: boolean; issue: string }> {
+  const deadline = Date.now() + timeoutMs;
+  let lastState: { page: Page; submitted: boolean; issue: string } | null = null;
+
+  while (Date.now() < deadline) {
+    const pages = context.pages().filter((item) => !item.isClosed());
+    const candidates = pages.length ? pages : fallbackPage.isClosed() ? [] : [fallbackPage];
+    for (const candidate of candidates) {
+      attachSafeDialogHandler(candidate);
+      await Promise.race([
+        candidate.waitForLoadState("domcontentloaded", { timeout: 2500 }).catch(() => {}),
+        candidate.waitForTimeout(1200).catch(() => {})
+      ]);
+      await clickVisibleDialogAction(candidate, ["确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
+      await dismissTransientOverlays(candidate).catch(() => {});
+      const state = await candidate
+        .evaluate(() => ({ bodyText: document.body?.innerText || "", url: window.location.href }))
+        .then((snapshot) => evaluatePublishSubmissionAfterAction(snapshot, publishClickAttempted))
+        .catch((error) => ({
+          submitted: false,
+          issue: error instanceof Error ? error.message : String(error),
+          freshCreatePage: false
+        }));
+      lastState = { page: candidate, submitted: state.submitted, issue: state.issue };
+      if (state.submitted) {
+        return { page: candidate, submitted: true, issue: "" };
+      }
+    }
+
+    const waitPage = candidates[0] || fallbackPage;
+    await waitPage.waitForTimeout(1500).catch(() => {});
+  }
+
+  const finalState = await readPublishSubmissionStateFromContext(context, fallbackPage, publishClickAttempted).catch(() => lastState);
+  return finalState || {
+    page: fallbackPage,
+    submitted: false,
+    issue: "No publish success signal was detected after waiting for post-submit navigation."
+  };
+}
+
 async function clickPublishProductOnPage(
   page: Page,
   runtimeDir: string,
@@ -7781,7 +7827,23 @@ async function clickPublishProductOnPage(
   let activeContext = activePage.context();
   for (let attempt = 0; attempt < 2 && !publishClicked; attempt += 1) {
     try {
-      activePage = await recoverUsablePublishPage(activePage);
+      if (publishClickAttempted) {
+        const contextState = await waitForPublishSubmissionFromContext(activeContext, activePage, publishClickAttempted);
+        activePage = contextState.page;
+        if (contextState.submitted) {
+          publishClicked = true;
+          publishIssue = "";
+          break;
+        }
+        publishIssue = contextState.issue || "No publish success signal was detected after clicking 发布商品.";
+        const recoveredEditablePage = await recoverUsablePublishPage(activePage).catch(() => null);
+        if (!recoveredEditablePage) {
+          break;
+        }
+        activePage = recoveredEditablePage;
+      } else {
+        activePage = await recoverUsablePublishPage(activePage);
+      }
       activeContext = activePage.context();
       await dismissTransientOverlays(activePage);
       const publishButton = activePage.getByRole("button", { name: "\u53d1\u5e03\u5546\u54c1" }).first();
@@ -7807,12 +7869,12 @@ async function clickPublishProductOnPage(
           activePage = await recoverUsablePageFromContext(activeContext, "/ffa/g").catch(() => activePage);
         }
         let submissionState = await waitForPublishSubmission(activePage).catch(async () => {
-          const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage, publishClickAttempted);
+          const contextState = await waitForPublishSubmissionFromContext(activeContext, activePage, publishClickAttempted);
           activePage = contextState.page;
           return { submitted: contextState.submitted, issue: contextState.issue };
         });
         if (!submissionState.submitted) {
-          const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage, publishClickAttempted).catch(() => null);
+          const contextState = await waitForPublishSubmissionFromContext(activeContext, activePage, publishClickAttempted).catch(() => null);
           if (contextState?.submitted) {
             activePage = contextState.page;
             submissionState = { submitted: true, issue: "" };
@@ -7831,7 +7893,7 @@ async function clickPublishProductOnPage(
       if (publishClickAttempted) {
         await activePage.waitForTimeout(2500).catch(() => {});
       }
-      const contextState = await readPublishSubmissionStateFromContext(activeContext, activePage, publishClickAttempted).catch(() => null);
+      const contextState = await waitForPublishSubmissionFromContext(activeContext, activePage, publishClickAttempted).catch(() => null);
       if (contextState?.submitted) {
         activePage = contextState.page;
         publishClicked = true;

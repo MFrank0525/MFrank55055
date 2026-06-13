@@ -103,6 +103,7 @@ const hermesSupervisorSource = fs.readFileSync("src/cli/auto-listing-supervisor.
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
+const publishFromSpuSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
 const autoListingCliSource = fs.readFileSync("src/cli/auto-listing.ts", "utf8");
 const resumeSource = fs.readFileSync("src/autolist/resume.ts", "utf8");
 const browserLaunchSource = fs.readFileSync("src/browser/launch.ts", "utf8");
@@ -326,6 +327,11 @@ assert.match(
   publishSource,
   /onProgress\?/,
   "Publish stage must emit per-product progress callbacks instead of only updating publish-manifest"
+);
+assert.match(
+  publishFromSpuSource,
+  /waitForPublishSubmissionFromContext/,
+  "Final submit recovery must poll the browser context for submission outcome after clicking 发布商品 instead of requiring the loading page to become an editable create page again"
 );
 assert.match(
   orchestratorSource,
