@@ -43,7 +43,7 @@ import {
   shouldInvalidatePublishedResumeWithoutProductFolders,
   shouldReplaceStaleResumeStartStep
 } from "../autolist/resume-rules.js";
-import { summarizeReusableTaskArtifacts } from "../autolist/resume-artifacts.js";
+import { hasIncompleteFixedMainImageRoundFiles, summarizeReusableTaskArtifacts } from "../autolist/resume-artifacts.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { removePaidImageBatchLedger } from "../autolist/paid-image-submission-ledger.js";
 
@@ -1399,6 +1399,16 @@ function inferResumeStartStepFromRuntimeFiles(
   runtimeDir: string,
   fallback: ReturnType<typeof inferResumeStartStepForTask>
 ): ReturnType<typeof inferResumeStartStepForTask> {
+  if (
+    task.taskId &&
+    hasIncompleteFixedMainImageRoundFiles({
+      runtimeDir,
+      taskId: task.taskId,
+      expectedImagesPerRound: 4
+    })
+  ) {
+    return "main_images_generated";
+  }
   if (fallback === "published") {
     return fallback;
   }

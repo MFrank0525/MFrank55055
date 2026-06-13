@@ -73,7 +73,10 @@ import {
   shouldInvalidatePublishedResumeWithoutProductFolders,
   shouldReplaceStaleResumeStartStep
 } from "../dist/src/autolist/resume-rules.js";
-import { summarizeReusableTaskArtifacts } from "../dist/src/autolist/resume-artifacts.js";
+import {
+  hasIncompleteFixedMainImageRoundFiles,
+  summarizeReusableTaskArtifacts
+} from "../dist/src/autolist/resume-artifacts.js";
 import { recoverDistributedFoldersFromShopRoot } from "../dist/src/autolist/resume.js";
 import { isProductFullyProcessed } from "../dist/src/autolist/processed-completion-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
@@ -112,6 +115,34 @@ assert.match(
   hermesRunnerSource,
   /inferResumeStartStepForTask/,
   "AutoListingController runner must use resume-rules when building resume jobs so recoverable title-folder states resume at publish"
+);
+assert.match(
+  hermesRunnerSource,
+  /hasIncompleteFixedMainImageRoundFiles[\s\S]*return "main_images_generated"/,
+  "AutoListingController must rewind publish-stage resumes when fixed main-image slots are incomplete"
+);
+
+const incompleteFixedSlotsRun = fs.mkdtempSync(path.join(os.tmpdir(), "incomplete-fixed-slots-"));
+const incompleteFixedSlotsRaw = path.join(
+  incompleteFixedSlotsRun,
+  "tasks",
+  "image-001",
+  "main-image-04",
+  "openai-compatible",
+  "raw"
+);
+fs.mkdirSync(incompleteFixedSlotsRaw, { recursive: true });
+for (const index of [2, 3, 4]) {
+  fs.writeFileSync(path.join(incompleteFixedSlotsRaw, `generated-${String(index).padStart(2, "0")}.png`), String(index));
+}
+assert.equal(
+  hasIncompleteFixedMainImageRoundFiles({ runtimeDir: incompleteFixedSlotsRun, taskId: "image-001", expectedImagesPerRound: 4 }),
+  true
+);
+fs.writeFileSync(path.join(incompleteFixedSlotsRaw, "generated-01.png"), "1");
+assert.equal(
+  hasIncompleteFixedMainImageRoundFiles({ runtimeDir: incompleteFixedSlotsRun, taskId: "image-001", expectedImagesPerRound: 4 }),
+  false
 );
 assert.match(
   hermesRunnerSource,

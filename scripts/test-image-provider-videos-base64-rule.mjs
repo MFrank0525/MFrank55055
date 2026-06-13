@@ -70,6 +70,7 @@ assert.match(ruleDoc, /当前商品.*全部异步任务.*统一轮询/s);
 assert.match(ruleDoc, /其他.*串行/s);
 assert.match(ruleDoc, /禁止 supervisor 快速重启并重新提交/s);
 assert.match(ruleDoc, /固定文件槽位.*禁止按已有文件数量推算/s);
+assert.match(ruleDoc, /进入发布前.*固定 raw 槽位完整性/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);

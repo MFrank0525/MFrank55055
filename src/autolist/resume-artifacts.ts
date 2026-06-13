@@ -7,6 +7,32 @@ export interface ReusableTaskArtifactSummary {
   reusableArtifactCount: number;
 }
 
+export function hasIncompleteFixedMainImageRoundFiles(options: {
+  runtimeDir: string;
+  taskId: string;
+  expectedImagesPerRound: number;
+}): boolean {
+  const taskDir = path.join(options.runtimeDir, "tasks", options.taskId);
+  if (!fs.existsSync(taskDir)) {
+    return false;
+  }
+  const expected = Array.from({ length: options.expectedImagesPerRound }, (_, index) => index + 1);
+  const roundDirs = fs
+    .readdirSync(taskDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^main-image-\d+$/i.test(entry.name))
+    .map((entry) => path.join(taskDir, entry.name, "openai-compatible", "raw"))
+    .filter((dir) => fs.existsSync(dir));
+  return roundDirs.some((rawDir) => {
+    const indexes = new Set(
+      fs.readdirSync(rawDir).flatMap((name) => {
+        const match = /^generated-(\d+).*\.(png|jpe?g|webp)$/i.exec(name);
+        return match ? [Number(match[1])] : [];
+      })
+    );
+    return indexes.size > 0 && expected.some((index) => !indexes.has(index));
+  });
+}
+
 function walkFiles(rootDir: string, visit: (file: string) => void): void {
   if (!fs.existsSync(rootDir)) {
     return;
