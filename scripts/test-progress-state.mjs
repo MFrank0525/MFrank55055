@@ -48,6 +48,7 @@ import {
   isRetryableExternalServiceAvailabilityFailure,
   shouldConsumeSupervisorRecoveryAttempt,
   resolveSupervisorRecoveryDelayMs,
+  resolveSupervisorRecoveryChildMode,
   formatAutoListingControllerCompactStatusText,
   selectAutoListingControllerFailedResumeCandidate,
   resolveAutoListingControllerRealtimeProgressSignal,
@@ -115,6 +116,11 @@ assert.match(
   hermesRunnerSource,
   /inferResumeStartStepForTask/,
   "AutoListingController runner must use resume-rules when building resume jobs so recoverable title-folder states resume at publish"
+);
+assert.match(
+  hermesSupervisorSource,
+  /resolveSupervisorRecoveryChildMode[\s\S]*prepareResumeJob\(\)[\s\S]*nextMode = recoveryMode/,
+  "AutoListingController supervisor must rebuild and execute a resume job for safe resume-stage transitions"
 );
 assert.match(
   hermesRunnerSource,
@@ -1575,10 +1581,25 @@ assert.equal(
     exitCode: 1,
     batchComplete: false,
     retryableFailureMessage: "Refusing to generate paid titles while product folders already contain workbook(s): /work/shop/product-1 -> title.xlsx",
+    activeStep: "titles_generated",
+    activeMessage: "Title workbooks already exist; resume must continue from publishing.",
     recoveryAttempts: 0,
     maxRecoveryAttempts: 3
   }),
-  false
+  true,
+  "AutoListingController resume children must rebuild the resume job and continue from publishing when title workbooks already exist"
+);
+assert.equal(
+  resolveSupervisorRecoveryChildMode(
+    "Refusing to generate paid titles while product folders already contain workbook(s): /work/shop/product-1 -> title.xlsx"
+  ),
+  "resume",
+  "Title-workbook collisions are safe resume-stage transitions and must not restart the full flow"
+);
+assert.equal(
+  resolveSupervisorRecoveryChildMode("failed at main_images_generated: fetch failed"),
+  "full",
+  "Ordinary retryable failures must keep the existing full-flow recovery behavior"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({

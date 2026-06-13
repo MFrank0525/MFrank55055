@@ -1909,7 +1909,26 @@ async function main(): Promise<void> {
     console.log(text ? String(result.message) : JSON.stringify(result, null, 2));
     return;
   }
-  throw new Error("Usage: auto-listing-controller <start|status|pause|resume-ready> [--dry-run] [--text] [--rerun-current-batch]");
+  if (command === "prepare-resume") {
+    const resumeJob = ensureResumeJobFromLatestFailure();
+    if (!resumeJob) {
+      throw new Error("No recoverable auto-listing failure was found for resume preparation.");
+    }
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          resumeJobFile,
+          startStep: resumeJob.input?.startStep || resumeJob.startStep,
+          resumeTaskId: resumeJob.input?.resumeTaskId
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+  throw new Error("Usage: auto-listing-controller <start|status|pause|resume-ready|prepare-resume> [--dry-run] [--text] [--rerun-current-batch]");
 }
 
 try {

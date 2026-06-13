@@ -83,6 +83,14 @@ function isChildWatchdogFailure(message: string): boolean {
   return /no progress|watchdog/i.test(message);
 }
 
+function isSafeResumeTransitionFailure(message: string): boolean {
+  return /product folders already contain workbook/i.test(message);
+}
+
+export function resolveSupervisorRecoveryChildMode(failureMessage: string): SupervisorChildMode {
+  return isSafeResumeTransitionFailure(failureMessage) ? "resume" : "full";
+}
+
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
   const retryableFailureMessage = input.retryableFailureMessage || "";
   if (input.exitCode === 0 || input.batchComplete) {
@@ -126,7 +134,12 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
   if (/published|Publishing product folder|Retrying publish|Publish failed/i.test(activeText)) {
     return false;
   }
-  return input.childMode === "full" || isRetryablePublishPageFailure(failureMessage) || isChildWatchdogFailure(failureMessage);
+  return (
+    input.childMode === "full" ||
+    isSafeResumeTransitionFailure(failureMessage) ||
+    isRetryablePublishPageFailure(failureMessage) ||
+    isChildWatchdogFailure(failureMessage)
+  );
 }
 
 export type InterruptedTaskResumeInput = {

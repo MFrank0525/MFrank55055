@@ -7,6 +7,7 @@ import {
   resolveAutoListingControllerChildStallTimeoutMs,
   isAutoListingControllerProgressArtifactRelativePath,
   isRetryableExternalServiceAvailabilityFailure,
+  resolveSupervisorRecoveryChildMode,
   resolveSupervisorRecoveryDelayMs,
   shouldConsumeSupervisorRecoveryAttempt,
   shouldTerminateChildAfterTerminalResult,
@@ -458,6 +459,14 @@ function runResume(): Promise<number | null> {
   ]);
 }
 
+function prepareResumeJob(): boolean {
+  const result = spawnSync("node", ["dist/src/cli/auto-listing-controller.js", "prepare-resume"], {
+    cwd: rootDir,
+    stdio: "inherit"
+  });
+  return result.status === 0 && fs.existsSync(resumeJobFile);
+}
+
 function runFullFlow(reason: FullFlowContinuationReason): Promise<number | null> {
   const args = ["dist/src/cli/flow-mac-feishu.js", "--real"];
   if (!shouldRefreshFeishuAssetsBeforeFullFlow({ continuationReason: reason })) {
@@ -527,6 +536,12 @@ async function main(): Promise<void> {
         failureMessage,
         externalServiceWaitAttempts: Math.max(0, externalServiceWaitAttempts - 1)
       });
+      const recoveryMode = resolveSupervisorRecoveryChildMode(failureMessage);
+      if (recoveryMode === "resume" && !prepareResumeJob()) {
+        console.error("Safe resume transition was detected, but the project controller could not rebuild a resume job.");
+        process.exitCode = 1;
+        return;
+      }
       console.log(
         isRetryableExternalServiceAvailabilityFailure(failureMessage)
           ? `External image service is temporarily unavailable; preserving the locked current Feishu batch and retrying after ${recoveryDelayMs}ms. serviceWait=${externalServiceWaitAttempts}. Reason: ${failureMessage || "unknown"}`
@@ -537,7 +552,7 @@ async function main(): Promise<void> {
       }
       await sleep(recoveryDelayMs);
       clearExternalServiceWait();
-      nextMode = "full";
+      nextMode = recoveryMode;
       fullFlowReason = "same_batch_pending";
       continue;
     }
