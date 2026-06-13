@@ -237,7 +237,7 @@ export async function publishDistributedProducts(options: {
       };
     }
     const resultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
-    if (!productIdentity && fs.existsSync(resultFile)) {
+    if (fs.existsSync(resultFile)) {
       const decision = evaluatePublishResult(readPublishResultSummary(resultFile));
       if (decision.safelyPublished) {
         return {
@@ -262,6 +262,7 @@ export async function publishDistributedProducts(options: {
   savePublishPlan(options.runtimeDir, plan);
 
   const alreadyPublishedResults: PublishArtifact["results"] = [];
+
   const pendingFolders = orderedFolders.filter((productFolder) => {
     const runtimeKey = publishRuntimeKey(productFolder);
     const publishRuntimeDir = path.join(options.runtimeDir, "publish", runtimeKey);
@@ -475,11 +476,7 @@ export async function publishDistributedProducts(options: {
         `Publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`
       );
       clearCheckpoint(checkpointFile);
-      return {
-        preflightErrors: [],
-        results,
-        simulated: false
-      };
+      continue;
     }
     logInfo(
       `publish completed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.finalVerifyStatus}`

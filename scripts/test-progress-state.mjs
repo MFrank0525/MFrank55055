@@ -96,6 +96,7 @@ import {
   resolveDoubaoCaptureRetryPolicy
 } from "../dist/src/doubao/capture-rules.js";
 import { saveTitlesFromRaw } from "../dist/src/doubao/save.js";
+import { publishDistributedProducts } from "../dist/src/autolist/publish.js";
 
 const hermesRunnerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
 const hermesSupervisorSource = fs.readFileSync("src/cli/auto-listing-supervisor.ts", "utf8");
@@ -501,15 +502,65 @@ assert.equal(
 const finalSubmitTransientClass = classifyPublishFailure(
   "Sequential publish flow stopped: 最终发布动作未完成。系统将自动唤起图片编辑工具正反示例商品完整边缘清晰正面主题适当不完整不清晰非正面主体过小"
 );
-assert.equal(finalSubmitTransientClass, "final_publish_submit_transient");
-assert.equal(shouldRetryPublishFailure(finalSubmitTransientClass, 0), true);
-assert.equal(shouldRetryPublishFailure(finalSubmitTransientClass, 2), false);
+assert.equal(finalSubmitTransientClass, "final_publish_state_uncertain");
+assert.equal(
+  shouldRetryPublishFailure(finalSubmitTransientClass, 0),
+  true,
+  "final publish failures are allowed to retry because throughput is preferred over stopping the whole batch"
+);
+
+const finalSubmitPageContextLostClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 最终发布动作未完成。Publish product button click failed: Publish create page context was lost and no usable replacement page is available."
+);
+assert.equal(finalSubmitPageContextLostClass, "final_publish_state_uncertain");
+assert.equal(
+  shouldRetryPublishFailure(finalSubmitPageContextLostClass, 0),
+  true,
+  "page loss after entering final submit must try to recover/re-submit instead of blocking the batch"
+);
+assert.equal(
+  shouldRetryPublishFailure(finalSubmitPageContextLostClass, 1),
+  false,
+  "final submit uncertainty should receive one compensating re-submit, not unlimited duplicate attempts"
+);
 
 const navigationContextLostClass = classifyPublishFailure(
   "page.evaluate: Execution context was destroyed, most likely because of a navigation"
 );
 assert.equal(navigationContextLostClass, "page_context_lost");
 assert.equal(shouldRetryPublishFailure(navigationContextLostClass, 0), true);
+
+const uncertainPublishRuntime = fs.mkdtempSync(path.join(os.tmpdir(), "uncertain-publish-"));
+const uncertainShop = path.join(uncertainPublishRuntime, "01延草纲目大药房专营店");
+const uncertainProduct = path.join(uncertainShop, "延草纲目医用重组胶原蛋白护理软膏水印02");
+fs.mkdirSync(uncertainProduct, { recursive: true });
+const uncertainRuntimeKey = "01延草纲目大药房专营店__延草纲目医用重组胶原蛋白护理软膏水印02";
+const uncertainResultDir = path.join(uncertainPublishRuntime, "publish", uncertainRuntimeKey);
+fs.mkdirSync(uncertainResultDir, { recursive: true });
+const uncertainResultFile = path.join(uncertainResultDir, "result.json");
+fs.writeFileSync(
+  uncertainResultFile,
+  JSON.stringify(
+    {
+      ok: false,
+      status: "failed",
+      message:
+        "Sequential publish flow stopped: 最终发布动作未完成。Publish product button click failed: Publish create page context was lost and no usable replacement page is available."
+    },
+    null,
+    2
+  )
+);
+const uncertainPublishResult = await publishDistributedProducts({
+  runtimeDir: uncertainPublishRuntime,
+  distributedFolders: [uncertainProduct],
+  simulateOnly: true
+});
+assert.equal(
+  uncertainPublishResult.results[0].status,
+  "simulated_with_preflight_warnings",
+  "existing uncertain final-submit results must be treated as pending so the product can be re-submitted instead of skipped"
+);
 
 assert.deepEqual(
   evaluateDetailImageCompletion({
