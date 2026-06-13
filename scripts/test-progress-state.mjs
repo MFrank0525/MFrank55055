@@ -234,6 +234,11 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
+  /const imageProgressSummaryMessage[\s\S]*imageProgress[\s\S]*latestMessage[\s\S]*stateSummary/,
+  "Hermes status summary must include image generation progress so main-image batches are visible before final publish results"
+);
+assert.match(
+  hermesRunnerSource,
   /shouldInvalidatePublishedResumeWithoutProductFolders[\s\S]*fs\.rmSync\(resumeJobFile, \{ force: true \}\)/,
   "Hermes resume must discard a published-stage resume job when its declared product folders are missing on disk"
 );
@@ -1113,6 +1118,26 @@ assert.deepEqual(
   "Hermes text status must be short, Chinese, and accurate for terminal publish failures"
 );
 assert.equal(/生图最近保存|运行批次|failed at|系统会按/.test(compactFailedStatus), false);
+const compactImageGenerationStatus = formatHermesCompactStatusText({
+  status: "running",
+  summary: "任务正在运行，当前阶段：main_images_generated",
+  productName: "湘械注准20212141818-医用芦荟凝胶-白底图-01.png",
+  imageGenerationProgress: "Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0.",
+  publishSafelyPublished: 0,
+  publishTotal: 20,
+  publishFailed: 0,
+  feishuCompleted: 0,
+  feishuTotal: 4
+});
+assert.deepEqual(
+  compactImageGenerationStatus.split("\n"),
+  [
+    "状态：运行中｜发布 0/20，失败 0｜飞书 0/4",
+    "当前：医用芦荟凝胶",
+    "进度：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0."
+  ],
+  "Hermes text status must show main-image generation progress instead of only the generic stage name"
+);
 const compactPlatformFailedStatus = formatHermesCompactStatusText({
   status: "failed",
   summary:

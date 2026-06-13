@@ -985,10 +985,16 @@ function existingStatus(): Record<string, unknown> {
           note: "运行中发布进度以 publishProgress 为准；state.currentTask 来自旧任务状态，已从状态载荷中隐藏以避免误判。"
         }
       : state;
+  const imageProgressSummaryMessage =
+    typeof (imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
+      ? String((imageProgress as Record<string, unknown>).latestMessage)
+      : undefined;
   const stateSummary = state
     ? `任务${resolvedStatus === "running" ? "正在运行" : "已结束"}，当前阶段：${String((state.latestProgress as Record<string, unknown> | undefined)?.step || (state.currentTask as Record<string, unknown> | undefined)?.status || state.status || "unknown")}` +
-      ((state.latestProgress as Record<string, unknown> | undefined)?.message
-        ? `，最新进度：${compactStatusValue(String((state.latestProgress as Record<string, unknown>).message))}`
+      (imageProgressSummaryMessage
+        ? `，最新进度：${compactStatusValue(imageProgressSummaryMessage)}`
+        : (state.latestProgress as Record<string, unknown> | undefined)?.message
+          ? `，最新进度：${compactStatusValue(String((state.latestProgress as Record<string, unknown>).message))}`
         : "")
     : undefined;
   const failedError = stateError || resultError;
@@ -1114,6 +1120,10 @@ function formatStatusText(status: Record<string, unknown>): string {
     productName: currentTask?.sourceImageName ? String(currentTask.sourceImageName) : undefined,
     activeItemName: active?.productFolder ? path.basename(String(active.productFolder)) : undefined,
     latestProgress: latestProgressText,
+    imageGenerationProgress:
+      typeof (status.imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
+        ? String((status.imageProgress as Record<string, unknown>).latestMessage)
+        : undefined,
     publishSafelyPublished: Number(progress?.safelyPublished ?? 0),
     publishTotal: progress?.total === undefined ? undefined : Number(progress.total),
     publishFailed: Number(progress?.failed ?? 0),

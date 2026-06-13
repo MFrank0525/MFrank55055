@@ -573,6 +573,7 @@ export type HermesCompactStatusTextInput = {
   summary?: string;
   productName?: string;
   activeItemName?: string;
+  imageGenerationProgress?: string;
   latestProgress?: string;
   publishSafelyPublished?: number;
   publishTotal?: number;
@@ -769,6 +770,11 @@ function compactHermesReason(summary?: string): string {
     .slice(0, 80) || "暂无原因";
 }
 
+function compactHermesImageProgress(progress?: string): string {
+  const text = String(progress || "").replace(/\s+/g, " ").trim();
+  return text.length > 180 ? `${text.slice(0, 180)}...` : text;
+}
+
 export function formatHermesCompactStatusText(input: HermesCompactStatusTextInput): string {
   const publishTotal = input.publishTotal ?? "?";
   const publishDone = input.publishSafelyPublished ?? 0;
@@ -787,8 +793,9 @@ export function formatHermesCompactStatusText(input: HermesCompactStatusTextInpu
 
   const active = cleanHermesProductName(input.activeItemName || input.productName);
   lines.push(`当前：${active}`);
-  if (input.latestProgress) {
-    lines.push(`进度：${compactHermesReason(input.latestProgress)}`);
+  const latestProgress = input.imageGenerationProgress || input.latestProgress;
+  if (latestProgress) {
+    lines.push(`进度：${input.imageGenerationProgress ? compactHermesImageProgress(latestProgress) : compactHermesReason(latestProgress)}`);
   } else if (input.summary) {
     lines.push(`进度：${compactHermesReason(input.summary)}`);
   }
