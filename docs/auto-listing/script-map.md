@@ -4,11 +4,15 @@
 
 ## 1. 调度入口
 
+- 项目幂等开始/继续/状态控制：`src/cli/auto-listing-controller.ts`
+- 项目子流程接力、等待和进程监管：`src/cli/auto-listing-supervisor.ts`
 - CLI 入口：`src/cli/auto-listing.ts`
 - 总调度：`src/autolist/orchestrator.ts`
 - Job 解析：`src/autolist/config.ts`
 - 状态机：`src/autolist/state-machine.ts`
 - 类型定义：`src/autolist/types.ts`
+
+Hermes/飞书兼容命令只转发到 `auto-listing-controller.ts`，不直接运行本表中的任何底层脚本。
 
 ## 2. 分步骤脚本映射
 

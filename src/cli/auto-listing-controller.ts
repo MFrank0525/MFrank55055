@@ -2,33 +2,33 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  isHermesChildProcessCommand,
-  isHermesSupervisorProcessCommand,
-  isHermesRunningProcessConfirmed,
+  isAutoListingControllerChildProcessCommand,
+  isAutoListingControllerSupervisorProcessCommand,
+  isAutoListingControllerRunningProcessConfirmed,
   isExternalMainImageRawReuseMessage,
-  resolveHermesEffectiveProgressTimestamp,
-  resolveHermesFeishuBatchDisplayCounts,
-  resolveHermesFeishuProgressDisplayMode,
-  resolveHermesProgressAgeSeconds,
-  resolveHermesRuntimeStatus,
-  resolveHermesStartAfterFeishuRefresh,
-  selectHermesActiveRunIdFromLogLines,
-  selectHermesLatestResultFileForJobStatus,
-  selectHermesStatusResultFile,
-  selectHermesStatusRuntimeDir,
-  resolveHermesRealtimeProgressSignal,
-  shouldClearPauseSignalOnHermesStart,
-  shouldExposePublishProgressInHermesStatus,
+  resolveAutoListingControllerEffectiveProgressTimestamp,
+  resolveAutoListingControllerFeishuBatchDisplayCounts,
+  resolveAutoListingControllerFeishuProgressDisplayMode,
+  resolveAutoListingControllerProgressAgeSeconds,
+  resolveAutoListingControllerRuntimeStatus,
+  resolveAutoListingControllerStartAfterFeishuRefresh,
+  selectAutoListingControllerActiveRunIdFromLogLines,
+  selectAutoListingControllerLatestResultFileForJobStatus,
+  selectAutoListingControllerStatusResultFile,
+  selectAutoListingControllerStatusRuntimeDir,
+  resolveAutoListingControllerRealtimeProgressSignal,
+  shouldClearPauseSignalOnAutoListingControllerStart,
+  shouldExposePublishProgressInAutoListingControllerStatus,
   shouldPreferActiveTaskStateSummary,
   shouldResumeHistoricalFailureForCurrentFeishuBatch,
   shouldResumeInterruptedTaskInPlace,
-  shouldSuppressHistoricalResultInHermesStatus,
-  shouldSuppressStateCurrentTaskInHermesStatus,
-  shouldTerminateRecordedHermesProcessGroup,
+  shouldSuppressHistoricalResultInAutoListingControllerStatus,
+  shouldSuppressStateCurrentTaskInAutoListingControllerStatus,
+  shouldTerminateRecordedAutoListingControllerProcessGroup,
   shouldUseExpectedResultFileInRunningStatus,
-  summarizeHermesImageGenerationEvents,
-  formatHermesCompactStatusText,
-  selectHermesFailedResumeCandidate
+  summarizeAutoListingControllerImageGenerationEvents,
+  formatAutoListingControllerCompactStatusText,
+  selectAutoListingControllerFailedResumeCandidate
 } from "../autolist/batch-continuation-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
@@ -174,9 +174,9 @@ interface LocalFeishuConfig {
 
 const rootDir = process.cwd();
 const controlDir = path.resolve(rootDir, "data/auto-listing/control");
-const jobFile = path.join(controlDir, "hermes-auto-listing-job.json");
-const childControlFile = path.join(controlDir, "hermes-auto-listing-child.json");
-const externalServiceWaitFile = path.join(controlDir, "hermes-auto-listing-wait.json");
+const jobFile = path.join(controlDir, "auto-listing-controller-job.json");
+const childControlFile = path.join(controlDir, "auto-listing-child.json");
+const externalServiceWaitFile = path.join(controlDir, "auto-listing-wait.json");
 const pauseFile = path.join(controlDir, "pause.requested");
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu-real.json");
@@ -214,7 +214,7 @@ function isPidRunning(pid: number | undefined): boolean {
 
 function isRunnerJobRunning(job: RunnerJob): boolean {
   const command = readProcessCommand(job.pid);
-  return isHermesRunningProcessConfirmed({
+  return isAutoListingControllerRunningProcessConfirmed({
     pidAlive: isPidRunning(job.pid),
     processGroupAlive: isProcessGroupRunning(job.pid),
     command
@@ -230,7 +230,7 @@ function isProcessGroupRunning(pid: number): boolean {
   }
 }
 
-async function cleanupRecordedHermesChild(): Promise<void> {
+async function cleanupRecordedAutoListingControllerChild(): Promise<void> {
   const child = readJsonFile<{ pid?: number }>(childControlFile);
   const pid = child?.pid;
   if (!pid) {
@@ -240,9 +240,9 @@ async function cleanupRecordedHermesChild(): Promise<void> {
   const leaderRunning = isPidRunning(pid);
   const command = leaderRunning ? readProcessCommand(pid) : undefined;
   if (
-    !shouldTerminateRecordedHermesProcessGroup({
+    !shouldTerminateRecordedAutoListingControllerProcessGroup({
       leaderRunning,
-      leaderCommandMatches: Boolean(command && isHermesChildProcessCommand(command))
+      leaderCommandMatches: Boolean(command && isAutoListingControllerChildProcessCommand(command))
     })
   ) {
     fs.rmSync(childControlFile, { force: true });
@@ -438,7 +438,7 @@ function findActiveRuntimeDirFromLog(logFile: string | undefined): string | unde
   if (!logFile || !fs.existsSync(logFile)) {
     return undefined;
   }
-  const runId = selectHermesActiveRunIdFromLogLines(fs.readFileSync(logFile, "utf8").split(/\r?\n/));
+  const runId = selectAutoListingControllerActiveRunIdFromLogLines(fs.readFileSync(logFile, "utf8").split(/\r?\n/));
   if (runId) {
     const runtimeDir = path.resolve(rootDir, "data/auto-listing/runs", runId);
     return fs.existsSync(runtimeDir) ? runtimeDir : undefined;
@@ -535,7 +535,7 @@ function summarizeState(runtimeDir: string | undefined): Record<string, unknown>
     latestProgress: latestProgress
       ? {
           ...latestProgress,
-          ageSeconds: resolveHermesProgressAgeSeconds({
+          ageSeconds: resolveAutoListingControllerProgressAgeSeconds({
             nowIso: new Date().toISOString(),
             latestProgressTimestamp: latestProgress.timestamp
           }),
@@ -574,7 +574,7 @@ function summarizeImageGenerationProgress(runtimeDir: string | undefined, taskId
   const latestReuseEvent = [...events]
     .reverse()
     .find((event) => /Reused\s+\d+\s+current-product raw main image/i.test(event.message || ""));
-  const summary = summarizeHermesImageGenerationEvents(events);
+  const summary = summarizeAutoListingControllerImageGenerationEvents(events);
   return summary
     ? {
         ...summary,
@@ -757,7 +757,7 @@ function runFeishuAssetsRefreshForStart(): number | null {
   }
   if (result.status !== 0) {
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`Feishu assets refresh failed before Hermes start: ${output || result.status || "unknown"}`);
+    throw new Error(`Feishu assets refresh failed before project controller start: ${output || result.status || "unknown"}`);
   }
   return result.status;
 }
@@ -835,11 +835,11 @@ function existingStatus(): Record<string, unknown> {
   const activeResultFile = activeRuntimeDir ? path.join(activeRuntimeDir, "result.json") : undefined;
   const latestResultFile = running
     ? undefined
-    : selectHermesLatestResultFileForJobStatus({
+    : selectAutoListingControllerLatestResultFileForJobStatus({
         hasControlJob: Boolean(job),
         latestResultFile: findLatestResultFile()
       });
-  const resultFile = selectHermesStatusResultFile({
+  const resultFile = selectAutoListingControllerStatusResultFile({
     running,
     expected: shouldUseExpectedResultFileInRunningStatus({ running, activeRuntimeDir })
       ? {
@@ -857,7 +857,7 @@ function existingStatus(): Record<string, unknown> {
     }
   });
   const result = summarizeResult(resultFile);
-  const runtimeDir = selectHermesStatusRuntimeDir({
+  const runtimeDir = selectAutoListingControllerStatusRuntimeDir({
     running,
     activeRuntimeDir,
     resultRuntimeDir: typeof result?.runtimeDir === "string" ? result.runtimeDir : undefined,
@@ -890,14 +890,14 @@ function existingStatus(): Record<string, unknown> {
         : typeof latestPublishedUpdatedAt === "string"
           ? latestPublishedUpdatedAt
           : undefined;
-  const exposePublishProgress = shouldExposePublishProgressInHermesStatus({
+  const exposePublishProgress = shouldExposePublishProgressInAutoListingControllerStatus({
     running,
     publishProgressAvailable: Boolean(publishProgress),
     currentTaskStatus: String((state?.currentTask as Record<string, unknown> | undefined)?.status || ""),
     stateProgressTimestamp: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined,
     publishProgressTimestamp
   });
-  const effectiveProgress = resolveHermesEffectiveProgressTimestamp({
+  const effectiveProgress = resolveAutoListingControllerEffectiveProgressTimestamp({
     stateProgressTimestamp: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined,
     activePublishUpdatedAt: exposePublishProgress && typeof activePublishUpdatedAt === "string" ? activePublishUpdatedAt : undefined,
     latestArtifactUpdatedAt: exposePublishProgress && typeof latestArtifactUpdatedAt === "string" ? latestArtifactUpdatedAt : undefined,
@@ -906,7 +906,7 @@ function existingStatus(): Record<string, unknown> {
   const progressHeartbeat = effectiveProgress
     ? {
         ...effectiveProgress,
-        ageSeconds: resolveHermesProgressAgeSeconds({
+        ageSeconds: resolveAutoListingControllerProgressAgeSeconds({
           nowIso: new Date().toISOString(),
           latestProgressTimestamp: effectiveProgress.timestamp
         })
@@ -921,7 +921,7 @@ function existingStatus(): Record<string, unknown> {
     Boolean(latestArtifactUpdatedAt) &&
     (!latestStateProgressAt || Date.parse(String(latestArtifactUpdatedAt)) > Date.parse(String(latestStateProgressAt)));
   const batchComplete = feishuProgress ? feishuProgress.batchComplete === true : true;
-  const feishuProgressDisplayMode = resolveHermesFeishuProgressDisplayMode({
+  const feishuProgressDisplayMode = resolveAutoListingControllerFeishuProgressDisplayMode({
     running,
     mode: job.mode,
     batchComplete,
@@ -950,7 +950,7 @@ function existingStatus(): Record<string, unknown> {
     running && ((result && (result.ok === false || result.status === "failed")) || state?.status === "failed")
       ? compactStatusValue(resultFailureText || stateFailureText || "")
       : undefined;
-  const resolvedStatus = resolveHermesRuntimeStatus({
+  const resolvedStatus = resolveAutoListingControllerRuntimeStatus({
     running,
     activeWaitState: Boolean(activeWaitState),
     completed: Boolean(completed),
@@ -960,7 +960,7 @@ function existingStatus(): Record<string, unknown> {
     resultStatus: typeof result?.status === "string" ? result.status : undefined,
     terminalFailureMessage
   });
-  const suppressHistoricalResult = shouldSuppressHistoricalResultInHermesStatus({
+  const suppressHistoricalResult = shouldSuppressHistoricalResultInAutoListingControllerStatus({
     running,
     publishProgressAvailable: exposePublishProgress,
     resultOk: typeof result?.ok === "boolean" ? result.ok : undefined,
@@ -968,7 +968,7 @@ function existingStatus(): Record<string, unknown> {
     activeRuntimeDir,
     resultRuntimeDir: typeof result?.runtimeDir === "string" ? result.runtimeDir : undefined
   });
-  const suppressStateCurrentTask = shouldSuppressStateCurrentTaskInHermesStatus({
+  const suppressStateCurrentTask = shouldSuppressStateCurrentTaskInAutoListingControllerStatus({
     running,
     publishProgressAvailable: exposePublishProgress,
     latestProgressStep: String((state?.latestProgress as Record<string, unknown> | undefined)?.step || ""),
@@ -1000,7 +1000,7 @@ function existingStatus(): Record<string, unknown> {
   const terminalFailureMtimeMs = fileMtimeMs(resultFile);
   const externalWaitReason = activeWaitState?.reason || terminalFailureMessage;
   const externalRetryAt = activeWaitState?.retryAt || "供应商恢复后";
-  const realtimeProgress = resolveHermesRealtimeProgressSignal({
+  const realtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
     jobStartedAt: job.startedAt,
     activeRunId: activeRuntimeDir ? path.basename(activeRuntimeDir) : typeof result?.runId === "string" ? result.runId : undefined,
     status: resolvedStatus,
@@ -1082,7 +1082,7 @@ function existingStatus(): Record<string, unknown> {
     feishuProgress,
     feishuProgressDisplayMode,
     feishuBatchDisplayCounts: feishuProgress
-      ? resolveHermesFeishuBatchDisplayCounts({
+      ? resolveAutoListingControllerFeishuBatchDisplayCounts({
           recordCount: Number(feishuProgress.recordCount || 0),
           processedRecordCount: Number(feishuProgress.processedRecordCount || 0),
           pendingSourceImages: Array.isArray(feishuProgress.pendingSourceImages)
@@ -1112,7 +1112,7 @@ function formatStatusText(status: Record<string, unknown>): string {
         ? compactStatusValue(String(latestProgress.message))
         : undefined;
   const active = progress?.active as Record<string, unknown> | undefined;
-  return formatHermesCompactStatusText({
+  return formatAutoListingControllerCompactStatusText({
     status: String(status.status || "unknown"),
     summary: String(status.summary || ""),
     productName: currentTask?.sourceImageName ? String(currentTask.sourceImageName) : undefined,
@@ -1138,6 +1138,16 @@ function writePauseSignal(): Record<string, unknown> {
     status: "pause_requested",
     pauseFile,
     message: "已请求暂停；任务会在安全边界停止并保留当前产物。"
+  };
+}
+
+function clearPauseSignal(): Record<string, unknown> {
+  fs.rmSync(pauseFile, { force: true });
+  return {
+    ok: true,
+    status: "resume_ready",
+    pauseFile,
+    message: "暂停信号已清除；下一次开始/继续上架将由项目控制器安全续跑。"
   };
 }
 
@@ -1510,7 +1520,7 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
       }
     }
   }
-  const selected = selectHermesFailedResumeCandidate(candidates);
+  const selected = selectAutoListingControllerFailedResumeCandidate(candidates);
   return selected ? { resultFile: selected.resultFile, result: selected.result } : undefined;
 }
 
@@ -1664,7 +1674,7 @@ function selectCommand(): {
   if (resumeJob) {
     return {
       command: "node",
-      args: ["dist/src/cli/hermes-auto-listing-supervisor.js", "--initial", "resume"],
+      args: ["dist/src/cli/auto-listing-supervisor.js", "--initial", "resume"],
       mode: "resume-real-job",
       expectedResultFile: resumeJob?.resultFile ? path.resolve(rootDir, resumeJob.resultFile) : undefined,
       imageGenerationConfigFile: resolveImageGenerationConfigFile(resumeJob)
@@ -1673,7 +1683,7 @@ function selectCommand(): {
   const fullJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   return {
     command: "node",
-    args: ["dist/src/cli/hermes-auto-listing-supervisor.js", "--initial", "full"],
+    args: ["dist/src/cli/auto-listing-supervisor.js", "--initial", "full"],
     mode: "full-real-flow",
     imageGenerationConfigFile: resolveImageGenerationConfigFile(fullJob)
   };
@@ -1684,7 +1694,7 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
   const current = readJsonFile<RunnerJob>(jobFile);
   const runnerJobRunning = Boolean(current && isRunnerJobRunning(current));
   if (
-    shouldClearPauseSignalOnHermesStart({
+    shouldClearPauseSignalOnAutoListingControllerStart({
       pauseSignalExists: fs.existsSync(pauseFile),
       runnerJobRunning
     })
@@ -1708,14 +1718,14 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     return;
   }
   if (!dryRun) {
-    await cleanupRecordedHermesChild();
+    await cleanupRecordedAutoListingControllerChild();
   }
 
   const beforeRefreshProgress = summarizeFeishuProgress();
   if (!dryRun && beforeRefreshProgress?.batchComplete === true) {
     runFeishuAssetsRefreshForStart();
     const afterRefreshProgress = summarizeFeishuProgress();
-    const decision = resolveHermesStartAfterFeishuRefresh({
+    const decision = resolveAutoListingControllerStartAfterFeishuRefresh({
       currentBatchComplete: beforeRefreshProgress.batchComplete === true,
       refreshedBatchChanged: beforeRefreshProgress.batchFingerprint !== afterRefreshProgress?.batchFingerprint,
       refreshedBatchComplete: afterRefreshProgress?.batchComplete === true,
@@ -1736,7 +1746,7 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     }
   }
   const selected = selectCommand();
-  const logFile = path.join(controlDir, `hermes-auto-listing-${timestampForFile()}.log`);
+  const logFile = path.join(controlDir, `auto-listing-controller-${timestampForFile()}.log`);
   if (dryRun) {
     const result = {
       ok: true,
@@ -1760,7 +1770,7 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     detached: true,
     env: {
       ...process.env,
-      HERMES_AUTOLIST_STARTED_BY: "hermes"
+      AUTO_LISTING_STARTED_BY: "project-controller"
     },
     stdio: ["ignore", logFd, logFd]
   });
@@ -1787,7 +1797,7 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     command: [job.command, ...job.args].join(" "),
     logFile: job.logFile,
     jobFile,
-    message: "后台任务已启动；后续发送状态查询时读取发布清单进度，不需要 Hermes 持续等待进程结束。"
+    message: "后台任务已启动；后续发送状态查询时读取项目发布清单进度，不需要外部触发器持续等待进程结束。"
   };
   console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
 }
@@ -1809,7 +1819,12 @@ async function main(): Promise<void> {
     console.log(text ? String(result.message) : JSON.stringify(result, null, 2));
     return;
   }
-  throw new Error("Usage: hermes-auto-listing-runner <start|status|pause> [--dry-run] [--text] [--rerun-current-batch]");
+  if (command === "resume-ready") {
+    const result = clearPauseSignal();
+    console.log(text ? String(result.message) : JSON.stringify(result, null, 2));
+    return;
+  }
+  throw new Error("Usage: auto-listing-controller <start|status|pause|resume-ready> [--dry-run] [--text] [--rerun-current-batch]");
 }
 
 try {

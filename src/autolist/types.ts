@@ -51,6 +51,7 @@ export interface AutoListingJobInput {
   mainImageExpectedCount?: number;
   mainImageCountStrategy?: MainImageCountStrategy;
   runtimeRootDir?: string;
+  paidImageSubmissionLedgerDir?: string;
   processedImageManifest?: string;
   pauseSignalFile?: string;
   imageExtensions?: string[];
@@ -196,6 +197,7 @@ export interface AutoListingPreflightSummary {
     imageGenerationConfigFile?: string;
     mainImageExpectedCount: number;
     mainImageCountStrategy: MainImageCountStrategy;
+    paidImageSubmissionLedgerDir: string;
     pauseSignalFile: string;
   };
   counts: {

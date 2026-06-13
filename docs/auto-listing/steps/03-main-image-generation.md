@@ -110,9 +110,13 @@
 21. OpenAI-compatible provider 遇到 `429/500/502/503/504` 时视为中转站临时故障，必须自动退避重试并写入 `response-XX-transient-N.json`；普通 `429/500` 临时 HTTP 故障最多短退避 3 次。若返回内容包含 `system_memory_overloaded`、`memory overloaded`、`resource overloaded`、`server overloaded`、`do_request_failed`、`upstream error`，或状态码为 `502/503/504` 网关侧不可用，必须执行 8 次长退避重试（60s、90s、120s、180s、240s、300s、300s、300s），不能因为短时间网关过载或上游请求失败直接停止整批上架。遇到 `fetch failed`、网络断开、socket reset、timeout、`UND_ERR_*` 等传输层瞬断时，也必须自动退避重试至少 8 次，并写入 `response-XX-transport-transient-N.json`。流程重跑时如果当前轮已经有水印暂存图，只补齐缺失数量，不重复消费额度重生已暂存图片。
 22. 每个产品完成上架后，必须把无水印原始主图归档到 `/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><用户认知名>/`；时间前缀精确到分钟，例如 `202605201106宝元堂筋骨康凝胶`；归档完成后才允许删除运行目录。
 23. `videos-base64` 中转站必须使用当前商品白底图的 Base64 data URL 作为图生图参考，固定发送 `metadata.aspect_ratio=1:1` 和 `metadata.size=1024x1024`，不得退化为文生图；实际返回图片必须是正方形，允许中转站返回 1254x1254 等非 2K/4K 正方形尺寸。
-24. `videos-base64` 提交结果不明确（例如提交请求超时或连接中断）时不得在同一子进程里自动重新提交付费任务，避免重复生图和重复计费；Hermes 必须保留当前飞书批次并续跑，优先复用当前商品已保存的 `paid-image-ledger`、异步任务 ID、raw 主图和暂存主图；`paid-image-ledger` 中已有 `submitted` 或 `completed` slot 时，该 ledger 本身就是付费资产，必须作为续跑保护依据，即使 raw 主图尚未下载完成也不得清理对应 run 或重新提交另一批任务；拿到任务 ID 后只允许轮询同一任务，并优先从完成响应的结果 URL 取回图片，缺失时才回退 `/content` 端点。
+24. `videos-base64` 提交结果不明确（例如提交请求超时或连接中断）时不得在同一子进程里自动重新提交付费任务，避免重复生图和重复计费；项目控制器必须保留当前飞书批次并续跑，优先复用当前商品已保存的 `paid-image-ledger`、异步任务 ID、raw 主图和暂存主图；`paid-image-ledger` 中已有 `submitted` 或 `completed` slot 时，该 ledger 本身就是付费资产，必须作为续跑保护依据，即使 raw 主图尚未下载完成也不得清理对应 run 或重新提交另一批任务；拿到任务 ID 后只允许轮询同一任务，并优先从完成响应的结果 URL 取回图片，缺失时才回退 `/content` 端点。
 25. `videos-base64` 必须先提交当前商品的全部异步任务，再统一轮询并下载全部结果，全部落地后才能进入水印、分发和后续上架步骤；任务 ID、轮询状态和结果必须按图片独立保存，支持失败续跑。其他同步或协议能力未知的中转站继续严格串行，不得自动套用异步并发逻辑。若已经提交过当前商品的 videos-base64 task 但尚未全部下载完成，禁止 supervisor 快速重启并重新提交另一批 20 张；必须进入外部服务等待，等待同一批 task 返回或由续跑逻辑读取已保存 task ID。
 26. 主图断点复用只允许读取当前 `runtimeDir/tasks/<taskId>` 自身已经落地的 raw、异步 task ID 和 staged 文件。禁止从其他历史 run 复制 raw 主图；飞书 `recordId`、SPU、商品名或源图路径在新批次中可能重复，均不能作为跨 run 主图复用依据。
+27. `videos-base64` 付费提交权限账本必须由项目自身持久化到 `data/auto-listing/paid-image-submissions/<批次>/<recordId>/`，禁止放在 `runtimeDir` 或 task 临时目录。每个固定图片位 `01-20` 的身份只由当前飞书批次、recordId 和固定 slot 决定，不得随恢复进度、runtimeDir 或 taskId 改变。
+28. 20 个付费 slot 和 5 个提示词轮次允许并发，但父流程必须等待全部并发 worker settle 后才能退出。单个 worker 失败时，其他已提交 worker仍必须被持续观察并落账，禁止因 `Promise.all` 提前 reject 留下无人管理的付费任务。
+29. 提交请求只有在供应商明确证明“未受理”时才能标记为 `failed_before_acceptance` 并允许重试。`429/5xx`、超时、断线、非 JSON、缺失 task ID 等不确定结果必须标记为 `ambiguous`，项目 supervisor 必须停止自动重启，禁止再次提交该 slot。
+30. 部分图片恢复后，固定 slot 不得重新编号。每个提示词轮次固定占用自己的 4 个 slot；已恢复图片只让项目轮询、复用或补齐对应缺失 slot。
 
 ## 失败条件
 

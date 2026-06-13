@@ -81,6 +81,7 @@ export function buildAutoListingPreflightSummary(resolved: AutoListingResolvedJo
       imageGenerationConfigFile: resolved.input.imageGenerationConfigFile || undefined,
       mainImageExpectedCount: resolved.input.mainImageExpectedCount,
       mainImageCountStrategy: resolved.input.mainImageCountStrategy,
+      paidImageSubmissionLedgerDir: resolved.input.paidImageSubmissionLedgerDir,
       pauseSignalFile: resolved.pauseSignalFile
     },
     counts: {

@@ -52,6 +52,9 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     mainImageExpectedCount: input.mainImageExpectedCount ?? 4,
     mainImageCountStrategy: input.mainImageCountStrategy || "require_exact",
     runtimeRootDir: path.resolve(input.runtimeRootDir || path.join(process.cwd(), "data", "auto-listing", "runs")),
+    paidImageSubmissionLedgerDir: path.resolve(
+      input.paidImageSubmissionLedgerDir || path.join(process.cwd(), "data", "auto-listing", "paid-image-submissions")
+    ),
     processedImageManifest: path.resolve(
       input.processedImageManifest || path.join(process.cwd(), "data", "auto-listing", "processed-images.json")
     ),
@@ -94,6 +97,7 @@ export function resolveAutoListingJob(job: AutoListingJobFile): AutoListingResol
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.mkdirSync(path.dirname(input.processedImageManifest), { recursive: true });
   fs.mkdirSync(path.dirname(input.pauseSignalFile), { recursive: true });
+  fs.mkdirSync(input.paidImageSubmissionLedgerDir, { recursive: true });
 
   return {
     runtimeDir,

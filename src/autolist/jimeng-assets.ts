@@ -8,6 +8,7 @@ import {
   resolveImageGenerationRequestDeadlineMs,
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
+  providerExplicitlyProvesNoPaidTaskAccepted,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
@@ -230,6 +231,23 @@ function isTransientImageProviderErrorMessage(message: string): boolean {
     return false;
   }
   return /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|abort|timeout|timed out/i.test(message);
+}
+
+async function settleConcurrentWork<T>(work: Array<Promise<T>>, label: string): Promise<T[]> {
+  const settled = await Promise.allSettled(work);
+  const failures = settled
+    .map((result, index) => ({ result, index }))
+    .filter((item): item is { result: PromiseRejectedResult; index: number } => item.result.status === "rejected");
+  if (failures.length > 0) {
+    const reasons = failures.map((item) =>
+      item.result.reason instanceof Error ? item.result.reason.message : String(item.result.reason)
+    );
+    throw new AggregateError(
+      failures.map((item) => item.result.reason),
+      `${label} failed after all concurrent work settled; failed indexes: ${failures.map((item) => item.index + 1).join(", ")}; reasons: ${reasons.join(" | ")}`
+    );
+  }
+  return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
 function extractTitleLine(promptText: string, label: string): string {
@@ -992,7 +1010,10 @@ async function generateWithOpenAiCompatibleProvider(options: {
       writeImageGenerationTextLog(responseFile, text);
       if (!response.ok) {
         if (videosBase64Ledger) {
-          recordPaidImageFailedBeforeAcceptance({
+          const recordRejection = providerExplicitlyProvesNoPaidTaskAccepted(response.status, text)
+            ? recordPaidImageFailedBeforeAcceptance
+            : recordPaidImageAmbiguous;
+          recordRejection({
             productDir: videosBase64Ledger.productDir,
             slot: ledgerSlot,
             reason: "HTTP " + response.status + ": " + (text || response.statusText)
@@ -1092,7 +1113,10 @@ async function generateWithOpenAiCompatibleProvider(options: {
 
   if (mode === "videos-base64") {
     const videosBase64ImageIndexes = Array.from({ length: count }, (_, index) => imageIndexOffset + index + 1);
-    return Promise.all(videosBase64ImageIndexes.map((absoluteImageIndex) => generateVideosBase64Image(absoluteImageIndex)));
+    return settleConcurrentWork(
+      videosBase64ImageIndexes.map((absoluteImageIndex) => generateVideosBase64Image(absoluteImageIndex)),
+      "videos-base64 paid image slots"
+    );
   }
 
   const generated: Array<{ file: string; submitId: string }> = [];
@@ -1633,6 +1657,7 @@ export async function generateMainImageAssets(options: {
   imagesPerShop?: number;
   feishuRecordId?: string;
   feishuBatchFingerprint?: string;
+  paidImageSubmissionLedgerDir?: string;
   simulateOnly: boolean;
   onProgress?: (message: string) => void;
 }): Promise<MainImageArtifact> {
@@ -1687,6 +1712,16 @@ export async function generateMainImageAssets(options: {
   }
 
   readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
+
+  const imageGenerationConfig = readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
+  if (
+    imageGenerationConfig.mode === "videos-base64" &&
+    (!options.feishuBatchFingerprint || !options.feishuRecordId || !options.paidImageSubmissionLedgerDir)
+  ) {
+    throw new Error(
+      "videos-base64 paid submission requires project-owned feishuBatchFingerprint, feishuRecordId, and paidImageSubmissionLedgerDir."
+    );
+  }
 
   const stagedFiles: Array<{
     stagedFile: string;
@@ -1770,11 +1805,11 @@ export async function generateMainImageAssets(options: {
       downloadDir: path.join(roundDir, "openai-compatible", "raw"),
       expectedImageCount: remainingImageCount,
       paidImageLedger: {
-        rootDir: path.join(taskDir, "paid-image-ledger"),
-        batchFingerprint: options.feishuBatchFingerprint || options.taskId,
-        recordId: options.feishuRecordId || options.taskId,
+        rootDir: options.paidImageSubmissionLedgerDir as string,
+        batchFingerprint: options.feishuBatchFingerprint as string,
+        recordId: options.feishuRecordId as string,
         expectedSlotCount: totalExpectedImageCount,
-        slotOffset: imageIndex - 1,
+        slotOffset: promptIndex * options.mainImageExpectedCount,
         owner: {
           runId: path.basename(options.runtimeDir),
           taskId: options.taskId,
@@ -1836,10 +1871,12 @@ export async function generateMainImageAssets(options: {
     return roundStagedFiles;
   };
 
-  const imageGenerationConfig = readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
   const promptIndexes = Array.from({ length: promptCount }, (_, index) => index);
   if (imageGenerationConfig.mode === "videos-base64") {
-    const concurrentRounds = await Promise.all(promptIndexes.map((promptIndex) => processPromptRound(promptIndex)));
+    const concurrentRounds = await settleConcurrentWork(
+      promptIndexes.map((promptIndex) => processPromptRound(promptIndex)),
+      "videos-base64 prompt rounds"
+    );
     stagedFiles.push(...concurrentRounds.flat());
   } else {
     for (const promptIndex of promptIndexes) {

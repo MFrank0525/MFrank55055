@@ -70,15 +70,15 @@
 - 发布入口：[publish-from-spu.ts](src/cli/publish-from-spu.ts)
 - 发布核心：[publish-from-spu.ts](src/business/publish-from-spu.ts)
 
-## Hermes / 飞书触发入口
+## Hermes / 飞书兼容触发入口
 
-Hermes 收到“开始上架”这类飞书指令时，必须使用后台启动入口：
+Hermes 收到“开始上架”或“继续上架”这类飞书指令时，只调用兼容入口：
 
 ```bash
 npm run auto-listing:hermes-start
 ```
 
-不要在 Hermes 的单次终端工具调用里直接执行底层流程脚本。真实上架流程会运行很久，并且可能超过 Hermes 终端工具超时或调用预算，导致飞书收到空结果。后台启动入口会快速返回启动状态，把真实流程放到独立进程里运行，并把日志写入 `data/auto-listing/control/`。
+兼容入口只薄转发到项目自己的 `auto-listing-controller`。Hermes 不得直接执行底层流程脚本、恢复脚本、飞书刷新或发布动作。项目控制器会快速返回启动状态，把真实流程交给独立的项目 supervisor，并把日志写入 `data/auto-listing/control/`。
 
 查看后台任务状态：
 
@@ -93,7 +93,7 @@ npm run auto-listing:hermes-status
 - 同一个飞书批次全部处理完成后，后台监督器会自动刷新飞书表格。
 - 如果刷新后批次发生变化且存在待处理产品，继续按飞书表格顺序上架新批次。
 - 如果刷新后没有新批次，后台任务自动停止；飞书状态查询应提示当前批次已经完成。
-- 后续再通过飞书发送“开始上架”或“续跑”时，Hermes 启动入口会先刷新飞书表格。发现新批次才启动；没有新批次时不自动重跑旧批次，而是提示需要确认。
+- 后续再通过飞书发送“开始上架”或“续跑”时，两个指令都调用同一个项目幂等启动入口。项目控制器负责安全续跑；当前批次完成后由项目 supervisor 刷新飞书。没有新批次时不自动重跑旧批次，而是提示需要确认。
 - 只有显式确认重跑时才使用 `npm run auto-listing:hermes-rerun-current-batch`；该入口会清除当前批次的已处理标记后重新跑原批次。
 
 ## 修改规则的正确方式
@@ -125,9 +125,9 @@ npm run rules:check
 ## 暂停与继续
 
 ```bash
-npm run auto-listing:pause
+npm run auto-listing:hermes-pause
 npm run auto-listing:resume-ready
 npm run auto-listing:hermes-start
 ```
 
-继续上架统一走 Hermes 启动器；启动器会自动选择当前可续跑的真实任务。
+暂停、继续上架统一走项目控制器；Hermes 兼容命令只负责转发。暂停会在安全步骤边界生效，已提交的付费图片任务仍由项目按原 task ID 落账，不能通过暂停制造第二批提交。

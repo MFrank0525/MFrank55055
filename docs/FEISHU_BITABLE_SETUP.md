@@ -144,7 +144,7 @@ npm run feishu:assets -- --config ./input/feishu-bitable.config.json --out ./dat
 
 ## 接入自动上架
 
-Hermes / 飞书触发自动上架时只使用：
+Hermes / 飞书触发自动上架时只使用兼容入口；该入口只转发给项目控制器：
 
 ```bash
 npm run auto-listing:hermes-start
@@ -156,6 +156,14 @@ npm run auto-listing:hermes-start
 npm run auto-listing:hermes-status
 ```
 
+Hermes 收到“暂停上架”时只使用：
+
+```bash
+npm run auto-listing:hermes-pause
+```
+
+暂停、继续和状态都由项目控制器管理；Hermes 不直接写暂停文件、不终止子进程、不处理付费图片任务。
+
 这个 job 通过 `feishuProductDataFile` 读取 `data/feishu/products.json`。配置后，自动上架流程里的卖点上下文会来自飞书字段 `产品卖点`，不再调用豆包生成产品卖点。
 
 飞书产品执行顺序：
@@ -164,8 +172,8 @@ npm run auto-listing:hermes-status
 - 默认 Mac Feishu job 的 `maxImagesPerRun=0`，表示飞书当前批次里有多少条产品记录就上架多少条。
 - 每条记录使用它绑定的第一张已下载 `产品白底图` 作为图生图参考源；如果缺失或本地文件不存在，流程会直接报配置缺口。
 - 已处理过的源图会按飞书批次写入 `data/auto-listing/processed-images.json`，同一批中断恢复时自动跳过；飞书更新为新批次后，即使产品或源图路径与旧批次重复，也按新批次继续执行。
-- 所有飞书记录都处理完成后，Hermes 会刷新飞书表格；如果发现新批次，继续按飞书表格顺序上架新批次；如果没有新批次，项目自动停止运行，并在状态里提示当前批次已经完成。
-- 后续你再次发送“开始上架”或“续跑”时，Hermes 会先刷新飞书表格。没有新批次时不会自动重跑旧批次，而是提示需要确认；确认重跑时使用 `npm run auto-listing:hermes-rerun-current-batch`。
+- 所有飞书记录都处理完成后，项目 supervisor 会刷新飞书表格；如果发现新批次，继续按飞书表格顺序上架新批次；如果没有新批次，项目自动停止运行，并在状态里提示当前批次已经完成。
+- 后续再次发送“开始上架”或“续跑”时，项目控制器会执行同一个幂等续跑入口。没有新批次时不会自动重跑旧批次，而是提示需要确认；确认重跑时使用 `npm run auto-listing:hermes-rerun-current-batch`。
 
 产品类目规则：
 
@@ -199,7 +207,7 @@ npm run audit:auto-listing
 
 如果 `doctor:feishu` 报 `invalidRecords`，需要先补齐飞书表格里的缺失字段或附件。
 
-`audit:auto-listing` 是只读审计命令，不会启动 Hermes、不会调用飞书下载、不会发布商品。它会检查：
+`audit:auto-listing` 是只读审计命令，不会启动项目控制器、不会调用飞书下载、不会发布商品。它会检查：
 
 - `data/feishu/products.json` 里的产品总数和待处理数量。
 - `data/auto-listing/processed-images.json` 里当前飞书批次的已完成源图。

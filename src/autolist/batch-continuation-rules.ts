@@ -36,8 +36,15 @@ function isPaidMainImageTransportFailure(message: string): boolean {
   );
 }
 
+function isPaidImageSubmissionSafetyBlock(message: string): boolean {
+  return /paid image ledger blocked slot|blocked_(?:reserved|ambiguous)|paid submission safety block/i.test(message);
+}
+
 export function isRetryableExternalServiceAvailabilityFailure(message: string): boolean {
-  if (/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(message)) {
+  if (
+    isPaidImageSubmissionSafetyBlock(message) ||
+    /upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(message)
+  ) {
     return false;
   }
   return (
@@ -79,6 +86,9 @@ function isChildWatchdogFailure(message: string): boolean {
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
   const retryableFailureMessage = input.retryableFailureMessage || "";
   if (input.exitCode === 0 || input.batchComplete) {
+    return false;
+  }
+  if (isPaidImageSubmissionSafetyBlock(retryableFailureMessage)) {
     return false;
   }
   if (/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(retryableFailureMessage)) {
@@ -161,18 +171,18 @@ export function shouldResumeHistoricalFailureForCurrentFeishuBatch(input: Histor
   return false;
 }
 
-export type HermesFeishuProgressDisplayInput = {
+export type AutoListingControllerFeishuProgressDisplayInput = {
   running: boolean;
   mode?: string;
   batchComplete: boolean;
   activeResumeReusableArtifactCount: number;
 };
 
-export type HermesFeishuProgressDisplayMode = "current_batch" | "resume_artifact_completion";
+export type AutoListingControllerFeishuProgressDisplayMode = "current_batch" | "resume_artifact_completion";
 
-export function resolveHermesFeishuProgressDisplayMode(
-  input: HermesFeishuProgressDisplayInput
-): HermesFeishuProgressDisplayMode {
+export function resolveAutoListingControllerFeishuProgressDisplayMode(
+  input: AutoListingControllerFeishuProgressDisplayInput
+): AutoListingControllerFeishuProgressDisplayMode {
   if (
     input.running &&
     input.mode === "resume-real-job" &&
@@ -184,23 +194,23 @@ export function resolveHermesFeishuProgressDisplayMode(
   return "current_batch";
 }
 
-export type HermesFeishuBatchDisplayCountsInput = {
+export type AutoListingControllerFeishuBatchDisplayCountsInput = {
   recordCount: number;
   processedRecordCount: number;
   pendingSourceImages: string[];
   currentSourceImagePath?: string;
 };
 
-export type HermesFeishuBatchDisplayCounts = {
+export type AutoListingControllerFeishuBatchDisplayCounts = {
   recordCount: number;
   completedCount: number;
   currentCount: number;
   notStartedCount: number;
 };
 
-export function resolveHermesFeishuBatchDisplayCounts(
-  input: HermesFeishuBatchDisplayCountsInput
-): HermesFeishuBatchDisplayCounts {
+export function resolveAutoListingControllerFeishuBatchDisplayCounts(
+  input: AutoListingControllerFeishuBatchDisplayCountsInput
+): AutoListingControllerFeishuBatchDisplayCounts {
   const currentSourceImagePath = input.currentSourceImagePath || "";
   const currentCount = currentSourceImagePath && input.pendingSourceImages.includes(currentSourceImagePath) ? 1 : 0;
   return {
@@ -211,12 +221,12 @@ export function resolveHermesFeishuBatchDisplayCounts(
   };
 }
 
-export type HermesProgressAgeInput = {
+export type AutoListingControllerProgressAgeInput = {
   nowIso: string;
   latestProgressTimestamp?: string;
 };
 
-export function resolveHermesProgressAgeSeconds(input: HermesProgressAgeInput): number | undefined {
+export function resolveAutoListingControllerProgressAgeSeconds(input: AutoListingControllerProgressAgeInput): number | undefined {
   if (!input.latestProgressTimestamp) {
     return undefined;
   }
@@ -228,13 +238,13 @@ export function resolveHermesProgressAgeSeconds(input: HermesProgressAgeInput): 
   return Math.max(0, Math.floor((nowMs - progressMs) / 1000));
 }
 
-export type HermesChildStallTimeoutInput = {
+export type AutoListingControllerChildStallTimeoutInput = {
   defaultTimeoutMs: number;
   activeStep?: string;
   activeMessage?: string;
 };
 
-export function resolveHermesChildStallTimeoutMs(input: HermesChildStallTimeoutInput): number {
+export function resolveAutoListingControllerChildStallTimeoutMs(input: AutoListingControllerChildStallTimeoutInput): number {
   const defaultTimeoutMs = Math.max(180000, input.defaultTimeoutMs);
   const activeText = `${input.activeStep || ""} ${input.activeMessage || ""}`;
   if (
@@ -245,33 +255,33 @@ export function resolveHermesChildStallTimeoutMs(input: HermesChildStallTimeoutI
   return defaultTimeoutMs;
 }
 
-export function isHermesProgressArtifactRelativePath(relativePath: string): boolean {
+export function isAutoListingControllerProgressArtifactRelativePath(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, "/").replace(/^\.?\//, "");
   return normalized.startsWith("publish/") && /\.(?:json|ndjson|png|jpe?g|webp)$/i.test(normalized);
 }
 
-export type HermesEffectiveProgressTimestampInput = {
+export type AutoListingControllerEffectiveProgressTimestampInput = {
   stateProgressTimestamp?: string;
   activePublishUpdatedAt?: string;
   latestArtifactUpdatedAt?: string;
   latestPublishedUpdatedAt?: string;
 };
 
-export type HermesEffectiveProgressTimestampResult = {
+export type AutoListingControllerEffectiveProgressTimestampResult = {
   timestamp: string;
   source: "state_progress" | "active_publish" | "latest_publish_artifact" | "latest_published";
 };
 
-export function resolveHermesEffectiveProgressTimestamp(
-  input: HermesEffectiveProgressTimestampInput
-): HermesEffectiveProgressTimestampResult | undefined {
+export function resolveAutoListingControllerEffectiveProgressTimestamp(
+  input: AutoListingControllerEffectiveProgressTimestampInput
+): AutoListingControllerEffectiveProgressTimestampResult | undefined {
   const candidates = [
     { timestamp: input.stateProgressTimestamp, source: "state_progress" as const },
     { timestamp: input.activePublishUpdatedAt, source: "active_publish" as const },
     { timestamp: input.latestArtifactUpdatedAt, source: "latest_publish_artifact" as const },
     { timestamp: input.latestPublishedUpdatedAt, source: "latest_published" as const }
   ]
-    .filter((candidate): candidate is HermesEffectiveProgressTimestampResult =>
+    .filter((candidate): candidate is AutoListingControllerEffectiveProgressTimestampResult =>
       Boolean(candidate.timestamp && Number.isFinite(Date.parse(candidate.timestamp)))
     )
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
@@ -279,7 +289,7 @@ export function resolveHermesEffectiveProgressTimestamp(
   return candidates[0];
 }
 
-export function selectHermesActiveRunIdFromLogLines(lines: string[]): string | undefined {
+export function selectAutoListingControllerActiveRunIdFromLogLines(lines: string[]): string | undefined {
   const pattern = /auto-listing run started:\s*([0-9]{8}-[0-9]{6})/;
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const match = pattern.exec(lines[index] || "");
@@ -290,25 +300,25 @@ export function selectHermesActiveRunIdFromLogLines(lines: string[]): string | u
   return undefined;
 }
 
-export type HermesExpectedResultFileInput = {
+export type AutoListingControllerExpectedResultFileInput = {
   running: boolean;
   activeRuntimeDir?: string;
 };
 
-export function shouldUseExpectedResultFileInRunningStatus(input: HermesExpectedResultFileInput): boolean {
+export function shouldUseExpectedResultFileInRunningStatus(input: AutoListingControllerExpectedResultFileInput): boolean {
   return !input.running || !input.activeRuntimeDir;
 }
 
-export type HermesStartPauseSignalInput = {
+export type AutoListingControllerStartPauseSignalInput = {
   pauseSignalExists: boolean;
   runnerJobRunning: boolean;
 };
 
-export function shouldClearPauseSignalOnHermesStart(input: HermesStartPauseSignalInput): boolean {
+export function shouldClearPauseSignalOnAutoListingControllerStart(input: AutoListingControllerStartPauseSignalInput): boolean {
   return input.pauseSignalExists;
 }
 
-export type HermesPublishProgressExposureInput = {
+export type AutoListingControllerPublishProgressExposureInput = {
   running: boolean;
   publishProgressAvailable: boolean;
   currentTaskStatus?: string;
@@ -316,7 +326,7 @@ export type HermesPublishProgressExposureInput = {
   publishProgressTimestamp?: string;
 };
 
-export function shouldExposePublishProgressInHermesStatus(input: HermesPublishProgressExposureInput): boolean {
+export function shouldExposePublishProgressInAutoListingControllerStatus(input: AutoListingControllerPublishProgressExposureInput): boolean {
   if (!input.publishProgressAvailable) {
     return false;
   }
@@ -332,7 +342,7 @@ export function shouldExposePublishProgressInHermesStatus(input: HermesPublishPr
   return Date.parse(input.publishProgressTimestamp) >= Date.parse(input.stateProgressTimestamp);
 }
 
-export type HermesHistoricalResultSuppressionInput = {
+export type AutoListingControllerHistoricalResultSuppressionInput = {
   running: boolean;
   publishProgressAvailable: boolean;
   resultOk?: boolean;
@@ -341,7 +351,7 @@ export type HermesHistoricalResultSuppressionInput = {
   resultRuntimeDir?: string;
 };
 
-export function shouldSuppressHistoricalResultInHermesStatus(input: HermesHistoricalResultSuppressionInput): boolean {
+export function shouldSuppressHistoricalResultInAutoListingControllerStatus(input: AutoListingControllerHistoricalResultSuppressionInput): boolean {
   if (!input.running) {
     return false;
   }
@@ -354,14 +364,14 @@ export function shouldSuppressHistoricalResultInHermesStatus(input: HermesHistor
   return input.resultOk === false || input.resultStatus === "failed";
 }
 
-export type HermesStateCurrentTaskSuppressionInput = {
+export type AutoListingControllerStateCurrentTaskSuppressionInput = {
   running: boolean;
   publishProgressAvailable: boolean;
   latestProgressStep?: string;
   currentTaskStatus?: string;
 };
 
-export function shouldSuppressStateCurrentTaskInHermesStatus(input: HermesStateCurrentTaskSuppressionInput): boolean {
+export function shouldSuppressStateCurrentTaskInAutoListingControllerStatus(input: AutoListingControllerStateCurrentTaskSuppressionInput): boolean {
   if (!input.running || !input.publishProgressAvailable) {
     return false;
   }
@@ -379,21 +389,21 @@ export function shouldContinueFeishuAfterBatchRefresh(input: FeishuBatchRefreshC
   return input.exitCode === 0 && input.currentBatchComplete && !input.refreshedBatchComplete;
 }
 
-export type HermesStartAfterFeishuRefreshInput = {
+export type AutoListingControllerStartAfterFeishuRefreshInput = {
   currentBatchComplete: boolean;
   refreshedBatchChanged: boolean;
   refreshedBatchComplete: boolean;
   forceRerunCurrentBatch?: boolean;
 };
 
-export type HermesStartAfterFeishuRefreshDecision =
+export type AutoListingControllerStartAfterFeishuRefreshDecision =
   | "start_new_or_pending_batch"
   | "require_rerun_confirmation"
   | "rerun_current_batch";
 
-export function resolveHermesStartAfterFeishuRefresh(
-  input: HermesStartAfterFeishuRefreshInput
-): HermesStartAfterFeishuRefreshDecision {
+export function resolveAutoListingControllerStartAfterFeishuRefresh(
+  input: AutoListingControllerStartAfterFeishuRefreshInput
+): AutoListingControllerStartAfterFeishuRefreshDecision {
   if (input.forceRerunCurrentBatch && input.currentBatchComplete && !input.refreshedBatchChanged) {
     return "rerun_current_batch";
   }
@@ -428,25 +438,25 @@ export function shouldPreferActiveTaskStateSummary(input: ActiveTaskStatusSummar
   return input.running && input.stateHasActiveTask && input.publishProgressAvailable;
 }
 
-export type HermesStatusResultCandidate = {
+export type AutoListingControllerStatusResultCandidate = {
   resultFile?: string;
   mtimeMs?: number;
 };
 
-export type HermesStatusResultSelectionInput = {
+export type AutoListingControllerStatusResultSelectionInput = {
   running: boolean;
-  expected?: HermesStatusResultCandidate;
-  log?: HermesStatusResultCandidate;
-  latest?: HermesStatusResultCandidate;
+  expected?: AutoListingControllerStatusResultCandidate;
+  log?: AutoListingControllerStatusResultCandidate;
+  latest?: AutoListingControllerStatusResultCandidate;
 };
 
-export function selectHermesStatusResultFile(input: HermesStatusResultSelectionInput): string | undefined {
+export function selectAutoListingControllerStatusResultFile(input: AutoListingControllerStatusResultSelectionInput): string | undefined {
   if (input.running) {
     return input.log?.resultFile || input.expected?.resultFile;
   }
 
   const candidates = [input.log, input.latest, input.expected]
-    .filter((candidate): candidate is Required<HermesStatusResultCandidate> =>
+    .filter((candidate): candidate is Required<AutoListingControllerStatusResultCandidate> =>
       Boolean(candidate?.resultFile && Number.isFinite(candidate.mtimeMs))
     )
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -454,25 +464,25 @@ export function selectHermesStatusResultFile(input: HermesStatusResultSelectionI
   return candidates[0]?.resultFile || input.log?.resultFile || input.latest?.resultFile || input.expected?.resultFile;
 }
 
-export type HermesStatusRuntimeDirSelectionInput = {
+export type AutoListingControllerStatusRuntimeDirSelectionInput = {
   running: boolean;
   activeRuntimeDir?: string;
   resultRuntimeDir?: string;
   resultFile?: string;
 };
 
-export function selectHermesStatusRuntimeDir(input: HermesStatusRuntimeDirSelectionInput): string | undefined {
+export function selectAutoListingControllerStatusRuntimeDir(input: AutoListingControllerStatusRuntimeDirSelectionInput): string | undefined {
   if (input.running && input.activeRuntimeDir) {
     return input.activeRuntimeDir;
   }
   return input.resultRuntimeDir || (input.resultFile ? input.resultFile.replace(/\/result\.json$/, "") : undefined) || input.activeRuntimeDir;
 }
 
-export function isHermesSupervisorProcessCommand(command: string): boolean {
-  return /\bnode\b/.test(command) && /dist\/src\/cli\/hermes-auto-listing-supervisor\.js/.test(command);
+export function isAutoListingControllerSupervisorProcessCommand(command: string): boolean {
+  return /\bnode\b/.test(command) && /dist\/src\/cli\/auto-listing-supervisor\.js/.test(command);
 }
 
-export function isHermesChildProcessCommand(command: string): boolean {
+export function isAutoListingControllerChildProcessCommand(command: string): boolean {
   return (
     /\bnpm run business:auto-listing\b/.test(command) &&
     /auto-listing\.job\.mac-feishu-real\.resume\.generated\.json/.test(command)
@@ -482,7 +492,7 @@ export function isHermesChildProcessCommand(command: string): boolean {
   );
 }
 
-export function shouldTerminateRecordedHermesProcessGroup(input: {
+export function shouldTerminateRecordedAutoListingControllerProcessGroup(input: {
   leaderRunning: boolean;
   leaderCommandMatches?: boolean;
 }): boolean {
@@ -497,27 +507,27 @@ export function shouldTerminateChildAfterTerminalResult(input: {
   return input.terminalResultFound && input.terminalResultAgeMs >= Math.max(0, input.gracePeriodMs);
 }
 
-export function isHermesRunningProcessConfirmed(input: {
+export function isAutoListingControllerRunningProcessConfirmed(input: {
   pidAlive: boolean;
   processGroupAlive?: boolean;
   command?: string;
 }): boolean {
-  return input.pidAlive && (Boolean(input.command && isHermesSupervisorProcessCommand(input.command)) || input.processGroupAlive === true);
+  return input.pidAlive && (Boolean(input.command && isAutoListingControllerSupervisorProcessCommand(input.command)) || input.processGroupAlive === true);
 }
 
-export function selectHermesLatestResultFileForJobStatus(input: {
+export function selectAutoListingControllerLatestResultFileForJobStatus(input: {
   hasControlJob: boolean;
   latestResultFile?: string;
 }): string | undefined {
   return input.hasControlJob ? undefined : input.latestResultFile;
 }
 
-export type HermesImageGenerationEvent = {
+export type AutoListingControllerImageGenerationEvent = {
   timestamp?: string;
   message?: string;
 };
 
-export type HermesImageGenerationSummary = {
+export type AutoListingControllerImageGenerationSummary = {
   status: "reused_raw_images" | "ready" | "generating" | "in_progress";
   count?: number;
   latestMessage: string;
@@ -527,7 +537,7 @@ export type HermesImageGenerationSummary = {
   latestSavedAt?: string;
 };
 
-export function summarizeHermesImageGenerationEvents(events: HermesImageGenerationEvent[]): HermesImageGenerationSummary | undefined {
+export function summarizeAutoListingControllerImageGenerationEvents(events: AutoListingControllerImageGenerationEvent[]): AutoListingControllerImageGenerationSummary | undefined {
   const latest = events.at(-1);
   if (!latest) {
     return undefined;
@@ -568,7 +578,7 @@ export function isExternalMainImageRawReuseMessage(input: {
   return normalizedSource !== normalizedRuntime && !normalizedSource.startsWith(normalizedRuntime + "/");
 }
 
-export type HermesCompactStatusTextInput = {
+export type AutoListingControllerCompactStatusTextInput = {
   status?: string;
   summary?: string;
   productName?: string;
@@ -582,7 +592,7 @@ export type HermesCompactStatusTextInput = {
   feishuTotal?: number;
 };
 
-export type HermesRealtimeProgressSignalInput = {
+export type AutoListingControllerRealtimeProgressSignalInput = {
   jobStartedAt?: string;
   activeRunId?: string;
   status?: string;
@@ -604,7 +614,7 @@ export type HermesRealtimeProgressSignalInput = {
   stateLatestProgressMessage?: string;
 };
 
-export type HermesRealtimeProgressSignal = {
+export type AutoListingControllerRealtimeProgressSignal = {
   key: string;
   timestamp?: string;
   source: "publish_log" | "latest_artifact" | "publish_active" | "state" | "status";
@@ -618,9 +628,9 @@ function compactRealtimeProgressPart(value: string | undefined): string {
     .slice(0, 120);
 }
 
-export function resolveHermesRealtimeProgressSignal(
-  input: HermesRealtimeProgressSignalInput
-): HermesRealtimeProgressSignal | undefined {
+export function resolveAutoListingControllerRealtimeProgressSignal(
+  input: AutoListingControllerRealtimeProgressSignalInput
+): AutoListingControllerRealtimeProgressSignal | undefined {
   const statusCandidate = {
     source: "status" as const,
     timestamp: input.statusTimestamp,
@@ -680,7 +690,7 @@ export function resolveHermesRealtimeProgressSignal(
   };
 }
 
-export type HermesResolvedStatus =
+export type AutoListingControllerResolvedStatus =
   | "running"
   | "paused"
   | "completed"
@@ -689,7 +699,7 @@ export type HermesResolvedStatus =
   | "pending_products"
   | "exited_unknown";
 
-export type HermesRuntimeStatusInput = {
+export type AutoListingControllerRuntimeStatusInput = {
   running: boolean;
   activeWaitState: boolean;
   completed: boolean;
@@ -700,7 +710,7 @@ export type HermesRuntimeStatusInput = {
   terminalFailureMessage?: string;
 };
 
-export function resolveHermesRuntimeStatus(input: HermesRuntimeStatusInput): HermesResolvedStatus {
+export function resolveAutoListingControllerRuntimeStatus(input: AutoListingControllerRuntimeStatusInput): AutoListingControllerResolvedStatus {
   if (input.activeWaitState) {
     return "external_service_wait";
   }
@@ -729,7 +739,7 @@ export function resolveHermesRuntimeStatus(input: HermesRuntimeStatusInput): Her
   return "exited_unknown";
 }
 
-function normalizeHermesStatusLabel(status?: string): string {
+function normalizeAutoListingControllerStatusLabel(status?: string): string {
   if (status === "running") return "运行中";
   if (status === "paused") return "已暂停";
   if (status === "failed") return "失败";
@@ -740,7 +750,7 @@ function normalizeHermesStatusLabel(status?: string): string {
   return status || "未知";
 }
 
-function cleanHermesProductName(name?: string): string {
+function cleanAutoListingControllerProductName(name?: string): string {
   const base = (name || "").split(/[\\/]/).pop() || "";
   return base
     .replace(/\.(png|jpe?g|webp)$/i, "")
@@ -750,7 +760,7 @@ function cleanHermesProductName(name?: string): string {
     .trim() || "未知商品";
 }
 
-function compactHermesReason(summary?: string): string {
+function compactAutoListingControllerReason(summary?: string): string {
   const text = String(summary || "").replace(/\s+/g, " ").trim();
   if (/Expected short-title field is missing|导购短标题.*缺失|short-title/i.test(text)) {
     return "导购短标题字段缺失，已停止，可续跑。";
@@ -770,39 +780,39 @@ function compactHermesReason(summary?: string): string {
     .slice(0, 80) || "暂无原因";
 }
 
-function compactHermesImageProgress(progress?: string): string {
+function compactAutoListingControllerImageProgress(progress?: string): string {
   const text = String(progress || "").replace(/\s+/g, " ").trim();
   return text.length > 180 ? `${text.slice(0, 180)}...` : text;
 }
 
-export function formatHermesCompactStatusText(input: HermesCompactStatusTextInput): string {
+export function formatAutoListingControllerCompactStatusText(input: AutoListingControllerCompactStatusTextInput): string {
   const publishTotal = input.publishTotal ?? "?";
   const publishDone = input.publishSafelyPublished ?? 0;
   const publishFailed = input.publishFailed ?? 0;
   const feishuCompleted = input.feishuCompleted ?? "?";
   const feishuTotal = input.feishuTotal ?? "?";
   const lines = [
-    `状态：${normalizeHermesStatusLabel(input.status)}｜发布 ${publishDone}/${publishTotal}，失败 ${publishFailed}｜飞书 ${feishuCompleted}/${feishuTotal}`
+    `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜发布 ${publishDone}/${publishTotal}，失败 ${publishFailed}｜飞书 ${feishuCompleted}/${feishuTotal}`
   ];
 
   if (input.status === "failed") {
-    lines.push(`商品：${cleanHermesProductName(input.productName || input.activeItemName)}`);
-    lines.push(`原因：${compactHermesReason(input.summary)}`);
+    lines.push(`商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`);
+    lines.push(`原因：${compactAutoListingControllerReason(input.summary)}`);
     return lines.join("\n");
   }
 
-  const active = cleanHermesProductName(input.activeItemName || input.productName);
+  const active = cleanAutoListingControllerProductName(input.activeItemName || input.productName);
   lines.push(`当前：${active}`);
   const latestProgress = input.imageGenerationProgress || input.latestProgress;
   if (latestProgress) {
-    lines.push(`进度：${input.imageGenerationProgress ? compactHermesImageProgress(latestProgress) : compactHermesReason(latestProgress)}`);
+    lines.push(`进度：${input.imageGenerationProgress ? compactAutoListingControllerImageProgress(latestProgress) : compactAutoListingControllerReason(latestProgress)}`);
   } else if (input.summary) {
-    lines.push(`进度：${compactHermesReason(input.summary)}`);
+    lines.push(`进度：${compactAutoListingControllerReason(input.summary)}`);
   }
   return lines.slice(0, 3).join("\n");
 }
 
-export type HermesFailedResumeCandidate = {
+export type AutoListingControllerFailedResumeCandidate = {
   resultFile: string;
   mtimeMs: number;
   safelyPublishedCount?: number;
@@ -810,7 +820,7 @@ export type HermesFailedResumeCandidate = {
   reusableRawImageCount?: number;
 };
 
-export function selectHermesFailedResumeCandidate<T extends HermesFailedResumeCandidate>(candidates: T[]): T | undefined {
+export function selectAutoListingControllerFailedResumeCandidate<T extends AutoListingControllerFailedResumeCandidate>(candidates: T[]): T | undefined {
   return [...candidates].sort(
     (a, b) =>
       (b.safelyPublishedCount || 0) - (a.safelyPublishedCount || 0) ||

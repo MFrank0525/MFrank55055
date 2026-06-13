@@ -2,18 +2,21 @@
 
 ## 核心原则
 
-这个项目只分四层：
+这个项目分五层：
 
-1. 固定业务主流程  
+1. 项目控制面
+`auto-listing-controller` 负责幂等开始/继续、断点选择和状态；`auto-listing-supervisor` 负责子流程接力、等待和进程监管。Hermes/飞书只是兼容触发入口，不拥有项目执行逻辑。
+
+2. 固定业务主流程
 主流程只描述上架必须完成的业务节点，不绑定具体工具：产品数据、卖点上下文、图片提示词、主图生成、标题生成、商品信息回填、资质图、店铺分发、发布、清理。
 
-2. 可替换 provider  
+3. 可替换 provider
 飞书、中转站图片模型、抖店浏览器或其他 provider 可以按节点切换，但不能改变主流程节点顺序。
 
-3. 动作脚本  
+4. 动作脚本
 脚本只负责执行动作。
 
-4. 操作说明  
+5. 操作说明
 凡是动作脚本以外的要求、规则、固定对话、固定提示词、失败条件、人工检查点，都写在步骤 `md` 里。
 
 ## 你应该先看哪里
@@ -30,6 +33,8 @@
 ### 最后看脚本
 
 - 总调度入口：[auto-listing.ts](src/cli/auto-listing.ts)
+- 项目控制入口：[auto-listing-controller.ts](src/cli/auto-listing-controller.ts)
+- 项目进程监管：[auto-listing-supervisor.ts](src/cli/auto-listing-supervisor.ts)
 - 总调度核心：[orchestrator.ts](src/autolist/orchestrator.ts)
 - 发布入口：[publish-from-spu.ts](src/cli/publish-from-spu.ts)
 - 发布核心：[publish-from-spu.ts](src/business/publish-from-spu.ts)
@@ -80,6 +85,10 @@ npm run rules:check
 ### 动作模块
 
 浏览器点击、上传、文件复制、截图、日志写入等动作保存在动作模块。动作模块可以调用规则模块，但不能自己发明业务成功/失败条件。
+
+### 外部触发边界
+
+Hermes/飞书只允许调用 `auto-listing:hermes-start` 和 `auto-listing:hermes-status` 兼容命令。这些命令薄转发到项目控制器；恢复、飞书刷新、流程脚本和发布动作全部由项目自身完成。
 
 ## 不允许再发生的情况
 

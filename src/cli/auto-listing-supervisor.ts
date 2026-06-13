@@ -4,8 +4,8 @@ import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import {
   resolveDefaultRetryableChildFailureRecoveryAttempts,
-  resolveHermesChildStallTimeoutMs,
-  isHermesProgressArtifactRelativePath,
+  resolveAutoListingControllerChildStallTimeoutMs,
+  isAutoListingControllerProgressArtifactRelativePath,
   isRetryableExternalServiceAvailabilityFailure,
   resolveSupervisorRecoveryDelayMs,
   shouldConsumeSupervisorRecoveryAttempt,
@@ -48,8 +48,8 @@ const rootDir = process.cwd();
 const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu-real.json");
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
-const childControlFile = path.resolve(rootDir, "data/auto-listing/control/hermes-auto-listing-child.json");
-const externalServiceWaitFile = path.resolve(rootDir, "data/auto-listing/control/hermes-auto-listing-wait.json");
+const childControlFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-child.json");
+const externalServiceWaitFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-wait.json");
 const childStallExitCode = 124;
 const terminalResultGracePeriodMs = 5000;
 const childStallTimeoutMs = Math.max(180000, Number(process.env.AUTO_LISTING_CHILD_STALL_TIMEOUT_MS || 12 * 60 * 1000));
@@ -72,7 +72,7 @@ function parseInitialMode(argv: string[]): InitialMode {
   if (value === "resume" || value === "full") {
     return value;
   }
-  throw new Error("Usage: hermes-auto-listing-supervisor --initial <resume|full>");
+  throw new Error("Usage: auto-listing-supervisor --initial <resume|full>");
 }
 
 function sleep(ms: number): Promise<void> {
@@ -107,7 +107,7 @@ function latestProgressMtimeMs(): number {
           continue;
         }
         const relativePath = path.relative(runtimeDir, file);
-        if (isHermesProgressArtifactRelativePath(relativePath)) {
+        if (isAutoListingControllerProgressArtifactRelativePath(relativePath)) {
           latest = Math.max(latest, fs.statSync(file).mtimeMs);
         }
       }
@@ -220,12 +220,12 @@ function forceTerminateProcessGroup(pid: number): void {
   }
 }
 
-function writeHermesChildControl(pid: number, label: string): void {
+function writeAutoListingControllerChildControl(pid: number, label: string): void {
   fs.mkdirSync(path.dirname(childControlFile), { recursive: true });
   fs.writeFileSync(childControlFile, `${JSON.stringify({ pid, label, startedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
 }
 
-function clearHermesChildControl(pid: number): void {
+function clearAutoListingControllerChildControl(pid: number): void {
   const current = readJsonFile<{ pid?: number }>(childControlFile);
   if (current?.pid === pid) {
     fs.rmSync(childControlFile, { force: true });
@@ -252,7 +252,7 @@ function clearExternalServiceWait(): void {
 }
 
 async function runChild(label: string, command: string, args: string[]): Promise<number | null> {
-  console.log(`\n== Hermes child: ${label} ==`);
+  console.log(`\n== Auto-listing child: ${label} ==`);
   const child = spawn(command, args, {
     cwd: rootDir,
     detached: true,
@@ -260,7 +260,7 @@ async function runChild(label: string, command: string, args: string[]): Promise
     stdio: "inherit"
   });
   if (child.pid) {
-    writeHermesChildControl(child.pid, label);
+    writeAutoListingControllerChildControl(child.pid, label);
   }
   const childStartedAtMs = Date.now();
   let lastProgressMtime = latestProgressMtimeMs();
@@ -299,7 +299,7 @@ async function runChild(label: string, command: string, args: string[]): Promise
       return;
     }
     const activeProgress = latestProgressSnapshot();
-    const effectiveStallTimeoutMs = resolveHermesChildStallTimeoutMs({
+    const effectiveStallTimeoutMs = resolveAutoListingControllerChildStallTimeoutMs({
       defaultTimeoutMs: childStallTimeoutMs,
       activeStep: activeProgress.activeStep,
       activeMessage: activeProgress.activeMessage
@@ -327,14 +327,14 @@ async function runChild(label: string, command: string, args: string[]): Promise
     child.once("error", (error) => {
       clearInterval(watchdog);
       if (child.pid) {
-        clearHermesChildControl(child.pid);
+        clearAutoListingControllerChildControl(child.pid);
       }
       reject(error);
     });
     child.once("exit", (code) => {
       clearInterval(watchdog);
       if (child.pid) {
-        clearHermesChildControl(child.pid);
+        clearAutoListingControllerChildControl(child.pid);
       }
       resolve(terminalResultExitCode !== undefined ? terminalResultExitCode : killedForStall ? childStallExitCode : code);
     });
@@ -359,7 +359,7 @@ function loadFeishuEnv(configFile: string): NodeJS.ProcessEnv {
 
 function runFeishuAssetsRefresh(): number | null {
   migrateLegacyProcessedManifestForCurrentCache();
-  console.log("\n== Hermes child: refresh-feishu-assets ==");
+  console.log("\n== Auto-listing child: refresh-feishu-assets ==");
   const result = spawnSync("npm", [
     "run",
     "feishu:assets",

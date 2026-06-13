@@ -51,6 +51,7 @@
    - `events.ndjson`
    - `manuals-read.json`
 4. `state.json` 的 run status 会变成 `paused`，当前已经完成的步骤和产物路径会保留。
+5. 暂停入口由项目控制器执行；Hermes 收到“暂停上架”时只调用 `npm run auto-listing:hermes-pause`，不直接写信号文件或杀进程。
 
 使用方式：
 
@@ -66,6 +67,7 @@
 
 - 暂停不是强杀进程；它会等当前步骤完成后，在下一步开始前停下。
 - 如果当前步骤正在调用图片接口或抖店页面，需要等该步骤返回后才会落盘暂停。
+- 如果当前商品已经提交了 20 个付费生图任务，暂停不会丢弃或重复提交这些任务；项目会完成同一批 task ID 的观察和落账，并在下一个安全步骤边界停止。
 
 ### 1. 飞书卖点字段结构化
 
@@ -89,7 +91,7 @@
 4. 导出到 `data/feishu/products.json` 前脱敏附件临时 URL、下载 URL 和非文件级 token 字段。
 5. 附件下载对瞬时网络错误和 408、429、5xx 自动重试，重试后仍失败才停止。
 6. 真实运行前执行 `npm run audit:auto-listing`，审计飞书记录数、待处理数量、已处理清单和本地素材是否一致。
-7. 连续性判断只放在规则层；下载、清理、Hermes 状态输出只能作为动作层调用规则结果。
+7. 连续性判断只放在规则层；下载、清理、项目状态输出只能作为动作层调用规则结果。
 8. DeepSeek 指令和 Word 第二段使用的 `sellingPointText` 必须严格等于飞书 `产品卖点` 字段原文；不得自动追加用户认知名、品牌、产品通用名称、SPU 等结构化字段。
 
 ### 2. 图片提示词回复提取
@@ -206,42 +208,44 @@
 6. 发布成功判定属于规则层：必须读取 `result.json`、`state.json`、`publish-manifest.json`，不能只看后台进程是否还活着。
 7. 已发布商品必须写入 `publish-manifest.json`，并以 `published + publish_signal_confirmed/list_verified` 作为安全跳过依据。
 8. 发布动作属于动作层：每个商品开始、完成、失败都必须写日志；日志不改变业务规则，只为状态汇报和卡顿诊断服务。
-9. Hermes 状态汇报必须把完成态显示为 `completed`，失败态显示为 `failed`；禁止在已有安全成功信号时显示 `exited_unknown`。
+9. 项目状态汇报必须把完成态显示为 `completed`，失败态显示为 `failed`；禁止在已有安全成功信号时显示 `exited_unknown`。
 10. `填写检查`/`发布商品` 后返回空白 `/ffa/g/create` 时，只能在已尝试点击发布后作为成功提交信号；未点击发布前仍视为未填写初始页。
 11. 标品管理页、发布页等后台页面短暂 loading 或浏览器上下文丢失属于可重试系统故障；规则层负责分类，动作层只能等待、刷新、重试，不能把这类故障当作已发布或直接跳过。
 12. `audit:auto-listing` 必须审计已进入发布阶段的任务：每个店铺产品文件夹都必须存在安全发布信号；`failed`、`needs_manual_review`、缺失结果都视为失败。
 13. 店铺切换前必须先判断当前店铺是否已经等于目标店铺。如果已经匹配，即使右上菜单仍在加载且 `切换组织/店铺` 入口暂不可用，也应视为店铺上下文满足并继续发布。
 14. 当前店铺不匹配且 `切换组织/店铺` 入口不可用时，归类为可重试系统状态；动作层只能刷新、重新打开菜单、重试，不能直接把整个批次永久失败。
-15. 单商品恢复任务完成不等于飞书批次完成。Hermes 状态必须同时读取飞书产品缓存和 processed manifest；只有待处理产品数为 0 时才允许显示 `completed`。
+15. 单商品恢复任务完成不等于飞书批次完成。项目状态必须同时读取飞书产品缓存和 processed manifest；只有待处理产品数为 0 时才允许显示 `completed`。
 16. 已成功完成的 resume job 是过时动作文件，下一次启动前必须清理，让启动器回到正常 full-real-flow 并继续处理剩余飞书产品。
-17. Hermes 子流程正常退出但飞书批次仍有待处理产品时，supervisor 必须自动接力启动 full-real-flow；不能只显示 `pending_products` 等人工再次启动。
+17. 项目子流程正常退出但飞书批次仍有待处理产品时，supervisor 必须自动接力启动 full-real-flow；不能只显示 `pending_products` 等人工再次启动。
 18. 子流程失败时禁止自动跳过当前错误进入下一产品，必须先暴露失败原因并保留断点。
-19. Hermes 运行中必须优先展示 state/events 里的当前 task 最新进度；上一产品留下的 publish manifest 不能覆盖当前产品的生成、标题、清理等阶段状态。
+19. 项目运行中必须优先展示 state/events 里的当前 task 最新进度；上一产品留下的 publish manifest 不能覆盖当前产品的生成、标题、清理等阶段状态。
 20. 多任务 run 的中间任务失败后，resume job 必须保存并复用原 `taskId`，否则会把 `tasks/image-002` 等真实断点产物错读成 `tasks/image-001`。
 21. 发布创建页出现 `spu信息填充失败`、`Publish create page did not become ready`、0 个发布模块且短文本页面时，属于标品创建页预填充失败，不属于店铺错配；规则层必须归类为 `platform_spu_prefill_failed` 并允许重试。
 22. 标品创建页预填充失败时，动作层不能继续修补或刷新旧创建页；必须关闭旧 `/ffa/g/create` 页面，回到标品管理重新查询 SPU 并打开新的创建页。
 23. 同一飞书批次允许多个产品共享 SPU 和通用名称。发布资产匹配飞书记录时，不能只按文件夹名、SPU、通用名称做模糊反查；必须优先使用用户认知名、导购短标题、白底图/资质图文件名等强键消歧。
 24. 商品详情页资质图只允许单批上传。详情图数量必须刚好等于 `从主图填入后的数量 + 飞书资质图数量`；页面计数延迟时只能等待稳定，不能再次整批上传同一批资质图。
 25. 产品文件夹名如果只包含通用名称，动作层必须把文件夹内 Excel 文件名、资质图片名等可见文件名一并交给规则层判断；规则层仍无法唯一匹配时才允许失败。
-26. Hermes supervisor 可能在同一日志中连续执行 resume 子流程和 full-real-flow 子流程。状态汇报选择结果文件时，规则层必须优先使用该日志中最新 run 的 `result.json`，不能固定使用启动时写入的旧 `expectedResultFile`，否则会把新批次失败误报成上一单完成。
-27. Hermes job 里的 PID 只能作为候选信号。动作层必须读取该 PID 的真实命令并确认它仍是 `hermes-auto-listing-supervisor`；如果 PID 不存在或已被其他进程复用，状态层必须按已退出处理。
+26. 项目 supervisor 可能在同一日志中连续执行 resume 子流程和 full-real-flow 子流程。状态汇报选择结果文件时，规则层必须优先使用该日志中最新 run 的 `result.json`，不能固定使用启动时写入的旧 `expectedResultFile`，否则会把新批次失败误报成上一单完成。
+27. 项目控制 job 里的 PID 只能作为候选信号。动作层必须读取该 PID 的真实命令并确认它仍是 `auto-listing-supervisor`；如果 PID 不存在或已被其他进程复用，状态层必须按已退出处理。
 28. 同一飞书批次未完成时，任何 full-real-flow 接力都必须锁定并复用当前 `data/feishu/products.json` 缓存，禁止重新执行 `feishu:assets --cleanup-stale-assets` 覆盖旧批次素材。只有当前缓存批次 `pending=0` 后，才允许刷新飞书表格发现新批次。
 29. 用户手动重新启动 full-real-flow 时也必须先审计当前缓存批次。如果当前缓存还有待处理产品，即使飞书在线表格已经更新，也必须先跑完缓存批次，不能把新批次插队到旧批次之前。
 30. 同批次接力解析飞书素材时，必须先读取 `processedImageManifest` 并排除已处理记录，再校验未处理记录的白底图/资质图是否存在；已处理记录完成清理后本地素材缺失是正常状态，不能阻塞后续未处理记录。
 31. 主图 raw 复用只允许发生在当前失败续跑链路的同一个 `runtimeDir/tasks/<taskId>` 内。正常重新开始、飞书新批次、历史完成商品、其他 run 的旧 raw 图片不得因为源图路径、SPU 或飞书 recordId 相同而被复制复用。
-32. 抖店发布页处于 loading、基础信息所有预期字段同时消失、规格模板瞬时未读回、规格模板入口控件不可见、页面上下文丢失等发布页瞬态故障，只允许在单商品发布器内有限重试。发布阶段子流程失败后，Hermes supervisor 禁止切回新的 full-real-flow 自动重放；必须保留原 run 的 manifest 和 resume 断点，由下一次 Hermes 启动安全续跑并跳过已确认发布项。
-33. CDP 调试端口健康探测和 Playwright `connectOverCDP` 必须设置硬超时。发布子目录持续生成的截图、结果和检查点都属于有效进度心跳，Hermes watchdog 必须读取这些产物，禁止只因顶层 state/events 未更新就误杀仍在推进的发布流程。发布阶段若确实触发 watchdog，结果属于外部副作用不确定状态，禁止 supervisor 自动重启发布。
-34. Hermes supervisor 启动的每个 detached 子流程必须登记独立进程组。子流程正常退出时清除登记；supervisor 异常退出留下孤儿子流程时，下次 Hermes 启动必须终止该已登记进程组。即使进程组 leader 已退出，也必须继续清理其 npm/node 后代；只有 leader PID 仍存活且真实命令不匹配时才禁止终止，防止误杀复用 PID。
+32. 抖店发布页处于 loading、基础信息所有预期字段同时消失、规格模板瞬时未读回、规格模板入口控件不可见、页面上下文丢失等发布页瞬态故障，只允许在单商品发布器内有限重试。发布阶段子流程失败后，项目 supervisor 禁止切回新的 full-real-flow 自动重放；必须保留原 run 的 manifest 和 resume 断点，由下一次项目控制器启动安全续跑并跳过已确认发布项。
+33. CDP 调试端口健康探测和 Playwright `connectOverCDP` 必须设置硬超时。发布子目录持续生成的截图、结果和检查点都属于有效进度心跳，项目 watchdog 必须读取这些产物，禁止只因顶层 state/events 未更新就误杀仍在推进的发布流程。发布阶段若确实触发 watchdog，结果属于外部副作用不确定状态，禁止 supervisor 自动重启发布。
+34. 项目 supervisor 启动的每个 detached 子流程必须登记独立进程组。子流程正常退出时清除登记；supervisor 异常退出留下孤儿子流程时，下次项目控制器启动必须终止该已登记进程组。即使进程组 leader 已退出，也必须继续清理其 npm/node 后代；只有 leader PID 仍存活且真实命令不匹配时才禁止终止，防止误杀复用 PID。
 35. 规则层必须把当前 child 启动后写出的可信 terminal `result.json` 视为权威终态。成功终态且飞书当前批次仍有待处理产品时，必须立即进入同批次下一产品；禁止继续按普通运行或 stall 状态等待。terminal result 只允许保留短暂资源释放宽限期。
-36. 动作层必须在 auto-listing CLI 写出终态后统一释放当前进程建立的 CDP 自动化连接。若资源句柄仍阻止 child 自然退出，Hermes supervisor 必须在 terminal 宽限期后终止该已登记进程组，并按 terminal result 的真实成功/失败结果继续规则层决策。
+36. 动作层必须在 auto-listing CLI 写出终态后统一释放当前进程建立的 CDP 自动化连接。若资源句柄仍阻止 child 自然退出，项目 supervisor 必须在 terminal 宽限期后终止该已登记进程组，并按 terminal result 的真实成功/失败结果继续规则层决策。
 37. 图片供应商返回 `429/502/503/504`、`temporarily unavailable`、gateway unavailable、资源过载，或主图生成阶段出现 `fetch failed`、socket reset、timeout、`UND_ERR` 等传输失败时，规则层必须归类为外部服务可用性故障。此类故障不消耗普通流程有限恢复预算；必须保留当前飞书批次、当前产品断点和已验证 raw 图片，按 10 分钟起步、最长 30 分钟的长退避持续等待恢复。权限拒绝、access forbidden、业务校验错误和可能产生不确定外部副作用的错误禁止套用此规则。
 38. 任何历史运行资产恢复，包括 raw/staged 主图、异步任务响应、Word 提示词、标题、店铺商品目录、发布计划和发布清单，都必须先验证运行记录中的飞书批次指纹与当前缓存批次完全一致。指纹缺失或不一致时必须失败关闭，禁止用源图路径、recordId、SPU、产品名、文件夹名或“已有产物数量”推断为同一批次；Word 只允许从当前 `runtimeDir/tasks/<taskId>` 恢复，店铺目录只允许按 resume job 的精确文件夹清单恢复。
-39. Hermes supervisor 以独立进程组运行。状态检查优先验证 PID 与命令；受限环境禁止 Node 读取 `ps` 命令行时，必须用该 supervisor 的独立进程组存活信号确认运行中，不能误报任务结束并允许重复启动。
-40. 外部服务长退避期间，动作层必须写入独立 `external_service_wait` 控制状态，包含等待原因、等待次数和下次重试时间；Hermes 状态必须优先展示该等待态。开始下一次执行时清除等待状态，禁止把正在自动等待供应商恢复误报为永久失败或正常执行中。
-41. Hermes 实时进度必须由项目状态命令输出统一的 `realtimeProgress` 信号，包含 supervisor 启动时间、active runId、发布计数、当前发布 runtimeKey、最新进度时间和来源。外层自动回复器只能按该信号去重；禁止继续用旧 `expectedResultFile`、旧 `state.currentTask`、历史发布计数或跨 run 残留的本地 watcher key 推断是否有新进度。当前 active run 已写入 terminal failed result 时，Hermes 状态必须优先展示终态失败/外部等待信号，禁止再用 terminal 之后异步图片任务追加的 events 误报为正常实时进度。
+39. 项目 supervisor 以独立进程组运行。状态检查优先验证 PID 与命令；受限环境禁止 Node 读取 `ps` 命令行时，必须用该 supervisor 的独立进程组存活信号确认运行中，不能误报任务结束并允许重复启动。
+40. 外部服务长退避期间，动作层必须写入独立 `external_service_wait` 控制状态，包含等待原因、等待次数和下次重试时间；项目状态必须优先展示该等待态。开始下一次执行时清除等待状态，禁止把正在自动等待供应商恢复误报为永久失败或正常执行中。
+41. 项目实时进度必须由项目状态命令输出统一的 `realtimeProgress` 信号，包含 supervisor 启动时间、active runId、发布计数、当前发布 runtimeKey、最新进度时间和来源。外层自动回复器只能按该信号去重；禁止继续用旧 `expectedResultFile`、旧 `state.currentTask`、历史发布计数或跨 run 残留的本地 watcher key 推断是否有新进度。当前 active run 已写入 terminal failed result 时，项目状态必须优先展示终态失败/外部等待信号，禁止再用 terminal 之后异步图片任务追加的 events 误报为正常实时进度。
 42. 主图生成完成是标题、店铺分发、发布和清理前的硬门禁。每个当前商品必须先通过主图完整性审计：总数等于类目计划、每个 Word prompt 的图片数等于计划、raw 无水印文件、staged 水印文件和商品目录均真实存在。任何缺失、重复、数量不足或文件不存在都必须 fail closed，禁止继续进入标题、分发或抖店发布。
-43. 生图前允许做抖店登录预检以避免未登录后浪费图片费用，但 Hermes 可见进度必须明确标注为 `login preflight`。登录预检不是发布动作，禁止在状态文案里把它描述成发布进度；真正发布只能在主图、标题、资质、店铺分发全部完成并通过门禁后发生。
+43. 生图前允许做抖店登录预检以避免未登录后浪费图片费用，但项目状态命令对 Hermes 展示的进度必须明确标注为 `login preflight`。登录预检不是发布动作，禁止在状态文案里把它描述成发布进度；真正发布只能在主图、标题、资质、店铺分发全部完成并通过门禁后发生。
 44. `videos-base64` 的单商品 20 张并发提交是允许的，但仅限首次提交当前商品当前批次的 20 个异步 task。同一商品只要已有 task ID、轮询状态、部分 raw 图片或暂存图，任何 `fetch failed`、轮询超时、abort、网络中断都必须进入外部服务等待/续查同一批 task；禁止 supervisor 快速重启生成新的 runtimeDir 后再次提交 20 个付费任务。
+45. 付费图片账本属于项目级控制状态，固定保存在 `data/auto-listing/paid-image-submissions`，不得放在 runtime task 目录。项目 controller/supervisor、清理和续跑都必须尊重该共享账本；Hermes 不读取、不修改账本。
+46. 20 个 slot 和 5 个提示词轮次必须使用 all-settled 协调。任一 worker 失败时必须等待其他 worker 落账后再退出；`reserved` 或 `ambiguous` 是安全阻断，项目 supervisor 禁止自动重启或再次提交。
 
 ## 推荐执行顺序
 

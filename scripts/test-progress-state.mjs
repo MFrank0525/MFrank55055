@@ -16,41 +16,41 @@ import {
   shouldContinueFeishuAfterBatchRefresh,
   shouldRefreshFeishuAssetsBeforeFullFlow,
   shouldPreferActiveTaskStateSummary,
-  selectHermesStatusResultFile,
-  isHermesChildProcessCommand,
-  isHermesSupervisorProcessCommand,
+  selectAutoListingControllerStatusResultFile,
+  isAutoListingControllerChildProcessCommand,
+  isAutoListingControllerSupervisorProcessCommand,
   shouldResumeFeishuBatchAfterRetryableChildFailure,
   shouldRecoverFullFlowAfterChildFailure,
   shouldResumeInterruptedTaskInPlace,
   resolveDefaultRetryableChildFailureRecoveryAttempts,
-  resolveHermesProgressAgeSeconds,
-  resolveHermesEffectiveProgressTimestamp,
-  resolveHermesFeishuProgressDisplayMode,
-  resolveHermesFeishuBatchDisplayCounts,
-  resolveHermesStartAfterFeishuRefresh,
-  selectHermesActiveRunIdFromLogLines,
-  selectHermesStatusRuntimeDir,
-  shouldSuppressHistoricalResultInHermesStatus,
-  shouldSuppressStateCurrentTaskInHermesStatus,
-  shouldExposePublishProgressInHermesStatus,
+  resolveAutoListingControllerProgressAgeSeconds,
+  resolveAutoListingControllerEffectiveProgressTimestamp,
+  resolveAutoListingControllerFeishuProgressDisplayMode,
+  resolveAutoListingControllerFeishuBatchDisplayCounts,
+  resolveAutoListingControllerStartAfterFeishuRefresh,
+  selectAutoListingControllerActiveRunIdFromLogLines,
+  selectAutoListingControllerStatusRuntimeDir,
+  shouldSuppressHistoricalResultInAutoListingControllerStatus,
+  shouldSuppressStateCurrentTaskInAutoListingControllerStatus,
+  shouldExposePublishProgressInAutoListingControllerStatus,
   shouldUseExpectedResultFileInRunningStatus,
   shouldResumeHistoricalFailureForCurrentFeishuBatch,
-  isHermesRunningProcessConfirmed,
-  selectHermesLatestResultFileForJobStatus,
+  isAutoListingControllerRunningProcessConfirmed,
+  selectAutoListingControllerLatestResultFileForJobStatus,
   isExternalMainImageRawReuseMessage,
-  shouldClearPauseSignalOnHermesStart,
-  summarizeHermesImageGenerationEvents,
-  resolveHermesChildStallTimeoutMs,
-  isHermesProgressArtifactRelativePath,
-  shouldTerminateRecordedHermesProcessGroup,
+  shouldClearPauseSignalOnAutoListingControllerStart,
+  summarizeAutoListingControllerImageGenerationEvents,
+  resolveAutoListingControllerChildStallTimeoutMs,
+  isAutoListingControllerProgressArtifactRelativePath,
+  shouldTerminateRecordedAutoListingControllerProcessGroup,
   shouldTerminateChildAfterTerminalResult,
   isRetryableExternalServiceAvailabilityFailure,
   shouldConsumeSupervisorRecoveryAttempt,
   resolveSupervisorRecoveryDelayMs,
-  formatHermesCompactStatusText,
-  selectHermesFailedResumeCandidate,
-  resolveHermesRealtimeProgressSignal,
-  resolveHermesRuntimeStatus
+  formatAutoListingControllerCompactStatusText,
+  selectAutoListingControllerFailedResumeCandidate,
+  resolveAutoListingControllerRealtimeProgressSignal,
+  resolveAutoListingControllerRuntimeStatus
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -94,8 +94,8 @@ import {
 } from "../dist/src/doubao/capture-rules.js";
 import { saveTitlesFromRaw } from "../dist/src/doubao/save.js";
 
-const hermesRunnerSource = fs.readFileSync("src/cli/hermes-auto-listing-runner.ts", "utf8");
-const hermesSupervisorSource = fs.readFileSync("src/cli/hermes-auto-listing-supervisor.ts", "utf8");
+const hermesRunnerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
+const hermesSupervisorSource = fs.readFileSync("src/cli/auto-listing-supervisor.ts", "utf8");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
@@ -106,42 +106,42 @@ const packageSource = fs.readFileSync("package.json", "utf8");
 assert.match(
   hermesRunnerSource,
   /inferResumeStartStepForTask/,
-  "Hermes runner must use resume-rules when building resume jobs so recoverable title-folder states resume at publish"
+  "AutoListingController runner must use resume-rules when building resume jobs so recoverable title-folder states resume at publish"
 );
 assert.match(
   hermesRunnerSource,
   /compactStatusLine/,
-  "Hermes text status must compact very long log/error lines before returning them to Feishu"
+  "AutoListingController text status must compact very long log/error lines before returning them to Feishu"
 );
 assert.match(
   hermesRunnerSource,
   /基础信息模块未完成/,
-  "Hermes status must summarize basic-info publish failures in plain Chinese"
+  "AutoListingController status must summarize basic-info publish failures in plain Chinese"
 );
 assert.match(
   hermesRunnerSource,
   /最终发布动作未完成/,
-  "Hermes status must summarize final publish-submit failures in plain Chinese"
+  "AutoListingController status must summarize final publish-submit failures in plain Chinese"
 );
 assert.match(
   packageSource,
   /"auto-listing:hermes-status":\s*"[^"]*status --text"/,
-  "Hermes status script must default to concise human-readable text for Feishu/Hermes replies"
+  "AutoListingController status script must default to concise human-readable text for Feishu/AutoListingController replies"
 );
 assert.match(
   hermesSupervisorSource,
   /latestTerminalResultAfter/,
-  "Hermes watchdog must detect a terminal result file and preserve the real child outcome instead of reporting no-progress timeout"
+  "AutoListingController watchdog must detect a terminal result file and preserve the real child outcome instead of reporting no-progress timeout"
 );
 assert.match(
   hermesSupervisorSource,
-  /hermes-auto-listing-wait\.json/,
-  "Hermes supervisor must persist external-service waiting state for status reporting"
+  /auto-listing-wait\.json/,
+  "Project supervisor must persist external-service waiting state for status reporting"
 );
 assert.match(
   hermesRunnerSource,
   /external_service_wait/,
-  "Hermes status must expose external-service waiting instead of looking permanently failed"
+  "AutoListingController status must expose external-service waiting instead of looking permanently failed"
 );
 assert.match(
   autoListingCliSource,
@@ -156,12 +156,12 @@ assert.match(
 assert.match(
   hermesRunnerSource,
   /shouldResumeSourceImageForCurrentFeishuBatch/,
-  "Hermes runner must delegate stale resume-job filtering to a current-Feishu-batch resume guard"
+  "AutoListingController runner must delegate stale resume-job filtering to a current-Feishu-batch resume guard"
 );
 assert.match(
   hermesRunnerSource,
   /shouldResumeHistoricalFailureForCurrentFeishuBatch/,
-  "Hermes runner must use the rule-layer guard before resuming historical failures"
+  "AutoListingController runner must use the rule-layer guard before resuming historical failures"
 );
 assert.doesNotMatch(
   resumeSource,
@@ -176,7 +176,7 @@ assert.match(
 assert.match(
   hermesRunnerSource,
   /canResumeFeishuBatchArtifacts/,
-  "Hermes must require exact Feishu batch identity before selecting any historical resume artifacts"
+  "AutoListingController must require exact Feishu batch identity before selecting any historical resume artifacts"
 );
 assert.match(
   orchestratorSource,
@@ -206,102 +206,102 @@ assert.match(
 assert.match(
   hermesRunnerSource,
   /shouldResumeCurrentFailure\(\)[\s\S]*findLatestInterruptedStateForResume\(\)/,
-  "Hermes runner must preserve a valid current resume job before rebuilding one from interrupted state"
+  "AutoListingController runner must preserve a valid current resume job before rebuilding one from interrupted state"
 );
 assert.match(
   hermesRunnerSource,
   /safelyPublishedCount/,
-  "Hermes runner must rank interrupted resume candidates by publish-manifest progress before raw artifact count"
+  "AutoListingController runner must rank interrupted resume candidates by publish-manifest progress before raw artifact count"
 );
 assert.match(
   hermesRunnerSource,
   /countResumeProductFolders/,
-  "Hermes resume must count restored product folders as reusable publish-stage artifacts"
+  "AutoListingController resume must count restored product folders as reusable publish-stage artifacts"
 );
 assert.match(
   hermesRunnerSource,
   /const resumeProductFolderCount = countResumeProductFolders\(resumeJob\)[\s\S]*summarizeReusableTaskArtifacts[\s\S]*Math\.max\(reusableTaskArtifacts\.reusableArtifactCount, resumeProductFolderCount\)/,
-  "Hermes resume must ask the autolist project layer whether paid/raw artifacts make a resume safe"
+  "AutoListingController resume must ask the autolist project layer whether paid/raw artifacts make a resume safe"
 );
 assert.doesNotMatch(
   hermesRunnerSource,
   /paid-image-ledger|countReusablePaidImageLedgerSlots/,
-  "Hermes must not directly parse paid-image ledger internals; reusable paid assets belong to the autolist project layer"
+  "AutoListingController must not directly parse paid-image ledger internals; reusable paid assets belong to the autolist project layer"
 );
 assert.match(
   hermesRunnerSource,
   /summarizeReusableTaskArtifacts/,
-  "Hermes may only ask the autolist project layer for reusable task artifact counts"
+  "AutoListingController may only ask the autolist project layer for reusable task artifact counts"
 );
 assert.match(
   hermesRunnerSource,
   /const imageProgressSummaryMessage[\s\S]*imageProgress[\s\S]*latestMessage[\s\S]*stateSummary/,
-  "Hermes status summary must include image generation progress so main-image batches are visible before final publish results"
+  "AutoListingController status summary must include image generation progress so main-image batches are visible before final publish results"
 );
 assert.match(
   hermesRunnerSource,
   /shouldInvalidatePublishedResumeWithoutProductFolders[\s\S]*fs\.rmSync\(resumeJobFile, \{ force: true \}\)/,
-  "Hermes resume must discard a published-stage resume job when its declared product folders are missing on disk"
+  "AutoListingController resume must discard a published-stage resume job when its declared product folders are missing on disk"
 );
 assert.match(
   hermesRunnerSource,
   /inferResumeStartStepFromRuntimeFiles[\s\S]*openai-compatible[\s\S]*raw[\s\S]*main_images_generated/,
-  "Hermes resume must use real runtime raw/staged files to resume local main-image recovery before distribution/publish"
+  "AutoListingController resume must use real runtime raw/staged files to resume local main-image recovery before distribution/publish"
 );
 assert.match(
   hermesRunnerSource,
   /const resumeProductFolderCount = collectResumeProductFolderNames\(failedTask\)\.length[\s\S]*summarizeReusableTaskArtifacts[\s\S]*shouldResumeSourceImageForCurrentFeishuBatch\([\s\S]*reusableArtifactCount/,
-  "Hermes failed-result resume selection must delegate reusable paid/raw artifact counting to autolist project logic"
+  "AutoListingController failed-result resume selection must delegate reusable paid/raw artifact counting to autolist project logic"
 );
 assert.match(
   hermesRunnerSource,
   /publishResumeNeedsWork[\s\S]*startStep === "published"[\s\S]*resumeProductFolderCount > 0[\s\S]*countSafelyPublishedManifestEntries\(resumeRuntimeDir\) < resumeProductFolderCount/,
-  "Hermes resume must continue publish-stage work when restored product folders exist but publish manifest is not safely complete"
+  "AutoListingController resume must continue publish-stage work when restored product folders exist but publish manifest is not safely complete"
 );
 assert.match(
   hermesRunnerSource,
   /const shouldResume = publishResumeNeedsWork \|\| !result \|\| \(result\.ok !== true && result\.status !== "success"\)/,
-  "Hermes resume must let publish-stage incomplete manifest override an incorrectly successful result file"
+  "AutoListingController resume must let publish-stage incomplete manifest override an incorrectly successful result file"
 );
 assert.match(
   hermesRunnerSource,
   /if \(!publishResumeNeedsWork && \(!latestRelevantFailure \|\| path\.resolve\(latestRelevantFailure\.resultFile\) !== resultFile\)\)/,
-  "Hermes resume must not discard a valid publish-stage resume job only because the stale result file was incorrectly marked successful"
+  "AutoListingController resume must not discard a valid publish-stage resume job only because the stale result file was incorrectly marked successful"
 );
 assert.match(
   hermesRunnerSource,
   /if \(shouldResume && failedTask && !publishResumeNeedsWork\)/,
-  "Hermes resume must not let a stale failed task re-infer and overwrite a publish-stage resume job that still needs publish work"
+  "AutoListingController resume must not let a stale failed task re-infer and overwrite a publish-stage resume job that still needs publish work"
 );
 assert.match(
   hermesRunnerSource,
-  /resolveHermesStartAfterFeishuRefresh/,
-  "Hermes start must use the rule-layer decision after refreshing a completed Feishu batch"
+  /resolveAutoListingControllerStartAfterFeishuRefresh/,
+  "AutoListingController start must use the rule-layer decision after refreshing a completed Feishu batch"
 );
 assert.match(
   hermesRunnerSource,
   /rerun_confirmation_required/,
-  "Hermes start must ask for confirmation instead of rerunning a completed unchanged Feishu batch"
+  "AutoListingController start must ask for confirmation instead of rerunning a completed unchanged Feishu batch"
 );
 assert.match(
   hermesRunnerSource,
   /--rerun-current-batch/,
-  "Hermes start must require an explicit rerun flag before clearing completed batch progress"
+  "AutoListingController start must require an explicit rerun flag before clearing completed batch progress"
 );
 assert.match(
   hermesRunnerSource,
   /const beforeRefreshProgress = summarizeFeishuProgress\(\)[\s\S]*const selected = selectCommand\(\)/,
-  "Hermes start must refresh a completed cached Feishu batch before selecting a stale resume job"
+  "AutoListingController start must refresh a completed cached Feishu batch before selecting a stale resume job"
 );
 assert.match(
   hermesRunnerSource,
-  /cleanupRecordedHermesChild/,
-  "Hermes start must clean a recorded orphan child process group before starting another supervisor"
+  /cleanupRecordedAutoListingControllerChild/,
+  "AutoListingController start must clean a recorded orphan child process group before starting another supervisor"
 );
 assert.match(
   hermesSupervisorSource,
-  /writeHermesChildControl/,
-  "Hermes supervisor must record each detached child process group for orphan recovery"
+  /writeAutoListingControllerChildControl/,
+  "AutoListingController supervisor must record each detached child process group for orphan recovery"
 );
 assert.match(
   publishSource,
@@ -316,12 +316,12 @@ assert.match(
 assert.match(
   orchestratorSource,
   /appendEvent\(eventFile, createEvent\("info", step, message, current\.taskId\)\)/,
-  "Orchestrator must append publish progress callback messages to events.ndjson for Hermes status"
+  "Orchestrator must append publish progress callback messages to events.ndjson for AutoListingController status"
 );
 assert.match(
   hermesRunnerSource,
   /summarizePublishLogProgress[\s\S]*publish module started[\s\S]*publishLogProgress[\s\S]*latestProgressText/,
-  "Hermes status must surface publish module log heartbeats so reports do not look stalled during long Doudian module actions"
+  "AutoListingController status must surface publish module log heartbeats so reports do not look stalled during long Doudian module actions"
 );
 assert.match(
   processedCompletionRulesSource,
@@ -429,7 +429,7 @@ assert.deepEqual(latestEvent, {
   message: "Prompt 1/5: Image 2: submitting edits request."
 });
 assert.deepEqual(
-  summarizeHermesImageGenerationEvents([
+  summarizeAutoListingControllerImageGenerationEvents([
     { timestamp: "2026-05-23T10:01:00.000Z", message: "Prompt 4/5: Image 1: saved generated-01.png." },
     { timestamp: "2026-05-23T10:02:00.000Z", message: "Prompt 4/5: Image 2: saved generated-02.png." },
     { timestamp: "2026-05-23T10:03:00.000Z", message: "Prompt 4/5: Image 3: submitting edits request." }
@@ -549,7 +549,7 @@ const cdpContextManagementClass = classifyPublishFailure(
 assert.equal(cdpContextManagementClass, "browser_remote_debugging_unavailable");
 assert.equal(shouldRetryPublishFailure(cdpContextManagementClass, 0), true);
 assert.equal(
-  resolveHermesChildStallTimeoutMs({
+  resolveAutoListingControllerChildStallTimeoutMs({
     defaultTimeoutMs: 12 * 60 * 1000,
     activeStep: "published",
     activeMessage: "Retrying publish for 延草纲目医用面部冷敷贴水印03 (02延草纲目药品专营店): page_context_lost; attempt 1"
@@ -557,7 +557,7 @@ assert.equal(
   4 * 60 * 1000
 );
 assert.equal(
-  resolveHermesChildStallTimeoutMs({
+  resolveAutoListingControllerChildStallTimeoutMs({
     defaultTimeoutMs: 12 * 60 * 1000,
     activeStep: "main_images_generated",
     activeMessage: "Prompt 4/5: Image 2: transient transport error during initial; retry 6/8."
@@ -987,7 +987,7 @@ assert.deepEqual(resolveImageGenerationTransportRetryPolicy(2), {
 });
 assert.equal(resolveImageGenerationTransportRetryPolicy(10).maxRetries, 10);
 assert.equal(
-  selectHermesStatusResultFile({
+  selectAutoListingControllerStatusResultFile({
     running: false,
     expected: { resultFile: "old-resume-result.json", mtimeMs: 100 },
     log: { resultFile: "new-supervisor-child-result.json", mtimeMs: 300 },
@@ -996,7 +996,7 @@ assert.equal(
   "new-supervisor-child-result.json"
 );
 assert.equal(
-  selectHermesStatusResultFile({
+  selectAutoListingControllerStatusResultFile({
     running: true,
     expected: { resultFile: "old-resume-result.json", mtimeMs: 100 },
     log: { resultFile: "active-child-result.json", mtimeMs: 300 },
@@ -1018,29 +1018,29 @@ assert.equal(
   true
 );
 assert.equal(
-  shouldClearPauseSignalOnHermesStart({
+  shouldClearPauseSignalOnAutoListingControllerStart({
     pauseSignalExists: true,
     runnerJobRunning: true
   }),
   true,
-  "Hermes continue/start must cancel a pending pause even while the previous child is still between safe checkpoints"
+  "AutoListingController continue/start must cancel a pending pause even while the previous child is still between safe checkpoints"
 );
 assert.equal(
-  shouldClearPauseSignalOnHermesStart({
+  shouldClearPauseSignalOnAutoListingControllerStart({
     pauseSignalExists: true,
     runnerJobRunning: false
   }),
   true
 );
 assert.equal(
-  shouldClearPauseSignalOnHermesStart({
+  shouldClearPauseSignalOnAutoListingControllerStart({
     pauseSignalExists: false,
     runnerJobRunning: true
   }),
   false
 );
 assert.equal(
-  selectHermesActiveRunIdFromLogLines([
+  selectAutoListingControllerActiveRunIdFromLogLines([
     "[2026-05-27T15:28:45.848Z] [info] auto-listing run started: 20260527-035110",
     "... many later lines ...",
     "[2026-05-27T17:41:03.831Z] [info] auto-listing run started: 20260528-014103",
@@ -1049,7 +1049,7 @@ assert.equal(
   "20260528-014103"
 );
 assert.equal(
-  shouldExposePublishProgressInHermesStatus({
+  shouldExposePublishProgressInAutoListingControllerStatus({
     running: true,
     publishProgressAvailable: true,
     currentTaskStatus: "main_images_generated",
@@ -1059,7 +1059,7 @@ assert.equal(
   false
 );
 assert.equal(
-  shouldExposePublishProgressInHermesStatus({
+  shouldExposePublishProgressInAutoListingControllerStatus({
     running: true,
     publishProgressAvailable: true,
     currentTaskStatus: "published",
@@ -1069,7 +1069,7 @@ assert.equal(
   true
 );
 assert.equal(
-  selectHermesStatusRuntimeDir({
+  selectAutoListingControllerStatusRuntimeDir({
     running: true,
     activeRuntimeDir: "/runs/active",
     resultRuntimeDir: "/runs/stale-result",
@@ -1078,7 +1078,7 @@ assert.equal(
   "/runs/active"
 );
 assert.equal(
-  selectHermesStatusRuntimeDir({
+  selectAutoListingControllerStatusRuntimeDir({
     running: false,
     activeRuntimeDir: "/runs/old-active",
     resultRuntimeDir: "/runs/latest-result",
@@ -1087,43 +1087,43 @@ assert.equal(
   "/runs/latest-result"
 );
 assert.equal(
-  isHermesSupervisorProcessCommand("node dist/src/cli/hermes-auto-listing-supervisor.js --initial full"),
+  isAutoListingControllerSupervisorProcessCommand("node dist/src/cli/auto-listing-supervisor.js --initial full"),
   true
 );
 assert.equal(
-  isHermesChildProcessCommand(
+  isAutoListingControllerChildProcessCommand(
     "npm run business:auto-listing --job /work/input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json --allow-real"
   ),
   true
 );
-assert.equal(isHermesChildProcessCommand("node dist/src/cli/flow-mac-feishu.js --real"), true);
-assert.equal(isHermesChildProcessCommand("node dist/src/cli/auto-listing.js --job unrelated.json"), false);
-assert.equal(isHermesSupervisorProcessCommand("/usr/bin/yes 9485"), false);
+assert.equal(isAutoListingControllerChildProcessCommand("node dist/src/cli/flow-mac-feishu.js --real"), true);
+assert.equal(isAutoListingControllerChildProcessCommand("node dist/src/cli/auto-listing.js --job unrelated.json"), false);
+assert.equal(isAutoListingControllerSupervisorProcessCommand("/usr/bin/yes 9485"), false);
 assert.equal(
-  isHermesRunningProcessConfirmed({
+  isAutoListingControllerRunningProcessConfirmed({
     pidAlive: true,
     command: undefined
   }),
   false,
-  "Hermes status must not treat an unreadable/stale PID as an active supervisor."
+  "AutoListingController status must not treat an unreadable/stale PID as an active supervisor."
 );
 assert.equal(
-  isHermesRunningProcessConfirmed({
+  isAutoListingControllerRunningProcessConfirmed({
     pidAlive: true,
     processGroupAlive: true,
     command: undefined
   }),
   true,
-  "Hermes status must use the detached supervisor process group when sandboxing blocks command inspection."
+  "AutoListingController status must use the detached supervisor process group when sandboxing blocks command inspection."
 );
 assert.equal(
-  isHermesRunningProcessConfirmed({
+  isAutoListingControllerRunningProcessConfirmed({
     pidAlive: true,
-    command: "node dist/src/cli/hermes-auto-listing-supervisor.js --initial full"
+    command: "node dist/src/cli/auto-listing-supervisor.js --initial full"
   }),
   true
 );
-const compactFailedStatus = formatHermesCompactStatusText({
+const compactFailedStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",
   summary: "发布基础信息未完成：Expected short-title field is missing from the SPU-prefilled publish page.；系统会按发布页控件未就绪处理并重试。",
   productName: "湘械注准20212140518-医用面部生物膜-白底图-01.png",
@@ -1140,10 +1140,10 @@ assert.deepEqual(
     "商品：医用面部生物膜",
     "原因：导购短标题字段缺失，已停止，可续跑。"
   ],
-  "Hermes text status must be short, Chinese, and accurate for terminal publish failures"
+  "AutoListingController text status must be short, Chinese, and accurate for terminal publish failures"
 );
 assert.equal(/生图最近保存|运行批次|failed at|系统会按/.test(compactFailedStatus), false);
-const compactImageGenerationStatus = formatHermesCompactStatusText({
+const compactImageGenerationStatus = formatAutoListingControllerCompactStatusText({
   status: "running",
   summary: "任务正在运行，当前阶段：main_images_generated",
   productName: "湘械注准20212141818-医用芦荟凝胶-白底图-01.png",
@@ -1161,9 +1161,9 @@ assert.deepEqual(
     "当前：医用芦荟凝胶",
     "进度：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0."
   ],
-  "Hermes text status must show main-image generation progress instead of only the generic stage name"
+  "AutoListingController text status must show main-image generation progress instead of only the generic stage name"
 );
-const compactPlatformFailedStatus = formatHermesCompactStatusText({
+const compactPlatformFailedStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",
   summary:
     "Publish failed for /work/shop/product-1: Platform SPU query page was not ready after navigation: Platform SPU query controls are incomplete.",
@@ -1181,9 +1181,9 @@ assert.deepEqual(
     "商品：医用面部生物膜",
     "原因：标品检索页控件未加载完整，已停止，可续跑。"
   ],
-  "Hermes text status must summarize Platform SPU query readiness failures without long local paths"
+  "AutoListingController text status must summarize Platform SPU query readiness failures without long local paths"
 );
-const realtimeProgressSignal = resolveHermesRealtimeProgressSignal({
+const realtimeProgressSignal = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-12T12:41:37.337Z",
   activeRunId: "20260612-205351",
   status: "running",
@@ -1206,10 +1206,10 @@ assert.equal(realtimeProgressSignal?.timestamp, "2026-06-12T13:01:47.930Z");
 assert.match(
   realtimeProgressSignal?.key || "",
   /^2026-06-12T12:41:37\.337Z\|20260612-205351\|running\|publish_log\|1\/20\/0\|01延草纲目大药房专营店__延草纲目医用重组胶原蛋白护理软膏水印02\|2026-06-12T13:01:47\.930Z\|发布模块：图文信息/,
-  "Hermes realtime progress key must reset by run and change when publish sub-item progress advances"
+  "AutoListingController realtime progress key must reset by run and change when publish sub-item progress advances"
 );
 assert.equal(
-  resolveHermesRealtimeProgressSignal({
+  resolveAutoListingControllerRealtimeProgressSignal({
     jobStartedAt: "old-job",
     activeRunId: "old-run",
     status: "running",
@@ -1221,10 +1221,10 @@ assert.equal(
     publishActiveMessage: "old progress"
   })?.key === realtimeProgressSignal?.key,
   false,
-  "Hermes realtime progress key must not collide across supervisor continuations or new active runs"
+  "AutoListingController realtime progress key must not collide across supervisor continuations or new active runs"
 );
 assert.equal(
-  selectHermesFailedResumeCandidate([
+  selectAutoListingControllerFailedResumeCandidate([
     {
       resultFile: "/runs/new-empty/result.json",
       mtimeMs: 300,
@@ -1241,18 +1241,18 @@ assert.equal(
     }
   ])?.resultFile,
   "/runs/older-publish-progress/result.json",
-  "Hermes resume must prefer the failed run with real publish progress over a newer empty resume failure"
+  "AutoListingController resume must prefer the failed run with real publish progress over a newer empty resume failure"
 );
 assert.equal(
-  selectHermesLatestResultFileForJobStatus({
+  selectAutoListingControllerLatestResultFileForJobStatus({
     hasControlJob: true,
     latestResultFile: "/runs/simulated/result.json"
   }),
   undefined,
-  "Hermes status for an existing control job must not mix in an unrelated newer simulated result."
+  "AutoListingController status for an existing control job must not mix in an unrelated newer simulated result."
 );
 assert.equal(
-  selectHermesLatestResultFileForJobStatus({
+  selectAutoListingControllerLatestResultFileForJobStatus({
     hasControlJob: false,
     latestResultFile: "/runs/latest/result.json"
   }),
@@ -1324,7 +1324,7 @@ assert.equal(
   "Main-image provider transport failures must remain recoverable after the normal recovery budget is exhausted"
 );
 assert.equal(
-  resolveHermesRuntimeStatus({
+  resolveAutoListingControllerRuntimeStatus({
     running: true,
     activeWaitState: false,
     completed: false,
@@ -1336,7 +1336,7 @@ assert.equal(
   "A running supervisor with an active terminal main-image transport failure must report external-service wait, not normal running"
 );
 assert.equal(
-  resolveHermesRuntimeStatus({
+  resolveAutoListingControllerRuntimeStatus({
     running: false,
     activeWaitState: false,
     completed: false,
@@ -1347,9 +1347,9 @@ assert.equal(
     terminalFailureMessage: "Auto-listing pause requested by signal file: /work/data/auto-listing/control/pause.requested"
   }),
   "paused",
-  "Hermes status must report operator-requested pause as paused instead of failed"
+  "AutoListingController status must report operator-requested pause as paused instead of failed"
 );
-const terminalFailureRealtimeProgress = resolveHermesRealtimeProgressSignal({
+const terminalFailureRealtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-12T13:00:00.000Z",
   activeRunId: "20260612-211433",
   status: "external_service_wait",
@@ -1363,7 +1363,7 @@ assert.equal(terminalFailureRealtimeProgress?.source, "status");
 assert.match(
   terminalFailureRealtimeProgress?.message || "",
   /fetch failed/,
-  "Terminal failure status must override later async image-generation progress in Hermes realtime feedback"
+  "Terminal failure status must override later async image-generation progress in AutoListingController realtime feedback"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -1377,7 +1377,7 @@ assert.equal(
     maxRecoveryAttempts: 12
   }),
   true,
-  "Hermes must recover a full-flow child after a transient main-image transport failure instead of stopping between products"
+  "AutoListingController must recover a full-flow child after a transient main-image transport failure instead of stopping between products"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -1401,7 +1401,7 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   true,
-  "Hermes resume children must automatically recover bounded transient publish-page failures"
+  "AutoListingController resume children must automatically recover bounded transient publish-page failures"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -1414,7 +1414,7 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   true,
-  "Hermes resume children must automatically recover transient spec-template page failures"
+  "AutoListingController resume children must automatically recover transient spec-template page failures"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
@@ -1426,7 +1426,7 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   true,
-  "Hermes must classify missing manual spec-template entry controls as a retryable publish-page drift"
+  "AutoListingController must classify missing manual spec-template entry controls as a retryable publish-page drift"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -1439,7 +1439,7 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   true,
-  "Hermes resume children must continue after retryable spec-template entry drift"
+  "AutoListingController resume children must continue after retryable spec-template entry drift"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -1498,6 +1498,24 @@ assert.equal(
   isRetryableExternalServiceAvailabilityFailure(videosBase64PollTimeoutMessage),
   true,
   "videos-base64 submitted-task poll timeouts must wait for the existing paid tasks instead of submitting another batch"
+);
+const paidImageSafetyBlockMessage =
+  "failed at main_images_generated: videos-base64 paid image ledger blocked slot 7: blocked_ambiguous.";
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(paidImageSafetyBlockMessage),
+  false,
+  "paid image safety blocks must not be treated as provider availability failures"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: paidImageSafetyBlockMessage,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  false,
+  "project supervisor must stop on reserved or ambiguous paid submission slots instead of restarting"
 );
 assert.equal(
   shouldConsumeSupervisorRecoveryAttempt(videosBase64PollTimeoutMessage),
@@ -1571,7 +1589,7 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   true,
-  "Hermes resume children killed by the no-progress watchdog must automatically continue the locked current batch"
+  "AutoListingController resume children killed by the no-progress watchdog must automatically continue the locked current batch"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -1585,7 +1603,7 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   false,
-  "Hermes must not automatically retry an interrupted publish with uncertain external side effects"
+  "AutoListingController must not automatically retry an interrupted publish with uncertain external side effects"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -1599,20 +1617,20 @@ assert.equal(
     maxRecoveryAttempts: 3
   }),
   false,
-  "Hermes must not restart a full flow after any publish-stage failure because prior shops may already be published"
+  "AutoListingController must not restart a full flow after any publish-stage failure because prior shops may already be published"
 );
-assert.equal(isHermesProgressArtifactRelativePath("publish/shop__product/screenshots/publish-page-images-uploaded.png"), true);
-assert.equal(isHermesProgressArtifactRelativePath("publish/shop__product/result.json"), true);
-assert.equal(isHermesProgressArtifactRelativePath("tasks/image-001/main-image-01/generated.png"), false);
+assert.equal(isAutoListingControllerProgressArtifactRelativePath("publish/shop__product/screenshots/publish-page-images-uploaded.png"), true);
+assert.equal(isAutoListingControllerProgressArtifactRelativePath("publish/shop__product/result.json"), true);
+assert.equal(isAutoListingControllerProgressArtifactRelativePath("tasks/image-001/main-image-01/generated.png"), false);
 assert.equal(
-  shouldTerminateRecordedHermesProcessGroup({ leaderRunning: false }),
+  shouldTerminateRecordedAutoListingControllerProcessGroup({ leaderRunning: false }),
   true,
-  "Hermes must terminate a recorded detached process group even after its leader exits"
+  "AutoListingController must terminate a recorded detached process group even after its leader exits"
 );
 assert.equal(
-  shouldTerminateRecordedHermesProcessGroup({ leaderRunning: true, leaderCommandMatches: false }),
+  shouldTerminateRecordedAutoListingControllerProcessGroup({ leaderRunning: true, leaderCommandMatches: false }),
   false,
-  "Hermes must not terminate a live reused PID whose command is unrelated"
+  "AutoListingController must not terminate a live reused PID whose command is unrelated"
 );
 assert.equal(
   shouldTerminateChildAfterTerminalResult({
@@ -1621,7 +1639,7 @@ assert.equal(
     gracePeriodMs: 5000
   }),
   true,
-  "Hermes must promptly terminate a child that remains alive after writing a terminal result"
+  "AutoListingController must promptly terminate a child that remains alive after writing a terminal result"
 );
 assert.equal(
   shouldTerminateChildAfterTerminalResult({
@@ -1630,7 +1648,7 @@ assert.equal(
     gracePeriodMs: 5000
   }),
   false,
-  "Hermes must allow a short grace period for terminal output and resource cleanup"
+  "AutoListingController must allow a short grace period for terminal output and resource cleanup"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
@@ -1644,21 +1662,21 @@ assert.equal(
 );
 assert.equal(resolveDefaultRetryableChildFailureRecoveryAttempts(), 12);
 assert.equal(
-  resolveHermesProgressAgeSeconds({
+  resolveAutoListingControllerProgressAgeSeconds({
     nowIso: "2026-05-27T03:05:30.000Z",
     latestProgressTimestamp: "2026-05-27T03:02:30.000Z"
   }),
   180
 );
 assert.equal(
-  resolveHermesProgressAgeSeconds({
+  resolveAutoListingControllerProgressAgeSeconds({
     nowIso: "bad-date",
     latestProgressTimestamp: "2026-05-27T03:02:30.000Z"
   }),
   undefined
 );
 assert.deepEqual(
-  resolveHermesEffectiveProgressTimestamp({
+  resolveAutoListingControllerEffectiveProgressTimestamp({
     stateProgressTimestamp: "2026-05-27T10:20:41.000Z",
     activePublishUpdatedAt: "2026-05-27T10:40:41.000Z",
     latestArtifactUpdatedAt: "2026-05-27T10:43:37.000Z"
@@ -1769,7 +1787,7 @@ assert.throws(
   "A product-name match must never be enough to recover folders from the shared shop root."
 );
 assert.equal(
-  resolveHermesFeishuProgressDisplayMode({
+  resolveAutoListingControllerFeishuProgressDisplayMode({
     running: true,
     mode: "resume-real-job",
     batchComplete: true,
@@ -1778,7 +1796,7 @@ assert.equal(
   "resume_artifact_completion"
 );
 assert.equal(
-  resolveHermesFeishuProgressDisplayMode({
+  resolveAutoListingControllerFeishuProgressDisplayMode({
     running: true,
     mode: "resume-real-job",
     batchComplete: true,
@@ -1787,7 +1805,7 @@ assert.equal(
   "current_batch"
 );
 assert.equal(
-  resolveHermesFeishuProgressDisplayMode({
+  resolveAutoListingControllerFeishuProgressDisplayMode({
     running: true,
     mode: "full-real-flow",
     batchComplete: false,
@@ -1796,7 +1814,7 @@ assert.equal(
   "current_batch"
 );
 assert.deepEqual(
-  resolveHermesFeishuBatchDisplayCounts({
+  resolveAutoListingControllerFeishuBatchDisplayCounts({
     recordCount: 10,
     processedRecordCount: 5,
     pendingSourceImages: ["/work/current.png", "/work/next.png"],
@@ -1810,7 +1828,7 @@ assert.deepEqual(
   }
 );
 assert.deepEqual(
-  resolveHermesFeishuBatchDisplayCounts({
+  resolveAutoListingControllerFeishuBatchDisplayCounts({
     recordCount: 10,
     processedRecordCount: 5,
     pendingSourceImages: ["/work/next.png"],
@@ -1861,7 +1879,7 @@ assert.equal(
   true
 );
 assert.equal(
-  resolveHermesStartAfterFeishuRefresh({
+  resolveAutoListingControllerStartAfterFeishuRefresh({
     currentBatchComplete: true,
     refreshedBatchChanged: true,
     refreshedBatchComplete: false
@@ -1869,7 +1887,7 @@ assert.equal(
   "start_new_or_pending_batch"
 );
 assert.equal(
-  resolveHermesStartAfterFeishuRefresh({
+  resolveAutoListingControllerStartAfterFeishuRefresh({
     currentBatchComplete: true,
     refreshedBatchChanged: false,
     refreshedBatchComplete: true
@@ -1877,7 +1895,7 @@ assert.equal(
   "require_rerun_confirmation"
 );
 assert.equal(
-  resolveHermesStartAfterFeishuRefresh({
+  resolveAutoListingControllerStartAfterFeishuRefresh({
     currentBatchComplete: true,
     refreshedBatchChanged: false,
     refreshedBatchComplete: true,
@@ -1886,7 +1904,7 @@ assert.equal(
   "rerun_current_batch"
 );
 assert.equal(
-  shouldSuppressHistoricalResultInHermesStatus({
+  shouldSuppressHistoricalResultInAutoListingControllerStatus({
     running: true,
     publishProgressAvailable: true,
     resultOk: false,
@@ -1897,7 +1915,7 @@ assert.equal(
   true
 );
 assert.equal(
-  shouldSuppressHistoricalResultInHermesStatus({
+  shouldSuppressHistoricalResultInAutoListingControllerStatus({
     running: true,
     publishProgressAvailable: false,
     resultOk: false,
@@ -1908,7 +1926,7 @@ assert.equal(
   true
 );
 assert.equal(
-  shouldSuppressHistoricalResultInHermesStatus({
+  shouldSuppressHistoricalResultInAutoListingControllerStatus({
     running: false,
     publishProgressAvailable: true,
     resultOk: false,
@@ -1919,7 +1937,7 @@ assert.equal(
   false
 );
 assert.equal(
-  shouldSuppressStateCurrentTaskInHermesStatus({
+  shouldSuppressStateCurrentTaskInAutoListingControllerStatus({
     running: true,
     publishProgressAvailable: true,
     latestProgressStep: "published",
@@ -1928,7 +1946,7 @@ assert.equal(
   true
 );
 assert.equal(
-  shouldSuppressStateCurrentTaskInHermesStatus({
+  shouldSuppressStateCurrentTaskInAutoListingControllerStatus({
     running: true,
     publishProgressAvailable: false,
     latestProgressStep: "main_images_generated",
@@ -2206,7 +2224,7 @@ assert.equal(
     safelyPublishedCount: 2
   }),
   true,
-  "Hermes must replace stale resume jobs when state/publish-manifest proves the flow has advanced to publishing."
+  "AutoListingController must replace stale resume jobs when state/publish-manifest proves the flow has advanced to publishing."
 );
 assert.equal(
   shouldReplaceStaleResumeStartStep({
