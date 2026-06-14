@@ -5,6 +5,7 @@ import path from "node:path";
 import { summarizeVideosBase64PaidResumePlan } from "../dist/src/autolist/jimeng-assets.js";
 import {
   providerExplicitlyProvesNoPaidTaskAccepted,
+  submitTransportFailureProvesNoPaidTaskAccepted,
   resolveOpenAiCompatibleImageMode,
   resolvePaidImageLedgerFailureDisposition,
   resolveMissingFixedImageIndexes,
@@ -121,11 +122,17 @@ assert.match(ruleDoc, /提交准入并发.*默认.*2.*最高.*4/s);
 assert.match(ruleDoc, /已取得.*任务 ID.*状态查询.*结果下载.*传输层瞬断.*同一任务.*退避重试/s);
 assert.match(ruleDoc, /ambiguous.*reserved.*优先.*付费安全阻塞/s);
 assert.match(ruleDoc, /failed_after_acceptance.*固定 slot.*允许.*重试/s);
+assert.match(ruleDoc, /没有取得 task ID.*没有供应商响应摘要.*fetch failed.*no-acceptance/s);
+assert.match(ruleDoc, /no-acceptance.*failed_before_acceptance.*重试同一固定 slot/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(429, "rate limited"), false);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(502, "upstream error"), false);
+assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("fetch failed"), true);
+assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("image generation request exceeded hard deadline 1830000ms"), true);
+assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("ECONNRESET before response"), true);
+assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("videos-base64 task abc failed"), false);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 1800000);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 60000), 180000);
 assert.equal(resolveOpenAiCompatibleImageMode(undefined, "https://relay.example/v1/videos"), "videos-base64");

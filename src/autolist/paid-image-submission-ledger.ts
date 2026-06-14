@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { submitTransportFailureProvesNoPaidTaskAccepted } from "./image-generation-rules.js";
 
 export type PaidImageSlotState =
   | "reserved"
@@ -818,6 +819,15 @@ function actionForRecord(record: PaidImageSlotRecord): PaidImageSlotAction {
   }
 }
 
+function isAutoRetryableNoAcceptanceAmbiguousRecord(record: PaidImageSlotRecord): boolean {
+  return (
+    record.state === "ambiguous" &&
+    !record.providerTaskId &&
+    !record.providerResponseSummary &&
+    submitTransportFailureProvesNoPaidTaskAccepted(record.reason || "")
+  );
+}
+
 function createReservedRecord(input: ReservePaidImageSlotInput, audit: PaidImageSlotAuditEntry[] = []): PaidImageSlotRecord {
   const at = new Date().toISOString();
   const cleanOwner = {
@@ -867,6 +877,14 @@ export function reservePaidImageSlot(input: ReservePaidImageSlotInput): PaidImag
       throw new Error(`paid image slot ${input.slot} disappeared after reservation conflict`);
     }
     assertSlotIdentity(existing, input.requestDigest, input.promptDigest);
+    if (isAutoRetryableNoAcceptanceAmbiguousRecord(existing)) {
+      const failedBeforeAcceptance = transitionSlotUnlocked(input.productDir, input.slot, ["ambiguous"], "failed_before_acceptance", {
+        reason: `auto no-acceptance reconciliation: ${existing.reason || "submit transport failed before provider task id"}`
+      });
+      const reacquired = createReservedRecord(input, failedBeforeAcceptance.audit);
+      atomicWriteJson(slotFile(input.productDir, input.slot), reacquired);
+      return { action: "submit", record: reacquired };
+    }
     if (existing.state !== "failed_before_acceptance" && existing.state !== "failed_after_acceptance") {
       return actionForRecord(existing);
     }

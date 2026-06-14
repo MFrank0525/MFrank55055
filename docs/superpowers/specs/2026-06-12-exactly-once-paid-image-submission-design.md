@@ -92,6 +92,7 @@ missing -> reserved
 reserved -> submitted
 reserved -> failed_before_acceptance
 reserved -> ambiguous
+ambiguous(no task id, no provider response, submit transport failure) -> failed_before_acceptance
 submitted -> completed
 submitted -> ambiguous
 ```
@@ -101,8 +102,9 @@ Terminal automatic behavior:
 - `completed`: reuse the validated result.
 - `submitted`: poll the same provider task ID; never submit again.
 - `reserved`: treat as uncertain after owner-process loss; never automatically submit again.
-- `ambiguous`: pause and require explicit reconciliation; never automatically submit again.
-- `failed_before_acceptance`: a new submission may occur only when the provider explicitly proved that no paid task was accepted.
+- `ambiguous`: pause and require explicit reconciliation when the slot has a provider task ID, a provider response summary, or any other evidence that the provider may have accepted or charged the request.
+- no-task submit transport `ambiguous`: if there is no task ID, no provider response summary, and the reason is a submit-stage transport failure such as `fetch failed`, connection failure, DNS/proxy failure, hard request deadline, or abort, automatically record no-acceptance evidence and retry the same fixed slot.
+- `failed_before_acceptance`: a new submission may occur only when the provider explicitly proved that no paid task was accepted or when the project has no provider task/response evidence because the submit transport failed before any acceptance response.
 
 No automatic transition may delete a slot record or return it to `missing`.
 
@@ -116,7 +118,8 @@ If the slot already exists, the worker follows its recorded state:
 
 - poll `submitted`;
 - reuse `completed`;
-- stop on `reserved` or `ambiguous`;
+- stop on `reserved` or true acceptance-risk `ambiguous`;
+- auto-reconcile no-task submit transport `ambiguous` to `failed_before_acceptance`;
 - retry only `failed_before_acceptance`.
 
 The product-level ledger enforces the hard maximum of 20 distinct slot reservations. No execution path may submit an unrecognized slot or create a twenty-first paid task for the product identity.

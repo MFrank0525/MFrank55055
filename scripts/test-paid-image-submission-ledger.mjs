@@ -364,6 +364,36 @@ assert.equal(resolvePaidImageSlotAction({ productDir, slot: 2 }).providerTaskId,
 assert.deepEqual(reconciledAmbiguous.audit.map((entry) => entry.state), ["reserved", "ambiguous", "submitted"]);
 assert.match(reconciledAmbiguous.audit.at(-1).reason, /operator matched/);
 
+const autoRetryProduct = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-auto-no-acceptance",
+  recordId: "record-auto-no-acceptance"
+});
+reservePaidImageSlot({
+  productDir: autoRetryProduct.productDir,
+  slot: 1,
+  requestDigest: "request-6",
+  promptDigest: "prompt-6",
+  owner: ownerA
+});
+recordPaidImageAmbiguous({ productDir: autoRetryProduct.productDir, slot: 1, reason: "fetch failed" });
+const autoNoAcceptanceRetry = reservePaidImageSlot({
+  productDir: autoRetryProduct.productDir,
+  slot: 1,
+  requestDigest: "request-6",
+  promptDigest: "prompt-6",
+  owner: ownerB
+});
+assert.equal(
+  autoNoAcceptanceRetry.action,
+  "submit",
+  "ambiguous submit failures without provider task evidence must auto-reconcile to retryable no-acceptance"
+);
+assert.deepEqual(
+  autoNoAcceptanceRetry.record.audit.map((entry) => entry.state),
+  ["reserved", "ambiguous", "failed_before_acceptance", "reserved"]
+);
+
 const ambiguousSubmittedReservation = reservePaidImageSlot({
   productDir,
   slot: 4,
@@ -474,24 +504,24 @@ assert.equal(resolvePaidImageSlotAction({ productDir, slot: 8 }).action, "retry_
 
 reservePaidImageSlot({
   productDir,
-  slot: 6,
-  requestDigest: "request-6",
-  promptDigest: "prompt-6",
+  slot: 9,
+  requestDigest: "request-9",
+  promptDigest: "prompt-9",
   owner: ownerA
 });
-recordPaidImageAmbiguous({ productDir, slot: 6, reason: "submit transport failed before provider task id" });
+recordPaidImageAmbiguous({ productDir, slot: 9, reason: "submit transport failed before provider task id" });
 const noAcceptance = reconcileAmbiguousPaidImageNoAcceptance({
   productDir,
-  slot: 6,
-  reason: "operator verified provider dashboard has 19 accepted tasks and 19 charges; slot 6 has no provider task"
+  slot: 9,
+  reason: "operator verified provider dashboard has 19 accepted tasks and 19 charges; slot 9 has no provider task"
 });
 assert.equal(noAcceptance.state, "failed_before_acceptance");
-assert.equal(resolvePaidImageSlotAction({ productDir, slot: 6 }).action, "retry_failed_before_acceptance");
+assert.equal(resolvePaidImageSlotAction({ productDir, slot: 9 }).action, "retry_failed_before_acceptance");
 const noAcceptanceRetry = reservePaidImageSlot({
   productDir,
-  slot: 6,
-  requestDigest: "request-6",
-  promptDigest: "prompt-6",
+  slot: 9,
+  requestDigest: "request-9",
+  promptDigest: "prompt-9",
   owner: ownerB
 });
 assert.equal(noAcceptanceRetry.action, "submit");

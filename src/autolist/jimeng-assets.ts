@@ -14,6 +14,7 @@ import {
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   providerExplicitlyProvesNoPaidTaskAccepted,
+  submitTransportFailureProvesNoPaidTaskAccepted,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
@@ -1262,10 +1263,14 @@ async function generateWithOpenAiCompatibleProvider(options: {
         text = result.text;
       } catch (error) {
         if (videosBase64Ledger) {
-          recordPaidImageAmbiguous({
+          const message = error instanceof Error ? error.message : String(error);
+          const recordFailure = submitTransportFailureProvesNoPaidTaskAccepted(message)
+            ? recordPaidImageFailedBeforeAcceptance
+            : recordPaidImageAmbiguous;
+          recordFailure({
             productDir: videosBase64Ledger.productDir,
             slot: ledgerSlot,
-            reason: error instanceof Error ? error.message : String(error)
+            reason: message
           });
         }
         throw error;
