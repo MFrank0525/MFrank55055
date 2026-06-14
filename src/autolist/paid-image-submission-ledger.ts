@@ -811,6 +811,9 @@ function actionForRecord(record: PaidImageSlotRecord): PaidImageSlotAction {
       }
       return { action: "reuse", record, resultFile: record.resultFile! };
     case "ambiguous":
+      if (isAutoRetryableNoAcceptanceAmbiguousRecord(record)) {
+        return { action: "retry_failed_before_acceptance", record };
+      }
       return { action: "blocked_ambiguous", record };
     case "failed_before_acceptance":
       return { action: "retry_failed_before_acceptance", record };

@@ -377,6 +377,11 @@ reservePaidImageSlot({
   owner: ownerA
 });
 recordPaidImageAmbiguous({ productDir: autoRetryProduct.productDir, slot: 1, reason: "fetch failed" });
+assert.equal(
+  resolvePaidImageSlotAction({ productDir: autoRetryProduct.productDir, slot: 1 }).action,
+  "retry_failed_before_acceptance",
+  "slot action resolution must not block no-task submit transport failures before reserve is called"
+);
 const autoNoAcceptanceRetry = reservePaidImageSlot({
   productDir: autoRetryProduct.productDir,
   slot: 1,
