@@ -50,6 +50,7 @@ import {
   resolveSupervisorRecoveryDelayMs,
   resolveSupervisorRecoveryChildMode,
   formatAutoListingControllerCompactStatusText,
+  resolveAutoListingControllerHermesStatusPayload,
   selectAutoListingControllerFailedResumeCandidate,
   resolveAutoListingControllerRealtimeProgressSignal,
   resolveAutoListingControllerRuntimeStatus,
@@ -512,6 +513,37 @@ assert.deepEqual(
     latestSavedAt: "2026-05-23T10:02:00.000Z"
   }
 );
+const hermesPublishStatusPayload = resolveAutoListingControllerHermesStatusPayload({
+  status: "running",
+  summary: "当前商品：延草纲目宝元堂痛风医用远红外治疗凝胶，产品 18/20，店铺 9/10",
+  realtimeProgress: {
+    source: "publish_active",
+    message: "发布模块：图文信息（09延草纲目中医保健专营店）",
+    timestamp: "2026-06-14T05:12:27.505Z"
+  },
+  publishProgress: {
+    safelyPublished: 17,
+    total: 20,
+    active: {
+      runtimeKey: "09延草纲目中医保健专营店__延草纲目宝元堂痛风医用远红外治疗凝胶水印18"
+    }
+  },
+  imageProgress: {
+    status: "ready",
+    latestMessage: "Main images ready: 20 file(s)."
+  }
+});
+assert.equal(hermesPublishStatusPayload.imageProgress, undefined);
+assert.deepEqual(hermesPublishStatusPayload.hermesProgress, {
+  source: "publish_active",
+  message: "发布模块：图文信息（09延草纲目中医保健专营店）",
+  timestamp: "2026-06-14T05:12:27.505Z"
+});
+assert.equal(
+  JSON.stringify(hermesPublishStatusPayload).includes("Main images ready"),
+  false,
+  "Hermes-facing JSON must not expose completed image-generation progress during publish stage"
+);
 
 const pageNotReadyClass = classifyPublishFailure("Platform SPU query page was not ready after navigation.");
 assert.equal(pageNotReadyClass, "platform_page_not_ready");
@@ -602,8 +634,8 @@ const uncertainPublishResult = await publishDistributedProducts({
 });
 assert.equal(
   uncertainPublishResult.results[0].status,
-  "simulated_with_preflight_warnings",
-  "existing uncertain final-submit results must be treated as pending so the product can be re-submitted instead of skipped"
+  "needs_manual_publish_confirmation",
+  "existing uncertain final-submit results must not be auto-submitted again because the first submit may have succeeded"
 );
 
 assert.deepEqual(

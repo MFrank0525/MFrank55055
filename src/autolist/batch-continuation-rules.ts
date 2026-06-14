@@ -587,6 +587,31 @@ export function summarizeAutoListingControllerImageGenerationEvents(events: Auto
   };
 }
 
+export type AutoListingControllerHermesStatusPayload = Record<string, unknown> & {
+  hermesProgress?: Record<string, unknown>;
+};
+
+export function resolveAutoListingControllerHermesStatusPayload(
+  status: Record<string, unknown>
+): AutoListingControllerHermesStatusPayload {
+  const publishProgress = status.publishProgress as Record<string, unknown> | undefined;
+  const realtimeProgress = status.realtimeProgress as Record<string, unknown> | undefined;
+  const payload: AutoListingControllerHermesStatusPayload = { ...status };
+  if (realtimeProgress && typeof realtimeProgress === "object") {
+    const hermesProgress = {
+      source: realtimeProgress.source,
+      message: realtimeProgress.message,
+      timestamp: realtimeProgress.timestamp,
+      key: realtimeProgress.key
+    };
+    payload.hermesProgress = Object.fromEntries(Object.entries(hermesProgress).filter(([, value]) => value !== undefined));
+  }
+  if (publishProgress) {
+    delete payload.imageProgress;
+  }
+  return payload;
+}
+
 export function isExternalMainImageRawReuseMessage(input: {
   message?: string;
   currentRuntimeDir: string;

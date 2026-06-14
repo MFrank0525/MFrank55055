@@ -20,6 +20,7 @@ import {
   selectAutoListingControllerStatusRuntimeDir,
   resolveAutoListingControllerRealtimeProgressSignal,
   resolveAutoListingControllerPublishGroupProgress,
+  resolveAutoListingControllerHermesStatusPayload,
   shouldClearPauseSignalOnAutoListingControllerStart,
   shouldExposePublishProgressInAutoListingControllerStatus,
   shouldPreferActiveTaskStateSummary,
@@ -1919,7 +1920,7 @@ async function main(): Promise<void> {
   }
   if (command === "status") {
     const status = existingStatus();
-    console.log(text ? formatStatusText(status) : JSON.stringify(status, null, 2));
+    console.log(text ? formatStatusText(status) : JSON.stringify(resolveAutoListingControllerHermesStatusPayload(status), null, 2));
     return;
   }
   if (command === "pause") {

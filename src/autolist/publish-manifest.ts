@@ -29,7 +29,7 @@ export interface PublishManifest {
 export interface PublishPlanItem {
   productFolder: string;
   runtimeKey: string;
-  action: "skip" | "publish";
+  action: "skip" | "publish" | "review";
   reason: string;
   manifestStatus?: string;
   finalVerifyStatus?: PublishFinalVerifyStatus;
