@@ -1386,6 +1386,35 @@ assert.equal(
   "Hermes-facing compact text must not expose cumulative publish totals such as 60/60"
 );
 assert.equal(/发布 60\/60/.test(compactCompletedGroupedStatus), false);
+
+const partialManifestWithFullPublishPlanProgress = resolveAutoListingControllerPublishGroupProgress({
+  entries: Array.from({ length: 9 }, (_, index) => ({
+    productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目宝元堂痛风医用远红外治疗凝胶水印${String(index + 1).padStart(2, "0")}`,
+    shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
+    watermarkNo: index + 1,
+    status: index === 8 ? "pending" : "published",
+    finalVerifyStatus: index === 8 ? "not_checked" : "publish_signal_confirmed",
+    updatedAt: `2026-06-14T03:${String(index).padStart(2, "0")}:00.000Z`
+  })),
+  planEntries: Array.from({ length: 20 }, (_, index) => ({
+    productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目宝元堂痛风医用远红外治疗凝胶水印${String(index + 1).padStart(2, "0")}`,
+    runtimeKey: `${String(Math.floor(index / 2) + 1).padStart(2, "0")}店__延草纲目宝元堂痛风医用远红外治疗凝胶水印${String(index + 1).padStart(2, "0")}`
+  })),
+  activeRuntimeKey: "05店__延草纲目宝元堂痛风医用远红外治疗凝胶水印09"
+});
+assert.deepEqual(
+  partialManifestWithFullPublishPlanProgress,
+  {
+    productName: "延草纲目宝元堂痛风医用远红外治疗凝胶",
+    productIndex: 9,
+    productTotal: 20,
+    shopName: "05店",
+    shopIndex: 5,
+    shopTotal: 10,
+    failed: 0
+  },
+  "AutoListingController publish display must use the full publish plan for shop total instead of currently touched shops"
+);
 const realtimeProgressSignal = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-12T12:41:37.337Z",
   activeRunId: "20260612-205351",

@@ -843,33 +843,57 @@ function publishShopIndexFromName(shopName?: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
+function publishWatermarkNoFromEntry(entry: AutoListingControllerPublishGroupProgressEntry): number {
+  const explicit = Number(entry.watermarkNo || 0);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return explicit;
+  }
+  const match = String(entry.productFolder || "").split(/[\\/]/).pop()?.match(/水印(\d{1,3})$/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function publishShopFolderFromEntry(entry: AutoListingControllerPublishGroupProgressEntry): string | undefined {
+  if (entry.shopFolder) {
+    return entry.shopFolder;
+  }
+  const folder = String(entry.productFolder || "");
+  return folder ? folder.split(/[\\/]/).slice(0, -1).join("/") : undefined;
+}
+
 function isSafelyPublishedPublishEntry(entry: AutoListingControllerPublishGroupProgressEntry): boolean {
   return entry.status === "published" && ["publish_signal_confirmed", "list_verified"].includes(entry.finalVerifyStatus || "");
 }
 
 export function resolveAutoListingControllerPublishGroupProgress(input: {
   entries: AutoListingControllerPublishGroupProgressEntry[];
+  planEntries?: AutoListingControllerPublishGroupProgressEntry[];
   activeRuntimeKey?: string;
 }): AutoListingControllerPublishGroupProgress | undefined {
   const entries = input.entries.filter((entry) => entry.productFolder || entry.shopFolder || entry.watermarkNo);
-  if (!entries.length) {
+  const planEntries = (input.planEntries || []).filter((entry) => entry.productFolder || entry.shopFolder || entry.watermarkNo);
+  const progressEntries = entries.length ? entries : planEntries;
+  if (!progressEntries.length) {
     return undefined;
   }
   const activeEntry =
     (input.activeRuntimeKey ? entries.find((entry) => String((entry as { runtimeKey?: string }).runtimeKey || "") === input.activeRuntimeKey) : undefined) ||
-    [...entries].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
+    (input.activeRuntimeKey ? planEntries.find((entry) => String((entry as { runtimeKey?: string }).runtimeKey || "") === input.activeRuntimeKey) : undefined) ||
+    [...entries].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0] ||
+    planEntries[0];
   const productName = publishGroupNameFromFolder(activeEntry.productFolder);
   const groupEntries = entries.filter((entry) => publishGroupNameFromFolder(entry.productFolder) === productName);
+  const plannedGroupEntries = planEntries.filter((entry) => publishGroupNameFromFolder(entry.productFolder) === productName);
+  const scopeEntries = plannedGroupEntries.length ? plannedGroupEntries : groupEntries;
   const safelyPublished = groupEntries.filter(isSafelyPublishedPublishEntry);
   const failed = groupEntries.filter((entry) => entry.status === "failed").length;
-  const productTotal = Math.max(20, ...groupEntries.map((entry) => Number(entry.watermarkNo || 0)).filter(Number.isFinite));
-  const maxCompletedWatermark = Math.max(0, ...safelyPublished.map((entry) => Number(entry.watermarkNo || 0)).filter(Number.isFinite));
-  const activeWatermark = Number(activeEntry.watermarkNo || 0);
+  const productTotal = Math.max(20, scopeEntries.length, ...scopeEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
+  const maxCompletedWatermark = Math.max(0, ...safelyPublished.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
+  const activeWatermark = publishWatermarkNoFromEntry(activeEntry);
   const productIndex = Math.max(1, Math.min(productTotal, activeWatermark || maxCompletedWatermark || safelyPublished.length + (failed > 0 ? 1 : 0) || 1));
-  const shopNames = Array.from(new Set(groupEntries.map((entry) => cleanAutoListingControllerProductName(entry.shopFolder)).filter(Boolean)))
+  const shopNames = Array.from(new Set(scopeEntries.map((entry) => cleanAutoListingControllerProductName(publishShopFolderFromEntry(entry))).filter(Boolean)))
     .sort((a, b) => (publishShopIndexFromName(a) || 0) - (publishShopIndexFromName(b) || 0) || a.localeCompare(b, "zh-CN"));
-  const activeShopName = cleanAutoListingControllerProductName(activeEntry.shopFolder);
-  const shopTotal = Math.max(1, shopNames.length || Math.ceil(productTotal / 2));
+  const activeShopName = cleanAutoListingControllerProductName(publishShopFolderFromEntry(activeEntry));
+  const shopTotal = Math.max(1, plannedGroupEntries.length ? shopNames.length : Math.max(shopNames.length, Math.ceil(productTotal / 2)));
   const shopIndex =
     publishShopIndexFromName(activeShopName) ||
     (activeShopName && shopNames.includes(activeShopName) ? shopNames.indexOf(activeShopName) + 1 : undefined) ||

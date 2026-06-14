@@ -656,6 +656,7 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
   const latestPublished = safelyPublished.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
   const publishGroupProgress = resolveAutoListingControllerPublishGroupProgress({
     entries,
+    planEntries: planItems,
     activeRuntimeKey: activeEntry?.runtimeKey || latestPublished?.runtimeKey
   });
   const latestArtifact = summarizeLatestPublishArtifact(runtimeDir, activeEntry?.runtimeKey);
