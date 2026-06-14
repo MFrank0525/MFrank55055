@@ -39,6 +39,7 @@ import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../a
 import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
+import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES } from "../autolist/publish-manifest.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
   inferResumeStartStepForTask,
@@ -634,7 +635,9 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
   }
 
   const safelyPublished = entries.filter(
-    (entry) => entry.status === "published" && ["publish_signal_confirmed", "list_verified"].includes(entry.finalVerifyStatus || "")
+    (entry) =>
+      entry.status === "published" &&
+      SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus as never)
   );
   const failed = entries.filter((entry) => entry.status === "failed");
   const pending = entries.filter((entry) => entry.status === "pending");
@@ -1499,7 +1502,9 @@ function taskHasExternalMainImageRawReuse(runtimeDir: string, taskId: string | u
 function countSafelyPublishedManifestEntries(runtimeDir: string): number {
   const manifest = readJsonFile<PublishManifestFile>(path.join(runtimeDir, "publish-manifest.json"));
   return (manifest?.entries || []).filter(
-    (entry) => entry.status === "published" && ["publish_signal_confirmed", "list_verified"].includes(entry.finalVerifyStatus || "")
+    (entry) =>
+      entry.status === "published" &&
+      SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus as never)
   ).length;
 }
 

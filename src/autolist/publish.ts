@@ -164,13 +164,23 @@ function wasPublishCompleted(runtimeDir: string): boolean {
     const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as {
       ok?: boolean;
       status?: string;
+      message?: string;
       data?: {
         browser?: {
           publishClicked?: boolean;
+          publishClickAttempted?: boolean;
+          publishIssue?: string;
         };
       };
     };
-    const resultCompleted = result.ok === true && result.status === "published" && result.data?.browser?.publishClicked === true;
+    const resultCompleted = evaluatePublishResult({
+      ok: result.ok,
+      status: result.status,
+      message: result.message,
+      publishClicked: result.data?.browser?.publishClicked,
+      publishClickAttempted: result.data?.browser?.publishClickAttempted,
+      publishIssue: result.data?.browser?.publishIssue
+    }).safelyPublished;
     if (!resultCompleted && checkpointCompleted) {
       clearCheckpoint(runtimeDir);
     }
@@ -183,7 +193,14 @@ function wasPublishCompleted(runtimeDir: string): boolean {
   }
 }
 
-function readPublishResultSummary(resultFile: string): { ok?: boolean; status?: string; message?: string; publishClicked?: boolean; publishIssue?: string } {
+function readPublishResultSummary(resultFile: string): {
+  ok?: boolean;
+  status?: string;
+  message?: string;
+  publishClicked?: boolean;
+  publishClickAttempted?: boolean;
+  publishIssue?: string;
+} {
   const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as {
     ok?: boolean;
     status?: string;
@@ -191,6 +208,7 @@ function readPublishResultSummary(resultFile: string): { ok?: boolean; status?: 
     data?: {
       browser?: {
         publishClicked?: boolean;
+        publishClickAttempted?: boolean;
         publishIssue?: string;
       };
     };
@@ -200,6 +218,7 @@ function readPublishResultSummary(resultFile: string): { ok?: boolean; status?: 
     status: result.status,
     message: result.message,
     publishClicked: result.data?.browser?.publishClicked,
+    publishClickAttempted: result.data?.browser?.publishClickAttempted,
     publishIssue: result.data?.browser?.publishIssue
   };
 }

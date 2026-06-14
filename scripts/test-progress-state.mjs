@@ -94,7 +94,8 @@ import {
   evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
-  shouldRetryPublishFailure
+  shouldRetryPublishFailure,
+  evaluatePublishResult
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 import {
   looksLikeDoubaoTitleResponse,
@@ -378,6 +379,31 @@ assert.match(
   "Final submit recovery must poll the browser context for submission outcome after clicking 发布商品 instead of requiring the loading page to become an editable create page again"
 );
 assert.match(
+  publishFromSpuSource,
+  /publishClickAttempted:\s*flowResult\.publishClickAttempted/,
+  "Final submit attempt state must be persisted into the publish result for project-owned resume decisions"
+);
+assert.match(
+  publishFromSpuSource,
+  /publishButton\.click\(\{ timeout: 5000, noWaitAfter: true \}\);\s*publishClickAttempted = true;/,
+  "Final submit state must only become terminal after the click event is issued, without waiting for post-click navigation"
+);
+assert.doesNotMatch(
+  publishFromSpuSource,
+  /if \(publishClickAttempted\) \{[\s\S]*recoveredEditablePage[\s\S]*publishButton\.click/,
+  "A final submit click that was already issued must never recover the editable page and click publish again in the same action"
+);
+assert.match(
+  publishSource,
+  /publishClickAttempted:\s*result\.data\?\.browser\?\.publishClickAttempted/,
+  "Auto-listing publish resume must read the persisted final submit attempt state"
+);
+assert.doesNotMatch(
+  publishFromSpuSource,
+  /if \(!publishClicked \|\| publishIssue\) \{\s*stages\.push\(\{ step: "click_publish_product", status: "failed" \}\);\s*throw/,
+  "The publish action must not throw away final-submit state after a submit click was already issued"
+);
+assert.match(
   orchestratorSource,
   /recordTaskProgress\(current, step, message\)/,
   "Orchestrator must record publish progress callback messages into state for Feishu node-level reporting"
@@ -394,7 +420,7 @@ assert.match(
 );
 assert.match(
   processedCompletionRulesSource,
-  /taskHasSafePublishArtifact[\s\S]*publish_signal_confirmed[\s\S]*manifestHasSafePublishCoverage/,
+  /taskHasSafePublishArtifact[\s\S]*SAFE_PUBLISH_FINAL_VERIFY_STATUSES[\s\S]*manifestHasSafePublishCoverage/,
   "Processed-image marking must accept safe publish evidence from task artifacts or publish-manifest, not only cleaned/done task status"
 );
 assert.match(
@@ -598,6 +624,39 @@ assert.equal(
   shouldRetryPublishFailure(finalSubmitPageContextLostClass, 0),
   false,
   "page loss after entering final submit must be verified or marked uncertain, never blindly re-submitted"
+);
+const finalSubmitAcceptedDecision = evaluatePublishResult({
+  ok: false,
+  status: "failed",
+  publishClickAttempted: true,
+  publishClicked: false,
+  publishIssue: "Publish product button was clicked, but no submission success signal was detected."
+});
+assert.deepEqual(
+  finalSubmitAcceptedDecision,
+  {
+    safelyPublished: true,
+    finalVerifyStatus: "submit_accepted_unconfirmed",
+    errorClass: "final_publish_state_uncertain",
+    issue: "Publish product button was clicked, but no submission success signal was detected."
+  },
+  "after the non-idempotent final publish click is issued, the system must continue without re-submitting the same product"
+);
+assert.deepEqual(
+  evaluatePublishResult({
+    ok: true,
+    status: "published",
+    publishClickAttempted: true,
+    publishClicked: false,
+    message: "Publish button click was issued; platform success signal was not observed."
+  }),
+  {
+    safelyPublished: true,
+    finalVerifyStatus: "submit_accepted_unconfirmed",
+    errorClass: "final_publish_state_uncertain",
+    issue: "Publish button click was issued; platform success signal was not observed."
+  },
+  "a persisted published result with a final submit attempt must be terminal even when its summary message is generic"
 );
 
 const navigationContextLostClass = classifyPublishFailure(

@@ -2,7 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 
-export type PublishFinalVerifyStatus = "not_checked" | "publish_signal_confirmed" | "list_verified" | "needs_manual_review";
+export type PublishFinalVerifyStatus =
+  | "not_checked"
+  | "publish_signal_confirmed"
+  | "list_verified"
+  | "submit_accepted_unconfirmed"
+  | "needs_manual_review";
+
+export const SAFE_PUBLISH_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
+  "publish_signal_confirmed",
+  "list_verified",
+  "submit_accepted_unconfirmed"
+];
 
 export interface PublishManifestEntry {
   productFolder: string;
@@ -115,7 +126,7 @@ export function findPublishManifestEntry(manifest: PublishManifest, runtimeKey: 
 }
 
 export function isManifestEntrySafelyPublished(entry: PublishManifestEntry | undefined): boolean {
-  return Boolean(entry && entry.status === "published" && ["publish_signal_confirmed", "list_verified"].includes(entry.finalVerifyStatus));
+  return Boolean(entry && entry.status === "published" && SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus));
 }
 
 export function isManifestEntrySafelyPublishedForIdentity(

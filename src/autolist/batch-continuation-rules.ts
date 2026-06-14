@@ -1,3 +1,5 @@
+import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, type PublishFinalVerifyStatus } from "./publish-manifest.js";
+
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
   batchComplete: boolean;
@@ -886,7 +888,10 @@ function publishShopFolderFromEntry(entry: AutoListingControllerPublishGroupProg
 }
 
 function isSafelyPublishedPublishEntry(entry: AutoListingControllerPublishGroupProgressEntry): boolean {
-  return entry.status === "published" && ["publish_signal_confirmed", "list_verified"].includes(entry.finalVerifyStatus || "");
+  return (
+    entry.status === "published" &&
+    SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus as PublishFinalVerifyStatus)
+  );
 }
 
 export function resolveAutoListingControllerPublishGroupProgress(input: {

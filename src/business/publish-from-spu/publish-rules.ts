@@ -14,12 +14,13 @@ export interface PublishResultRuleInput {
   status?: string;
   message?: string;
   publishClicked?: boolean;
+  publishClickAttempted?: boolean;
   publishIssue?: string;
 }
 
 export interface PublishResultRuleDecision {
   safelyPublished: boolean;
-  finalVerifyStatus: "not_checked" | "publish_signal_confirmed" | "list_verified" | "needs_manual_review";
+  finalVerifyStatus: "not_checked" | "publish_signal_confirmed" | "list_verified" | "submit_accepted_unconfirmed" | "needs_manual_review";
   errorClass: string;
   issue: string;
 }
@@ -462,10 +463,27 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
       issue: ""
     };
   }
+  if (input.status === "published" && input.publishClickAttempted === true) {
+    return {
+      safelyPublished: true,
+      finalVerifyStatus: "submit_accepted_unconfirmed",
+      errorClass: "final_publish_state_uncertain",
+      issue: input.publishIssue || message || "Publish button click was accepted, but no submission success signal was observed."
+    };
+  }
+  const errorClass = classifyPublishFailure(message);
+  if (input.publishClickAttempted === true && errorClass === "final_publish_state_uncertain") {
+    return {
+      safelyPublished: true,
+      finalVerifyStatus: "submit_accepted_unconfirmed",
+      errorClass,
+      issue: message || "Publish button click was accepted, but no submission success signal was observed."
+    };
+  }
   return {
     safelyPublished: false,
     finalVerifyStatus: "needs_manual_review",
-    errorClass: classifyPublishFailure(message),
+    errorClass,
     issue: message || "Publish result did not include a safe success signal."
   };
 }

@@ -45,6 +45,12 @@ const rowFiveEntry = {
   genericName: rowFiveIdentity.genericName
 };
 
+const acceptedUnconfirmedEntry = {
+  ...rowFiveEntry,
+  finalVerifyStatus: "submit_accepted_unconfirmed",
+  message: "Publish button click was accepted; platform success page was not observed."
+};
+
 assert.equal(
   isManifestEntrySafelyPublishedForIdentity(oldGenericEntry, rowFiveIdentity),
   false,
@@ -67,6 +73,12 @@ assert.equal(
   isManifestEntrySafelyPublishedForIdentity(rowFiveEntry),
   true,
   "Legacy callers without identity keep the original safe-published behavior."
+);
+
+assert.equal(
+  isManifestEntrySafelyPublishedForIdentity(acceptedUnconfirmedEntry, rowFiveIdentity),
+  true,
+  "A final submit click accepted by the browser must be treated as a non-duplicate terminal publish signal for resume."
 );
 
 const manifestRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "publish-manifest-"));

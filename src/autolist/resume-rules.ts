@@ -1,4 +1,5 @@
 import { AUTO_LISTING_STEPS, normalizeAutoListingStep, type AutoListingStep } from "./types.js";
+import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, type PublishFinalVerifyStatus } from "./publish-manifest.js";
 
 export interface ResumeTaskLike {
   status?: string;
@@ -34,7 +35,7 @@ function hasSafePublishCompletion(task: ResumeTaskLike, distributedFolderCount: 
   return results.every((result) =>
     result.ok === true &&
     result.status === "published" &&
-    (result.finalVerifyStatus === "publish_signal_confirmed" || result.finalVerifyStatus === "list_verified")
+    SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(result.finalVerifyStatus as PublishFinalVerifyStatus)
   );
 }
 

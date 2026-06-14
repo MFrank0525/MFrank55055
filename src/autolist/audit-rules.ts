@@ -2,7 +2,7 @@ import path from "node:path";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import { getProductCategoryPlan } from "./product-category.js";
 import type { ImageTaskState, MainImageGeneratedFile } from "./types.js";
-import type { PublishManifestEntry } from "./publish-manifest.js";
+import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, type PublishManifestEntry } from "./publish-manifest.js";
 
 export type AutoListingAuditSeverity = "error" | "warning";
 
@@ -368,7 +368,7 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
 }
 
 function isSafePublishSignal(status?: string, finalVerifyStatus?: string): boolean {
-  return status === "published" && ["publish_signal_confirmed", "list_verified"].includes(finalVerifyStatus || "");
+  return status === "published" && SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(finalVerifyStatus as never);
 }
 
 function taskExpectedPublishFolders(task: ImageTaskState): string[] {

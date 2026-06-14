@@ -1,5 +1,5 @@
-import type { PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
-import { isManifestEntrySafelyPublishedForIdentity } from "./publish-manifest.js";
+import type { PublishFinalVerifyStatus, PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
+import { isManifestEntrySafelyPublishedForIdentity, SAFE_PUBLISH_FINAL_VERIFY_STATUSES } from "./publish-manifest.js";
 import type { ImageTaskState } from "./types.js";
 
 function taskHasSafePublishArtifact(task: ImageTaskState, expectedPublishCount: number): boolean {
@@ -10,7 +10,7 @@ function taskHasSafePublishArtifact(task: ImageTaskState, expectedPublishCount: 
   return publishResults.every((result) =>
     result.ok === true &&
     result.status === "published" &&
-    (result.finalVerifyStatus === "publish_signal_confirmed" || result.finalVerifyStatus === "list_verified")
+    SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(result.finalVerifyStatus as PublishFinalVerifyStatus)
   );
 }
 

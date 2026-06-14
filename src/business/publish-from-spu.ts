@@ -7815,7 +7815,7 @@ async function clickPublishProductOnPage(
   page: Page,
   runtimeDir: string,
   fileName: string
-): Promise<PublishActionResult & { publishClicked: boolean; publishIssue: string }> {
+): Promise<PublishActionResult & { publishClicked: boolean; publishClickAttempted: boolean; publishIssue: string }> {
   let activePage = page;
   await activePage.bringToFront();
   await activePage.waitForTimeout(1200);
@@ -7836,11 +7836,7 @@ async function clickPublishProductOnPage(
           break;
         }
         publishIssue = contextState.issue || "No publish success signal was detected after clicking 发布商品.";
-        const recoveredEditablePage = await recoverUsablePublishPage(activePage).catch(() => null);
-        if (!recoveredEditablePage) {
-          break;
-        }
-        activePage = recoveredEditablePage;
+        break;
       } else {
         activePage = await recoverUsablePublishPage(activePage);
       }
@@ -7857,8 +7853,8 @@ async function clickPublishProductOnPage(
         break;
       } else {
         await publishButton.scrollIntoViewIfNeeded().catch(() => {});
+        await publishButton.click({ timeout: 5000, noWaitAfter: true });
         publishClickAttempted = true;
-        await publishButton.click({ timeout: 5000 });
         await activePage.waitForTimeout(1200).catch(() => {});
         if (activePage.isClosed()) {
           activePage = await recoverUsablePageFromContext(activeContext, "/ffa/g").catch(() => activePage);
@@ -7921,6 +7917,7 @@ async function clickPublishProductOnPage(
     pageTitle: await activePage.title(),
     screenshotFile,
     publishClicked,
+    publishClickAttempted,
     publishIssue
   };
 }
@@ -8578,6 +8575,7 @@ async function runPublishFlow(
   checkHints: string[];
   blockingFields: string[];
   publishClicked: boolean;
+  publishClickAttempted: boolean;
   publishIssue: string;
   freightTemplateName?: string;
   sections: string[];
@@ -8605,6 +8603,7 @@ async function runPublishFlow(
   let checkHints: string[] = [];
   let blockingFields: string[] = [];
   let publishClicked = false;
+  let publishClickAttempted = false;
   let publishIssue = "";
   let freightTemplateName = "";
 
@@ -9029,21 +9028,42 @@ async function runPublishFlow(
         screenshotFiles.push(publishResult.screenshotFile);
       }
       publishClicked = publishResult.publishClicked;
+      publishClickAttempted = publishResult.publishClickAttempted;
       publishIssue = publishResult.publishIssue;
       if (!publishClicked || publishIssue) {
-        stages.push({ step: "click_publish_product", status: "failed" });
-        throw new Error(`Sequential publish flow stopped: 最终发布动作未完成。${publishIssue}`);
+        if (!publishClickAttempted) {
+          stages.push({ step: "click_publish_product", status: "failed" });
+          throw new Error(`Sequential publish flow stopped: 最终发布动作未完成。${publishIssue}`);
+        }
+        stages.push({ step: "click_publish_product", status: "completed" });
+        stages.push({ step: "verify_publish_result", status: "failed" });
+      } else {
+        stages.push({ step: "click_publish_product", status: "completed" });
       }
-      stages.push({ step: "click_publish_product", status: "completed" });
     } else {
       const stopScreenshot = await savePageScreenshot(page, runtimeDir, "publish-page-ready-before-submit.png");
       screenshotFiles.push(stopScreenshot);
       stages.push({ step: "ready_before_publish", status: "completed" });
     }
 
-    const inspectResult = await inspectPublishPageOnPage(page, runtimeDir, "publish-page-inspect.png");
-    screenshotFiles.push(inspectResult.screenshotFile);
-    stages.push({ step: "inspect_publish_page", status: "completed" });
+    const inspectResult =
+      publishClickAttempted && !publishClicked
+        ? {
+            pageUrl: page.url(),
+            pageTitle: await page.title().catch(() => ""),
+            screenshotFile: "",
+            sections: [] as string[],
+            topActions: [] as string[],
+            errorHints: publishIssue ? [publishIssue] : []
+          }
+        : await inspectPublishPageOnPage(page, runtimeDir, "publish-page-inspect.png");
+    if (inspectResult.screenshotFile) {
+      screenshotFiles.push(inspectResult.screenshotFile);
+    }
+    stages.push({
+      step: "inspect_publish_page",
+      status: publishClickAttempted && !publishClicked ? "failed" : "completed"
+    });
 
     return {
       pageUrl: inspectResult.pageUrl,
@@ -9064,6 +9084,7 @@ async function runPublishFlow(
       checkHints,
       blockingFields,
       publishClicked,
+      publishClickAttempted,
       publishIssue,
       freightTemplateName,
       sections: inspectResult.sections,
@@ -9416,6 +9437,7 @@ export async function runPublishFromSpuJob(
         checkHints: flowResult.checkHints,
         blockingFields: flowResult.blockingFields,
         publishClicked: flowResult.publishClicked,
+        publishClickAttempted: flowResult.publishClickAttempted,
         publishIssue: flowResult.publishIssue,
         freightTemplateName: flowResult.freightTemplateName,
         sections: flowResult.sections,
@@ -9438,6 +9460,7 @@ export async function runPublishFromSpuJob(
         checkHints: string[];
         blockingFields: string[];
         publishClicked: boolean;
+        publishClickAttempted: boolean;
         publishIssue: string;
         freightTemplateName: string;
         sections: string[];
@@ -9521,6 +9544,7 @@ export async function runPublishFromSpuJob(
         checkHints: flowResult.checkHints,
         blockingFields: flowResult.blockingFields,
         publishClicked: flowResult.publishClicked,
+        publishClickAttempted: flowResult.publishClickAttempted,
         publishIssue: flowResult.publishIssue,
         freightTemplateName: flowResult.freightTemplateName,
         sections: flowResult.sections,
@@ -9543,6 +9567,7 @@ export async function runPublishFromSpuJob(
         checkHints: string[];
         blockingFields: string[];
         publishClicked: boolean;
+        publishClickAttempted: boolean;
         publishIssue: string;
         freightTemplateName: string;
         sections: string[];
@@ -9568,7 +9593,10 @@ export async function runPublishFromSpuJob(
                     : mode === "run_service_flow"
                       ? "service_module_ready"
                 : mode === "run_publish_flow"
-                  ? ((browserData as { publishClicked?: boolean } | undefined)?.publishClicked ? "published" : "publish_page_ready")
+                  ? ((browserData as { publishClicked?: boolean; publishClickAttempted?: boolean } | undefined)?.publishClicked ||
+                    (browserData as { publishClicked?: boolean; publishClickAttempted?: boolean } | undefined)?.publishClickAttempted
+                      ? "published"
+                      : "publish_page_ready")
             : "prepared",
       message:
         mode === "open_platform_spu"
@@ -9586,6 +9614,8 @@ export async function runPublishFromSpuJob(
               : mode === "run_publish_flow"
                 ? ((browserData as { publishClicked?: boolean } | undefined)?.publishClicked
                     ? "Publish flow completed and publish button was clicked."
+                    : (browserData as { publishClickAttempted?: boolean } | undefined)?.publishClickAttempted
+                      ? "Publish button click was issued; platform success signal was not observed."
                     : "Publish flow prepared, queried, and inspected in one task.")
             : "Product folder normalized. Browser publish handler can consume this plan directly.",
       startedAt,
