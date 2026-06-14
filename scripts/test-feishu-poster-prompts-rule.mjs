@@ -19,6 +19,34 @@ assert.match(
   /不要在主图里增加.*部位前后对比|前后对比效果图/,
   "main image prompt rules must forbid before-after body-part comparison imagery"
 );
+for (const forbiddenImageText of [
+  "放心使用",
+  "过敏",
+  "红敏",
+  "治疗",
+  "泛红",
+  "敏感肌",
+  "消肿止痛",
+  "敏肌",
+  "红肿",
+  "抗敏",
+  "抗炎",
+  "炎症",
+  "消炎",
+  "日本",
+  "进口"
+]) {
+  assert.match(
+    mainImageRuleDoc,
+    new RegExp(forbiddenImageText),
+    `main image prompt rules must list forbidden image text: ${forbiddenImageText}`
+  );
+}
+assert.match(
+  mainImageRuleDoc,
+  /违禁词不得出现在图片里/,
+  "main image prompt rules must explicitly forbid prohibited words from appearing in generated images"
+);
 assert.doesNotMatch(
   mainImageRuleDoc,
   /绿色对号/,
