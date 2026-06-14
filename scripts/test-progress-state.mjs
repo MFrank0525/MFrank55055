@@ -1940,6 +1940,26 @@ assert.equal(
   false,
   "videos-base64 submitted-task poll timeouts must not consume fast child recovery attempts"
 );
+const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
+const paidImageSafetyBlockWithHtml =
+  "paid submission safety block: paid image ledger has ambiguous=20, reserved=0; original: videos-base64 submit failed with HTTP 502: " +
+  cloudflare502Html;
+const compactPaidSafetyBlock = formatAutoListingControllerCompactStatusText({
+  status: "failed",
+  summary: paidImageSafetyBlockWithHtml,
+  productName: "延草纲目宝元堂足跟医用疼痛凝胶",
+  publishSafelyPublished: 20,
+  publishTotal: 20,
+  publishProductIndex: 20,
+  publishProductTotal: 20,
+  publishShopIndex: 10,
+  publishShopTotal: 10,
+  feishuCompleted: 1,
+  feishuTotal: 5
+});
+assert.match(compactPaidSafetyBlock, /付费生图提交状态不明确/);
+assert.match(compactPaidSafetyBlock, /20 个槽位/);
+assert.doesNotMatch(compactPaidSafetyBlock, /<!DOCTYPE html>|Cloudflare|paid submission safety block|videos-base64 submit failed/i);
 assert.equal(
   resolveSupervisorRecoveryDelayMs({
     failureMessage: videosBase64PollTimeoutMessage,

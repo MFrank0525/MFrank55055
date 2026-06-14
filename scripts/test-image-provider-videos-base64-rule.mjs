@@ -72,6 +72,12 @@ assert.doesNotMatch(source, /batchFingerprint: options\.feishuBatchFingerprint \
 assert.doesNotMatch(source, /recordId: options\.feishuRecordId \|\| options\.taskId/);
 assert.match(source, /providerExplicitlyProvesNoPaidTaskAccepted/);
 assert.match(source, /resolveVideosBase64SubmitTimeoutMs/);
+assert.match(source, /sendVideosBase64SubmitWithTransientRetries/);
+assert.match(
+  source,
+  /submitGate\.run\(\(\) => sendVideosBase64SubmitWithTransientRetries\(absoluteImageIndex, requestBody\)\)/,
+  "videos-base64 paid submit requests must use HTTP transient retries before a slot can become ambiguous"
+);
 assert.match(source, /requestedImageIndexes/);
 assert.match(source, /resolveMissingFixedImageIndexes/);
 assert.match(source, /requestedImageIndexes: missingLocalIndexes/);
@@ -85,7 +91,11 @@ assert.match(source, /createConcurrencyGate\(resolveVideosBase64SubmitConcurrenc
 assert.match(source, /const videosBase64SubmitGate =[\s\S]*createConcurrencyGate\(resolveVideosBase64SubmitConcurrency\(imageGenerationConfig\.submitConcurrency\)\)/);
 assert.match(source, /videosBase64SubmitGate,\s*paidImageLedger:/);
 assert.match(source, /imageGenerationMode === "videos-base64" &&\s*\(!options\.feishuBatchFingerprint/);
-assert.match(source, /submitGate\.run\(\(\) => sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)\)/);
+assert.doesNotMatch(
+  source,
+  /submitGate\.run\(\(\) => sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)\)/,
+  "videos-base64 paid submit requests must not bypass transient HTTP retry handling"
+);
 assert.match(source, /fetchVideosBase64TaskWithTransportRetries\(taskId, false/);
 assert.match(source, /fetchVideosBase64TaskWithTransportRetries\(taskId, true/);
 assert.match(source, /downloadVideosBase64ResultWithTransportRetries\(resultUrl, targetFile/);

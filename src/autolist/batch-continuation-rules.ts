@@ -941,6 +941,15 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
 
 function compactAutoListingControllerReason(summary?: string): string {
   const text = String(summary || "").replace(/\s+/g, " ").trim();
+  const paidSafety = /paid submission safety block: paid image ledger has ambiguous=(\d+), reserved=(\d+)/i.exec(text);
+  if (paidSafety) {
+    const ambiguous = Number(paidSafety[1] || 0);
+    const reserved = Number(paidSafety[2] || 0);
+    return `付费生图提交状态不明确：${ambiguous} 个槽位 ambiguous，${reserved} 个槽位 reserved；已停止自动重提，需先做供应商对账或无受理对账后再续跑。`;
+  }
+  if (/videos-base64 submit failed with HTTP\s+502/i.test(text) && /Bad gateway|Host.*Error|Cloudflare/i.test(text)) {
+    return "图片中转站 Cloudflare 502，供应商主机不可用；已保留当前飞书批次和断点。";
+  }
   if (/Expected short-title field is missing|导购短标题.*缺失|short-title/i.test(text)) {
     return "导购短标题字段缺失，已停止，可续跑。";
   }

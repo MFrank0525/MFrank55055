@@ -997,6 +997,44 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
   };
 
+  const sendVideosBase64SubmitWithTransientRetries = async (
+    imageIndex: number,
+    requestBody: string
+  ): Promise<{ response: Response; text: string }> => {
+    for (let attempt = 0; ; attempt += 1) {
+      const result = await sendRequest(requestBody, "application/json", videosBase64SubmitTimeoutMs);
+      if (!isTransientImageProviderStatus(result.response.status)) {
+        return result;
+      }
+      const retryPolicy = resolveImageGenerationHttpRetryPolicy({
+        status: result.response.status,
+        responseText: result.text,
+        configuredMaxRetries: config.maxTransientRetries
+      });
+      if (attempt >= retryPolicy.maxRetries) {
+        return result;
+      }
+      const retryNo = attempt + 1;
+      const nextDelayMs = retryPolicy.delayMs[attempt] || retryPolicy.delayMs.at(-1) || 45000;
+      writeImageGenerationJsonLog(
+        path.join(options.downloadDir, `response-${String(imageIndex).padStart(2, "0")}-videos-submit-transient-${retryNo}.json`),
+        {
+          label: "videos-base64-submit",
+          status: result.response.status,
+          reason: retryPolicy.reason,
+          retryNo,
+          maxTransientRetries: retryPolicy.maxRetries,
+          responseText: result.text.slice(0, 1000),
+          nextDelayMs
+        }
+      );
+      options.onProgress?.(
+        `Image ${imageIndex}: transient HTTP ${result.response.status} during videos-base64 submit; retry ${retryNo}/${retryPolicy.maxRetries}.`
+      );
+      await sleep(nextDelayMs);
+    }
+  };
+
   const waitBeforeVideosBase64ReadRetry = async (
     taskId: string,
     imageIndex: number,
@@ -1219,7 +1257,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       let response: Response;
       let text = "";
       try {
-        const result = await submitGate.run(() => sendRequest(requestBody, "application/json", videosBase64SubmitTimeoutMs));
+        const result = await submitGate.run(() => sendVideosBase64SubmitWithTransientRetries(absoluteImageIndex, requestBody));
         response = result.response;
         text = result.text;
       } catch (error) {
