@@ -54,7 +54,8 @@ import {
   resolveAutoListingControllerRealtimeProgressSignal,
   resolveAutoListingControllerRuntimeStatus,
   resolveAutoListingControllerIdleStatus,
-  resolveAutoListingControllerDryRunStartDecision
+  resolveAutoListingControllerDryRunStartDecision,
+  resolveAutoListingControllerPublishGroupProgress
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -1276,7 +1277,7 @@ const compactFailedStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactFailedStatus.split("\n"),
   [
-    "状态：失败｜发布 14/20，失败 1｜飞书 2/3",
+    "状态：失败｜产品 15/20｜店铺 8/10｜飞书 2/3",
     "商品：医用面部生物膜",
     "原因：导购短标题字段缺失，已停止，可续跑。"
   ],
@@ -1297,7 +1298,7 @@ const compactImageGenerationStatus = formatAutoListingControllerCompactStatusTex
 assert.deepEqual(
   compactImageGenerationStatus.split("\n"),
   [
-    "状态：运行中｜发布 0/20，失败 0｜飞书 0/4",
+    "状态：运行中｜产品 1/20｜店铺 1/10｜飞书 0/4",
     "当前：医用芦荟凝胶",
     "进度：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0."
   ],
@@ -1317,12 +1318,74 @@ const compactPlatformFailedStatus = formatAutoListingControllerCompactStatusText
 assert.deepEqual(
   compactPlatformFailedStatus.split("\n"),
   [
-    "状态：失败｜发布 14/20，失败 1｜飞书 2/3",
+    "状态：失败｜产品 15/20｜店铺 8/10｜飞书 2/3",
     "商品：医用面部生物膜",
     "原因：标品检索页控件未加载完整，已停止，可续跑。"
   ],
   "AutoListingController text status must summarize Platform SPU query readiness failures without long local paths"
 );
+
+const groupedPublishProgress = resolveAutoListingControllerPublishGroupProgress({
+  entries: [
+    ...Array.from({ length: 20 }, (_, index) => ({
+      productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目医用疼痛凝胶水印${String(index + 1).padStart(2, "0")}`,
+      shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
+      watermarkNo: index + 1,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      updatedAt: `2026-06-13T20:${String(index).padStart(2, "0")}:00.000Z`
+    })),
+    ...Array.from({ length: 20 }, (_, index) => ({
+      productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目医用重组胶原蛋白护理软膏水印${String(index + 1).padStart(2, "0")}`,
+      shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
+      watermarkNo: index + 1,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      updatedAt: `2026-06-13T21:${String(index).padStart(2, "0")}:00.000Z`
+    })),
+    ...Array.from({ length: 20 }, (_, index) => ({
+      productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目遠紅外治療貼水印${String(index + 1).padStart(2, "0")}`,
+      shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
+      watermarkNo: index + 1,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      updatedAt: `2026-06-13T22:${String(index).padStart(2, "0")}:00.000Z`
+    }))
+  ]
+});
+assert.deepEqual(
+  groupedPublishProgress,
+  {
+    productName: "延草纲目遠紅外治療貼",
+    productIndex: 20,
+    productTotal: 20,
+    shopName: "10店",
+    shopIndex: 10,
+    shopTotal: 10,
+    failed: 0
+  },
+  "AutoListingController publish display must reset cumulative manifests to the current 20-item product group"
+);
+const compactCompletedGroupedStatus = formatAutoListingControllerCompactStatusText({
+  status: "completed",
+  summary: "当前飞书批次已全部处理完成。",
+  productName: groupedPublishProgress.productName,
+  publishSafelyPublished: 60,
+  publishTotal: 60,
+  publishFailed: 0,
+  publishProductIndex: groupedPublishProgress.productIndex,
+  publishProductTotal: groupedPublishProgress.productTotal,
+  publishShopIndex: groupedPublishProgress.shopIndex,
+  publishShopTotal: groupedPublishProgress.shopTotal,
+  feishuCompleted: 5,
+  feishuTotal: 5
+});
+assert.equal(
+  compactCompletedGroupedStatus.split("\n")[0],
+  "状态：完成｜产品 20/20｜店铺 10/10｜飞书 5/5",
+  "Hermes-facing compact text must not expose cumulative publish totals such as 60/60"
+);
+assert.equal(/发布 60\/60/.test(compactCompletedGroupedStatus), false);
 const realtimeProgressSignal = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-12T12:41:37.337Z",
   activeRunId: "20260612-205351",

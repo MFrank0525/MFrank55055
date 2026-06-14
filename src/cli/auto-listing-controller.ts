@@ -19,6 +19,7 @@ import {
   selectAutoListingControllerStatusResultFile,
   selectAutoListingControllerStatusRuntimeDir,
   resolveAutoListingControllerRealtimeProgressSignal,
+  resolveAutoListingControllerPublishGroupProgress,
   shouldClearPauseSignalOnAutoListingControllerStart,
   shouldExposePublishProgressInAutoListingControllerStatus,
   shouldPreferActiveTaskStateSummary,
@@ -653,11 +654,15 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
         : undefined;
     })();
   const latestPublished = safelyPublished.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
+  const publishGroupProgress = resolveAutoListingControllerPublishGroupProgress({
+    entries,
+    activeRuntimeKey: activeEntry?.runtimeKey || latestPublished?.runtimeKey
+  });
   const latestArtifact = summarizeLatestPublishArtifact(runtimeDir, activeEntry?.runtimeKey);
   const progressText =
-    `发布进度 ${safelyPublished.length}/${total || "?"}` +
-    (activeEntry?.productFolder ? `，当前/下一项：${path.basename(activeEntry.productFolder)}` : "") +
-    (latestPublished?.productFolder ? `，最近完成：${path.basename(latestPublished.productFolder)}` : "") +
+    (publishGroupProgress
+      ? `当前商品：${publishGroupProgress.productName}，产品 ${publishGroupProgress.productIndex}/${publishGroupProgress.productTotal}，店铺 ${publishGroupProgress.shopIndex}/${publishGroupProgress.shopTotal}`
+      : `发布进度 ${safelyPublished.length}/${total || "?"}`) +
     (latestArtifact?.name ? `，最近产物：${String(latestArtifact.name)}` : "");
 
   return {
@@ -668,6 +673,7 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
     failed: failed.length,
     pending: pending.length,
     progressText,
+    publishGroupProgress,
     active: activeEntry
       ? {
           productFolder: activeEntry.productFolder,
@@ -1158,10 +1164,16 @@ function formatStatusText(status: Record<string, unknown>): string {
         ? compactStatusValue(String(latestProgress.message))
         : undefined;
   const active = progress?.active as Record<string, unknown> | undefined;
+  const publishGroupProgress = progress?.publishGroupProgress as Record<string, unknown> | undefined;
   return formatAutoListingControllerCompactStatusText({
     status: String(status.status || "unknown"),
     summary: String(status.summary || ""),
-    productName: currentTask?.sourceImageName ? String(currentTask.sourceImageName) : undefined,
+    productName:
+      typeof publishGroupProgress?.productName === "string"
+        ? String(publishGroupProgress.productName)
+        : currentTask?.sourceImageName
+          ? String(currentTask.sourceImageName)
+          : undefined,
     activeItemName: active?.productFolder ? path.basename(String(active.productFolder)) : undefined,
     latestProgress: latestProgressText,
     imageGenerationProgress:
@@ -1171,6 +1183,14 @@ function formatStatusText(status: Record<string, unknown>): string {
     publishSafelyPublished: Number(progress?.safelyPublished ?? 0),
     publishTotal: progress?.total === undefined ? undefined : Number(progress.total),
     publishFailed: Number(progress?.failed ?? 0),
+    publishProductIndex:
+      typeof publishGroupProgress?.productIndex === "number" ? Number(publishGroupProgress.productIndex) : undefined,
+    publishProductTotal:
+      typeof publishGroupProgress?.productTotal === "number" ? Number(publishGroupProgress.productTotal) : undefined,
+    publishShopIndex:
+      typeof publishGroupProgress?.shopIndex === "number" ? Number(publishGroupProgress.shopIndex) : undefined,
+    publishShopTotal:
+      typeof publishGroupProgress?.shopTotal === "number" ? Number(publishGroupProgress.shopTotal) : undefined,
     feishuCompleted: counts?.completedCount === undefined ? Number(feishuProgress?.processedRecordCount ?? 0) : Number(counts.completedCount),
     feishuTotal: counts?.recordCount === undefined ? Number(feishuProgress?.recordCount ?? 0) : Number(counts.recordCount)
   });

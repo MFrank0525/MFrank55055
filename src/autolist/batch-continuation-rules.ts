@@ -611,8 +611,32 @@ export type AutoListingControllerCompactStatusTextInput = {
   publishSafelyPublished?: number;
   publishTotal?: number;
   publishFailed?: number;
+  publishProductIndex?: number;
+  publishProductTotal?: number;
+  publishShopIndex?: number;
+  publishShopTotal?: number;
   feishuCompleted?: number;
   feishuTotal?: number;
+};
+
+export type AutoListingControllerPublishGroupProgressEntry = {
+  productFolder?: string;
+  runtimeKey?: string;
+  shopFolder?: string;
+  watermarkNo?: number | null;
+  status?: string;
+  finalVerifyStatus?: string;
+  updatedAt?: string;
+};
+
+export type AutoListingControllerPublishGroupProgress = {
+  productName: string;
+  productIndex: number;
+  productTotal: number;
+  shopName: string;
+  shopIndex: number;
+  shopTotal: number;
+  failed: number;
 };
 
 export type AutoListingControllerRealtimeProgressSignalInput = {
@@ -810,6 +834,57 @@ function cleanAutoListingControllerProductName(name?: string): string {
     .trim() || "未知商品";
 }
 
+function publishGroupNameFromFolder(folder?: string): string {
+  return cleanAutoListingControllerProductName(folder).replace(/水印\d+$/i, "").trim() || "未知商品";
+}
+
+function publishShopIndexFromName(shopName?: string): number | undefined {
+  const match = /^(\d+)/.exec(String(shopName || "").split(/[\\/]/).pop() || "");
+  return match ? Number(match[1]) : undefined;
+}
+
+function isSafelyPublishedPublishEntry(entry: AutoListingControllerPublishGroupProgressEntry): boolean {
+  return entry.status === "published" && ["publish_signal_confirmed", "list_verified"].includes(entry.finalVerifyStatus || "");
+}
+
+export function resolveAutoListingControllerPublishGroupProgress(input: {
+  entries: AutoListingControllerPublishGroupProgressEntry[];
+  activeRuntimeKey?: string;
+}): AutoListingControllerPublishGroupProgress | undefined {
+  const entries = input.entries.filter((entry) => entry.productFolder || entry.shopFolder || entry.watermarkNo);
+  if (!entries.length) {
+    return undefined;
+  }
+  const activeEntry =
+    (input.activeRuntimeKey ? entries.find((entry) => String((entry as { runtimeKey?: string }).runtimeKey || "") === input.activeRuntimeKey) : undefined) ||
+    [...entries].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
+  const productName = publishGroupNameFromFolder(activeEntry.productFolder);
+  const groupEntries = entries.filter((entry) => publishGroupNameFromFolder(entry.productFolder) === productName);
+  const safelyPublished = groupEntries.filter(isSafelyPublishedPublishEntry);
+  const failed = groupEntries.filter((entry) => entry.status === "failed").length;
+  const productTotal = Math.max(20, ...groupEntries.map((entry) => Number(entry.watermarkNo || 0)).filter(Number.isFinite));
+  const maxCompletedWatermark = Math.max(0, ...safelyPublished.map((entry) => Number(entry.watermarkNo || 0)).filter(Number.isFinite));
+  const activeWatermark = Number(activeEntry.watermarkNo || 0);
+  const productIndex = Math.max(1, Math.min(productTotal, activeWatermark || maxCompletedWatermark || safelyPublished.length + (failed > 0 ? 1 : 0) || 1));
+  const shopNames = Array.from(new Set(groupEntries.map((entry) => cleanAutoListingControllerProductName(entry.shopFolder)).filter(Boolean)))
+    .sort((a, b) => (publishShopIndexFromName(a) || 0) - (publishShopIndexFromName(b) || 0) || a.localeCompare(b, "zh-CN"));
+  const activeShopName = cleanAutoListingControllerProductName(activeEntry.shopFolder);
+  const shopTotal = Math.max(1, shopNames.length || Math.ceil(productTotal / 2));
+  const shopIndex =
+    publishShopIndexFromName(activeShopName) ||
+    (activeShopName && shopNames.includes(activeShopName) ? shopNames.indexOf(activeShopName) + 1 : undefined) ||
+    Math.max(1, Math.ceil(productIndex / 2));
+  return {
+    productName,
+    productIndex,
+    productTotal,
+    shopName: activeShopName || "未知店铺",
+    shopIndex: Math.min(shopTotal, shopIndex),
+    shopTotal,
+    failed
+  };
+}
+
 function compactAutoListingControllerReason(summary?: string): string {
   const text = String(summary || "").replace(/\s+/g, " ").trim();
   if (/Expected short-title field is missing|导购短标题.*缺失|short-title/i.test(text)) {
@@ -836,13 +911,15 @@ function compactAutoListingControllerImageProgress(progress?: string): string {
 }
 
 export function formatAutoListingControllerCompactStatusText(input: AutoListingControllerCompactStatusTextInput): string {
-  const publishTotal = input.publishTotal ?? "?";
-  const publishDone = input.publishSafelyPublished ?? 0;
-  const publishFailed = input.publishFailed ?? 0;
+  const productTotal = input.publishProductTotal ?? 20;
+  const fallbackProductIndex = (input.publishSafelyPublished || 0) + (input.publishFailed ? 1 : 0) || 1;
+  const productIndex = Math.max(1, Math.min(productTotal, input.publishProductIndex ?? fallbackProductIndex));
+  const shopTotal = input.publishShopTotal ?? Math.max(1, Math.ceil(productTotal / 2));
+  const shopIndex = Math.max(1, Math.min(shopTotal, input.publishShopIndex ?? Math.ceil(productIndex / 2)));
   const feishuCompleted = input.feishuCompleted ?? "?";
   const feishuTotal = input.feishuTotal ?? "?";
   const lines = [
-    `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜发布 ${publishDone}/${publishTotal}，失败 ${publishFailed}｜飞书 ${feishuCompleted}/${feishuTotal}`
+    `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}｜飞书 ${feishuCompleted}/${feishuTotal}`
   ];
 
   if (input.status === "failed") {
