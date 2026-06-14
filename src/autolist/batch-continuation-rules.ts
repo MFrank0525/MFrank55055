@@ -934,6 +934,16 @@ function compactAutoListingControllerImageProgress(progress?: string): string {
   return text.length > 180 ? `${text.slice(0, 180)}...` : text;
 }
 
+function shouldPreferAutoListingControllerPublishProgress(input: AutoListingControllerCompactStatusTextInput): boolean {
+  if (!input.latestProgress) {
+    return false;
+  }
+  if (input.publishProductIndex !== undefined || input.publishShopIndex !== undefined) {
+    return true;
+  }
+  return /发布|publish|basic_info|商品|店铺|spu/i.test(input.latestProgress);
+}
+
 export function formatAutoListingControllerCompactStatusText(input: AutoListingControllerCompactStatusTextInput): string {
   const productTotal = input.publishProductTotal ?? 20;
   const fallbackProductIndex = (input.publishSafelyPublished || 0) + (input.publishFailed ? 1 : 0) || 1;
@@ -954,9 +964,10 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
 
   const active = cleanAutoListingControllerProductName(input.activeItemName || input.productName);
   lines.push(`当前：${active}`);
-  const latestProgress = input.imageGenerationProgress || input.latestProgress;
+  const preferPublishProgress = shouldPreferAutoListingControllerPublishProgress(input);
+  const latestProgress = preferPublishProgress ? input.latestProgress : input.imageGenerationProgress || input.latestProgress;
   if (latestProgress) {
-    lines.push(`进度：${input.imageGenerationProgress ? compactAutoListingControllerImageProgress(latestProgress) : compactAutoListingControllerReason(latestProgress)}`);
+    lines.push(`进度：${!preferPublishProgress && input.imageGenerationProgress ? compactAutoListingControllerImageProgress(latestProgress) : compactAutoListingControllerReason(latestProgress)}`);
   } else if (input.summary) {
     lines.push(`进度：${compactAutoListingControllerReason(input.summary)}`);
   }

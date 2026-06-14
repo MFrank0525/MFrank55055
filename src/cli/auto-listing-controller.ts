@@ -1036,8 +1036,9 @@ function existingStatus(): Record<string, unknown> {
           note: "运行中发布进度以 publishProgress 为准；state.currentTask 来自旧任务状态，已从状态载荷中隐藏以避免误判。"
         }
       : state;
+  const shouldExposeImageProgressInSummary = !exposePublishProgress || !publishProgress;
   const imageProgressSummaryMessage =
-    typeof (imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
+    shouldExposeImageProgressInSummary && typeof (imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
       ? String((imageProgress as Record<string, unknown>).latestMessage)
       : undefined;
   const stateSummary = state
@@ -1166,6 +1167,7 @@ function formatStatusText(status: Record<string, unknown>): string {
         : undefined;
   const active = progress?.active as Record<string, unknown> | undefined;
   const publishGroupProgress = progress?.publishGroupProgress as Record<string, unknown> | undefined;
+  const shouldExposeImageGenerationProgress = !progress;
   return formatAutoListingControllerCompactStatusText({
     status: String(status.status || "unknown"),
     summary: String(status.summary || ""),
@@ -1178,7 +1180,7 @@ function formatStatusText(status: Record<string, unknown>): string {
     activeItemName: active?.productFolder ? path.basename(String(active.productFolder)) : undefined,
     latestProgress: latestProgressText,
     imageGenerationProgress:
-      typeof (status.imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
+      shouldExposeImageGenerationProgress && typeof (status.imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
         ? String((status.imageProgress as Record<string, unknown>).latestMessage)
         : undefined,
     publishSafelyPublished: Number(progress?.safelyPublished ?? 0),

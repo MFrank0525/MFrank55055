@@ -1304,6 +1304,30 @@ assert.deepEqual(
   ],
   "AutoListingController text status must show main-image generation progress instead of only the generic stage name"
 );
+const compactPublishStageStatus = formatAutoListingControllerCompactStatusText({
+  status: "running",
+  summary: "任务正在运行，当前阶段：published",
+  productName: "延草纲目宝元堂痛风医用远红外治疗凝胶",
+  activeItemName: "延草纲目宝元堂痛风医用远红外治疗凝胶水印11",
+  imageGenerationProgress: "Main images ready: 20 file(s).",
+  latestProgress: "发布模块：基础信息（06延草纲目理疗器械旗舰店）",
+  publishProductIndex: 11,
+  publishProductTotal: 20,
+  publishShopIndex: 6,
+  publishShopTotal: 10,
+  feishuCompleted: 0,
+  feishuTotal: 2
+});
+assert.deepEqual(
+  compactPublishStageStatus.split("\n"),
+  [
+    "状态：运行中｜产品 11/20｜店铺 6/10｜飞书 0/2",
+    "当前：延草纲目宝元堂痛风医用远红外治疗凝胶",
+    "进度：发布模块：基础信息（06延草纲目理疗器械旗舰店）"
+  ],
+  "AutoListingController text status must show publish progress during publish stage instead of stale image generation progress"
+);
+assert.equal(/Main images ready/.test(compactPublishStageStatus), false);
 const compactPlatformFailedStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",
   summary:
