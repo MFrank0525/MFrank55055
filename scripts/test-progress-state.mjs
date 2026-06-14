@@ -570,6 +570,85 @@ assert.equal(
   false,
   "Hermes-facing JSON must not expose completed image-generation progress during publish stage"
 );
+const groupedHermesRealtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
+  jobStartedAt: "2026-06-14T06:00:00.000Z",
+  activeRunId: "20260614-211821",
+  status: "running",
+  statusSource: "publish-manifest",
+  publishSafelyPublished: 39,
+  publishTotal: 40,
+  publishFailed: 0,
+  publishProductIndex: 20,
+  publishProductTotal: 20,
+  publishShopIndex: 10,
+  publishShopTotal: 10,
+  publishActiveRuntimeKey: "10延草纲目中医保健专营店__延草纲目宝元堂痛风医用远红外治疗凝胶水印20",
+  publishActiveUpdatedAt: "2026-06-14T06:10:00.000Z",
+  publishActiveMessage: "延草纲目宝元堂痛风医用远红外治疗凝胶水印20: graphic_info_fill: done",
+  publishLogTimestamp: "2026-06-14T06:10:01.000Z",
+  publishLogMessage: "发布模块：图文信息（10延草纲目中医保健专营店）"
+});
+assert.equal(
+  /39\/40|40\/40|60\/60/.test(groupedHermesRealtimeProgress?.key || ""),
+  false,
+  "Hermes realtime key must not expose cumulative publish-manifest totals"
+);
+assert.match(
+  groupedHermesRealtimeProgress?.key || "",
+  /\|20\/20\|10\/10\|/,
+  "Hermes realtime key must use the active product group and shop group progress"
+);
+const groupedHermesPayload = resolveAutoListingControllerHermesStatusPayload({
+  status: "running",
+  summary: "当前商品：延草纲目宝元堂痛风医用远红外治疗凝胶，产品 20/20，店铺 10/10",
+  realtimeProgress: groupedHermesRealtimeProgress,
+  publishProgress: {
+    safelyPublished: 39,
+    total: 40,
+    failed: 0,
+    progressText: "当前商品：延草纲目宝元堂痛风医用远红外治疗凝胶，产品 20/20，店铺 10/10",
+    publishGroupProgress: {
+      productName: "延草纲目宝元堂痛风医用远红外治疗凝胶",
+      productIndex: 20,
+      productTotal: 20,
+      shopName: "10延草纲目中医保健专营店",
+      shopIndex: 10,
+      shopTotal: 10,
+      failed: 0
+    }
+  },
+  imageProgress: {
+    status: "ready",
+    latestMessage: "Main images ready: 20 file(s)."
+  }
+});
+assert.equal(
+  /39\/40|40\/40|60\/60|Main images ready/.test(JSON.stringify(groupedHermesPayload.hermesProgress || {})),
+  false,
+  "Hermes progress payload must hide cumulative publish counts and stale image progress while publishing"
+);
+assert.match(
+  String(groupedHermesPayload.hermesProgress?.message || ""),
+  /当前商品：.*产品 20\/20，店铺 10\/10/,
+  "Hermes progress message must use the current product-group progress text"
+);
+const dedupedHermesPayloadMessage = resolveAutoListingControllerHermesStatusPayload({
+  status: "running",
+  realtimeProgress: {
+    source: "latest_artifact",
+    message: "最近产物：publish-page-basic-filled.png",
+    timestamp: "2026-06-14T06:10:02.000Z",
+    key: "grouped-key"
+  },
+  publishProgress: {
+    progressText: "当前商品：延草纲目测试品，产品 11/20，店铺 6/10，最近产物：publish-page-basic-filled.png"
+  }
+}).hermesProgress?.message;
+assert.equal(
+  dedupedHermesPayloadMessage,
+  "当前商品：延草纲目测试品，产品 11/20，店铺 6/10，最近产物：publish-page-basic-filled.png",
+  "Hermes progress message must not append the same realtime phrase twice"
+);
 
 const pageNotReadyClass = classifyPublishFailure("Platform SPU query page was not ready after navigation.");
 assert.equal(pageNotReadyClass, "platform_page_not_ready");

@@ -1058,6 +1058,7 @@ function existingStatus(): Record<string, unknown> {
   const terminalFailureMtimeMs = fileMtimeMs(resultFile);
   const externalWaitReason = activeWaitState?.reason || terminalFailureMessage;
   const externalRetryAt = activeWaitState?.retryAt || "供应商恢复后";
+  const publishGroupProgress = publishProgress?.publishGroupProgress as Record<string, unknown> | undefined;
   const realtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
     jobStartedAt: job.startedAt,
     activeRunId: activeRuntimeDir ? path.basename(activeRuntimeDir) : typeof result?.runId === "string" ? result.runId : undefined,
@@ -1079,6 +1080,10 @@ function existingStatus(): Record<string, unknown> {
     publishSafelyPublished: Number(publishProgress?.safelyPublished ?? 0),
     publishTotal: publishProgress?.total === undefined ? undefined : Number(publishProgress.total),
     publishFailed: Number(publishProgress?.failed ?? 0),
+    publishProductIndex: publishGroupProgress?.productIndex === undefined ? undefined : Number(publishGroupProgress.productIndex),
+    publishProductTotal: publishGroupProgress?.productTotal === undefined ? undefined : Number(publishGroupProgress.productTotal),
+    publishShopIndex: publishGroupProgress?.shopIndex === undefined ? undefined : Number(publishGroupProgress.shopIndex),
+    publishShopTotal: publishGroupProgress?.shopTotal === undefined ? undefined : Number(publishGroupProgress.shopTotal),
     publishActiveRuntimeKey: String((publishProgress?.active as Record<string, unknown> | undefined)?.runtimeKey || ""),
     publishActiveUpdatedAt:
       typeof activePublishUpdatedAt === "string" ? activePublishUpdatedAt : undefined,

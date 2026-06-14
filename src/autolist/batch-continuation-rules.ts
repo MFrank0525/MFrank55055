@@ -600,9 +600,18 @@ export function resolveAutoListingControllerHermesStatusPayload(
   const realtimeProgress = status.realtimeProgress as Record<string, unknown> | undefined;
   const payload: AutoListingControllerHermesStatusPayload = { ...status };
   if (realtimeProgress && typeof realtimeProgress === "object") {
+    const publishProgressText =
+      publishProgress && typeof publishProgress.progressText === "string"
+        ? String(publishProgress.progressText)
+        : undefined;
+    const realtimeMessage = typeof realtimeProgress.message === "string" ? String(realtimeProgress.message) : undefined;
+    const message =
+      publishProgressText && realtimeMessage && realtimeMessage !== publishProgressText && !publishProgressText.includes(realtimeMessage)
+        ? `${publishProgressText}；${realtimeMessage}`
+        : publishProgressText || realtimeMessage;
     const hermesProgress = {
       source: realtimeProgress.source,
-      message: realtimeProgress.message,
+      message,
       timestamp: realtimeProgress.timestamp,
       key: realtimeProgress.key
     };
@@ -677,6 +686,10 @@ export type AutoListingControllerRealtimeProgressSignalInput = {
   publishSafelyPublished?: number;
   publishTotal?: number;
   publishFailed?: number;
+  publishProductIndex?: number;
+  publishProductTotal?: number;
+  publishShopIndex?: number;
+  publishShopTotal?: number;
   publishActiveRuntimeKey?: string;
   publishActiveUpdatedAt?: string;
   publishActiveMessage?: string;
@@ -700,6 +713,22 @@ function compactRealtimeProgressPart(value: string | undefined): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
+}
+
+function resolveRealtimeProgressDisplayCounts(input: AutoListingControllerRealtimeProgressSignalInput): string[] {
+  if (
+    input.publishProductIndex !== undefined &&
+    input.publishProductTotal !== undefined &&
+    input.publishShopIndex !== undefined &&
+    input.publishShopTotal !== undefined
+  ) {
+    return [
+      `${input.publishProductIndex}/${input.publishProductTotal}`,
+      `${input.publishShopIndex}/${input.publishShopTotal}`,
+      String(input.publishFailed ?? 0)
+    ];
+  }
+  return [`${input.publishSafelyPublished ?? 0}/${input.publishTotal ?? "?"}/${input.publishFailed ?? 0}`];
 }
 
 export function resolveAutoListingControllerRealtimeProgressSignal(
@@ -741,14 +770,13 @@ export function resolveAutoListingControllerRealtimeProgressSignal(
 
   const selected = input.preferStatusMessage && statusCandidate.message ? statusCandidate : candidates[0] || statusCandidate;
   const activeKey = compactRealtimeProgressPart(input.publishActiveRuntimeKey || input.activeRunId);
-  const counts = `${input.publishSafelyPublished ?? 0}/${input.publishTotal ?? "?"}/${input.publishFailed ?? 0}`;
   const message = compactRealtimeProgressPart(selected.message || input.status || "unknown");
   const key = [
     compactRealtimeProgressPart(input.jobStartedAt),
     compactRealtimeProgressPart(input.activeRunId),
     compactRealtimeProgressPart(input.status),
     selected.source,
-    counts,
+    ...resolveRealtimeProgressDisplayCounts(input),
     activeKey,
     compactRealtimeProgressPart(selected.timestamp),
     message
