@@ -358,7 +358,10 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("PlatformSPUquerypagewasnotready") || text.includes("标品管理") && text.includes("加载")) {
     return "platform_page_not_ready";
   }
-  if (text.includes("SPUinputvaluemismatchaftertyping") && text.includes("actual=<empty>")) {
+  if (
+    (text.includes("SPUinputvaluemismatchaftertyping") || text.includes("Brandinputvaluemismatchaftertyping")) &&
+    text.includes("actual=<empty>")
+  ) {
     return "platform_page_not_ready";
   }
   if (text.includes("Failedtoactivatepublishsectiontab") && text.includes("actual=<unknown>")) {

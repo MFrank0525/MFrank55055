@@ -70,6 +70,12 @@ const emptySpuInputClass = classifyPublishFailure(
 assert.equal(emptySpuInputClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(emptySpuInputClass, 0), true);
 
+const emptyBrandInputClass = classifyPublishFailure(
+  "Brand input value mismatch after typing. expected=延草纲目; actual=<empty>; selectedOption=延草纲目"
+);
+assert.equal(emptyBrandInputClass, "platform_page_not_ready");
+assert.equal(shouldRetryPublishFailure(emptyBrandInputClass, 0), true);
+
 const loginFailureClass = classifyPublishFailure("Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing 延草纲目");
 assert.equal(loginFailureClass, "doudian_login_required");
 assert.equal(shouldRetryPublishFailure(loginFailureClass, 0), false);
