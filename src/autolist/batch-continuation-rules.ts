@@ -42,6 +42,16 @@ function isPaidImageSubmissionSafetyBlock(message: string): boolean {
   return /paid image ledger blocked slot|blocked_(?:reserved|ambiguous)|paid submission safety block/i.test(message);
 }
 
+function isRetryableVideosBase64ProviderTaskFailure(message: string): boolean {
+  return (
+    /main_images_generated|videos-base64/i.test(message) &&
+    /videos-base64 task .* failed|provider task failed/i.test(message) &&
+    !/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
+      message
+    )
+  );
+}
+
 export function isRetryableExternalServiceAvailabilityFailure(message: string): boolean {
   if (
     isPaidImageSubmissionSafetyBlock(message) ||
@@ -109,6 +119,9 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
   }
   if (input.recoveryAttempts >= input.maxRecoveryAttempts) {
     return false;
+  }
+  if (isRetryableVideosBase64ProviderTaskFailure(retryableFailureMessage)) {
+    return true;
   }
   if (isPaidMainImageTransportFailure(retryableFailureMessage)) {
     return true;

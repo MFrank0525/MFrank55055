@@ -506,6 +506,18 @@ const reconciledProviderFailure = reconcileAmbiguousPaidImageProviderFailure({
 });
 assert.equal(reconciledProviderFailure.state, "failed_after_acceptance");
 assert.equal(resolvePaidImageSlotAction({ productDir, slot: 8 }).action, "retry_failed_after_acceptance");
+assert.throws(
+  () =>
+    reservePaidImageSlot({
+      productDir,
+      slot: 8,
+      requestDigest: "request-8-different",
+      promptDigest: "prompt-8-different",
+      owner: ownerB
+    }),
+  /slot identity conflict/i,
+  "non-policy provider failures must not permit changing the prompt digest on retry"
+);
 
 reservePaidImageSlot({
   productDir,

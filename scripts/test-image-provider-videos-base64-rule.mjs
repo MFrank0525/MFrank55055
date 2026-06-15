@@ -124,6 +124,8 @@ assert.match(ruleDoc, /ambiguous.*reserved.*优先.*付费安全阻塞/s);
 assert.match(ruleDoc, /failed_after_acceptance.*固定 slot.*允许.*重试/s);
 assert.match(ruleDoc, /没有取得 task ID.*没有供应商响应摘要.*fetch failed.*no-acceptance/s);
 assert.match(ruleDoc, /no-acceptance.*failed_before_acceptance.*重试同一固定 slot/s);
+assert.match(ruleDoc, /failed_after_acceptance.*原提示词.*同一固定 slot/s);
+assert.match(ruleDoc, /不得因为单张 task 策略误杀.*降级整份提示词/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
@@ -258,6 +260,58 @@ assert.deepEqual(summarizeVideosBase64PaidResumePlan(providerFailedProduct.produ
   requestedSlots: [1, 2, 3, 4],
   submitSlots: [3],
   reuseSlots: [1, 2, 4],
+  pollSlots: [],
+  blockedSlots: []
+});
+const partialPolicyFailedProduct = initializePaidImageProductLedger({
+  rootDir: path.join(tmp, "partial-policy-failed-ledger"),
+  batchFingerprint: "batch-partial-policy-failed",
+  recordId: "record-partial-policy-failed",
+  expectedSlotCount: 4,
+  providerIdentity: "provider-a",
+  sourceImageDigest: "source-a"
+});
+for (const slot of [1, 3, 4]) {
+  reservePaidImageSlot({
+    productDir: partialPolicyFailedProduct.productDir,
+    slot,
+    requestDigest: `partial-policy-request-${slot}`,
+    promptDigest: `partial-policy-prompt-${slot}`,
+    owner: { runId: "run-a", taskId: "image-001" }
+  });
+  recordPaidImageSubmitted({
+    productDir: partialPolicyFailedProduct.productDir,
+    slot,
+    providerTaskId: `partial-policy-task-${slot}`
+  });
+  recordPaidImageCompleted({ productDir: partialPolicyFailedProduct.productDir, slot, sourceFile: completedImage });
+}
+reservePaidImageSlot({
+  productDir: partialPolicyFailedProduct.productDir,
+  slot: 2,
+  requestDigest: "partial-policy-request-2",
+  promptDigest: "partial-policy-prompt-2",
+  owner: { runId: "run-a", taskId: "image-001" }
+});
+recordPaidImageSubmitted({
+  productDir: partialPolicyFailedProduct.productDir,
+  slot: 2,
+  providerTaskId: "partial-policy-task-2"
+});
+recordPaidImageFailedAfterAcceptance({
+  productDir: partialPolicyFailedProduct.productDir,
+  slot: 2,
+  reason: 'provider task failed: {"code":"upstream_error","message":"提示词或图片中可能包含违规信息，请修改后重试"}',
+  providerResponse: {
+    id: "partial-policy-task-2",
+    status: "failed",
+    error: { code: "upstream_error", message: "提示词或图片中可能包含违规信息，请修改后重试" }
+  }
+});
+assert.deepEqual(summarizeVideosBase64PaidResumePlan(partialPolicyFailedProduct.productDir, [1, 2, 3, 4]), {
+  requestedSlots: [1, 2, 3, 4],
+  submitSlots: [2],
+  reuseSlots: [1, 3, 4],
   pollSlots: [],
   blockedSlots: []
 });

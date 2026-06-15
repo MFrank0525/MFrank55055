@@ -2019,6 +2019,43 @@ assert.equal(
   false,
   "videos-base64 submitted-task poll timeouts must not consume fast child recovery attempts"
 );
+const videosBase64SingleTaskProviderFailure =
+  'failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 3; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 2; reasons: videos-base64 task task_cCj166vYLmQVsX0MMjLVQ0JHTOTYVyaR failed: {"code":"upstream_error","message":"提示词或图片中可能包含违规信息，请修改后重试"}';
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64SingleTaskProviderFailure,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "videos-base64 single accepted-task provider failures must resume to retry only the failed fixed slot with the original prompt"
+);
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(videosBase64SingleTaskProviderFailure),
+  false,
+  "videos-base64 accepted-task provider failures are fixed-slot retries, not unbounded external-service waits"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(videosBase64SingleTaskProviderFailure),
+  true,
+  "videos-base64 accepted-task provider failures must consume recovery attempts to avoid unlimited paid resubmissions"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64SingleTaskProviderFailure,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12,
+    childMode: "full",
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 3/5: Image 2: videos-base64 task failed"
+  }),
+  true,
+  "full-flow supervisor must self-recover videos-base64 fixed-slot provider failures instead of stopping at 19/20 images"
+);
 const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
 const paidImageSafetyBlockWithHtml =
   "paid submission safety block: paid image ledger has ambiguous=20, reserved=0; original: videos-base64 submit failed with HTTP 502: " +
