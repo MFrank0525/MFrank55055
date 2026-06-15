@@ -155,15 +155,15 @@ assert.doesNotMatch(
   /clickVisibleDropdownOption\(page, brand\)/,
   "SPU query must not use the global dropdown picker for brand selection"
 );
-assert.doesNotMatch(
+assert.match(
   querySource,
-  /brand combobox display did not expose a readable value after typing|brandOptionConfirmed\s*\|\|\s*!brandValueConfirmed/,
-  "SPU query must not continue to query when the platform brand input cannot be confirmed"
+  /const brandSelfCheckOk =[\s\S]{0,220}brandValueConfirmed[\s\S]{0,220}brandOptionConfirmed/,
+  "SPU query must accept the same-brand dropdown option as brand confirmation before filling SPU"
 );
-assert.doesNotMatch(
+assert.match(
   querySource,
-  /if \(!brandValueConfirmed && !brandOptionConfirmed\)|brandSelfCheckOk\s*=\s*[\s\S]{0,160}brandOptionConfirmed/,
-  "SPU query must require readable target-brand input before clicking query; selecting a dropdown option alone is not enough"
+  /if \(!brandValueConfirmed && !brandOptionConfirmed\)/,
+  "SPU query must fail missing brand readback only when the same-brand dropdown option was not confirmed"
 );
 assert.doesNotMatch(
   querySource,

@@ -1885,7 +1885,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       throw error;
     }
     const brandOptionConfirmed = normalizeMatchText(clickedBrandOptionText).includes(normalizedBrand);
-    if (!brandValueConfirmed) {
+    if (!brandValueConfirmed && !brandOptionConfirmed) {
       const error = new Error(
         `Brand input value mismatch after typing. expected=${brand}; actual=<empty>; selectedOption=${clickedBrandOptionText || "<none>"}`
       ) as QueryDiagnosticError;
@@ -1917,7 +1917,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       throw error;
     }
 
-    const brandSelfCheckOk = normalizeMatchText(brandValueConfirmed).includes(normalizedBrand);
+    const brandSelfCheckOk = normalizeMatchText(brandValueConfirmed).includes(normalizedBrand) || brandOptionConfirmed;
     const spuSelfCheckOk = normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu);
     if (!brandSelfCheckOk || !spuSelfCheckOk) {
       const error = new Error(
