@@ -211,9 +211,43 @@ assert.match(
   /readSpecTemplateSelectedValue\(page, keyword\)/,
   "spec template application must read back the selected spec-template control text after choosing"
 );
+assert.match(
+  publishSource,
+  /function resolveSpecTemplateKeyword\(title\?: string\)[\s\S]*SPEC_TEMPLATE_KEYWORD_JIUGUANG[\s\S]*SPEC_TEMPLATE_KEYWORD_DEFAULT/,
+  "spec template target keyword must keep the current title rule: 久光小泽 titles use 久光小泽, all others use 买二送一"
+);
+assert.match(
+  publishSource,
+  /async function chooseSpecTemplateKeywordFromDropdown/,
+  "spec template selection must use a dedicated goods-spec template dropdown path"
+);
+assert.match(
+  publishSource,
+  /async function findSpecTemplateSearchInputIndex[\s\S]*商品规格[\s\S]*规格模板/,
+  "spec template input discovery must be scoped to the 商品规格/规格模板 structure"
+);
+assert.match(
+  publishSource,
+  /async function clickVisibleSpecTemplateDropdownOption[\s\S]*role='option'[\s\S]*dropdown[\s\S]*menu[\s\S]*item/,
+  "spec template option clicking must target dropdown/menu options instead of arbitrary page text"
+);
+assert.match(
+  publishSource,
+  /chooseSpecTemplateKeywordFromDropdown\([\s\S]*readSpecTemplateSelectedValue\(page, keyword\)/,
+  "spec template selection must verify the selected template with the dedicated readback after clicking"
+);
 const applySpecTemplateSource = publishSource.slice(
   publishSource.indexOf("async function applySpecTemplateWithVerificationOnPage"),
   publishSource.indexOf("async function readSpecModuleErrorOnPage")
+);
+const chooseSpecTemplateSource = publishSource.slice(
+  publishSource.indexOf("async function chooseDynamicSpecTemplateOnPage"),
+  publishSource.indexOf("async function isManualSpecTemplateEntryModeVisible")
+);
+assert.doesNotMatch(
+  chooseSpecTemplateSource,
+  /getByText|chooseKeywordFromSearchDropdown/,
+  "spec template selection must not fall back to global text search or the generic dropdown helper"
 );
 assert.doesNotMatch(
   applySpecTemplateSource,

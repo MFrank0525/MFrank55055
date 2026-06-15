@@ -3514,6 +3514,160 @@ async function chooseKeywordFromSearchDropdown(page: Page, hints: string[], keyw
   return selectedValue;
 }
 
+async function findSpecTemplateSearchInputIndex(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const visibleItems = Array.from(document.querySelectorAll("body *"))
+      .map((el) => el as HTMLElement)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const text = normalize(el.innerText || el.textContent || "");
+        if (!text || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        return { el, rect, text };
+      })
+      .filter(Boolean) as Array<{ el: HTMLElement; rect: DOMRect; text: string }>;
+
+    const specLabel = visibleItems
+      .filter((item) => item.text === "商品规格")
+      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
+    const templateLabel = visibleItems
+      .filter((item) => item.text.includes("规格模板"))
+      .filter((item) => !specLabel || item.rect.top >= specLabel.rect.top - 20)
+      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
+    if (!specLabel || !templateLabel) {
+      return -1;
+    }
+
+    const inputs = Array.from(document.querySelectorAll("input[type='search']"));
+    const scored = inputs
+      .map((el, index) => {
+        const input = el as HTMLInputElement;
+        const rect = input.getBoundingClientRect();
+        const style = window.getComputedStyle(input);
+        if (
+          rect.width <= 120 ||
+          rect.height <= 0 ||
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          rect.left <= templateLabel.rect.left ||
+          rect.top < templateLabel.rect.top - 60 ||
+          rect.top > templateLabel.rect.bottom + 120
+        ) {
+          return null;
+        }
+        const context = normalize(
+          [
+            input.value || "",
+            input.placeholder || "",
+            input.parentElement?.innerText || "",
+            input.parentElement?.parentElement?.innerText || "",
+            input.closest("div")?.innerText || ""
+          ].join(" ")
+        );
+        const score =
+          (context.includes("规格模板") ? 260 : 0) +
+          (context.includes("商品规格") ? 120 : 0) +
+          (context.includes("买二送一") ? 80 : 0) +
+          (context.includes("久光小泽") ? 80 : 0) -
+          Math.abs(rect.top - templateLabel.rect.top) -
+          (rect.left - templateLabel.rect.left) / 20;
+        return score > 0 ? { index, score } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+
+    return scored[0]?.index ?? -1;
+  });
+}
+
+async function clickVisibleSpecTemplateDropdownOption(page: Page, keyword: string): Promise<string> {
+  const normalizedExpected = normalizeMatchText(keyword);
+  const option = await page.evaluate((target) => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const normalizeMatch = (value: string): string => value.replace(/\s+/g, "").trim().toLowerCase();
+    const candidates = Array.from(
+      document.querySelectorAll(
+        "[role='option'], [class*='dropdown'], [class*='Dropdown'], [class*='menu'], [class*='Menu'], [class*='item'], [class*='Item']"
+      )
+    )
+      .map((el) => {
+        const node = el as HTMLElement;
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const text = normalize(node.innerText || node.textContent || "");
+        const normalizedText = normalizeMatch(text);
+        if (
+          !text ||
+          !normalizedText.includes(target) ||
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          rect.width > window.innerWidth * 0.8 ||
+          rect.height > 120 ||
+          style.display === "none" ||
+          style.visibility === "hidden"
+        ) {
+          return null;
+        }
+        const marker = [String(node.className || ""), node.getAttribute("role") || "", node.tagName].join(" ").toLowerCase();
+        if (!/option|dropdown|menu|item/.test(marker)) {
+          return null;
+        }
+        const score =
+          (node.getAttribute("role") === "option" ? 300 : 0) +
+          (marker.includes("option") ? 180 : 0) +
+          (marker.includes("item") ? 120 : 0) +
+          (marker.includes("menu") ? 80 : 0) +
+          (marker.includes("dropdown") ? 80 : 0) +
+          (normalizedText === target ? 100 : 0) -
+          text.length / 4;
+        return {
+          text,
+          score,
+          x: rect.x + rect.width / 2,
+          y: rect.y + rect.height / 2
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+    return candidates[0] || null;
+  }, normalizedExpected);
+
+  if (!option) {
+    return "";
+  }
+  await dispatchDomClickAtPoint(page, option);
+  return option.text || "";
+}
+
+async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
+  await dismissTransientOverlays(page);
+  const inputIndex = await findSpecTemplateSearchInputIndex(page);
+  if (inputIndex < 0) {
+    throw new Error("Spec template search input was not found in 商品规格/规格模板 section.");
+  }
+
+  const input = page.locator("input[type='search']").nth(inputIndex);
+  await input.click({ timeout: 3000 });
+  await page.waitForTimeout(500);
+  await input.fill(keyword);
+  await page.waitForTimeout(600);
+
+  const clickedText = await clickVisibleSpecTemplateDropdownOption(page, keyword);
+  if (!clickedText.includes(keyword)) {
+    throw new Error(`No visible spec template dropdown option matched keyword: ${keyword}`);
+  }
+  await page.waitForTimeout(800);
+
+  const selectedValue = await readSpecTemplateSelectedValue(page, keyword);
+  if (!selectedValue.includes(keyword)) {
+    throw new Error(`Spec template readback did not match keyword after selection: keyword=${keyword}; selected=${selectedValue || "<empty>"}`);
+  }
+  return selectedValue;
+}
+
 async function scrollMainFormContainerToBottom(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const scroller = document.querySelector(".style_form__oPtxc.overflow-scoll_overflowScroll__qD5wq") as HTMLElement | null;
@@ -4358,11 +4512,7 @@ async function chooseDynamicSpecTemplateOnPage(page: Page, title?: string): Prom
   if (selectedValue.includes(keyword)) {
     return selectedValue;
   }
-  selectedValue = await chooseKeywordFromSearchDropdown(
-    page,
-    ["\u4e00\u952e\u590d\u7528\u89c4\u683c\u4fe1\u606f", "\u89c4\u683c\u6a21\u677f"],
-    keyword
-  );
+  selectedValue = await chooseSpecTemplateKeywordFromDropdown(page, keyword);
   const readbackValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
   if (readbackValue.includes(keyword)) {
     return readbackValue;
