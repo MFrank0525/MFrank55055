@@ -801,12 +801,12 @@ const finalSubmitAcceptedDecision = evaluatePublishResult({
 assert.deepEqual(
   finalSubmitAcceptedDecision,
   {
-    safelyPublished: true,
+    safelyPublished: false,
     finalVerifyStatus: "submit_accepted_unconfirmed",
     errorClass: "final_publish_state_uncertain",
     issue: "Publish product button was clicked, but no submission success signal was detected."
   },
-  "after the non-idempotent final publish click is issued, the system must continue without re-submitting the same product"
+  "after the final publish click is issued without a platform success signal, the next resume must publish the product again instead of skipping it"
 );
 assert.deepEqual(
   evaluatePublishResult({
@@ -817,12 +817,12 @@ assert.deepEqual(
     message: "Publish button click was issued; platform success signal was not observed."
   }),
   {
-    safelyPublished: true,
+    safelyPublished: false,
     finalVerifyStatus: "submit_accepted_unconfirmed",
     errorClass: "final_publish_state_uncertain",
     issue: "Publish button click was issued; platform success signal was not observed."
   },
-  "a persisted published result with a final submit attempt must be terminal even when its summary message is generic"
+  "a persisted published result without a platform success signal must remain non-terminal for resume planning"
 );
 
 const navigationContextLostClass = classifyPublishFailure(
@@ -859,8 +859,8 @@ const uncertainPublishResult = await publishDistributedProducts({
 });
 assert.equal(
   uncertainPublishResult.results[0].status,
-  "needs_manual_publish_confirmation",
-  "existing uncertain final-submit results must not be auto-submitted again because the first submit may have succeeded"
+  "simulated_with_preflight_warnings",
+  "existing uncertain final-submit results must be scheduled for publish again instead of being treated as a safe checkpoint"
 );
 
 assert.deepEqual(

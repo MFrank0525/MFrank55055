@@ -77,8 +77,8 @@ assert.equal(
 
 assert.equal(
   isManifestEntrySafelyPublishedForIdentity(acceptedUnconfirmedEntry, rowFiveIdentity),
-  true,
-  "A final submit click accepted by the browser must be treated as a non-duplicate terminal publish signal for resume."
+  false,
+  "A final submit click without a platform success signal must not be reused as a safe publish checkpoint for resume."
 );
 
 const manifestRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "publish-manifest-"));

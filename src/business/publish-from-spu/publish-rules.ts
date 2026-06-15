@@ -512,7 +512,7 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
   }
   if (input.status === "published" && input.publishClickAttempted === true) {
     return {
-      safelyPublished: true,
+      safelyPublished: false,
       finalVerifyStatus: "submit_accepted_unconfirmed",
       errorClass: "final_publish_state_uncertain",
       issue: input.publishIssue || message || "Publish button click was accepted, but no submission success signal was observed."
@@ -521,7 +521,7 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
   const errorClass = classifyPublishFailure(message);
   if (input.publishClickAttempted === true && errorClass === "final_publish_state_uncertain") {
     return {
-      safelyPublished: true,
+      safelyPublished: false,
       finalVerifyStatus: "submit_accepted_unconfirmed",
       errorClass,
       issue: message || "Publish button click was accepted, but no submission success signal was observed."

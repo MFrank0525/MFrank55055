@@ -11,8 +11,7 @@ export type PublishFinalVerifyStatus =
 
 export const SAFE_PUBLISH_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
   "publish_signal_confirmed",
-  "list_verified",
-  "submit_accepted_unconfirmed"
+  "list_verified"
 ];
 
 export interface PublishManifestEntry {

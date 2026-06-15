@@ -272,16 +272,6 @@ export async function publishDistributedProducts(options: {
           finalVerifyStatus: decision.finalVerifyStatus
         };
       }
-      if (decision.errorClass === "final_publish_state_uncertain") {
-        return {
-          productFolder,
-          runtimeKey,
-          action: "review" as const,
-          reason: `result:${decision.errorClass}:${decision.issue}`,
-          manifestStatus: "failed",
-          finalVerifyStatus: decision.finalVerifyStatus
-        };
-      }
     }
     return {
       productFolder,
@@ -308,31 +298,6 @@ export async function publishDistributedProducts(options: {
         message: `Skipped because publish plan marked it completed: ${planItem.reason}`,
         resultFile: path.join(publishRuntimeDir, "result.json"),
         finalVerifyStatus: planItem.finalVerifyStatus
-      });
-      return false;
-    }
-    if (planItem?.action === "review") {
-      const resultFile = path.join(publishRuntimeDir, "result.json");
-      upsertPublishManifestEntry(options.runtimeDir, {
-        productFolder,
-        runtimeKey,
-        shopFolder: path.dirname(productFolder),
-        watermarkNo: extractWatermarkNo(productFolder),
-        status: "failed",
-        finalVerifyStatus: "needs_manual_review",
-        resultFile,
-        message: "Final publish state is uncertain; manual confirmation is required before retrying to avoid duplicate listing.",
-        errorClass: "final_publish_state_uncertain",
-        ...productIdentityFields
-      });
-      alreadyPublishedResults.push({
-        productFolder,
-        ok: false,
-        status: "needs_manual_publish_confirmation",
-        message: `Skipped automatic retry because final publish state is uncertain: ${planItem.reason}`,
-        resultFile,
-        finalVerifyStatus: "needs_manual_review",
-        errorClass: "final_publish_state_uncertain"
       });
       return false;
     }
