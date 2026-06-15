@@ -1544,6 +1544,31 @@ async function waitForPlatformSpuQueryPageReady(page: Page, timeoutMs = 45000): 
   return { ready: false, issue: lastIssue || "Platform SPU query page did not become ready before timeout." };
 }
 
+async function clickNextPlatformSpuResultPageByDom(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const next = Array.from(document.querySelectorAll("li, button, a, [role='button']"))
+      .map((el) => el as HTMLElement)
+      .find((el) => {
+        const marker = normalize([el.textContent || "", el.getAttribute("title") || "", el.getAttribute("aria-label") || ""].join(" "));
+        const className = String(el.className || "");
+        const disabled =
+          el.getAttribute("aria-disabled") === "true" ||
+          el.getAttribute("disabled") === "true" ||
+          el.hasAttribute("disabled") ||
+          /disabled/i.test(className);
+        return !disabled && (marker === "\u4e0b\u4e00\u9875" || marker.includes("\u4e0b\u4e00\u9875"));
+      });
+    const clickable = (next?.closest("li, button, a, [role='button']") as HTMLElement | null) || next;
+    if (!clickable) {
+      return false;
+    }
+    clickable.scrollIntoView({ block: "center", inline: "nearest" });
+    clickable.click();
+    return true;
+  });
+}
+
 async function ensurePlatformSpuQueryPageActive(
   page: Page,
   runtimeDir: string,
@@ -1682,7 +1707,11 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
     }
     const brandOptionConfirmed = normalizeMatchText(clickedBrandOptionText).includes(normalizedBrand);
     if (!brandValueConfirmed && !brandOptionConfirmed) {
-      logWarn(`brand combobox display did not expose a readable value after typing; continue with exact row match only. brand=${brand}`);
+      const error = new Error(
+        `Brand input value mismatch after typing. expected=${brand}; actual=<empty>; selectedOption=${clickedBrandOptionText || "<none>"}`
+      ) as QueryDiagnosticError;
+      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-value-missing.png");
+      throw error;
     }
 
     await setPlatformQueryInputValue(page, "spu", spu);
@@ -1711,8 +1740,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
 
     const brandSelfCheckOk =
       normalizeMatchText(brandValueConfirmed).includes(normalizedBrand) ||
-      brandOptionConfirmed ||
-      !brandValueConfirmed;
+      brandOptionConfirmed;
     const spuSelfCheckOk = normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu);
     if (!brandSelfCheckOk || !spuSelfCheckOk) {
       const error = new Error(
@@ -1737,22 +1765,20 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
     }
     await page.waitForTimeout(2500);
 
-    const candidates = await page.evaluate(({ targetBrand, targetSpu }: { targetBrand: string; targetSpu: string }) => {
+    const readCandidates = () => page.evaluate(({ targetBrand, targetSpu }: { targetBrand: string; targetSpu: string }) => {
       const rows = Array.from(document.querySelectorAll("tr"));
       return rows
-        .map((row, rowIndex) => {
+        .map((row) => {
           const rowEl = row as HTMLElement;
-          const publishButtons = Array.from(row.querySelectorAll("button, a, [role='button'], span, div"));
-          const publishButtonIndex = publishButtons.findIndex((el) => ((el.textContent || "").trim() === "\u53D1\u5E03\u5546\u54C1"));
-          const publishButton = publishButtonIndex >= 0 ? publishButtons[publishButtonIndex] as HTMLElement : undefined;
+          const cells = Array.from(row.querySelectorAll("td"));
+          const operationCell = cells[cells.length - 1] || row;
+          const publishButton = Array.from(operationCell.querySelectorAll("button, a, [role='button']"))
+            .find((el) => ((el.textContent || "").replace(/\s+/g, "").trim() === "\u53D1\u5E03\u5546\u54C1")) as HTMLElement | undefined;
           if (!publishButton) {
             return null;
           }
           const rowRect = rowEl.getBoundingClientRect();
           if (rowRect.width <= 0 || rowRect.height <= 0 || publishButton.getBoundingClientRect().width <= 0 || publishButton.getBoundingClientRect().height <= 0) {
-            return null;
-          }
-          if (rowRect.y < 250) {
             return null;
           }
           const cellTexts = Array.from(row.querySelectorAll("td"))
@@ -1765,40 +1791,61 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
           const exactBrandCell = cellTexts.some((cell) => cell.replace(/\s+/g, "").toLowerCase() === targetBrand);
           const rowHasSpu = normalizedRowText.includes(targetSpu);
           const rowHasBrand = normalizedRowText.includes(targetBrand);
-          const score =
-            (exactSpuCell ? 300 : 0) +
-            (rowHasSpu ? 150 : 0) +
-            (exactBrandCell ? 80 : 0) +
-            (rowHasBrand ? 40 : 0);
+          const rowId = rowEl.innerText.match(/ID[:：]\s*(\d+)/)?.[1] || "";
           return {
             rowText: (rowEl.innerText || "").slice(0, 800),
             normalizedText: normalizedRowText,
-            score,
-            rowIndex,
-            publishButtonIndex
+            rowId,
+            exactSpuCell,
+            exactBrandCell,
+            rowHasSpu,
+            rowHasBrand
           };
         })
         .filter(Boolean);
-    }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu }) as Array<QueryMatchCandidate & { score: number }>;
+    }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu }) as Promise<QueryMatchCandidate[]>;
 
-    if (!candidates.length) {
+    const pickMatchedCandidate = (items: QueryMatchCandidate[]): QueryMatchCandidate | null => {
+      const exactMatches = items.filter((item) => item.rowHasSpu && item.rowHasBrand);
+      return (
+        exactMatches.find((item) => item.exactSpuCell && item.exactBrandCell) ||
+        exactMatches.find((item) => item.exactSpuCell) ||
+        exactMatches[0] ||
+        null
+      );
+    };
+
+    let candidates = await readCandidates();
+    const allCandidates: QueryMatchCandidate[] = [...candidates];
+    let matched = pickMatchedCandidate(candidates);
+    for (let resultPageNo = 1; !matched && resultPageNo < 8; resultPageNo += 1) {
+      const hasSpuRows = candidates.some((item) => item.rowHasSpu);
+      if (!hasSpuRows) {
+        break;
+      }
+      const moved = await clickNextPlatformSpuResultPageByDom(page).catch(() => false);
+      if (!moved) {
+        break;
+      }
+      await page.waitForTimeout(2200);
+      candidates = await readCandidates();
+      allCandidates.push(...candidates);
+      matched = pickMatchedCandidate(candidates);
+    }
+
+    if (!allCandidates.length) {
       const error = new Error("No visible publish rows found in result table.") as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-no-rows.png");
       throw error;
     }
 
-    const matched =
-      candidates
-        .filter((item) => item.score >= 190)
-        .sort((a, b) => b.score - a.score || a.rowText.length - b.rowText.length)[0] || null;
-
     if (!matched) {
-      const firstRowText = candidates[0]?.rowText || "";
-      const candidateIds = candidates
+      const firstRowText = allCandidates[0]?.rowText || "";
+      const candidateIds = allCandidates
         .map((item) => item.rowText.match(/ID:(\d+)/)?.[1] || "")
         .filter(Boolean)
         .slice(0, 5);
-      const queryLooksUnfiltered = !candidates.some((item) => item.normalizedText.includes(normalizedSpu));
+      const queryLooksUnfiltered = !allCandidates.some((item) => item.normalizedText.includes(normalizedSpu));
       if (queryLooksUnfiltered && retryNo < 2) {
         logWarn(
           `platform spu query returned rows unrelated to requested spu; retrying query ${retryNo + 1}/2. brand=${brand}; spu=${spu}`
@@ -1812,7 +1859,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
         `No queried result row matched brand/spu exactly. brand=${brand}; spu=${spu}; firstRow=${firstRowText.slice(0, 200)}; use input.publishPageUrl to bypass query when you already have a known create page URL.`
       ) as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-mismatch.png");
-      error.candidateRows = candidates.slice(0, 5).map((item) => item.rowText.slice(0, 300));
+      error.candidateRows = allCandidates.slice(0, 20).map((item) => item.rowText.slice(0, 300));
       error.candidateIds = candidateIds;
       throw error;
     }
@@ -1820,16 +1867,33 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
     const existingCreatePages = new Set(context.pages().filter((item) => item.url().includes("/ffa/g/create")));
     const popupPromise = context.waitForEvent("page", { timeout: 5000 }).catch(() => null);
     await page.evaluate((target) => {
-      const row = Array.from(document.querySelectorAll("tr"))[target.rowIndex];
-      const button = row
-        ? Array.from(row.querySelectorAll("button, a, [role='button'], span, div"))[target.publishButtonIndex] as HTMLElement | undefined
-        : undefined;
-      const clickable = (button?.closest("button, a, [role='button']") as HTMLElement | null) || button;
-      clickable?.click();
-    }, { rowIndex: matched.rowIndex, publishButtonIndex: matched.publishButtonIndex });
+      const normalizeSpu = (value: string): string =>
+        value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
+      const rows = Array.from(document.querySelectorAll("tr"));
+      const row = rows.find((item) => {
+        const rowText = normalizeSpu((item as HTMLElement).innerText || "");
+        if (!rowText.includes(target.targetBrand) || !rowText.includes(target.targetSpu)) {
+          return false;
+        }
+        if (target.rowId && !rowText.includes(target.rowId)) {
+          return false;
+        }
+        const cells = Array.from(item.querySelectorAll("td")).map((cell) => (cell.textContent || "").replace(/\s+/g, " ").trim());
+        return cells.some((cell) => normalizeSpu(cell).includes(target.targetSpu));
+      }) as HTMLElement | undefined;
+      if (!row) {
+        return;
+      }
+      row.scrollIntoView({ block: "center", inline: "nearest" });
+      const cells = Array.from(row.querySelectorAll("td"));
+      const operationCell = (cells[cells.length - 1] as HTMLElement | undefined) || row;
+      const button = Array.from(operationCell.querySelectorAll("button, a, [role='button']"))
+        .find((el) => ((el.textContent || "").replace(/\s+/g, "").trim() === "\u53D1\u5E03\u5546\u54C1")) as HTMLElement | undefined;
+      button?.click();
+    }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu, rowId: matched.rowId });
 
     const popup = await popupPromise;
-    await page.waitForTimeout(2000).catch(() => {});
+    await page.waitForTimeout(6000).catch(() => {});
     let activeQueryPage = page;
     if (activeQueryPage.isClosed()) {
       activeQueryPage = await recoverUsablePageFromContext(context, "/ffa/g/spu-record").catch(() => page);
@@ -6024,10 +6088,115 @@ async function clearWhiteBackgroundPreviewsStrict(page: Page, maxAttempts = 10):
   return removedCount;
 }
 
+async function countDeletableGraphicSectionPreviewsStrict(page: Page, sectionName: string): Promise<number> {
+  return page.evaluate(
+    ({ targetSection, sectionLabels, uploadPlaceholderPattern }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const normalizeLabel = (value: string): string => normalize(value).replace(/^\*/, "").trim();
+      const labels = Array.from(document.querySelectorAll("body *"))
+        .map((el) => {
+          const node = el as HTMLElement;
+          const rect = node.getBoundingClientRect();
+          const text = normalizeLabel(node.textContent || "");
+          if (!text || rect.width <= 0 || rect.height <= 0 || rect.left <= 250) {
+            return null;
+          }
+          return { text, top: rect.top, bottom: rect.bottom, left: rect.left };
+        })
+        .filter(Boolean) as Array<{ text: string; top: number; bottom: number; left: number }>;
+      const current = labels
+        .filter((item) => item.text === targetSection)
+        .sort((a, b) => a.top - b.top || a.left - b.left)[0];
+      if (!current) {
+        return 0;
+      }
+      const nextTop =
+        labels
+          .filter((item) => sectionLabels.includes(item.text) && item.top > current.top)
+          .sort((a, b) => a.top - b.top || a.left - b.left)[0]?.top || current.bottom + 500;
+
+      const isUploadPlaceholderContext = (el: HTMLElement): boolean => {
+        const context = [el.textContent || "", el.parentElement?.textContent || "", el.closest("div")?.textContent || ""]
+          .join(" ")
+          .replace(/\s+/g, "");
+        return !context.includes("\u5220\u9664") && new RegExp(uploadPlaceholderPattern).test(context);
+      };
+      const markerText = (el: HTMLElement): string =>
+        [
+          el.textContent || "",
+          el.getAttribute("aria-label") || "",
+          el.getAttribute("title") || "",
+          el.getAttribute("href") || "",
+          el.getAttribute("xlink:href") || "",
+          String(el.className || "")
+        ]
+          .join(" ")
+          .replace(/\s+/g, "")
+          .toLowerCase();
+      const isDeleteControl = (el: HTMLElement): boolean => {
+        const marker = markerText(el);
+        return marker.includes("\u5220\u9664") || /(delete|remove|trash|shanchu|icon-delete|icon-trash|semi-icon-close|close)/.test(marker);
+      };
+      const visibleDeleteControls = Array.from(document.querySelectorAll("button, [role='button'], a, div, span, i, svg, use, path"))
+        .map((el) => el as HTMLElement)
+        .filter((el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && isDeleteControl(el);
+        })
+        .map((el) => ({ el, rect: el.getBoundingClientRect() }));
+
+      const previews = Array.from(document.querySelectorAll("img, [style*='background-image']"))
+        .map((el) => {
+          const node = el as HTMLElement;
+          const rect = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          if (
+            rect.width < 40 ||
+            rect.height < 40 ||
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.position === "fixed" ||
+            style.position === "sticky" ||
+            rect.top < current.top - 20 ||
+            rect.top > nextTop - 10 ||
+            rect.left <= current.left ||
+            isUploadPlaceholderContext(node)
+          ) {
+            return null;
+          }
+          let previewRoot: HTMLElement = node;
+          for (let depth = 0; previewRoot.parentElement && depth < 5; depth += 1) {
+            const parent = previewRoot.parentElement as HTMLElement;
+            const parentRect = parent.getBoundingClientRect();
+            if (parentRect.width >= rect.width && parentRect.height >= rect.height) {
+              previewRoot = parent;
+            }
+          }
+          const hasDeleteControl = visibleDeleteControls.some((control) => {
+            if (previewRoot.contains(control.el)) {
+              return true;
+            }
+            return (
+              control.rect.left >= rect.left - 50 &&
+              control.rect.left <= rect.right + 180 &&
+              control.rect.top >= rect.top - 180 &&
+              control.rect.top <= rect.bottom + 150
+            );
+          });
+          return hasDeleteControl ? `${Math.round(rect.left)}-${Math.round(rect.top)}-${Math.round(rect.width)}-${Math.round(rect.height)}` : null;
+        })
+        .filter(Boolean) as string[];
+      return Array.from(new Set(previews)).length;
+    },
+    { targetSection: sectionName, sectionLabels: GRAPHIC_SECTION_LABELS, uploadPlaceholderPattern: "\u4e0a\u4f20(?:\u767d\u5e95\u56fe|\u4e3b\u56fe|\u8f85\u52a9\u56fe)" }
+  );
+}
+
 async function listRemainingForbiddenGraphicSections(page: Page): Promise<string[]> {
   const remaining: string[] = [];
   for (const sectionName of FORBIDDEN_GRAPHIC_SECTION_LABELS) {
-    const count = await countGraphicSectionPreviewsStrict(page, sectionName);
+    const count = await countDeletableGraphicSectionPreviewsStrict(page, sectionName);
     if (count > 0) {
       remaining.push(sectionName);
     }

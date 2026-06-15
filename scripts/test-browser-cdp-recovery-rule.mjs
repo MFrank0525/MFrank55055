@@ -37,8 +37,18 @@ assert.match(
 );
 assert.match(
   recoverySource,
+  /for \(const port of REMOTE_DEBUGGING_PORTS\)[\s\S]*activeRemoteDebuggingPort = port[\s\S]*return await connectBrowser\(\)/,
+  "CDP recovery must first try to reuse an already-listening browser through the real Playwright connection before launching a new Chrome"
+);
+assert.match(
+  recoverySource,
   /killRemoteDebuggingBrowserProcesses\(userDataDir, activeRemoteDebuggingPort\)/,
   "CDP connect recovery must terminate the stale browser for the profile and port before retrying"
+);
+assert.doesNotMatch(
+  recoverySource,
+  /if \(await isDebugEndpointReady\(port\)\)[\s\S]{0,400}killRemoteDebuggingBrowserProcesses\(userDataDir, port\)/,
+  "CDP connect recovery must not depend on shallow /json/version readiness before killing stale profile browsers"
 );
 assert.match(
   recoverySource,
@@ -49,6 +59,12 @@ assert.match(
   recoverySource,
   /return connectBrowser\(\)/,
   "CDP connect recovery must retry the real Playwright connection after relaunch"
+);
+
+assert.match(
+  launchSource,
+  /const stale = killRemoteDebuggingBrowserProcesses\(userDataDir, port\)[\s\S]*cleared stale remote debugging browser process\(es\) before launch on port/,
+  "Reusable browser launch must clear stale same-profile browser processes before starting a new remote-debugging Chrome"
 );
 
 assert.match(

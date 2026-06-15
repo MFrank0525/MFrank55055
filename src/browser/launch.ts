@@ -189,6 +189,11 @@ async function ensureRemoteBrowser(userDataDir: string, excludedPorts = new Set<
       logWarn(`remote debugging port ${port} is already occupied by an incompatible browser; skipping launch on this port`);
       continue;
     }
+    const stale = killRemoteDebuggingBrowserProcesses(userDataDir, port);
+    if (stale.length) {
+      logWarn(`cleared stale remote debugging browser process(es) before launch on port ${port}: ${stale.join(", ")}`);
+      await waitForDebugEndpointClosed(port);
+    }
     logInfo(`starting reusable browser: ${executable}`);
     const child = spawn(
       executable,
@@ -238,6 +243,20 @@ async function connectBrowser(): Promise<Browser> {
 }
 
 async function connectBrowserWithRecovery(userDataDir: string): Promise<Browser> {
+  for (const port of REMOTE_DEBUGGING_PORTS) {
+    activeRemoteDebuggingPort = port;
+    try {
+      return await connectBrowser();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logWarn(`remote debugging browser on port ${port} failed real Playwright connection: ${message}`);
+      const killed = killRemoteDebuggingBrowserProcesses(userDataDir, port);
+      if (killed.length) {
+        logWarn(`terminated stale remote debugging browser process(es) on port ${port}: ${killed.join(", ")}`);
+        await waitForDebugEndpointClosed(port);
+      }
+    }
+  }
   await ensureRemoteBrowser(userDataDir);
   try {
     return await connectBrowser();

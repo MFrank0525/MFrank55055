@@ -74,8 +74,11 @@ export interface ImageDimensions {
 export interface QueryMatchCandidate {
   rowText: string;
   normalizedText: string;
-  rowIndex: number;
-  publishButtonIndex: number;
+  rowId: string;
+  exactSpuCell: boolean;
+  exactBrandCell: boolean;
+  rowHasSpu: boolean;
+  rowHasBrand: boolean;
 }
 
 export interface QueryDiagnosticError extends Error {

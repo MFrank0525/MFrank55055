@@ -199,6 +199,16 @@ assert.match(
   /previewRoot\.contains\(node\)[\s\S]*nearPreview/,
   "thumbnail delete controls must be selected from the preview DOM/container range instead of viewport coordinates"
 );
+assert.match(
+  publishSource,
+  /async function countDeletableGraphicSectionPreviewsStrict[\s\S]*aria-label[\s\S]*xlink:href[\s\S]*shanchu/,
+  "forbidden graphic verification must distinguish deletable user previews from platform-locked auto-generated white-background images"
+);
+assert.match(
+  publishSource,
+  /async function listRemainingForbiddenGraphicSections[\s\S]*countDeletableGraphicSectionPreviewsStrict/,
+  "forbidden graphic final blocking must only report sections that still have deletable previews"
+);
 
 const afterMedicalStart = publishSource.indexOf('stages.push({ step: "apply_medical_device_certificate", status: "completed" });');
 const publishClickStart = publishSource.indexOf("const publishResult = await clickPublishProductOnPage", afterMedicalStart);

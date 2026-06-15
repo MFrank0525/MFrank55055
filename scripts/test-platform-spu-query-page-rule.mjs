@@ -90,5 +90,40 @@ assert.match(
   /const maxPlatformSpuQueryRetries = 4[\s\S]*context\.newPage\(\)/,
   "SPU query page recovery must open a fresh platform page after repeated incomplete-control states"
 );
+assert.match(
+  publishSource,
+  /row\.scrollIntoView\(\{ block: "center", inline: "nearest" \}\)[\s\S]*operationCell\.querySelectorAll\("button, a, \[role='button'\]"\)/,
+  "SPU query publish action must scroll the matched table row into view and click the operation-column button by DOM structure"
+);
+assert.match(
+  publishSource,
+  /async function clickNextPlatformSpuResultPageByDom[\s\S]*getAttribute\("title"\)[\s\S]*clickable\.click\(\)/,
+  "SPU query must navigate result pagination by DOM structure when the exact brand is not on the current page"
+);
+
+const queryStart = publishSource.indexOf("async function queryPlatformSpu");
+assert.notEqual(queryStart, -1, "queryPlatformSpu function must exist");
+const queryEnd = publishSource.indexOf("\nasync function", queryStart + 1);
+const querySource = publishSource.slice(queryStart, queryEnd === -1 ? publishSource.length : queryEnd);
+assert.match(
+  querySource,
+  /for \(let resultPageNo = 1; !matched && resultPageNo < 8; resultPageNo \+= 1\)[\s\S]*clickNextPlatformSpuResultPageByDom\(page\)/,
+  "SPU query must keep scanning paginated results before declaring brand/spu mismatch"
+);
+assert.match(
+  querySource,
+  /setPlatformQueryInputValue\(page, "brand", brand\)[\s\S]*readPlatformQueryInputValue\(page, "brand"\)[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)[\s\S]*Platform query self-check failed before clicking query[\s\S]*queryButton\.click/,
+  "SPU query must fill and verify Feishu brand before filling SPU and clicking query"
+);
+assert.doesNotMatch(
+  querySource,
+  /brand combobox display did not expose a readable value after typing|brandOptionConfirmed\s*\|\|\s*!brandValueConfirmed/,
+  "SPU query must not continue to query when the platform brand input cannot be confirmed"
+);
+assert.doesNotMatch(
+  querySource,
+  /score|publishButtonIndex|Array\.from\(document\.querySelectorAll\("tr"\)\)\[target\.rowIndex\]/,
+  "SPU query row selection must not use scoring or reused row/button indexes"
+);
 
 console.log("platform spu query page rule passed");
