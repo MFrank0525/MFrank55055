@@ -262,6 +262,19 @@ assert.match(
   /chooseSpecTemplateKeywordFromDropdown\([\s\S]*readSpecTemplateSelectedValue\(page, keyword\)/,
   "spec template selection must verify the selected template with the dedicated readback after clicking"
 );
+assert.match(
+  publishSource,
+  /async function clickSwitchManualSpecEntryMode[\s\S]*智能填写助手[\s\S]*切换手动填写[\s\S]*点击 或 拖动 文件到虚线框内上传[\s\S]*querySelectorAll\("button, \[role='button'\], a, body \*"\)/,
+  "switching out of Doudian smart-fill mode must target the smart-fill DOM structure, not a generic global text click"
+);
+assert.doesNotMatch(
+  publishSource.slice(
+    publishSource.indexOf("async function clickSwitchManualSpecEntryMode"),
+    publishSource.indexOf("async function ensureManualSpecTemplateEntryModeOnPage")
+  ),
+  /getByText/,
+  "manual-mode switching must not prefer Playwright global text lookup over the current smart-fill DOM structure"
+);
 const applySpecTemplateSource = publishSource.slice(
   publishSource.indexOf("async function applySpecTemplateWithVerificationOnPage"),
   publishSource.indexOf("async function readSpecModuleErrorOnPage")
@@ -321,6 +334,16 @@ assert.match(
   publishSource,
   /async function ensurePriceInventorySectionReady[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*countVisiblePriceInventoryRows\(page\)/,
   "price/inventory entry must switch out of Doudian smart-fill upload mode before looking for price/stock rows"
+);
+assert.match(
+  publishSource,
+  /async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*countVisiblePriceInventoryRows\(page\)/,
+  "after selecting the spec template, the action must immediately switch smart-fill to manual mode and wait for price/inventory rows"
+);
+assert.match(
+  applySpecTemplateSource,
+  /initialRule\.passed[\s\S]*ensureManualPriceInventoryRowsAfterSpecTemplateOnPage\(page\)[\s\S]*return \{/,
+  "spec template application must not report success until manual price/inventory rows are visible after template selection"
 );
 assert.doesNotMatch(
   publishSource,

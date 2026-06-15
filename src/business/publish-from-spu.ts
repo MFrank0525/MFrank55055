@@ -4391,31 +4391,37 @@ async function isSpecTemplateEntryControlVisible(page: Page): Promise<boolean> {
 }
 
 async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {
-  const clickedByText = await page
-    .getByText("切换手动填写", { exact: false })
-    .first()
-    .click({ timeout: 2500 })
-    .then(() => true)
-    .catch(() => false);
-  if (clickedByText) {
-    return true;
-  }
-
   return page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const target = Array.from(document.querySelectorAll("button, [role='button'], a, body *"))
+    const visible = (el: HTMLElement): boolean => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+    };
+    const moduleRoot = Array.from(document.querySelectorAll("body *"))
       .map((el) => el as HTMLElement)
       .filter((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
+        if (!visible(el)) {
+          return false;
+        }
         const text = normalize(el.innerText || el.textContent || "");
         return (
+          text.includes("智能填写助手") &&
           text.includes("切换手动填写") &&
-          rect.width > 0 &&
-          rect.height > 0 &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
+          text.includes("点击 或 拖动 文件到虚线框内上传")
         );
+      })
+      .sort((a, b) => {
+        const aRect = a.getBoundingClientRect();
+        const bRect = b.getBoundingClientRect();
+        return aRect.width * aRect.height - bRect.width * bRect.height;
+      })[0];
+    const searchRoot = moduleRoot || document.body;
+    const target = Array.from(searchRoot.querySelectorAll("button, [role='button'], a, body *"))
+      .map((el) => el as HTMLElement)
+      .filter((el) => {
+        const text = normalize(el.innerText || el.textContent || "");
+        return text.includes("切换手动填写") && visible(el);
       })
       .sort((a, b) => {
         const aRect = a.getBoundingClientRect();
@@ -4463,6 +4469,31 @@ async function waitForSpecTemplateReadback(page: Page): Promise<void> {
     }
     await page.waitForTimeout(700);
   }
+}
+
+async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await dismissTransientOverlays(page).catch(() => {});
+    await scrollLabelIntoView(page, "商品规格").catch(() => false);
+    await scrollLabelIntoView(page, "规格模板").catch(() => false);
+    await scrollLabelIntoView(page, "价格与库存").catch(() => false);
+    if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
+      await clickSwitchManualSpecEntryMode(page).catch(() => false);
+    }
+    await page.waitForTimeout(700);
+    const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
+    if (visiblePriceRows > 0) {
+      return;
+    }
+    if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
+      await scrollLabelIntoView(page, "价格与库存").catch(() => false);
+      await page.waitForTimeout(500);
+      if ((await countVisiblePriceInventoryRows(page).catch(() => 0)) > 0) {
+        return;
+      }
+    }
+  }
+  throw new Error("Spec template selected but manual price/inventory rows were not visible after switching from smart-fill mode.");
 }
 
 async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {
@@ -4552,6 +4583,7 @@ async function applySpecTemplateWithVerificationOnPage(
 ): Promise<{ selectedTemplate: string; filledValues: string[]; issue: string }> {
   const keyword = resolveSpecTemplateKeyword(title);
   let selectedTemplate = "";
+  let manualRowsIssue = "";
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await ensureManualSpecTemplateEntryModeOnPage(page);
@@ -4579,6 +4611,12 @@ async function applySpecTemplateWithVerificationOnPage(
       blankSpecValueInputs
     });
     if (initialRule.passed) {
+      try {
+        await ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page);
+      } catch (error) {
+        manualRowsIssue = error instanceof Error ? error.message : String(error);
+        continue;
+      }
       return {
         selectedTemplate: selectedTemplate || keyword,
         filledValues,
@@ -4598,10 +4636,22 @@ async function applySpecTemplateWithVerificationOnPage(
     priceRows: finalVisiblePriceRows,
     blankSpecValueInputs: finalBlankSpecValueInputs
   });
+  if (finalRule.passed) {
+    try {
+      await ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page);
+      return {
+        selectedTemplate,
+        filledValues: finalValues,
+        issue: ""
+      };
+    } catch (error) {
+      manualRowsIssue = error instanceof Error ? error.message : String(error);
+    }
+  }
   return {
     selectedTemplate,
     filledValues: finalValues,
-    issue: finalRule.passed ? "" : `${finalRule.issue}; keyword=${keyword}`
+    issue: finalRule.passed ? `${manualRowsIssue}; keyword=${keyword}` : `${finalRule.issue}; keyword=${keyword}`
   };
 }
 

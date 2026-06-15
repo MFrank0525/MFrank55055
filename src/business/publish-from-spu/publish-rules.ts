@@ -392,6 +392,7 @@ export function classifyPublishFailure(message: string): string {
     text.includes("Novisiblespectemplatematchedkeyword") ||
     text.includes("Manualspectemplateentrymodewasnotvisible") ||
     text.includes("Spectemplateentrycontrolwasnotvisible") ||
+    text.includes("Spectemplateselectedbutmanualprice/inventoryrowswerenotvisibleafterswitchingfromsmart-fillmode") ||
     text.includes("Spectemplateleft") && text.includes("blankrequiredspecvalueinput")
   ) {
     return "spec_template_not_ready";
