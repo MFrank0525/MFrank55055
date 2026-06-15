@@ -95,4 +95,16 @@ assert.doesNotMatch(
   "spec template docs must not require spec-value readback when price rows prove the template expanded"
 );
 
+assert.doesNotMatch(
+  publishRulesSource,
+  /blankSpecValueInputs\s*>\s*0[\s\S]{0,240}Spec template left/,
+  "spec template rule code must not contradict the manual by blocking on blank placeholder spec-value inputs"
+);
+
+assert.doesNotMatch(
+  specTestSource,
+  /Spec template left \d+ blank required spec value input\(s\)/,
+  "spec template tests must not preserve obsolete blank-placeholder blocking expectations"
+);
+
 console.log("rule closure audit passed");

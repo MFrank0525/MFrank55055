@@ -640,7 +640,7 @@ export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRule
       }`
     };
   }
-  if (expectedTemplateKeyword && selectedTemplate.includes(expectedTemplateKeyword) && (input.priceRows > 0 || input.filledSpecValues > 0)) {
+  if (expectedTemplateKeyword && selectedTemplate.includes(expectedTemplateKeyword)) {
     return { passed: true, issue: "" };
   }
   if (input.priceRows >= input.expectedSpecValues) {
@@ -648,12 +648,6 @@ export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRule
   }
   if (input.filledSpecValues >= input.expectedSpecValues) {
     return { passed: true, issue: "" };
-  }
-  if (input.blankSpecValueInputs > 0) {
-    return {
-      passed: false,
-      issue: `Spec template left ${input.blankSpecValueInputs} blank required spec value input(s).`
-    };
   }
   return {
     passed: false,

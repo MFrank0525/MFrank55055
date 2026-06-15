@@ -69,13 +69,27 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  evaluateSpecTemplateCompletion({
+    selectedTemplate: "久光小泽",
+    expectedTemplateKeyword: "久光小泽",
+    filledSpecValues: 0,
+    expectedSpecValues: 4,
+    priceRows: 0,
+    blankSpecValueInputs: 1
+  }),
+  { passed: true, issue: "" },
+  "a selected required spec template must not fail solely because Doudian keeps a blank placeholder spec-value input"
+);
+
+assert.deepEqual(
   evaluatePriceInventoryEntryRule({
-    specIssue: "Spec template left 1 blank required spec value input(s)."
+    specIssue: ""
   }),
   {
-    action: "block_until_spec_template_complete",
-    issue: "Spec template left 1 blank required spec value input(s)."
-  }
+    action: "apply_price_inventory",
+    issue: ""
+  },
+  "blank placeholder spec-value inputs must not become a price-inventory blocking issue"
 );
 
 assert.deepEqual(
