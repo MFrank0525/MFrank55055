@@ -1706,7 +1706,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       throw error;
     }
     const brandOptionConfirmed = normalizeMatchText(clickedBrandOptionText).includes(normalizedBrand);
-    if (!brandValueConfirmed && !brandOptionConfirmed) {
+    if (!brandValueConfirmed) {
       const error = new Error(
         `Brand input value mismatch after typing. expected=${brand}; actual=<empty>; selectedOption=${clickedBrandOptionText || "<none>"}`
       ) as QueryDiagnosticError;
@@ -1738,9 +1738,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       throw error;
     }
 
-    const brandSelfCheckOk =
-      normalizeMatchText(brandValueConfirmed).includes(normalizedBrand) ||
-      brandOptionConfirmed;
+    const brandSelfCheckOk = normalizeMatchText(brandValueConfirmed).includes(normalizedBrand);
     const spuSelfCheckOk = normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu);
     if (!brandSelfCheckOk || !spuSelfCheckOk) {
       const error = new Error(
@@ -7615,21 +7613,36 @@ async function ensurePriceInventorySectionReady(page: Page): Promise<void> {
   await ensurePublishSectionTab(page, "价格库存");
   const anchors = ["价格与库存", "现货库存", "商品规格", "价格"];
 
-  for (const anchor of anchors) {
-    const top = await findLabelAbsoluteTop(page, anchor).catch(() => null);
-    if (typeof top === "number") {
-      await page
-        .evaluate((targetTop) => window.scrollTo({ top: Math.max(0, targetTop - 220), behavior: "instant" }), top)
-        .catch(() => {});
-      await page.waitForTimeout(400);
-      await scrollLabelIntoView(page, anchor).catch(() => false);
-      await page.waitForTimeout(300);
-      break;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (const anchor of anchors) {
+      const top = await findLabelAbsoluteTop(page, anchor).catch(() => null);
+      if (typeof top === "number") {
+        await page
+          .evaluate((targetTop) => window.scrollTo({ top: Math.max(0, targetTop - 220), behavior: "instant" }), top)
+          .catch(() => {});
+        await page.waitForTimeout(400);
+        await scrollLabelIntoView(page, anchor).catch(() => false);
+        await page.waitForTimeout(300);
+        break;
+      }
+    }
+
+    await scrollPublishSectionContentIntoView(page, "价格库存").catch(() => false);
+    await page.waitForTimeout(500);
+
+    if (await countVisiblePriceInventoryRows(page).catch(() => 0)) {
+      return;
+    }
+    if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
+      await clickSwitchManualSpecEntryMode(page).catch(() => false);
+      await page.waitForTimeout(1200);
+      await scrollPublishSectionContentIntoView(page, "价格库存").catch(() => false);
+      await page.waitForTimeout(500);
+      if (await countVisiblePriceInventoryRows(page).catch(() => 0)) {
+        return;
+      }
     }
   }
-
-  await scrollPublishSectionContentIntoView(page, "价格库存").catch(() => false);
-  await page.waitForTimeout(500);
 }
 
 type PriceInventoryDomRow = {

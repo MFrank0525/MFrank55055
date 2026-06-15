@@ -317,6 +317,11 @@ assert.match(
   /isSpecTemplateEntryControlVisible\(page\)[\s\S]*return;/,
   "manual spec setup must proceed when the current spec-template control is already visible"
 );
+assert.match(
+  publishSource,
+  /async function ensurePriceInventorySectionReady[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*countVisiblePriceInventoryRows\(page\)/,
+  "price/inventory entry must switch out of Doudian smart-fill upload mode before looking for price/stock rows"
+);
 assert.doesNotMatch(
   publishSource,
   /throw new Error\("Manual spec template entry mode was not visible after clicking 切换手动填写\."\)/,

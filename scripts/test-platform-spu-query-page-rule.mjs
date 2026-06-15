@@ -122,6 +122,11 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(
   querySource,
+  /if \(!brandValueConfirmed && !brandOptionConfirmed\)|brandSelfCheckOk\s*=\s*[\s\S]{0,160}brandOptionConfirmed/,
+  "SPU query must require readable target-brand input before clicking query; selecting a dropdown option alone is not enough"
+);
+assert.doesNotMatch(
+  querySource,
   /score|publishButtonIndex|Array\.from\(document\.querySelectorAll\("tr"\)\)\[target\.rowIndex\]/,
   "SPU query row selection must not use scoring or reused row/button indexes"
 );
