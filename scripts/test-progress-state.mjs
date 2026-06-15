@@ -2627,7 +2627,8 @@ assert.deepEqual(
 );
 assert.deepEqual(evaluateImageGenerationEndpointProbe({ status: 404, statusText: "Not Found" }), {
   passed: true,
-  issue: ""
+  issue: "",
+  startAction: "continue"
 });
 assert.deepEqual(
   evaluateImageGenerationEndpointProbe({
@@ -2637,7 +2638,8 @@ assert.deepEqual(
   }),
   {
     passed: false,
-    issue: "Image generation endpoint is not reachable from this Node runtime: TypeError: fetch failed; cause=ENOTFOUND"
+    issue: "Image generation endpoint is not reachable from this Node runtime: TypeError: fetch failed; cause=ENOTFOUND",
+    startAction: "continue"
   }
 );
 assert.deepEqual(

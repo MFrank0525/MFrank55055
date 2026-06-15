@@ -1742,6 +1742,12 @@ async function probeImageGenerationEndpoint(apiUrl: string): Promise<void> {
       errorMessage: error instanceof Error ? error.message : String(error),
       errorCauseCode: cause
     });
+    if (evaluation.startAction === "continue") {
+      console.error(
+        `${evaluation.issue}。将启动项目 supervisor 并交由外部服务等待/断点续跑规则处理，避免入口硬失败。`
+      );
+      return;
+    }
     throw new Error(
       evaluation.issue +
         "。请在非沙盒、可访问外网的环境启动真实上架流程，避免图片生成阶段反复 fetch failed。"

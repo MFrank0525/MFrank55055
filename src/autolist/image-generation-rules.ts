@@ -104,6 +104,7 @@ export interface ImageGenerationEndpointProbe {
 export interface ImageGenerationEndpointProbeEvaluation {
   passed: boolean;
   issue: string;
+  startAction: "continue" | "block";
 }
 
 export function providerExplicitlyProvesNoPaidTaskAccepted(status: number, responseText: string): boolean {
@@ -168,14 +169,15 @@ export function resolveImageGenerationHttpRetryPolicy(input: ImageGenerationHttp
 
 export function evaluateImageGenerationEndpointProbe(input: ImageGenerationEndpointProbe): ImageGenerationEndpointProbeEvaluation {
   if (typeof input.status === "number") {
-    return { passed: true, issue: "" };
+    return { passed: true, issue: "", startAction: "continue" };
   }
   const errorName = input.errorName || "Error";
   const errorMessage = input.errorMessage || "unknown error";
   const cause = input.errorCauseCode ? `; cause=${input.errorCauseCode}` : "";
   return {
     passed: false,
-    issue: `Image generation endpoint is not reachable from this Node runtime: ${errorName}: ${errorMessage}${cause}`
+    issue: `Image generation endpoint is not reachable from this Node runtime: ${errorName}: ${errorMessage}${cause}`,
+    startAction: "continue"
   };
 }
 
