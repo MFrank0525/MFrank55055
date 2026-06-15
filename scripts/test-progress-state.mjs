@@ -121,6 +121,20 @@ assert.match(
   /inferResumeStartStepForTask/,
   "AutoListingController runner must use resume-rules when building resume jobs so recoverable title-folder states resume at publish"
 );
+const priceInventoryDomSlice = publishFromSpuSource.slice(
+  publishFromSpuSource.indexOf("function findPriceInventoryTableDomRows"),
+  publishFromSpuSource.indexOf("async function detectPriceInventoryValuesInsideSpecInputs")
+);
+assert.match(
+  priceInventoryDomSlice,
+  /querySelectorAll\("th, td"\)[\s\S]*cellIndex[\s\S]*priceCellIndex[\s\S]*stockCellIndex/,
+  "price/inventory row targeting must derive price and stock inputs from table DOM headers and cell indexes"
+);
+assert.doesNotMatch(
+  priceInventoryDomSlice,
+  /score|centerX|distanceToPrice|distanceToStock|getBoundingClientRect\(\)\.x/,
+  "price/inventory row targeting must not use coordinate distance or scoring heuristics"
+);
 assert.match(
   hermesSupervisorSource,
   /resolveSupervisorRecoveryChildMode[\s\S]*prepareResumeJob\(\)[\s\S]*nextMode = recoveryMode/,
@@ -700,6 +714,36 @@ assert.equal(
   ]),
   true,
   "systemic spec-template control failures must stop the remaining shop batch instead of producing continuous failures"
+);
+const priceInventoryVerificationClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 价格库存模块未完成。Price/inventory verification failed: row 1 expected price=89, stock=1000; actual price=<empty>, stock=0 | row 2 expected price=86, stock=1000; actual price=<empty>, stock=0"
+);
+assert.equal(
+  priceInventoryVerificationClass,
+  "price_inventory_not_ready",
+  "price/inventory readback failures must be classified separately from unknown publish failures"
+);
+assert.equal(
+  shouldRetryPublishFailure(priceInventoryVerificationClass, 0),
+  true,
+  "explicit pre-submit price/inventory failures must get a bounded whole-flow retry"
+);
+assert.equal(
+  shouldRetryPublishFailure(priceInventoryVerificationClass, 2),
+  true,
+  "explicit pre-submit price/inventory failures must retry three times before stopping"
+);
+assert.equal(
+  shouldRetryPublishFailure(priceInventoryVerificationClass, 3),
+  false,
+  "explicit pre-submit price/inventory failures must stop after three retries"
+);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([
+    { safelyPublished: false, errorClass: "price_inventory_not_ready" }
+  ]),
+  true,
+  "an explicit price/inventory failure that exhausts retries must stop the publish batch instead of skipping to later watermarks"
 );
 assert.equal(
   shouldStopPublishBatchAfterFailure([
@@ -1633,6 +1677,73 @@ assert.deepEqual(
     failed: 0
   },
   "AutoListingController publish display must use the full publish plan for shop total instead of currently touched shops"
+);
+const failedMiddleWithLaterPublishedProgress = resolveAutoListingControllerPublishGroupProgress({
+  entries: [
+    ...Array.from({ length: 15 }, (_, index) => ({
+      productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目遠紅外治療貼水印${String(index + 1).padStart(2, "0")}`,
+      shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
+      watermarkNo: index + 1,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      updatedAt: `2026-06-15T01:${String(index).padStart(2, "0")}:00.000Z`
+    })),
+    {
+      productFolder: "/shops/08店/延草纲目遠紅外治療貼水印16",
+      shopFolder: "/shops/08店",
+      watermarkNo: 16,
+      status: "failed",
+      finalVerifyStatus: "needs_manual_review",
+      updatedAt: "2026-06-15T01:16:00.000Z"
+    },
+    ...Array.from({ length: 4 }, (_, index) => ({
+      productFolder: `/shops/${String(Math.floor((index + 16) / 2) + 1).padStart(2, "0")}店/延草纲目遠紅外治療貼水印${String(index + 17).padStart(2, "0")}`,
+      shopFolder: `/shops/${String(Math.floor((index + 16) / 2) + 1).padStart(2, "0")}店`,
+      watermarkNo: index + 17,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      updatedAt: `2026-06-15T01:${String(index + 17).padStart(2, "0")}:00.000Z`
+    }))
+  ]
+});
+assert.deepEqual(
+  failedMiddleWithLaterPublishedProgress,
+  {
+    productName: "延草纲目遠紅外治療貼",
+    productIndex: 20,
+    productTotal: 20,
+    shopName: "10店",
+    shopIndex: 10,
+    shopTotal: 10,
+    failed: 1,
+    failedWatermarkNo: 16,
+    latestAttemptedWatermarkNo: 20
+  },
+  "publish progress must distinguish the failed watermark from the latest attempted watermark"
+);
+const compactFailedMiddleStatus = formatAutoListingControllerCompactStatusText({
+  status: "failed",
+  summary:
+    "Publish failed for /shops/08店/延草纲目遠紅外治療貼水印16: Sequential publish flow stopped: 价格库存模块未完成。Price/inventory verification failed: row 1 expected price=89, stock=1000; actual price=<empty>, stock=0",
+  productName: failedMiddleWithLaterPublishedProgress.productName,
+  publishProductIndex: failedMiddleWithLaterPublishedProgress.productIndex,
+  publishProductTotal: failedMiddleWithLaterPublishedProgress.productTotal,
+  publishShopIndex: failedMiddleWithLaterPublishedProgress.shopIndex,
+  publishShopTotal: failedMiddleWithLaterPublishedProgress.shopTotal,
+  publishFailed: failedMiddleWithLaterPublishedProgress.failed,
+  publishFailedWatermarkNo: failedMiddleWithLaterPublishedProgress.failedWatermarkNo,
+  publishLatestAttemptedWatermarkNo: failedMiddleWithLaterPublishedProgress.latestAttemptedWatermarkNo,
+  feishuCompleted: 0,
+  feishuTotal: 4
+});
+assert.deepEqual(
+  compactFailedMiddleStatus.split("\n"),
+  [
+    "状态：失败｜产品 20/20｜店铺 10/10｜失败项 水印16｜飞书 0/4",
+    "商品：延草纲目遠紅外治療貼",
+    "原因：价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。"
+  ],
+  "Hermes compact status must not report a failed middle watermark as the latest publish position"
 );
 const realtimeProgressSignal = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-12T12:41:37.337Z",

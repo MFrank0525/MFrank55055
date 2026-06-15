@@ -100,7 +100,7 @@ export function resolveSupervisorRecoveryDelayMs(input: {
 function isRetryablePublishPageFailure(message: string): boolean {
   return (
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
-    /基础信息模块未完成|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required|page context was lost|Execution context was destroyed|Target closed/i.test(
+    /基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required|page context was lost|Execution context was destroyed|Target closed/i.test(
       message
     )
   );
@@ -694,6 +694,8 @@ export type AutoListingControllerCompactStatusTextInput = {
   publishProductTotal?: number;
   publishShopIndex?: number;
   publishShopTotal?: number;
+  publishFailedWatermarkNo?: number;
+  publishLatestAttemptedWatermarkNo?: number;
   feishuCompleted?: number;
   feishuTotal?: number;
 };
@@ -716,6 +718,8 @@ export type AutoListingControllerPublishGroupProgress = {
   shopIndex: number;
   shopTotal: number;
   failed: number;
+  failedWatermarkNo?: number;
+  latestAttemptedWatermarkNo?: number;
 };
 
 export type AutoListingControllerRealtimeProgressSignalInput = {
@@ -986,14 +990,29 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
   const plannedGroupEntries = planEntries.filter((entry) => publishGroupNameFromFolder(entry.productFolder) === productName);
   const scopeEntries = plannedGroupEntries.length ? plannedGroupEntries : groupEntries;
   const safelyPublished = groupEntries.filter(isSafelyPublishedPublishEntry);
-  const failed = groupEntries.filter((entry) => entry.status === "failed").length;
+  const failedEntries = groupEntries.filter((entry) => entry.status === "failed");
+  const failed = failedEntries.length;
   const productTotal = Math.max(20, scopeEntries.length, ...scopeEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const maxCompletedWatermark = Math.max(0, ...safelyPublished.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
+  const latestAttemptedWatermark = Math.max(
+    0,
+    ...groupEntries
+      .filter((entry) => entry.status === "published" || entry.status === "failed" || entry.status === "pending")
+      .map(publishWatermarkNoFromEntry)
+      .filter(Number.isFinite)
+  );
+  const latestAttemptedEntry = latestAttemptedWatermark
+    ? [...groupEntries]
+        .filter((entry) => publishWatermarkNoFromEntry(entry) === latestAttemptedWatermark)
+        .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0]
+    : undefined;
+  const failedWatermark = Math.max(0, ...failedEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const activeWatermark = publishWatermarkNoFromEntry(activeEntry);
-  const productIndex = Math.max(1, Math.min(productTotal, activeWatermark || maxCompletedWatermark || safelyPublished.length + (failed > 0 ? 1 : 0) || 1));
+  const productIndex = Math.max(1, Math.min(productTotal, (failed > 0 && latestAttemptedWatermark > activeWatermark ? latestAttemptedWatermark : activeWatermark) || latestAttemptedWatermark || maxCompletedWatermark || safelyPublished.length + (failed > 0 ? 1 : 0) || 1));
   const shopNames = Array.from(new Set(scopeEntries.map((entry) => cleanAutoListingControllerProductName(publishShopFolderFromEntry(entry))).filter(Boolean)))
     .sort((a, b) => (publishShopIndexFromName(a) || 0) - (publishShopIndexFromName(b) || 0) || a.localeCompare(b, "zh-CN"));
-  const activeShopName = cleanAutoListingControllerProductName(publishShopFolderFromEntry(activeEntry));
+  const displayEntry = failed > 0 && latestAttemptedEntry ? latestAttemptedEntry : activeEntry;
+  const activeShopName = cleanAutoListingControllerProductName(publishShopFolderFromEntry(displayEntry));
   const shopTotal = Math.max(1, plannedGroupEntries.length ? shopNames.length : Math.max(shopNames.length, Math.ceil(productTotal / 2)));
   const shopIndex =
     publishShopIndexFromName(activeShopName) ||
@@ -1006,7 +1025,9 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
     shopName: activeShopName || "未知店铺",
     shopIndex: Math.min(shopTotal, shopIndex),
     shopTotal,
-    failed
+    failed,
+    ...(failedWatermark ? { failedWatermarkNo: failedWatermark } : {}),
+    ...(failed > 0 && latestAttemptedWatermark ? { latestAttemptedWatermarkNo: latestAttemptedWatermark } : {})
   };
 }
 
@@ -1029,6 +1050,9 @@ function compactAutoListingControllerReason(summary?: string): string {
   }
   if (/Platform SPU query page was not ready|Platform SPU query controls are incomplete|标品检索页.*控件/i.test(text)) {
     return "标品检索页控件未加载完整，已停止，可续跑。";
+  }
+  if (/Price\/inventory verification failed|价格库存模块未完成/i.test(text)) {
+    return "价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。";
   }
   if (/fetch failed|network|socket|timeout|UND_ERR|ECONNRESET|ETIMEDOUT/i.test(text)) {
     return "网络/中转站瞬断，已保留断点，可续跑。";
@@ -1080,7 +1104,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const lines = [
     !preferPublishProgress && input.imageGenerationProgress
       ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜主图 ${mainImageProgressIndex}/${productTotal}｜飞书 ${feishuCompleted}/${feishuTotal}`
-      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}｜飞书 ${feishuCompleted}/${feishuTotal}`
+      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}｜飞书 ${feishuCompleted}/${feishuTotal}`
   ];
 
   if (input.status === "failed") {

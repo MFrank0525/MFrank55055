@@ -1203,6 +1203,10 @@ function formatStatusText(status: Record<string, unknown>): string {
       typeof publishGroupProgress?.shopIndex === "number" ? Number(publishGroupProgress.shopIndex) : undefined,
     publishShopTotal:
       typeof publishGroupProgress?.shopTotal === "number" ? Number(publishGroupProgress.shopTotal) : undefined,
+    publishFailedWatermarkNo:
+      typeof publishGroupProgress?.failedWatermarkNo === "number" ? Number(publishGroupProgress.failedWatermarkNo) : undefined,
+    publishLatestAttemptedWatermarkNo:
+      typeof publishGroupProgress?.latestAttemptedWatermarkNo === "number" ? Number(publishGroupProgress.latestAttemptedWatermarkNo) : undefined,
     feishuCompleted: counts?.completedCount === undefined ? Number(feishuProgress?.processedRecordCount ?? 0) : Number(counts.completedCount),
     feishuTotal: counts?.recordCount === undefined ? Number(feishuProgress?.recordCount ?? 0) : Number(counts.recordCount)
   });

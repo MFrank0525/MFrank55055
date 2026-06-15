@@ -7996,171 +7996,95 @@ async function ensurePriceInventorySectionReady(page: Page): Promise<void> {
   await page.waitForTimeout(500);
 }
 
-async function markVisiblePriceInventoryInputs(page: Page): Promise<void> {
-  await page.evaluate(() => {
+type PriceInventoryDomRow = {
+  trIndex: number;
+  priceInputIndex: number;
+  stockInputIndex: number;
+  rowOrder: number;
+  priceValue: string;
+  stockValue: string;
+};
+
+async function findPriceInventoryTableDomRows(page: Page): Promise<PriceInventoryDomRow[]> {
+  return page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const allElements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
-    const labels = allElements
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (!text || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        return { text, rect };
-      })
-      .filter(Boolean) as Array<{ text: string; rect: DOMRect }>;
+    const allRows = Array.from(document.querySelectorAll("tr")).map((row) => row as HTMLTableRowElement);
+    const visible = (el: HTMLElement): boolean => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+    };
+    const usableInput = (input: HTMLInputElement): boolean => {
+      const type = (input.getAttribute("type") || "text").toLowerCase();
+      const context = normalize(
+        [
+          input.getAttribute("placeholder") || "",
+          input.getAttribute("aria-label") || "",
+          input.closest("td, th, tr")?.textContent || ""
+        ].join(" ")
+      );
+      return (
+        visible(input) &&
+        !input.disabled &&
+        !input.readOnly &&
+        !["hidden", "file", "checkbox", "radio"].includes(type) &&
+        !/erp编码|商家编码|规格值|请输入规格值/i.test(context)
+      );
+    };
 
-    const findBestLabel = (keywords: string[]): { text: string; rect: DOMRect } | null =>
-      labels
-        .filter((item) => keywords.some((keyword) => item.text.includes(keyword)))
-        .sort((a, b) => {
-          const aScore = keywords.some((keyword) => a.text === keyword) ? 1000 : 0;
-          const bScore = keywords.some((keyword) => b.text === keyword) ? 1000 : 0;
-          return bScore - aScore || a.rect.top - b.rect.top;
-        })[0] || null;
+    const tables = Array.from(document.querySelectorAll("table"));
+    for (const table of tables) {
+      const tableRows = Array.from(table.querySelectorAll("tr")).map((row) => row as HTMLTableRowElement);
+      const header = tableRows
+        .map((row, rowOrder) => {
+          const cells = Array.from(row.querySelectorAll("th, td")).map((cell) => cell as HTMLTableCellElement);
+          const priceCell = cells.find((cell) => /价格|售价/.test(normalize(cell.innerText || cell.textContent || "")));
+          const stockCell = cells.find((cell) => /现货库存|库存/.test(normalize(cell.innerText || cell.textContent || "")));
+          return priceCell && stockCell
+            ? {
+                rowOrder,
+                priceCellIndex: priceCell.cellIndex,
+                stockCellIndex: stockCell.cellIndex
+              }
+            : null;
+        })
+        .filter(Boolean)[0] as { rowOrder: number; priceCellIndex: number; stockCellIndex: number } | undefined;
+      if (!header) {
+        continue;
+      }
 
-    const priceSectionLabel = findBestLabel(["价格与库存"]);
-    const priceHeader = findBestLabel(["价格", "售价"]);
-    const stockHeader = findBestLabel(["现货库存", "库存"]);
-    const tableAnchor = findBestLabel(["价格与库存", "现货库存", "价格"]);
-    const bottomAnchor = findBestLabel(["设置商品优惠券", "部分信息会预填", "服务与履约"]);
-    const tableTop = Math.max(
-      140,
-      typeof priceSectionLabel?.rect.bottom === "number"
-        ? priceSectionLabel.rect.bottom + 12
-        : (priceHeader?.rect.top ?? stockHeader?.rect.top ?? tableAnchor?.rect.top ?? 260) - 30
-    );
-    const tableBottom =
-      typeof bottomAnchor?.rect.top === "number" && bottomAnchor.rect.top > tableTop + 120
-        ? bottomAnchor.rect.top + 40
-        : tableTop + 1200;
-    const priceCenterX = priceHeader ? priceHeader.rect.x + priceHeader.rect.width / 2 : 680;
-    const stockCenterX = stockHeader ? stockHeader.rect.x + stockHeader.rect.width / 2 : 900;
-
-    Array.from(document.querySelectorAll("input")).forEach((node) => {
-      node.removeAttribute("data-codex-price-row");
-      node.removeAttribute("data-codex-stock-row");
-    });
-
-    const rows = Array.from(document.querySelectorAll("tr"))
-      .map((el) => el as HTMLTableRowElement)
-      .map((row) => {
-        const rect = row.getBoundingClientRect();
-        const style = window.getComputedStyle(row);
-        const text = normalize(row.innerText || row.textContent || "");
-        if (
-          !text ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          rect.top < tableTop ||
-          rect.bottom > tableBottom ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          text.includes("现货库存") ||
-          text.includes("价格与库存")
-        ) {
-          return null;
-        }
-
-        const inputs = Array.from(row.querySelectorAll("input"))
-          .map((node) => node as HTMLInputElement)
-          .map((input) => {
-            const inputRect = input.getBoundingClientRect();
-            const inputStyle = window.getComputedStyle(input);
-            const type = (input.getAttribute("type") || "text").toLowerCase();
-            const placeholder = normalize(input.getAttribute("placeholder") || "");
-            const context = normalize(
-              [
-                input.value || "",
-                placeholder,
-                input.getAttribute("aria-label") || "",
-                input.parentElement?.innerText || "",
-                input.parentElement?.parentElement?.innerText || "",
-                input.closest("td, th, tr, .semi-table-row, .ecom-g-table-row")?.textContent || ""
-              ].join(" ")
-            );
-            if (
-              inputRect.width < 90 ||
-              inputRect.height <= 0 ||
-              inputStyle.display === "none" ||
-              inputStyle.visibility === "hidden" ||
-              input.disabled ||
-              input.readOnly ||
-              ["hidden", "file", "checkbox", "radio"].includes(type) ||
-              placeholder.includes("请输入规格值") ||
-              context.includes("请输入规格值") ||
-              context.includes("规格值")
-            ) {
-              return null;
-            }
-            return {
-              input,
-              centerX: inputRect.x + inputRect.width / 2,
-              distanceToPrice: Math.abs(inputRect.x + inputRect.width / 2 - priceCenterX),
-              distanceToStock: Math.abs(inputRect.x + inputRect.width / 2 - stockCenterX),
-              placeholder,
-              context,
-              priceScore:
-                (/价格|售价/.test(context) ? 260 : 0) +
-                (/[￥¥]/.test(context) ? 220 : 0) +
-                (/库存/.test(context) ? -240 : 0),
-              stockScore:
-                (/库存/.test(context) ? 280 : 0) +
-                (/请输入库存/.test(context) ? 220 : 0) +
-                (/[￥¥]/.test(context) ? -260 : 0) +
-                (/价格|售价/.test(context) ? -180 : 0)
-            };
-          })
-          .filter(Boolean) as Array<{
-            input: HTMLInputElement;
-            centerX: number;
-            distanceToPrice: number;
-            distanceToStock: number;
-            placeholder: string;
-            context: string;
-            priceScore: number;
-            stockScore: number;
-          }>;
-
-        if (!inputs.length) {
-          return null;
-        }
-
-        const priceInput = inputs
-          .filter((item) => !/erp编码|商家编码/i.test(item.placeholder) && !/erp编码|商家编码/i.test(item.context))
-          .sort((a, b) => (b.priceScore - a.priceScore) || (a.distanceToPrice - b.distanceToPrice))[0];
-        const stockInput = inputs
-          .filter((item) => item.input !== priceInput?.input)
-          .filter((item) => !/erp编码|商家编码/i.test(item.placeholder) && !/erp编码|商家编码/i.test(item.context))
-          .sort((a, b) => (b.stockScore - a.stockScore) || (a.distanceToStock - b.distanceToStock))[0];
-
-        if (!priceInput || !stockInput) {
-          return null;
-        }
-        if (
-          priceInput.distanceToPrice > 220 ||
-          stockInput.distanceToStock > 220 ||
-          priceInput.priceScore < 0 ||
-          stockInput.stockScore < 0
-        ) {
-          return null;
-        }
-
-        return {
-          priceInput: priceInput.input,
-          stockInput: stockInput.input,
-          top: rect.top
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (a?.top || 0) - (b?.top || 0));
-
-    rows.forEach((row, index) => {
-      row?.priceInput.setAttribute("data-codex-price-row", String(index));
-      row?.stockInput.setAttribute("data-codex-stock-row", String(index));
-    });
+      const rows = tableRows
+        .slice(header.rowOrder + 1)
+        .map((row, index) => {
+          if (!visible(row)) {
+            return null;
+          }
+          const cells = Array.from(row.querySelectorAll("th, td")).map((cell) => cell as HTMLTableCellElement);
+          const priceCell = cells.find((cell) => cell.cellIndex === header.priceCellIndex);
+          const stockCell = cells.find((cell) => cell.cellIndex === header.stockCellIndex);
+          if (!priceCell || !stockCell) {
+            return null;
+          }
+          const priceInput = Array.from(priceCell.querySelectorAll("input")).find((input) => usableInput(input as HTMLInputElement)) as HTMLInputElement | undefined;
+          const stockInput = Array.from(stockCell.querySelectorAll("input")).find((input) => usableInput(input as HTMLInputElement)) as HTMLInputElement | undefined;
+          if (!priceInput || !stockInput) {
+            return null;
+          }
+          return {
+            trIndex: allRows.indexOf(row),
+            priceInputIndex: Array.from(row.querySelectorAll("input")).indexOf(priceInput),
+            stockInputIndex: Array.from(row.querySelectorAll("input")).indexOf(stockInput),
+            rowOrder: index,
+            priceValue: priceInput.value || "",
+            stockValue: stockInput.value || ""
+          };
+        })
+        .filter((row): row is PriceInventoryDomRow => Boolean(row));
+      if (rows.length) {
+        return rows;
+      }
+    }
+    return [];
   });
 }
 
@@ -8202,126 +8126,26 @@ async function detectPriceInventoryValuesInsideSpecInputs(page: Page): Promise<s
   }, [...FIXED_PRICES, FIXED_STOCK]);
 }
 
-async function getVisiblePriceInventoryInputLocators(page: Page): Promise<{
-  priceInputs: Locator;
-  stockInputs: Locator;
-}> {
-  await markVisiblePriceInventoryInputs(page);
-  return {
-    priceInputs: page.locator('input[data-codex-price-row]'),
-    stockInputs: page.locator('input[data-codex-stock-row]')
-  };
-}
-
 type PriceInventoryRowTarget = {
   trIndex: number;
   priceInputIndex: number;
   stockInputIndex: number;
-  top: number;
+  rowOrder: number;
   priceValue: string;
   stockValue: string;
 };
 
 async function readVisiblePriceInventoryRowTargets(page: Page): Promise<PriceInventoryRowTarget[]> {
-  const rawRows = await page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    return Array.from(document.querySelectorAll("tr"))
-      .map((row, trIndex) => {
-        const rowEl = row as HTMLTableRowElement;
-        const rowRect = rowEl.getBoundingClientRect();
-        const rowStyle = window.getComputedStyle(rowEl);
-        const rowText = normalize(rowEl.innerText || rowEl.textContent || "");
-        if (
-          !rowText ||
-          rowRect.width <= 0 ||
-          rowRect.height <= 0 ||
-          rowStyle.display === "none" ||
-          rowStyle.visibility === "hidden" ||
-          rowText.includes("现货库存") ||
-          rowText.includes("价格与库存")
-        ) {
-          return null;
-        }
-        const inputs = Array.from(rowEl.querySelectorAll("input"))
-          .map((input, inputIndex) => {
-            const inputEl = input as HTMLInputElement;
-            const inputRect = inputEl.getBoundingClientRect();
-            const inputStyle = window.getComputedStyle(inputEl);
-            const type = (inputEl.getAttribute("type") || "text").toLowerCase();
-            const placeholder = normalize(inputEl.getAttribute("placeholder") || "");
-            const context = normalize(
-              [
-                inputEl.value || "",
-                placeholder,
-                inputEl.getAttribute("aria-label") || "",
-                inputEl.parentElement?.innerText || "",
-                inputEl.parentElement?.parentElement?.innerText || "",
-                inputEl.closest("td, th, tr, .semi-table-row, .ecom-g-table-row")?.textContent || ""
-              ].join(" ")
-            );
-            if (
-              inputRect.width < 80 ||
-              inputRect.height <= 0 ||
-              inputStyle.display === "none" ||
-              inputStyle.visibility === "hidden" ||
-              inputEl.disabled ||
-              inputEl.readOnly ||
-              ["hidden", "file", "checkbox", "radio"].includes(type)
-            ) {
-              return null;
-            }
-            return {
-              inputIndex,
-              value: inputEl.value || "",
-              placeholder,
-              context,
-              centerX: inputRect.x + inputRect.width / 2
-            };
-          })
-          .filter(Boolean) as Array<{
-            inputIndex: number;
-            value: string;
-            placeholder: string;
-            context: string;
-            centerX: number;
-          }>;
-        return { trIndex, top: rowRect.top, inputs };
-      })
-      .filter(Boolean) as Array<{
-        trIndex: number;
-        top: number;
-        inputs: Array<{
-          inputIndex: number;
-          value: string;
-          placeholder: string;
-          context: string;
-          centerX: number;
-        }>;
-      }>;
-  });
-
-  return rawRows
-    .map((row) => {
-      const roles = resolvePriceInventoryRowInputRoles(row.inputs);
-      if (!roles) {
-        return null;
-      }
-      const price = row.inputs.find((input) => input.inputIndex === roles.priceIndex);
-      const stock = row.inputs.find((input) => input.inputIndex === roles.stockIndex);
-      if (!price || !stock) {
-        return null;
-      }
-      return {
-        trIndex: row.trIndex,
-        priceInputIndex: roles.priceIndex,
-        stockInputIndex: roles.stockIndex,
-        top: row.top,
-        priceValue: price.value,
-        stockValue: stock.value
-      };
-    })
-    .filter((row): row is PriceInventoryRowTarget => Boolean(row))
-    .sort((a, b) => a.top - b.top);
+  return (await findPriceInventoryTableDomRows(page))
+    .map((row) => ({
+      trIndex: row.trIndex,
+      priceInputIndex: row.priceInputIndex,
+      stockInputIndex: row.stockInputIndex,
+      rowOrder: row.rowOrder,
+      priceValue: row.priceValue,
+      stockValue: row.stockValue
+    }))
+    .sort((a, b) => a.rowOrder - b.rowOrder);
 }
 
 async function readVisiblePriceInventoryRows(
@@ -8396,26 +8220,7 @@ async function fillAndVerifyPriceInventoryRow(
   const expectedStockText = String(expectedStock);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await fillVisiblePriceInventoryRowByTableDom(page, rowIndex, expectedPriceText, expectedStockText).catch(async () => {
-      const { priceInputs, stockInputs } = await getVisiblePriceInventoryInputLocators(page);
-      const priceInput = priceInputs.nth(rowIndex);
-      const stockInput = stockInputs.nth(rowIndex);
-      await priceInput.scrollIntoViewIfNeeded().catch(() => {});
-      await priceInput.click({ timeout: 3000 }).catch(() => {});
-      await priceInput.fill(expectedPriceText, { timeout: 3000 }).catch(() => {});
-      let currentPriceValue = await priceInput.inputValue().catch(() => "");
-      if (normalizeNumericInputValue(currentPriceValue) !== normalizeNumericInputValue(expectedPriceText)) {
-        currentPriceValue = await setLocatorInputValue(priceInput, expectedPriceText).catch(() => currentPriceValue);
-      }
-      await stockInput.scrollIntoViewIfNeeded().catch(() => {});
-      await stockInput.click({ timeout: 3000 }).catch(() => {});
-      await stockInput.fill(expectedStockText, { timeout: 3000 }).catch(() => {});
-      let currentStockValue = await stockInput.inputValue().catch(() => "");
-      if (normalizeNumericInputValue(currentStockValue) !== normalizeNumericInputValue(expectedStockText)) {
-        currentStockValue = await setLocatorInputValue(stockInput, expectedStockText).catch(() => currentStockValue);
-      }
-      await stockInput.press("Tab").catch(() => {});
-    });
+    await fillVisiblePriceInventoryRowByTableDom(page, rowIndex, expectedPriceText, expectedStockText);
     await page.waitForTimeout(300);
 
     const rows = await readVisiblePriceInventoryRows(page);

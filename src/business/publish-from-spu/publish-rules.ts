@@ -393,6 +393,12 @@ export function classifyPublishFailure(message: string): string {
     return "spec_template_not_ready";
   }
   if (
+    text.includes("Price/inventoryverificationfailed") ||
+    text.includes("价格库存模块未完成") && text.includes("actualprice") && text.includes("stock")
+  ) {
+    return "price_inventory_not_ready";
+  }
+  if (
     text.includes("最终发布动作未完成") ||
     text.includes("Publishproductbuttonclickfailed") ||
     text.includes("Publishproductbuttonwasclicked,butnosubmissionsuccesssignalwasdetected")
@@ -443,6 +449,8 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   const effectiveMaxRetryAttempts =
     errorClass === "platform_page_not_ready"
       ? Math.max(maxRetryAttempts, 4)
+      : errorClass === "price_inventory_not_ready"
+        ? Math.max(maxRetryAttempts, 3)
       : maxRetryAttempts;
   if (retryAttempt >= effectiveMaxRetryAttempts) {
     return false;
@@ -454,6 +462,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "service_section_not_ready",
     "basic_info_field_not_ready",
     "spec_template_not_ready",
+    "price_inventory_not_ready",
     "page_context_lost",
     "shop_switch_entry_unavailable",
     "browser_remote_debugging_unavailable"
@@ -464,10 +473,14 @@ export function shouldStopPublishBatchAfterFailure(
   decisions: PublishBatchFailureDecision[],
   consecutiveFailureThreshold = 2
 ): boolean {
+  const singleFailureStopClasses = new Set(["price_inventory_not_ready"]);
   const systemicClasses = new Set(["spec_template_not_ready", "service_section_not_ready", "basic_info_field_not_ready"]);
   let lastClass = "";
   let consecutiveCount = 0;
   for (const decision of decisions) {
+    if (!decision.safelyPublished && singleFailureStopClasses.has(decision.errorClass)) {
+      return true;
+    }
     if (decision.safelyPublished || !systemicClasses.has(decision.errorClass)) {
       lastClass = "";
       consecutiveCount = 0;
