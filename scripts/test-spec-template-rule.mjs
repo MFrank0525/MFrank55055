@@ -346,6 +346,16 @@ assert.match(
   "spec template application must not report success until manual price/inventory rows are visible after template selection"
 );
 assert.doesNotMatch(
+  applySpecTemplateSource,
+  /ensureManualPriceInventoryRowsAfterSpecTemplateOnPage\(page\)[\s\S]*catch[\s\S]*continue;/,
+  "after a spec template is selected, manual-mode readiness must not loop back and click the spec template again"
+);
+assert.doesNotMatch(
+  applySpecTemplateSource,
+  /for \(let attempt = 0; attempt < 2; attempt \+= 1\)[\s\S]*chooseDynamicSpecTemplateOnPage\(page, title\)/,
+  "spec template application must choose the template once, then switch manual mode and proceed to price/stock entry"
+);
+assert.doesNotMatch(
   publishSource,
   /throw new Error\("Manual spec template entry mode was not visible after clicking 切换手动填写\."\)/,
   "manual spec setup failures must be classified as spec-template control readiness, not hard-coded to a legacy switch click"

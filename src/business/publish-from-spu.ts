@@ -4476,24 +4476,26 @@ async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page: Page)
     await dismissTransientOverlays(page).catch(() => {});
     await scrollLabelIntoView(page, "商品规格").catch(() => false);
     await scrollLabelIntoView(page, "规格模板").catch(() => false);
-    await scrollLabelIntoView(page, "价格与库存").catch(() => false);
     if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
       await clickSwitchManualSpecEntryMode(page).catch(() => false);
     }
     await page.waitForTimeout(700);
+    const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
     const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-    if (visiblePriceRows > 0) {
+    if (filledValues.length > 0 || visiblePriceRows > 0) {
       return;
     }
+    await scrollLabelIntoView(page, "价格与库存").catch(() => false);
     if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
-      await scrollLabelIntoView(page, "价格与库存").catch(() => false);
       await page.waitForTimeout(500);
-      if ((await countVisiblePriceInventoryRows(page).catch(() => 0)) > 0) {
+      const refreshedValues = await readCurrentSpecValuesStrict(page).catch(() => []);
+      const refreshedRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
+      if (refreshedValues.length > 0 || refreshedRows > 0) {
         return;
       }
     }
   }
-  throw new Error("Spec template selected but manual price/inventory rows were not visible after switching from smart-fill mode.");
+  throw new Error("Spec template selected but manual spec values or price/inventory rows were not visible after switching from smart-fill mode.");
 }
 
 async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {
@@ -4583,75 +4585,52 @@ async function applySpecTemplateWithVerificationOnPage(
 ): Promise<{ selectedTemplate: string; filledValues: string[]; issue: string }> {
   const keyword = resolveSpecTemplateKeyword(title);
   let selectedTemplate = "";
-  let manualRowsIssue = "";
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await ensureManualSpecTemplateEntryModeOnPage(page);
-    try {
-      selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        selectedTemplate,
-        filledValues: [],
-        issue: `${message}; keyword=${keyword}`
-      };
-    }
-    await waitForSpecTemplateReadback(page);
-
-    const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
-    const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-    const blankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
-    const initialRule = evaluateSpecTemplateCompletion({
+  await ensureManualSpecTemplateEntryModeOnPage(page);
+  try {
+    selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
       selectedTemplate,
-      expectedTemplateKeyword: keyword,
-      filledSpecValues: filledValues.length,
-      expectedSpecValues: FIXED_SPEC_VALUES.length,
-      priceRows: visiblePriceRows,
-      blankSpecValueInputs
-    });
-    if (initialRule.passed) {
-      try {
-        await ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page);
-      } catch (error) {
-        manualRowsIssue = error instanceof Error ? error.message : String(error);
-        continue;
-      }
+      filledValues: [],
+      issue: `${message}; keyword=${keyword}`
+    };
+  }
+  await waitForSpecTemplateReadback(page);
+
+  const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
+  const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
+  const blankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
+  const initialRule = evaluateSpecTemplateCompletion({
+    selectedTemplate,
+    expectedTemplateKeyword: keyword,
+    filledSpecValues: filledValues.length,
+    expectedSpecValues: FIXED_SPEC_VALUES.length,
+    priceRows: visiblePriceRows,
+    blankSpecValueInputs
+  });
+  if (initialRule.passed) {
+    try {
+      await ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page);
       return {
         selectedTemplate: selectedTemplate || keyword,
         filledValues,
         issue: ""
       };
-    }
-  }
-
-  const finalValues = await readCurrentSpecValuesStrict(page).catch(() => []);
-  const finalVisiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-  const finalBlankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
-  const finalRule = evaluateSpecTemplateCompletion({
-    selectedTemplate,
-    expectedTemplateKeyword: keyword,
-    filledSpecValues: finalValues.length,
-    expectedSpecValues: FIXED_SPEC_VALUES.length,
-    priceRows: finalVisiblePriceRows,
-    blankSpecValueInputs: finalBlankSpecValueInputs
-  });
-  if (finalRule.passed) {
-    try {
-      await ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page);
-      return {
-        selectedTemplate,
-        filledValues: finalValues,
-        issue: ""
-      };
     } catch (error) {
-      manualRowsIssue = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        selectedTemplate: selectedTemplate || keyword,
+        filledValues,
+        issue: `${message}; keyword=${keyword}`
+      };
     }
   }
   return {
     selectedTemplate,
-    filledValues: finalValues,
-    issue: finalRule.passed ? `${manualRowsIssue}; keyword=${keyword}` : `${finalRule.issue}; keyword=${keyword}`
+    filledValues,
+    issue: `${initialRule.issue}; keyword=${keyword}`
   };
 }
 

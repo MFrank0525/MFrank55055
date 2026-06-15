@@ -721,12 +721,12 @@ assert.equal(
   "spec-template readiness failures must receive three whole-flow retries before stopping"
 );
 const specTemplateManualRowsMissingClass = classifyPublishFailure(
-  "Sequential publish flow stopped: 价格库存模块未完成。Spec template selected but manual price/inventory rows were not visible after switching from smart-fill mode.; keyword=买二送一"
+  "Sequential publish flow stopped: 价格库存模块未完成。Spec template selected but manual spec values or price/inventory rows were not visible after switching from smart-fill mode.; keyword=买二送一"
 );
 assert.equal(
   specTemplateManualRowsMissingClass,
   "spec_template_not_ready",
-  "missing manual price/inventory rows immediately after spec-template selection must be retried as spec-template/manual-mode readiness"
+  "missing manual spec values or price/inventory rows immediately after spec-template selection must be retried as spec-template/manual-mode readiness"
 );
 assert.equal(
   shouldRetryPublishFailure(specTemplateBlankValueClass, 3),
