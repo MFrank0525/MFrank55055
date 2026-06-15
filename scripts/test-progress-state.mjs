@@ -1468,11 +1468,11 @@ const compactImageGenerationStatus = formatAutoListingControllerCompactStatusTex
 assert.deepEqual(
   compactImageGenerationStatus.split("\n"),
   [
-    "状态：运行中｜产品 1/20｜店铺 1/10｜飞书 0/4",
+    "状态：运行中｜主图 20/20｜飞书 0/4",
     "当前：医用芦荟凝胶",
     "进度：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0."
   ],
-  "AutoListingController text status must show main-image generation progress instead of only the generic stage name"
+  "AutoListingController text status must show main-image generation progress without labeling image slots as products or shops"
 );
 const compactPublishStageStatus = formatAutoListingControllerCompactStatusText({
   status: "running",

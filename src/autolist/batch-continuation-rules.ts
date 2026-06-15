@@ -1017,6 +1017,19 @@ function compactAutoListingControllerImageProgress(progress?: string): string {
   return text.length > 180 ? `${text.slice(0, 180)}...` : text;
 }
 
+function resolveAutoListingControllerMainImageProgressIndex(progress?: string, total = 20): number {
+  const text = String(progress || "");
+  const promptMatch = /Prompt\s+(\d+)\/\d+:\s*Image\s+(\d+)/i.exec(text);
+  if (promptMatch) {
+    return Math.max(1, Math.min(total, (Number(promptMatch[1]) - 1) * 4 + Number(promptMatch[2])));
+  }
+  const readyMatch = /Main images ready:\s*(\d+)/i.exec(text);
+  if (readyMatch) {
+    return Math.max(1, Math.min(total, Number(readyMatch[1])));
+  }
+  return Math.max(1, Math.min(total, total));
+}
+
 function shouldPreferAutoListingControllerPublishProgress(input: AutoListingControllerCompactStatusTextInput): boolean {
   if (!input.latestProgress) {
     return false;
@@ -1035,8 +1048,12 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const shopIndex = Math.max(1, Math.min(shopTotal, input.publishShopIndex ?? Math.ceil(productIndex / 2)));
   const feishuCompleted = input.feishuCompleted ?? "?";
   const feishuTotal = input.feishuTotal ?? "?";
+  const preferPublishProgress = shouldPreferAutoListingControllerPublishProgress(input);
+  const mainImageProgressIndex = resolveAutoListingControllerMainImageProgressIndex(input.imageGenerationProgress, productTotal);
   const lines = [
-    `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}｜飞书 ${feishuCompleted}/${feishuTotal}`
+    !preferPublishProgress && input.imageGenerationProgress
+      ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜主图 ${mainImageProgressIndex}/${productTotal}｜飞书 ${feishuCompleted}/${feishuTotal}`
+      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}｜飞书 ${feishuCompleted}/${feishuTotal}`
   ];
 
   if (input.status === "failed") {
@@ -1047,7 +1064,6 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
 
   const active = cleanAutoListingControllerProductName(input.activeItemName || input.productName);
   lines.push(`当前：${active}`);
-  const preferPublishProgress = shouldPreferAutoListingControllerPublishProgress(input);
   const latestProgress = preferPublishProgress ? input.latestProgress : input.imageGenerationProgress || input.latestProgress;
   if (latestProgress) {
     lines.push(`进度：${!preferPublishProgress && input.imageGenerationProgress ? compactAutoListingControllerImageProgress(latestProgress) : compactAutoListingControllerReason(latestProgress)}`);
