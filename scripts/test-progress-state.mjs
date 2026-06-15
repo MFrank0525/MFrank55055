@@ -2019,6 +2019,37 @@ assert.equal(
   false,
   "videos-base64 submitted-task poll timeouts must not consume fast child recovery attempts"
 );
+const videosBase64NoAcceptanceFetchFailure =
+  "failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 1, 3, 5; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 1, 2, 4; reasons: fetch failed | fetch failed | fetch failed";
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(videosBase64NoAcceptanceFetchFailure),
+  false,
+  "videos-base64 no-acceptance submit transport failures must not enter long external-service wait"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64NoAcceptanceFetchFailure,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "videos-base64 no-acceptance submit transport failures must remain self-driven after the generic recovery budget"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(videosBase64NoAcceptanceFetchFailure),
+  false,
+  "videos-base64 no-acceptance submit transport failures must not consume recovery attempts because no paid task was accepted"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: videosBase64NoAcceptanceFetchFailure,
+    externalServiceWaitAttempts: 0
+  }),
+  10000,
+  "videos-base64 no-acceptance submit transport failures must retry quickly instead of waiting ten minutes"
+);
 const videosBase64SingleTaskProviderFailure =
   'failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 3; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 2; reasons: videos-base64 task task_cCj166vYLmQVsX0MMjLVQ0JHTOTYVyaR failed: {"code":"upstream_error","message":"提示词或图片中可能包含违规信息，请修改后重试"}';
 assert.equal(

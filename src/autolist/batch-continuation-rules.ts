@@ -42,6 +42,18 @@ function isPaidImageSubmissionSafetyBlock(message: string): boolean {
   return /paid image ledger blocked slot|blocked_(?:reserved|ambiguous)|paid submission safety block/i.test(message);
 }
 
+function isRetryableVideosBase64NoAcceptanceTransportFailure(message: string): boolean {
+  return (
+    /main_images_generated|videos-base64/i.test(message) &&
+    /videos-base64 paid image slots failed/i.test(message) &&
+    /fetch failed|failed to fetch|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|AbortError|aborted/i.test(
+      message
+    ) &&
+    !/blocked_(?:reserved|ambiguous)|paid submission safety block|ambiguous|reserved/i.test(message) &&
+    !/videos-base64 task .*did not finish|videos-base64 task .*failed|provider task failed/i.test(message)
+  );
+}
+
 function isRetryableVideosBase64ProviderTaskFailure(message: string): boolean {
   return (
     /main_images_generated|videos-base64/i.test(message) &&
@@ -60,7 +72,7 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
     return false;
   }
   return (
-    isPaidMainImageTransportFailure(message) ||
+    (!isRetryableVideosBase64NoAcceptanceTransportFailure(message) && isPaidMainImageTransportFailure(message)) ||
     (/main_images_generated/i.test(message) && /videos-base64 task .*did not finish/i.test(message)) ||
     (/main_images_generated|image generation|main image/i.test(message) &&
       (/HTTP\s*(429|502|503|504)/i.test(message) ||
@@ -69,6 +81,9 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
 }
 
 export function shouldConsumeSupervisorRecoveryAttempt(failureMessage: string): boolean {
+  if (isRetryableVideosBase64NoAcceptanceTransportFailure(failureMessage)) {
+    return false;
+  }
   return !isRetryableExternalServiceAvailabilityFailure(failureMessage);
 }
 
@@ -121,6 +136,9 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
     return false;
   }
   if (isRetryableExternalServiceAvailabilityFailure(retryableFailureMessage)) {
+    return true;
+  }
+  if (isRetryableVideosBase64NoAcceptanceTransportFailure(retryableFailureMessage)) {
     return true;
   }
   if (input.recoveryAttempts >= input.maxRecoveryAttempts) {
