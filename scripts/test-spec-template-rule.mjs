@@ -244,6 +244,16 @@ assert.match(
 );
 assert.match(
   publishSource,
+  /async function isSpecTemplateSmartFillUploadModeVisible[\s\S]*智能填写助手[\s\S]*切换手动填写[\s\S]*点击 或 拖动 文件到虚线框内上传/,
+  "spec template readiness must explicitly detect the AI smart-fill upload mode before looking for template controls"
+);
+assert.match(
+  publishSource,
+  /async function isSpecTemplateEntryControlVisible[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*return false[\s\S]*findSpecTemplateInputInFieldRootOnPage\(page\)/,
+  "spec template control visibility must not pass while Doudian is still in smart-fill upload mode"
+);
+assert.match(
+  publishSource,
   /async function clickSpecTemplateOptionByDomStructure/,
   "spec template option clicking must use the currently opened dropdown/menu DOM structure"
 );
