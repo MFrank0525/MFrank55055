@@ -1283,6 +1283,93 @@ async function clickVisibleDropdownOption(
   }, normalizedExpected);
 }
 
+async function clickPlatformBrandDropdownOption(page: Page, expected: string): Promise<string> {
+  const normalizedExpected = normalizeMatchText(expected);
+  return page.evaluate((target) => {
+    const visible = (el: HTMLElement): boolean => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+    };
+    const inputs = Array.from(document.querySelectorAll("input, textarea"))
+      .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
+      .filter((input) => {
+        const rect = input.getBoundingClientRect();
+        return (
+          rect.width > 80 &&
+          rect.height > 20 &&
+          visible(input as HTMLElement) &&
+          ((input as HTMLInputElement).getAttribute("type") === "search" ||
+            input.getAttribute("role") === "combobox")
+        );
+      })
+      .sort((a, b) => a.getBoundingClientRect().y - b.getBoundingClientRect().y || a.getBoundingClientRect().x - b.getBoundingClientRect().x);
+    const brandInput = inputs[1] || inputs[0];
+    if (!brandInput) {
+      return "";
+    }
+    const brandRect = brandInput.getBoundingClientRect();
+    const candidates = Array.from(document.querySelectorAll("body *"))
+      .map((el) => {
+        const htmlEl = el as HTMLElement;
+        const text = (htmlEl.innerText || htmlEl.textContent || "").trim();
+        if (!text) {
+          return null;
+        }
+        const normalizedText = text.replace(/\s+/g, "").trim().toLowerCase();
+        if (!normalizedText.includes(target)) {
+          return null;
+        }
+        const rect = htmlEl.getBoundingClientRect();
+        if (
+          !visible(htmlEl) ||
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          rect.height > 120 ||
+          rect.top < brandRect.bottom - 20 ||
+          rect.left < brandRect.left - 120 ||
+          rect.left > brandRect.right + 480
+        ) {
+          return null;
+        }
+        const marker = [htmlEl.className, htmlEl.getAttribute("role") || "", htmlEl.tagName].join(" ").toLowerCase();
+        const optionLike =
+          marker.includes("option") ||
+          marker.includes("select") ||
+          marker.includes("dropdown") ||
+          marker.includes("menu") ||
+          marker.includes("item");
+        if (!optionLike) {
+          return null;
+        }
+        const exact = normalizedText === target;
+        return {
+          el: htmlEl,
+          text,
+          score:
+            (exact ? 1000 : 0) +
+            (marker.includes("option") ? 120 : 0) +
+            (marker.includes("select") ? 80 : 0) +
+            (marker.includes("dropdown") ? 80 : 0) +
+            (marker.includes("item") ? 40 : 0) -
+            Math.abs(rect.top - brandRect.bottom) -
+            Math.abs(rect.left - brandRect.left) / 5 -
+            text.length / 20
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b!.score || 0) - (a!.score || 0)) as Array<{ el: HTMLElement; text: string; score: number }>;
+
+    const option = candidates[0];
+    if (!option) {
+      return "";
+    }
+    const clickable = (option.el.closest("button, [role='button'], a, [role='option'], [role='menuitem']") as HTMLElement | null) || option.el;
+    clickable.click();
+    return option.text || "";
+  }, normalizedExpected);
+}
+
 async function isPlatformQueryInputAvailable(page: Page, kind: "brand" | "spu"): Promise<boolean> {
   return page.evaluate((targetKind) => {
     const inputs = Array.from(document.querySelectorAll("input, textarea"))
@@ -1688,13 +1775,13 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
 
     await setPlatformQueryInputValue(page, "brand", brand);
     await page.waitForTimeout(1200);
-    let clickedBrandOptionText = await clickVisibleDropdownOption(page, brand).catch(() => "");
+    let clickedBrandOptionText = await clickPlatformBrandDropdownOption(page, brand).catch(() => "");
     await page.waitForTimeout(800);
     let brandValueConfirmed = await readPlatformQueryInputValue(page, "brand");
     if (!normalizeMatchText(brandValueConfirmed).includes(normalizedBrand)) {
       await setPlatformQueryInputValue(page, "brand", brand);
       await page.waitForTimeout(600);
-      clickedBrandOptionText = clickedBrandOptionText || (await clickVisibleDropdownOption(page, brand).catch(() => ""));
+      clickedBrandOptionText = clickedBrandOptionText || (await clickPlatformBrandDropdownOption(page, brand).catch(() => ""));
       await page.waitForTimeout(800);
       brandValueConfirmed = await readPlatformQueryInputValue(page, "brand");
     }

@@ -115,6 +115,21 @@ assert.match(
   /setPlatformQueryInputValue\(page, "brand", brand\)[\s\S]*readPlatformQueryInputValue\(page, "brand"\)[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)[\s\S]*Platform query self-check failed before clicking query[\s\S]*queryButton\.click/,
   "SPU query must fill and verify Feishu brand before filling SPU and clicking query"
 );
+assert.match(
+  publishSource,
+  /async function clickPlatformBrandDropdownOption[\s\S]*brandInput\.getBoundingClientRect\(\)[\s\S]*rect\.top < brandRect\.bottom[\s\S]*rect\.left < brandRect\.left[\s\S]*rect\.left > brandRect\.right/,
+  "SPU brand dropdown selection must be scoped to options near the brand input, not global page text such as the active shop name"
+);
+assert.match(
+  querySource,
+  /clickPlatformBrandDropdownOption\(page, brand\)/,
+  "SPU query must use the brand-input-scoped dropdown picker for brand selection"
+);
+assert.doesNotMatch(
+  querySource,
+  /clickVisibleDropdownOption\(page, brand\)/,
+  "SPU query must not use the global dropdown picker for brand selection"
+);
 assert.doesNotMatch(
   querySource,
   /brand combobox display did not expose a readable value after typing|brandOptionConfirmed\s*\|\|\s*!brandValueConfirmed/,
