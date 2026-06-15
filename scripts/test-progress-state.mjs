@@ -707,6 +707,24 @@ assert.equal(
   "spec_template_not_ready",
   "the real 商品规格/规格模板 control-discovery failure must not be classified as unknown"
 );
+const specTemplateBlankValueClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 价格库存模块未完成。Spec template left 1 blank required spec value input(s).; keyword=久光小泽"
+);
+assert.equal(
+  specTemplateBlankValueClass,
+  "spec_template_not_ready",
+  "blank spec-value inputs after template application must be retried as spec-template readiness failures"
+);
+assert.equal(
+  shouldRetryPublishFailure(specTemplateBlankValueClass, 2),
+  true,
+  "spec-template readiness failures must receive three whole-flow retries before stopping"
+);
+assert.equal(
+  shouldRetryPublishFailure(specTemplateBlankValueClass, 3),
+  false,
+  "spec-template readiness failures must stop after three retries"
+);
 assert.equal(
   shouldStopPublishBatchAfterFailure([
     { safelyPublished: false, errorClass: "spec_template_not_ready" },
@@ -1744,6 +1762,28 @@ assert.deepEqual(
     "原因：价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。"
   ],
   "Hermes compact status must not report a failed middle watermark as the latest publish position"
+);
+const compactBlankSpecStatus = formatAutoListingControllerCompactStatusText({
+  status: "failed",
+  summary:
+    "Publish failed for /shops/08店/延草纲目遠紅外治療貼水印16: Sequential publish flow stopped: 价格库存模块未完成。Spec template left 1 blank required spec value input(s).; keyword=久光小泽",
+  productName: "延草纲目遠紅外治療貼",
+  publishProductIndex: 20,
+  publishProductTotal: 20,
+  publishShopIndex: 10,
+  publishShopTotal: 10,
+  publishFailedWatermarkNo: 16,
+  feishuCompleted: 0,
+  feishuTotal: 4
+});
+assert.deepEqual(
+  compactBlankSpecStatus.split("\n"),
+  [
+    "状态：失败｜产品 20/20｜店铺 10/10｜失败项 水印16｜飞书 0/4",
+    "商品：延草纲目遠紅外治療貼",
+    "原因：规格模板存在空白占位值；按模板内容为准，续跑时不补写也不删除该空白项。"
+  ],
+  "Hermes failure text must report blank spec-template values instead of the broader price/inventory module"
 );
 const realtimeProgressSignal = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-12T12:41:37.337Z",

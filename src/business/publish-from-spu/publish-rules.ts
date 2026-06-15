@@ -388,7 +388,8 @@ export function classifyPublishFailure(message: string): string {
     text.includes("Spectemplatesearchinputwasnotfound") ||
     text.includes("Novisiblespectemplatematchedkeyword") ||
     text.includes("Manualspectemplateentrymodewasnotvisible") ||
-    text.includes("Spectemplateentrycontrolwasnotvisible")
+    text.includes("Spectemplateentrycontrolwasnotvisible") ||
+    text.includes("Spectemplateleft") && text.includes("blankrequiredspecvalueinput")
   ) {
     return "spec_template_not_ready";
   }
@@ -449,7 +450,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   const effectiveMaxRetryAttempts =
     errorClass === "platform_page_not_ready"
       ? Math.max(maxRetryAttempts, 4)
-      : errorClass === "price_inventory_not_ready"
+      : errorClass === "price_inventory_not_ready" || errorClass === "spec_template_not_ready"
         ? Math.max(maxRetryAttempts, 3)
       : maxRetryAttempts;
   if (retryAttempt >= effectiveMaxRetryAttempts) {
@@ -638,6 +639,9 @@ export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRule
         selectedTemplate || "<empty>"
       }`
     };
+  }
+  if (expectedTemplateKeyword && selectedTemplate.includes(expectedTemplateKeyword) && (input.priceRows > 0 || input.filledSpecValues > 0)) {
+    return { passed: true, issue: "" };
   }
   if (input.priceRows >= input.expectedSpecValues) {
     return { passed: true, issue: "" };

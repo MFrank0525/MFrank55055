@@ -27,10 +27,10 @@ const closures = [
   },
   {
     name: "spec template follows template and does not edit blank spec-value placeholders",
-    docs: ["价格库存已生成 4 行", "空白 `请输入规格值`", "不得填写"],
+    docs: ["价格库存已生成 4 行", "空白 `请输入规格值`", "不得填写", "不得删除"],
     rules: ["evaluateSpecTemplateCompletion", "input.priceRows >= input.expectedSpecValues"],
-    actions: ["applySpecTemplateWithVerificationOnPage", "removeBlankSpecValueInputsFromTemplate"],
-    tests: ["template-generated price rows are the authoritative signal", "blank placeholder spec inputs must not block"]
+    actions: ["applySpecTemplateWithVerificationOnPage", "countVisibleBlankSpecValueInputs"],
+    tests: ["template-generated price rows are the authoritative signal", "blank placeholder spec-value inputs must not be filled or deleted"]
   },
   {
     name: "detail images use final expected count instead of repeating qualification uploads",

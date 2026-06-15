@@ -13,4 +13,9 @@ assert.ok(
   "publish flow must not convert bounding boxes into click coordinates"
 );
 
+assert.ok(
+  !/dispatchDomClickAtPoint|elementFromPoint\(|page\.mouse\.move|page\.mouse\.click|mouse\.click\(/.test(source),
+  "publish flow must not dispatch actions by viewport coordinates; use DOM structure or locators"
+);
+
 console.log("publish no coordinate clicks rule passed");

@@ -46,33 +46,32 @@ assert.equal(
   "publisher must not retain a helper that uploads images into 主图3:4"
 );
 
-const titleInputFinderSource = sliceFunction("findTitleInputCenter");
-const shortTitleInputFinderSource = sliceFunction("findShortTitleInputCenter");
-const basicInputFinderSource = sliceFunction("findBasicInputCenterByFieldId");
+const basicFieldAvailableSource = sliceFunction("isBasicPublishFieldAvailable");
+const basicFieldSetterSource = sliceFunction("setBasicPublishFieldValue");
 assert.match(
   publishSource,
   /resolveBasicFieldIdAliases/,
   "basic-info field lookup must use rule-layer aliases for Doudian label variants"
 );
 assert.doesNotMatch(
-  basicInputFinderSource,
+  basicFieldAvailableSource + basicFieldSetterSource,
   /let fields = collectFields\(root \|\| document\)/,
   "missing attr-field-id must not fall back to an arbitrary page input before the matching field label is found"
 );
 assert.match(
-  titleInputFinderSource,
-  /resolveBasicFieldIdAliases\("title"\)/,
-  "title input finder must use rule-layer field aliases instead of fragile placeholder/type checks"
+  basicFieldSetterSource,
+  /field: "title" \| "shortTitle" \| "modelSpec"[\s\S]*resolveBasicFieldIdAliases\(field\)/,
+  "basic-info field setter must use rule-layer field aliases instead of fragile placeholder/type checks"
 );
 assert.match(
-  shortTitleInputFinderSource,
-  /resolveBasicFieldIdAliases\("shortTitle"\)/,
-  "short-title input finder must use rule-layer aliases instead of one exact label"
+  basicFieldAvailableSource,
+  /field: "title" \| "shortTitle" \| "modelSpec"[\s\S]*resolveBasicFieldIdAliases\(field\)/,
+  "basic-info field availability check must use rule-layer aliases instead of one exact label"
 );
 assert.doesNotMatch(
-  shortTitleInputFinderSource,
+  basicFieldAvailableSource,
   /getAttribute\("type"\)/,
-  "short-title input finder must not require an explicit type=text attribute; HTML text inputs may omit type"
+  "short-title availability check must not require an explicit type=text attribute; HTML text inputs may omit type"
 );
 
 const publishFlowSource = sliceFunction("runPublishFlow");
@@ -189,7 +188,7 @@ for (const marker of [
     "graphic upload failure recovery must check/reload publish-page health before resetting the graphic module"
   );
 }
-const deleteControlFinderSource = sliceFunction("findDeleteControlNearPreviewSafe");
+const deleteControlFinderSource = sliceFunction("clickLastGraphicSectionPreviewDeleteByDom");
 assert.match(
   deleteControlFinderSource,
   /shanchu/,
@@ -197,8 +196,8 @@ assert.match(
 );
 assert.match(
   deleteControlFinderSource,
-  /target\.height - 30/,
-  "thumbnail delete controls may sit inside the preview bottom edge and must be included in the search range"
+  /previewRoot\.contains\(node\)[\s\S]*nearPreview/,
+  "thumbnail delete controls must be selected from the preview DOM/container range instead of viewport coordinates"
 );
 
 const afterMedicalStart = publishSource.indexOf('stages.push({ step: "apply_medical_device_certificate", status: "completed" });');

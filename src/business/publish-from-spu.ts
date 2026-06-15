@@ -1225,56 +1225,12 @@ async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: str
   throw new Error(`Shop switch failed: expected=${expectedShopName}; actual=${lastActual || "<empty>"}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
 }
 
-async function clearAndTypeAtPoint(
-  page: Page,
-  point: { x: number; y: number },
-  value: string
-): Promise<void> {
-  await focusDomElementAtPoint(page, point);
-  await page.keyboard.press(getSelectAllShortcut()).catch(() => {});
-  await page.keyboard.press("Backspace").catch(() => {});
-  await page.keyboard.type(value, { delay: 40 });
-}
-
-async function dispatchDomClickAtPoint(page: Page, point: { x: number; y: number }): Promise<boolean> {
-  return page.evaluate(({ x, y }) => {
-    const target = document.elementFromPoint(x, y) as HTMLElement | null;
-    if (!target) {
-      return false;
-    }
-    const clickable =
-      (target.closest("button, [role='button'], a, [role='option'], [role='menuitem'], [role='tab'], input, textarea, [contenteditable='true']") as HTMLElement | null) ||
-      target;
-    clickable.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    clickable.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    clickable.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-    return true;
-  }, point).catch(() => false);
-}
-
-async function focusDomElementAtPoint(page: Page, point: { x: number; y: number }): Promise<boolean> {
-  return page.evaluate(({ x, y }) => {
-    const target = document.elementFromPoint(x, y) as HTMLElement | null;
-    const focusable =
-      (target?.closest("input, textarea, [contenteditable='true'], [role='textbox'], [role='combobox']") as HTMLElement | null) ||
-      target;
-    if (!focusable) {
-      return false;
-    }
-    focusable.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    focusable.focus();
-    focusable.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    focusable.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-    return true;
-  }, point).catch(() => false);
-}
-
 async function clickVisibleDropdownOption(
   page: Page,
   expected: string
 ): Promise<string> {
   const normalizedExpected = normalizeMatchText(expected);
-  const option = await page.evaluate((target) => {
+  return page.evaluate((target) => {
     const elements = Array.from(document.querySelectorAll("body *"));
     const candidates = elements
       .map((el) => {
@@ -1309,74 +1265,45 @@ async function clickVisibleDropdownOption(
           (normalizedText === target ? 3 : 0) -
           text.length / 200;
         return {
+          el: htmlEl,
           text,
-          score,
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2
+          score
         };
       })
       .filter(Boolean)
       .sort((a, b) => (b?.score || 0) - (a?.score || 0));
 
-    return candidates[0] || null;
+    const option = candidates[0];
+    if (!option) {
+      return "";
+    }
+    const clickable = (option.el.closest("button, [role='button'], a, [role='option'], [role='menuitem']") as HTMLElement | null) || option.el;
+    clickable.click();
+    return option.text || "";
   }, normalizedExpected);
-
-  if (!option) {
-    return "";
-  }
-
-  await dispatchDomClickAtPoint(page, option);
-  return option.text || "";
 }
 
-async function findPlatformQueryInput(
-  page: Page,
-  kind: "brand" | "spu"
-): Promise<{ x: number; y: number } | null> {
+async function isPlatformQueryInputAvailable(page: Page, kind: "brand" | "spu"): Promise<boolean> {
   return page.evaluate((targetKind) => {
     const inputs = Array.from(document.querySelectorAll("input, textarea"))
       .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
-      .map((input) => {
+      .filter((input) => {
         const rect = input.getBoundingClientRect();
-        if (rect.width <= 80 || rect.height <= 20) {
-          return null;
-        }
-        const context = [
-          input.getAttribute("placeholder") || "",
-          input.getAttribute("aria-label") || "",
-          input.parentElement?.textContent || "",
-          input.parentElement?.parentElement?.textContent || ""
-        ]
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        return {
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2,
-          width: rect.width,
-          type: input.getAttribute("type") || "",
-          role: input.getAttribute("role") || "",
-          context
-        };
-      })
-      .filter(Boolean) as Array<{ x: number; y: number; width: number; type: string; role: string; context: string }>;
-
-    const target =
-      targetKind === "brand"
-        ? inputs
-            .filter((input) => input.type === "search" || input.role === "combobox")
-            .sort((a, b) => a.y - b.y || a.x - b.x)[1] || null
-        : inputs
-            .map((input) => {
-              const score =
-                (/SPU/i.test(input.context) ? 160 : 0) +
-                (/\u540d\u79f0|ID|\u6761\u7801/i.test(input.context) ? 20 : 0) +
-                (input.type === "text" ? 10 : 0);
-              return { ...input, score };
-            })
-            .filter((input) => input.score > 0)
-            .sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x)[0] || null;
-    return target ? { x: target.x, y: target.y } : null;
+        const style = window.getComputedStyle(input);
+        return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
+      });
+    if (targetKind === "brand") {
+      return inputs.some((input) => input.getAttribute("type") === "search" || input.getAttribute("role") === "combobox");
+    }
+    return inputs.some((input) => {
+      const context = [
+        input.getAttribute("placeholder") || "",
+        input.getAttribute("aria-label") || "",
+        input.parentElement?.textContent || "",
+        input.parentElement?.parentElement?.textContent || ""
+      ].join(" ");
+      return /SPU/i.test(context);
+    });
   }, kind);
 }
 
@@ -1440,59 +1367,6 @@ async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", val
     },
     { targetKind: kind, nextValue: value }
   );
-}
-
-async function setPlatformInputValueAtPoint(
-  page: Page,
-  point: { x: number; y: number },
-  value: string
-): Promise<string> {
-  return page.evaluate(
-    ({ target, nextValue }) => {
-      const findInput = (): HTMLInputElement | HTMLTextAreaElement | null => {
-        const element = document.elementFromPoint(target.x, target.y) as HTMLElement | null;
-        if (!element) {
-          return null;
-        }
-        const direct =
-          (element.matches("input, textarea") ? (element as HTMLInputElement | HTMLTextAreaElement) : null) ||
-          (element.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null) ||
-          (element.closest("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null) ||
-          (element.closest("div")?.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null);
-        return direct;
-      };
-
-      const input = findInput();
-      if (!input) {
-        return "";
-      }
-      const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-      input.focus();
-      setter?.call(input, "");
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
-      setter?.call(input, nextValue);
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      return (input.value || "").trim();
-    },
-    { target: point, nextValue: value }
-  );
-}
-
-async function readPlatformInputValueAtPoint(
-  page: Page,
-  point: { x: number; y: number }
-): Promise<string> {
-  return page.evaluate((target) => {
-    const element = document.elementFromPoint(target.x, target.y) as HTMLElement | null;
-    const input =
-      (element?.matches("input, textarea") ? (element as HTMLInputElement | HTMLTextAreaElement) : null) ||
-      (element?.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null) ||
-      (element?.closest("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null) ||
-      (element?.closest("div")?.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null);
-    return (input?.value || "").trim();
-  }, point);
 }
 
 async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): Promise<string> {
@@ -1773,15 +1647,13 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       throw error;
     }
 
-    const brandBox = await findPlatformQueryInput(page, "brand");
-    if (!brandBox) {
+    if (!(await isPlatformQueryInputAvailable(page, "brand").catch(() => false))) {
       const error = new Error("Visible brand input not found.") as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-input-missing.png");
       throw error;
     }
 
-    const spuBox = await findPlatformQueryInput(page, "spu");
-    if (!spuBox) {
+    if (!(await isPlatformQueryInputAvailable(page, "spu").catch(() => false))) {
       const error = new Error("Visible SPU input not found.") as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-input-missing.png");
       throw error;
@@ -1789,7 +1661,7 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
 
     logInfo(`querying platform spu with brand=${brand}, spu=${spu}`);
 
-    await clearAndTypeAtPoint(page, brandBox, brand);
+    await setPlatformQueryInputValue(page, "brand", brand);
     await page.waitForTimeout(1200);
     let clickedBrandOptionText = await clickVisibleDropdownOption(page, brand).catch(() => "");
     await page.waitForTimeout(800);
@@ -1813,16 +1685,17 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
       logWarn(`brand combobox display did not expose a readable value after typing; continue with exact row match only. brand=${brand}`);
     }
 
-    await clearAndTypeAtPoint(page, spuBox, spu);
+    await setPlatformQueryInputValue(page, "spu", spu);
     await page.waitForTimeout(300);
-    let spuValueConfirmed = await readPlatformInputValueAtPoint(page, spuBox);
+    let spuValueConfirmed = await readPlatformQueryInputValue(page, "spu");
     if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
-      spuValueConfirmed = await setPlatformInputValueAtPoint(page, spuBox, spu);
+      await setPlatformQueryInputValue(page, "spu", spu);
+      spuValueConfirmed = await readPlatformQueryInputValue(page, "spu");
     }
     if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
       await setPlatformQueryInputValue(page, "spu", spu);
       await page.waitForTimeout(500);
-      spuValueConfirmed = await readPlatformInputValueAtPoint(page, spuBox);
+      spuValueConfirmed = await readPlatformQueryInputValue(page, "spu");
     }
     await page.waitForTimeout(800);
     if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
@@ -1867,16 +1740,16 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
     const candidates = await page.evaluate(({ targetBrand, targetSpu }: { targetBrand: string; targetSpu: string }) => {
       const rows = Array.from(document.querySelectorAll("tr"));
       return rows
-        .map((row) => {
+        .map((row, rowIndex) => {
           const rowEl = row as HTMLElement;
-          const publishButton = Array.from(row.querySelectorAll("button, a, span, div"))
-            .find((el) => ((el.textContent || "").trim() === "\u53D1\u5E03\u5546\u54C1")) as HTMLElement | undefined;
+          const publishButtons = Array.from(row.querySelectorAll("button, a, [role='button'], span, div"));
+          const publishButtonIndex = publishButtons.findIndex((el) => ((el.textContent || "").trim() === "\u53D1\u5E03\u5546\u54C1"));
+          const publishButton = publishButtonIndex >= 0 ? publishButtons[publishButtonIndex] as HTMLElement : undefined;
           if (!publishButton) {
             return null;
           }
           const rowRect = rowEl.getBoundingClientRect();
-          const buttonRect = publishButton.getBoundingClientRect();
-          if (rowRect.width <= 0 || rowRect.height <= 0 || buttonRect.width <= 0 || buttonRect.height <= 0) {
+          if (rowRect.width <= 0 || rowRect.height <= 0 || publishButton.getBoundingClientRect().width <= 0 || publishButton.getBoundingClientRect().height <= 0) {
             return null;
           }
           if (rowRect.y < 250) {
@@ -1901,8 +1774,8 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
             rowText: (rowEl.innerText || "").slice(0, 800),
             normalizedText: normalizedRowText,
             score,
-            clickX: buttonRect.x + buttonRect.width / 2,
-            clickY: buttonRect.y + buttonRect.height / 2
+            rowIndex,
+            publishButtonIndex
           };
         })
         .filter(Boolean);
@@ -1946,7 +1819,14 @@ async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, 
 
     const existingCreatePages = new Set(context.pages().filter((item) => item.url().includes("/ffa/g/create")));
     const popupPromise = context.waitForEvent("page", { timeout: 5000 }).catch(() => null);
-    await dispatchDomClickAtPoint(page, { x: matched.clickX, y: matched.clickY });
+    await page.evaluate((target) => {
+      const row = Array.from(document.querySelectorAll("tr"))[target.rowIndex];
+      const button = row
+        ? Array.from(row.querySelectorAll("button, a, [role='button'], span, div"))[target.publishButtonIndex] as HTMLElement | undefined
+        : undefined;
+      const clickable = (button?.closest("button, a, [role='button']") as HTMLElement | null) || button;
+      clickable?.click();
+    }, { rowIndex: matched.rowIndex, publishButtonIndex: matched.publishButtonIndex });
 
     const popup = await popupPromise;
     await page.waitForTimeout(2000).catch(() => {});
@@ -2106,132 +1986,56 @@ async function inspectPublishPageOnPage(
   };
 }
 
-async function findBasicInputCenterByFieldId(page: Page, fieldIds: string[]): Promise<{ x: number; y: number } | null> {
-  return page.evaluate((targetFieldIds) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const root =
-      targetFieldIds
-        .map((fieldId) => document.querySelector(`[attr-field-id="${fieldId}"]`) as HTMLElement | null)
-        .find(Boolean) || null;
-    const collectFields = (scope: ParentNode | Document = document): Array<{ x: number; y: number; top: number; score: number }> =>
-      Array.from(scope.querySelectorAll("input, textarea"))
-      .map((el) => {
-        const input = el as HTMLInputElement | HTMLTextAreaElement;
-        const rect = input.getBoundingClientRect();
-        const style = window.getComputedStyle(input);
-        if (
-          rect.width <= 80 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          input.disabled ||
-          input.readOnly
-        ) {
-          return null;
-        }
-        const context = normalize(
-          [
-            input.placeholder || "",
-            input.getAttribute("aria-label") || "",
-            input.parentElement?.textContent || "",
-            input.parentElement?.parentElement?.textContent || ""
-          ].join(" ")
-        );
-        const contextAliasIndex = targetFieldIds.findIndex((fieldId) => context.includes(fieldId));
-        return {
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2,
-          top: rect.top,
-          score:
-            (contextAliasIndex >= 0 ? 220 - contextAliasIndex * 20 : 0) +
-            ((input as HTMLInputElement).type === "hidden" ? -500 : 0) +
-            Math.min(120, rect.width / 8) -
-            Math.abs(rect.top - (root?.getBoundingClientRect().top || rect.top))
-        };
-      })
-      .filter(Boolean) as Array<{ x: number; y: number; top: number; score: number }>;
-
-    let fields = root
-      ? collectFields(root).sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.top || 0) - (b?.top || 0))
-      : [];
-
-    if (!fields.length && !root) {
-      const fallbackLabel = Array.from(document.querySelectorAll("body *"))
-        .map((el) => {
-          const node = el as HTMLElement;
-          const rect = node.getBoundingClientRect();
-          const style = window.getComputedStyle(node);
-          const text = normalize(node.innerText || node.textContent || "");
-          if (
-            !text ||
-            rect.width <= 0 ||
-            rect.height <= 0 ||
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            !targetFieldIds.some((fieldId) => text.includes(fieldId))
-          ) {
-            return null;
-          }
-          const aliasIndex = targetFieldIds.findIndex((fieldId) => text.includes(fieldId));
-          return {
-            rect,
-            text,
-            score: (targetFieldIds.some((fieldId) => text === fieldId) ? 1000 : 0) - aliasIndex * 20 - text.length
-          };
-        })
-        .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.rect.top || 0) - (b?.rect.top || 0))[0];
-
-      if (fallbackLabel) {
-        const labelRect = fallbackLabel.rect;
-        fields = collectFields(document)
-          .map((field) => ({
-            ...field,
-            score:
-              field.score +
-              (field.y >= labelRect.top - 24 && field.y <= labelRect.bottom + 96 ? 220 : 0) +
-              (field.x >= labelRect.left - 20 ? 80 : 0) -
-              Math.abs(field.y - (labelRect.top + labelRect.height / 2))
-          }))
-          .filter((field) => field.score > 0)
-          .sort((a, b) => b.score - a.score || a.top - b.top);
-      }
+async function isBasicPublishFieldAvailable(page: Page, field: "title" | "shortTitle" | "modelSpec"): Promise<boolean> {
+  const aliases = resolveBasicFieldIdAliases(field);
+  return page.evaluate((fieldAliases) => {
+    const normalize = (text: string): string => text.replace(/\s+/g, " ").trim();
+    const visible = (el: HTMLElement): boolean => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+    };
+    const hasUsableInput = (root: ParentNode): boolean =>
+      Array.from(root.querySelectorAll("input, textarea"))
+        .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
+        .some((input) => visible(input) && !input.disabled && !input.readOnly);
+    const roots = fieldAliases
+      .map((fieldId) => document.querySelector(`[attr-field-id="${fieldId}"]`) as HTMLElement | null)
+      .filter((root): root is HTMLElement => Boolean(root));
+    if (roots.some((root) => hasUsableInput(root))) {
+      return true;
     }
-
-    const target = fields[0];
-    return target ? { x: target.x, y: target.y } : null;
-  }, fieldIds);
+    const labels = Array.from(document.querySelectorAll("body *"))
+      .map((el) => el as HTMLElement)
+      .filter((el) => visible(el) && fieldAliases.some((alias) => normalize(el.innerText || el.textContent || "").includes(alias)));
+    return labels.some((label) => {
+      let node: HTMLElement | null = label;
+      for (let depth = 0; node && depth < 6; depth += 1) {
+        if (hasUsableInput(node)) {
+          return true;
+        }
+        node = node.parentElement;
+      }
+      return false;
+    });
+  }, aliases);
 }
 
-async function findTitleInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
-  return findBasicInputCenterByFieldId(page, resolveBasicFieldIdAliases("title"));
-}
-
-async function findShortTitleInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
-  return findBasicInputCenterByFieldId(page, resolveBasicFieldIdAliases("shortTitle"));
-}
-
-async function waitForBasicFieldCenter(
+async function waitForBasicFieldAvailable(
   page: Page,
   field: "title" | "shortTitle" | "modelSpec",
   timeoutMs: number,
   onProgress?: (message: string) => void
-): Promise<{ x: number; y: number } | null> {
+): Promise<boolean> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const center =
-      field === "title"
-        ? await findTitleInputCenter(page)
-        : field === "shortTitle"
-          ? await findShortTitleInputCenter(page)
-          : await findModelSpecInputCenter(page);
-    if (center) {
-      return center;
+    if (await isBasicPublishFieldAvailable(page, field).catch(() => false)) {
+      return true;
     }
     onProgress?.(`basic_info_wait_field: ${field}`);
     await page.waitForTimeout(1500);
   }
-  return null;
+  return false;
 }
 
 async function assertBasicPrefillReadyOnPage(
@@ -2240,7 +2044,7 @@ async function assertBasicPrefillReadyOnPage(
   onProgress?: (message: string) => void
 ): Promise<void> {
   const shortTitleFieldVisible = metadata.shortTitle
-    ? Boolean(await waitForBasicFieldCenter(page, "shortTitle", 18000, onProgress))
+    ? await waitForBasicFieldAvailable(page, "shortTitle", 18000, onProgress)
     : true;
   const readiness = evaluateBasicPrefillReadiness({
     shortTitleRequired: Boolean(metadata.shortTitle),
@@ -2251,91 +2055,64 @@ async function assertBasicPrefillReadyOnPage(
   }
 }
 
-async function findModelSpecInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
-  return page.evaluate(() => {
-    const collectFields = (): Array<{
-      input: HTMLInputElement | HTMLTextAreaElement;
-      type: string;
-      placeholder: string;
-      value: string;
-      className: string;
-      ancestors: string[];
-      x: number;
-      y: number;
-      width: number;
-    }> =>
-      Array.from(document.querySelectorAll("input, textarea"))
-      .map((el) => {
-        const input = el as HTMLInputElement | HTMLTextAreaElement;
-        const rect = input.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-          return null;
+async function setBasicPublishFieldValue(
+  page: Page,
+  field: "title" | "shortTitle" | "modelSpec",
+  value: string
+): Promise<boolean> {
+  const aliases = resolveBasicFieldIdAliases(field);
+  const updated = await page.evaluate(
+    ({ fieldAliases, nextValue }) => {
+      const normalize = (text: string): string => text.replace(/\s+/g, " ").trim();
+      const visible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const roots = fieldAliases
+        .map((fieldId) => document.querySelector(`[attr-field-id="${fieldId}"]`) as HTMLElement | null)
+        .filter((root): root is HTMLElement => Boolean(root));
+      if (!roots.length) {
+        const labels = Array.from(document.querySelectorAll("body *"))
+          .map((el) => el as HTMLElement)
+          .filter((el) => visible(el) && fieldAliases.some((alias) => normalize(el.innerText || el.textContent || "").includes(alias)));
+        for (const label of labels) {
+          let node: HTMLElement | null = label;
+          for (let depth = 0; node && depth < 6; depth += 1) {
+            const input = Array.from(node.querySelectorAll("input, textarea"))
+              .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
+              .find((candidate) => visible(candidate) && !candidate.disabled && !candidate.readOnly);
+            if (input) {
+              roots.push(node);
+              break;
+            }
+            node = node.parentElement;
+          }
         }
-        const ancestors: string[] = [];
-        let node = input.parentElement;
-        for (let index = 0; index < 6 && node; index += 1) {
-          ancestors.push((node.textContent || "").trim().replace(/\s+/g, " ").slice(0, 160));
-          node = node.parentElement;
-        }
-        return {
-          input,
-          type: input.getAttribute("type") || "",
-          placeholder: input.getAttribute("placeholder") || "",
-          value: "value" in input ? String(input.value || "") : "",
-          className: typeof input.className === "string" ? input.className : "",
-          ancestors,
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2,
-          width: rect.width
-        };
-      })
-      .filter(Boolean) as Array<{
-        input: HTMLInputElement | HTMLTextAreaElement;
-        type: string;
-        placeholder: string;
-        value: string;
-        className: string;
-        ancestors: string[];
-        x: number;
-        y: number;
-        width: number;
-      }>;
-
-    let target = collectFields().find(
-      (field) =>
-        field.type === "text" &&
-        field.placeholder === "\u8BF7\u8F93\u5165" &&
-        !field.className.includes("disabled") &&
-        field.ancestors.some((item) => item.includes("\u578B\u53F7\u89C4\u683C")) &&
-        field.width > 180
-    );
-    if (!target) {
-      return null;
-    }
-    const fieldRoot = target.input.closest('[attr-field-id="\u578B\u53F7\u89C4\u683C"]') || target.input;
-    fieldRoot.scrollIntoView({ block: "center", inline: "nearest" });
-    target = collectFields().find(
-      (field) =>
-        field.type === "text" &&
-        field.placeholder === "\u8BF7\u8F93\u5165" &&
-        !field.className.includes("disabled") &&
-        field.ancestors.some((item) => item.includes("\u578B\u53F7\u89C4\u683C")) &&
-        field.width > 180
-    );
-    if (!target || target.y < 120 || target.y > window.innerHeight - 80) {
-      return null;
-    }
-    return { x: target.x, y: target.y };
-  });
-}
-
-async function clearAndTypeAtCenter(page: Page, center: { x: number; y: number }, value: string): Promise<void> {
-  await focusDomElementAtPoint(page, center);
-  await page.keyboard.press(getSelectAllShortcut()).catch(() => {});
-  await page.keyboard.press("Backspace").catch(() => {});
-  await page.keyboard.type(value, { delay: 35 });
-  await page.keyboard.press("Tab").catch(() => {});
+      }
+      const input = roots
+        .flatMap((root) => Array.from(root.querySelectorAll("input, textarea")).map((el) => el as HTMLInputElement | HTMLTextAreaElement))
+        .find((candidate) => visible(candidate) && !candidate.disabled && !candidate.readOnly);
+      if (!input) {
+        return false;
+      }
+      const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      input.scrollIntoView({ block: "center", inline: "nearest" });
+      input.focus();
+      setter?.call(input, "");
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
+      setter?.call(input, nextValue);
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Tab" }));
+      input.blur();
+      return true;
+    },
+    { fieldAliases: aliases, nextValue: value }
+  );
   await page.waitForTimeout(150);
+  return updated;
 }
 
 type BasicFieldSnapshot = {
@@ -2631,21 +2408,17 @@ async function fillBasicPublishPage(
     const filledFields: string[] = [];
 
     if (metadata.title) {
-      const titleCenter = await findTitleInputCenter(page);
-      if (!titleCenter) {
+      if (!(await setBasicPublishFieldValue(page, "title", metadata.title))) {
         throw new Error("Title input not found on publish page.");
       }
-      await clearAndTypeAtCenter(page, titleCenter, metadata.title);
       filledFields.push("title");
       await page.waitForTimeout(400);
     }
 
     if (metadata.shortTitle) {
-      const shortTitleCenter = await findShortTitleInputCenter(page);
-      if (!shortTitleCenter) {
+      if (!(await setBasicPublishFieldValue(page, "shortTitle", metadata.shortTitle))) {
         throw new Error("Short title input not found on publish page.");
       }
-      await clearAndTypeAtCenter(page, shortTitleCenter, metadata.shortTitle);
       filledFields.push("shortTitle");
       await page.waitForTimeout(400);
     }
@@ -2661,11 +2434,9 @@ async function fillBasicPublishPage(
       }
       await clickVisibleText(page, "\u5c55\u5f00\u66f4\u591a").catch(() => false);
       await page.waitForTimeout(500);
-      const modelSpecCenter = await findModelSpecInputCenter(page);
-      if (!modelSpecCenter) {
+      if (!(await setBasicPublishFieldValue(page, "modelSpec", metadata.modelSpec))) {
         throw new Error("Model spec input not found on publish page.");
       }
-      await clearAndTypeAtCenter(page, modelSpecCenter, metadata.modelSpec);
       filledFields.push("modelSpec");
       await page.waitForTimeout(400);
     }
@@ -2706,21 +2477,17 @@ async function fillBasicPublishPageOnPage(
     const filledFields: string[] = [];
 
     if (metadata.title) {
-      const titleCenter = await waitForBasicFieldCenter(page, "title", 12000, onProgress);
-      if (!titleCenter) {
+      if (!(await setBasicPublishFieldValue(page, "title", metadata.title))) {
         throw new Error("Title input not found on publish page.");
       }
-      await clearAndTypeAtCenter(page, titleCenter, metadata.title);
       filledFields.push("title");
       await page.waitForTimeout(400);
     }
 
     if (metadata.shortTitle) {
-      const shortTitleCenter = await waitForBasicFieldCenter(page, "shortTitle", 18000, onProgress);
-      if (!shortTitleCenter) {
+      if (!(await setBasicPublishFieldValue(page, "shortTitle", metadata.shortTitle))) {
         throw new Error("Short title input not found on publish page.");
       }
-      await clearAndTypeAtCenter(page, shortTitleCenter, metadata.shortTitle);
       filledFields.push("shortTitle");
       await page.waitForTimeout(400);
     }
@@ -2738,9 +2505,7 @@ async function fillBasicPublishPageOnPage(
       }
       await clickVisibleText(page, "\u5c55\u5f00\u66f4\u591a").catch(() => false);
       await page.waitForTimeout(500);
-      const modelSpecCenter = await findModelSpecInputCenter(page);
-      if (modelSpecCenter) {
-        await clearAndTypeAtCenter(page, modelSpecCenter, metadata.modelSpec);
+      if (await setBasicPublishFieldValue(page, "modelSpec", metadata.modelSpec)) {
         filledFields.push("modelSpec");
         await page.waitForTimeout(400);
       } else {
@@ -3011,15 +2776,11 @@ async function dismissTransientOverlays(page: Page): Promise<void> {
       .filter(Boolean)
       .sort((a, b) => (b?.score || 0) - (a?.score || 0));
 
-    const target = candidates[0]?.el || (document.elementFromPoint(window.innerWidth - 28, 112) as Element | null);
+    const target = candidates[0]?.el || null;
     if (!target) {
       return false;
     }
-    if (target instanceof HTMLElement) {
-      target.click();
-    } else {
-      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-    }
+    target.click();
     return true;
   });
 
@@ -3360,10 +3121,23 @@ async function ensurePublishSectionTab(page: Page, text: string): Promise<void> 
     }
 
     if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
-      const center = await findPublishSectionTabCenter(page, text);
-      if (center) {
-        await dispatchDomClickAtPoint(page, center).catch(() => false);
-      }
+      await page.evaluate((targetText) => {
+        const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+        const target = Array.from(document.querySelectorAll("[role='tab'], button, [role='button'], body *"))
+          .map((el) => el as HTMLElement)
+          .find((el) => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return (
+              rect.width > 0 &&
+              rect.height > 0 &&
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              normalize(el.innerText || el.textContent || "") === targetText
+            );
+          });
+        ((target?.closest("[role='tab'], button, [role='button']") as HTMLElement | null) || target)?.click();
+      }, text).catch(() => false);
     }
 
     if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
@@ -3644,71 +3418,10 @@ async function revealFreightTemplateControl(page: Page): Promise<void> {
     await page.waitForTimeout(400);
     await scrollLabelIntoView(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false);
     await page.waitForTimeout(500);
-    const freightControl = await findDropdownControlByLabel(page, "运费模板").catch(() => null);
-    if (freightControl) {
+    if (await isDropdownControlByLabelAvailable(page, "运费模板").catch(() => false)) {
       return;
     }
   }
-}
-
-async function findFreightTemplateInputCenter(page: Page): Promise<{ x: number; y: number } | null> {
-  return page.evaluate(() => {
-    const fields = Array.from(document.querySelectorAll("input[type='search'], input[role='combobox'], input"))
-      .map((el) => {
-        const input = el as HTMLInputElement;
-        const rect = input.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-          return null;
-        }
-        const ancestors: string[] = [];
-        let node = input.parentElement;
-        for (let index = 0; index < 6 && node; index += 1) {
-          ancestors.push((node.textContent || "").trim().replace(/\s+/g, " ").slice(0, 160));
-          node = node.parentElement;
-        }
-        return {
-          type: input.getAttribute("type") || "",
-          role: input.getAttribute("role") || "",
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2,
-          width: rect.width,
-          text: (
-            input.value ||
-            input.parentElement?.innerText ||
-            input.parentElement?.parentElement?.innerText ||
-            input.closest("div")?.innerText ||
-            ""
-          ).trim(),
-          ancestors
-        };
-      })
-      .filter(Boolean) as Array<{
-        type: string;
-        role: string;
-        x: number;
-        y: number;
-        width: number;
-        text: string;
-        ancestors: string[];
-      }>;
-
-    const target = fields
-      .filter((field) => (field.type === "search" || field.role === "combobox") && field.width > 180)
-      .map((field) => {
-        const context = [field.text, ...field.ancestors].join(" ").replace(/\s+/g, " ").trim();
-        const score =
-          (context.includes("\u8fd0\u8d39\u6a21\u677f") ? 100 : 0) +
-          (context.includes("\u5ef6\u8349\u8fd0\u8d39") ? 80 : 0) +
-          (context.includes("\u5305\u90ae") ? 50 : 0) +
-          (context.includes("\u8fd0\u8d39") ? 40 : 0) -
-          (context.includes("7\u5929\u65e0\u7406\u7531\u9000\u8d27") ? 120 : 0) -
-          (context.includes("\u9000\u8d27") ? 60 : 0);
-        return { ...field, score };
-      })
-      .filter((field) => field.score > 0)
-      .sort((a, b) => b.score - a.score || a.y - b.y)[0];
-    return target ? { x: target.x, y: target.y } : null;
-  });
 }
 
 async function readFreightTemplateValue(page: Page): Promise<string> {
@@ -3744,10 +3457,7 @@ async function readFreightTemplateValue(page: Page): Promise<string> {
   });
 }
 
-async function findDropdownControlByLabel(
-  page: Page,
-  labelText: string
-): Promise<{ x: number; y: number; absY: number } | null> {
+async function isDropdownControlByLabelAvailable(page: Page, labelText: string): Promise<boolean> {
   return page.evaluate((targetLabel) => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
     const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
@@ -3766,7 +3476,7 @@ async function findDropdownControlByLabel(
       .sort((a, b) => (b!.score || 0) - (a!.score || 0))[0];
 
     if (!label) {
-      return null;
+      return false;
     }
 
     const candidates = elements
@@ -3790,19 +3500,12 @@ async function findDropdownControlByLabel(
           (text.includes("运费") ? 60 : 0) -
           Math.abs(rect.top - label.rect.top) -
           (rect.left - label.rect.right) / 10;
-        return score > 0
-          ? {
-              x: rect.x + rect.width / 2,
-              y: rect.y + rect.height / 2,
-              absY: rect.y + rect.height / 2 + window.scrollY,
-              score
-            }
-          : null;
+        return score > 0 ? { score } : null;
       })
       .filter(Boolean)
       .sort((a, b) => (b?.score || 0) - (a?.score || 0));
 
-    return candidates[0] || null;
+    return Boolean(candidates[0]);
   }, labelText);
 }
 
@@ -3941,78 +3644,6 @@ async function readSpecTemplateSelectedValue(page: Page, keyword: string): Promi
   }, keyword);
 }
 
-async function findServiceFreightTemplateCombobox(page: Page): Promise<{ x: number; y: number; absY: number } | null> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const roots = Array.from(
-      document.querySelectorAll(
-        ".ecom-g-select, .ant-select, [role='combobox'], [class*='select'], [class*='Select'], [class*='dropdown'], [class*='Dropdown']"
-      )
-    )
-      .map((el) => el as HTMLElement)
-      .map((root) => {
-        const rect = root.getBoundingClientRect();
-        const style = window.getComputedStyle(root);
-        if (
-          rect.width < 150 ||
-          rect.height < 28 ||
-          style.display === "none" ||
-          style.visibility === "hidden"
-        ) {
-          return null;
-        }
-        const marker = [String(root.className || ""), root.getAttribute("role") || "", root.tagName].join(" ").toLowerCase();
-        if (!marker.includes("select") && !marker.includes("dropdown") && !marker.includes("combobox")) {
-          return null;
-        }
-        const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
-        return {
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2,
-          absY: rect.y + rect.height / 2 + window.scrollY,
-          top: rect.top,
-          width: rect.width,
-          left: rect.left,
-          context: normalize(
-            [
-              input?.value || "",
-              root.innerText || "",
-              root.parentElement?.innerText || "",
-              root.parentElement?.parentElement?.innerText || ""
-            ].join(" ")
-          )
-        };
-      })
-      .filter(Boolean) as Array<{ x: number; y: number; absY: number; top: number; width: number; left: number; context: string }>;
-
-    const preferred = roots
-      .map((item) => {
-        const score =
-          (item.context.includes("\u8fd0\u8d39\u6a21\u677f") ? 300 : 0) +
-          (item.context.includes("\u5ef6\u8349\u8fd0\u8d39") ? 260 : 0) +
-          (item.context.includes("\u5305\u90ae") ? 220 : 0) +
-          (item.context.includes("\u8fd0\u8d39") ? 160 : 0) +
-          (item.context.includes("\u552e\u540e\u653f\u7b56") ? -240 : 0) +
-          (item.context.includes("7\u5929\u65e0\u7406\u7531\u9000\u8d27") ? -260 : 0) +
-          (item.context.includes("\u9000\u8d27") ? -160 : 0) +
-          (item.context.includes("\u4e0d\u5305\u542b") ? -120 : 0) +
-          (item.context.includes("\u63d0\u4f9b\u66f4\u957f") ? -120 : 0) +
-          (item.left > 200 ? 60 : 0) +
-          (item.top < 280 ? 200 : 0) +
-          (item.top < 360 ? 80 : 0) -
-          item.top / 16;
-        return { ...item, score };
-      })
-      .sort((a, b) => b.score - a.score || a.top - b.top)[0];
-
-    if (preferred && preferred.score > 0) {
-      return { x: preferred.x, y: preferred.y, absY: preferred.absY };
-    }
-
-    return null;
-  });
-}
-
 async function readServiceFreightTemplateValue(page: Page): Promise<string> {
   return page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
@@ -4115,7 +3746,7 @@ async function clickFreightTemplateDropdownOption(page: Page, keyword: string): 
           (marker.includes("item") ? 50 : 0) +
           (rect.top > 120 ? 40 : 0) -
           text.length;
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, text, score };
+        return { el, text, score };
       })
       .filter(Boolean)
       .sort((a, b) => (b?.score || 0) - (a?.score || 0));
@@ -4124,10 +3755,9 @@ async function clickFreightTemplateDropdownOption(page: Page, keyword: string): 
     if (!target) {
       return null;
     }
-    const node = document.elementFromPoint(target.x, target.y) as HTMLElement | null;
     const clickable = (
-      node?.closest("[role='option'], .ecom-g-select-item-option, .ant-select-item-option, .semi-select-option, li, .ecom-g-select-option") ||
-      node
+      target.el.closest("[role='option'], .ecom-g-select-item-option, .ant-select-item-option, .semi-select-option, li, .ecom-g-select-option") ||
+      target.el
     ) as HTMLElement | null;
     clickable?.click();
     return target.text;
@@ -4329,12 +3959,12 @@ async function clickLabeledSelect(page: Page, labelText: string): Promise<boolea
 }
 
 async function chooseNonFreeShippingTemplate(page: Page): Promise<string> {
-  const freightCenter = await findFreightTemplateInputCenter(page);
-  if (!freightCenter) {
+  const opened =
+    (await clickLabeledSelect(page, "运费模板").catch(() => false)) ||
+    (await clickDropdownControlByLabelDirect(page, "运费模板").catch(() => false));
+  if (!opened) {
     throw new Error("Freight template input not found on publish page.");
   }
-
-  await dispatchDomClickAtPoint(page, freightCenter);
   await page.waitForTimeout(1200);
 
   const picked = await page.evaluate(() => {
@@ -4367,23 +3997,30 @@ async function chooseNonFreeShippingTemplate(page: Page): Promise<string> {
           (marker.includes("item") ? 2 : 0) -
           text.length / 50;
         return {
+          el: htmlEl,
           text,
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2,
           score
         };
       })
       .filter(Boolean)
       .sort((a, b) => (b?.score || 0) - (a?.score || 0));
 
-    return candidates[0] || null;
+    const target = candidates[0];
+    if (!target) {
+      return null;
+    }
+    const clickable = (
+      target.el.closest("[role='option'], .ecom-g-select-item-option, .ant-select-item-option, .semi-select-option, li, .ecom-g-select-option") ||
+      target.el
+    ) as HTMLElement;
+    clickable.click();
+    return { text: target.text };
   });
 
   if (!picked) {
     throw new Error("No visible non-free-shipping freight template option found.");
   }
 
-  await dispatchDomClickAtPoint(page, picked);
   await page.waitForTimeout(800);
   return picked.text;
 }
@@ -4403,23 +4040,7 @@ async function chooseKeywordFreightTemplate(page: Page, keyword: string): Promis
       (await clickLabeledSelect(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false)) ||
       (await clickDropdownControlByLabelDirect(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false));
     if (!clickedDirect) {
-      const freightCenter =
-        (await findDropdownControlByLabel(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => null)) ||
-        (await findServiceFreightTemplateCombobox(page).catch(() => null)) ||
-        (await findFreightTemplateInputCenter(page));
-      if (!freightCenter) {
-        throw new Error(`No visible freight template combobox matched keyword: ${keyword}`);
-      }
-      let clickY = freightCenter.y;
-      if ("absY" in freightCenter && typeof freightCenter.absY === "number") {
-        await page
-          .evaluate((top) => window.scrollTo({ top: Math.max(0, top - 220), behavior: "instant" }), freightCenter.absY)
-          .catch(() => {});
-        await page.waitForTimeout(450);
-        const scrollY = await page.evaluate(() => window.scrollY).catch(() => 0);
-        clickY = freightCenter.absY - scrollY;
-      }
-      await dispatchDomClickAtPoint(page, { x: freightCenter.x, y: clickY });
+      throw new Error(`No visible freight template combobox matched keyword: ${keyword}`);
     }
     await page.waitForTimeout(600);
 
@@ -4660,159 +4281,6 @@ async function countVisibleBlankSpecValueInputs(page: Page): Promise<number> {
   });
 }
 
-async function removeOneBlankSpecValueInput(page: Page): Promise<boolean> {
-  const clicked = await page.evaluate(() => {
-    const findClosestRowContainer = (input: HTMLInputElement): HTMLElement => {
-      let current: HTMLElement | null = input;
-      for (let depth = 0; current && depth < 8; depth += 1) {
-        const textInputCount = Array.from(current.querySelectorAll("input"))
-          .map((el) => el as HTMLInputElement)
-          .filter((candidate) => {
-            const rect = candidate.getBoundingClientRect();
-            const type = (candidate.getAttribute("type") || "text").toLowerCase();
-            return rect.width > 80 && rect.height > 0 && !["hidden", "checkbox", "radio", "file"].includes(type);
-          }).length;
-        const actionCount = current.querySelectorAll("button, [role='button'], svg").length;
-        if (textInputCount === 1 && actionCount > 0) {
-          return current;
-        }
-        current = current.parentElement;
-      }
-      return input.parentElement || input;
-    };
-
-    const labels = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = (el.textContent || "").trim();
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (!text || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        return { text, top: rect.top, bottom: rect.bottom };
-      })
-      .filter(Boolean) as Array<{ text: string; top: number; bottom: number }>;
-
-    const specLabel = labels.find((item) => item.text === "\u5546\u54c1\u89c4\u683c");
-    const priceLabel = labels.find((item) => item.text === "\u4ef7\u683c\u4e0e\u5e93\u5b58" && (!specLabel || item.top > specLabel.top));
-    const topBound = specLabel ? specLabel.bottom - 30 : 160;
-    const bottomBound = priceLabel ? priceLabel.top - 6 : window.innerHeight + 1200;
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-
-    const blankInput = Array.from(document.querySelectorAll("input"))
-      .map((el) => el as HTMLInputElement)
-      .find((input) => {
-        const rect = input.getBoundingClientRect();
-        const style = window.getComputedStyle(input);
-        const placeholder = normalize(input.getAttribute("placeholder") || "");
-        const context = normalize(
-          [
-            placeholder,
-            input.parentElement?.textContent || "",
-            input.parentElement?.parentElement?.textContent || "",
-            input.closest("div")?.textContent || ""
-          ].join(" ")
-        );
-        return (
-          rect.width > 120 &&
-          rect.height > 0 &&
-          rect.top >= topBound &&
-          rect.top <= bottomBound &&
-          style.display !== "none" &&
-          style.visibility !== "hidden" &&
-          !input.disabled &&
-          !input.readOnly &&
-          !input.value.trim() &&
-          (placeholder.includes("\u8bf7\u8f93\u5165\u89c4\u683c\u503c") || context.includes("\u8bf7\u8f93\u5165\u89c4\u683c\u503c"))
-        );
-      });
-    if (!blankInput) {
-      return null;
-    }
-
-    const inputRect = blankInput.getBoundingClientRect();
-    const rowContainer = findClosestRowContainer(blankInput);
-    const rowRect = rowContainer.getBoundingClientRect();
-    const rowCandidates = Array.from(rowContainer.querySelectorAll("button, [role='button'], svg"));
-    const candidates = (rowCandidates.length ? rowCandidates : Array.from(document.querySelectorAll("button, [role='button'], svg")))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || el.getAttribute("aria-label") || "");
-        const marker = normalize(
-          [
-            text,
-            el.getAttribute("class") || "",
-            el.getAttribute("aria-label") || "",
-            el.closest("button, [role='button']")?.getAttribute("class") || "",
-            el.closest("button, [role='button']")?.getAttribute("aria-label") || ""
-          ].join(" ")
-        ).toLowerCase();
-        if (
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          rect.top < rowRect.top - 12 ||
-          rect.bottom > rowRect.bottom + 12 ||
-          rect.left < inputRect.right - 20 ||
-          rect.left > inputRect.right + 180 ||
-          Math.abs(rect.top + rect.height / 2 - (inputRect.top + inputRect.height / 2)) > 28 ||
-          marker.includes("add") ||
-          marker.includes("plus") ||
-          marker.includes("\u6dfb\u52a0") ||
-          marker.includes("\u4e0b\u79fb") ||
-          marker.includes("\u4e0a\u79fb") ||
-          text.includes("\u89c4\u683c\u9884\u89c8") ||
-          text.includes("\u5b58\u50a8\u6a21\u677f")
-        ) {
-          return null;
-        }
-        return {
-          element: el,
-          distance:
-            Math.min(Math.abs(rect.right - inputRect.left), Math.abs(rect.left - inputRect.right)) +
-            Math.abs(rect.top + rect.height / 2 - (inputRect.top + inputRect.height / 2)) +
-            (el.tagName.toLowerCase() === "button" || el.getAttribute("role") === "button" ? -20 : 0)
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (a?.distance || 0) - (b?.distance || 0)) as Array<{ element: HTMLElement; distance: number }>;
-
-    const target = candidates[0]?.element;
-    if (!target) {
-      return false;
-    }
-    const clickable = (target.closest("button, [role='button']") as HTMLElement | null) || target.parentElement || target;
-    clickable.click();
-    return true;
-  });
-
-  if (!clicked) {
-    return false;
-  }
-  await page.waitForTimeout(500);
-  return true;
-}
-
-async function removeBlankSpecValueInputsFromTemplate(page: Page): Promise<number> {
-  let removed = 0;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const blankCount = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
-    if (!blankCount) {
-      return removed;
-    }
-    const removedOne = await removeOneBlankSpecValueInput(page).catch(() => false);
-    if (!removedOne) {
-      return removed;
-    }
-    removed += 1;
-  }
-  return removed;
-}
-
 async function applySpecTemplateWithVerificationOnPage(
   page: Page,
   title?: string
@@ -4851,9 +4319,6 @@ async function applySpecTemplateWithVerificationOnPage(
         filledValues,
         issue: ""
       };
-    }
-    if (initialRule.issue.includes("blank required spec value")) {
-      await removeBlankSpecValueInputsFromTemplate(page).catch(() => 0);
     }
   }
 
@@ -5922,10 +5387,10 @@ async function purgeForbiddenGraphicSections(page: Page): Promise<string[]> {
         break;
       }
 
-      const target = previews[previews.length - 1];
-      await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
-      await page.waitForTimeout(250);
-      await dispatchDomClickAtPoint(page, { x: target.x + target.width - 10, y: target.y + 10 }).catch(() => false);
+      const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, sectionName).catch(() => false);
+      if (!clicked) {
+        break;
+      }
       await page.waitForTimeout(500);
       await clickConfirmIfVisible(page);
       await dismissTransientOverlays(page);
@@ -5999,65 +5464,153 @@ async function clickConfirmIfVisibleSafe(page: Page): Promise<void> {
   }
 }
 
-async function findDeleteControlNearPreviewSafe(
-  page: Page,
-  preview: { x: number; y: number; width: number; height: number }
-): Promise<{ x: number; y: number } | null> {
-  return page.evaluate((target) => {
-    const candidates = Array.from(document.querySelectorAll("div, span, button, a, [role='button'], i, svg, use, path"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
+async function clickLastGraphicSectionPreviewDeleteByDom(page: Page, sectionName: string): Promise<boolean> {
+  return page.evaluate(
+    ({ targetSection, sectionLabels, uploadPlaceholderPattern }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const isVisible = (el: HTMLElement): boolean => {
         const rect = el.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-          return null;
-        }
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const labels = Array.from(document.querySelectorAll("body *"))
+        .map((el) => {
+          const node = el as HTMLElement;
+          const rect = node.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) {
+            return null;
+          }
+          return { el: node, text: normalize(node.textContent || "").replace(/^\*/, "").trim(), rect };
+        })
+        .filter(Boolean) as Array<{ el: HTMLElement; text: string; rect: DOMRect }>;
 
-        const marker = [
+      const contentLabels = labels.filter((item) => item.rect.left > 250);
+      const current = contentLabels
+        .map((item) => {
+          const exact = item.text === targetSection;
+          const starts = item.text.startsWith(targetSection);
+          const shortIncludes = item.text.includes(targetSection) && item.text.length <= targetSection.length + 80;
+          if (!exact && !starts && !shortIncludes) {
+            return null;
+          }
+          return { ...item, score: (exact ? 1000 : starts ? 700 : 300) - item.text.length - item.rect.left / 1000 };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b!.score || 0) - (a!.score || 0))[0];
+      if (!current) {
+        return false;
+      }
+
+      const nextTop =
+        contentLabels
+          .filter((item) => sectionLabels.includes(item.text) && item.rect.top > current.rect.top)
+          .sort((a, b) => a.rect.top - b.rect.top)[0]?.rect.top || current.rect.bottom + 500;
+
+      const isUploadPlaceholderContext = (el: HTMLElement): boolean => {
+        const context = [el.textContent || "", el.parentElement?.textContent || "", el.closest("div")?.textContent || ""]
+          .join(" ")
+          .replace(/\s+/g, "");
+        return !context.includes("删除") && new RegExp(uploadPlaceholderPattern).test(context);
+      };
+
+      const previews = Array.from(document.querySelectorAll("img, [style*='background-image']"))
+        .map((el) => {
+          const node = el as HTMLElement;
+          const rect = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          if (
+            rect.width < 40 ||
+            rect.height < 40 ||
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.position === "fixed" ||
+            style.position === "sticky" ||
+            rect.top < current.rect.top - 20 ||
+            rect.top > nextTop - 10 ||
+            rect.left <= current.rect.left ||
+            isUploadPlaceholderContext(node)
+          ) {
+            return null;
+          }
+          return { el: node, rect };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a!.rect.top - b!.rect.top || a!.rect.left - b!.rect.left) as Array<{ el: HTMLElement; rect: DOMRect }>;
+      const preview = previews[previews.length - 1];
+      if (!preview) {
+        return false;
+      }
+
+      let previewRoot: HTMLElement = preview.el;
+      for (let depth = 0; previewRoot.parentElement && depth < 5; depth += 1) {
+        const parent = previewRoot.parentElement as HTMLElement;
+        const parentRect = parent.getBoundingClientRect();
+        if (parentRect.width >= preview.rect.width && parentRect.height >= preview.rect.height) {
+          previewRoot = parent;
+        }
+      }
+      previewRoot.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true, cancelable: true, view: window }));
+      previewRoot.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
+
+      const markerText = (el: HTMLElement): string =>
+        [
           el.textContent || "",
           el.getAttribute("aria-label") || "",
           el.getAttribute("title") || "",
           el.getAttribute("href") || "",
           el.getAttribute("xlink:href") || "",
           String(el.className || "")
-        ].join(" ");
-        const normalizedMarker = marker.replace(/\s+/g, "").toLowerCase();
-        const centerX = rect.x + rect.width / 2;
-        const centerY = rect.y + rect.height / 2;
-        const horizontallyAligned = centerX >= target.x - 30 && centerX <= target.x + target.width + 140;
-        const belowPreview = centerY >= target.y + target.height - 30 && centerY <= target.y + target.height + 110;
-        const upperFallback = centerY >= target.y - 120 && centerY <= target.y + 50;
-
-        if (!horizontallyAligned || (!belowPreview && !upperFallback)) {
-          return null;
-        }
-
-        const hasDeleteText = normalizedMarker.includes("删除");
-        const hasDeleteSemantics = /(delete|remove|trash|shanchu|icon-delete|icon-trash|semi-icon-close|close)/.test(normalizedMarker);
-        const looksLikeActionControl = /(actionafter|preview-button|material-button|icon|shanchu|删除)/.test(normalizedMarker);
-        if ((!hasDeleteText && !hasDeleteSemantics) || !looksLikeActionControl) {
-          return null;
-        }
-
-        let score = 0;
-        if (hasDeleteText) {
-          score += 300;
-        }
-        if (normalizedMarker === "删除") {
-          score += 200;
-        }
-        if (belowPreview) {
-          score += 120;
-        }
-        score += Math.max(0, 80 - Math.abs(centerX - (target.x + target.width / 2)));
-        score -= Math.abs(centerY - (target.y + target.height + 35));
-
-        return { x: centerX, y: centerY, score };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-
-    return candidates[0] || null;
-  }, preview);
+        ]
+          .join(" ")
+          .replace(/\s+/g, "")
+          .toLowerCase();
+      const isDeleteControl = (el: HTMLElement): boolean => {
+        const marker = markerText(el);
+        return marker.includes("删除") || /(delete|remove|trash|shanchu|icon-delete|icon-trash|semi-icon-close|close)/.test(marker);
+      };
+      const candidates = Array.from(document.querySelectorAll("button, [role='button'], a, div, span, i, svg, use, path"))
+        .map((el) => {
+          const node = el as HTMLElement;
+          if (!isVisible(node) || !isDeleteControl(node)) {
+            return null;
+          }
+          const rect = node.getBoundingClientRect();
+          const inSection =
+            rect.top >= current.rect.top - 140 &&
+            rect.top <= nextTop + 130 &&
+            rect.left >= current.rect.left - 60;
+          const inPreviewRoot = previewRoot.contains(node);
+          const nearPreview =
+            rect.left >= preview.rect.left - 50 &&
+            rect.left <= preview.rect.right + 180 &&
+            rect.top >= preview.rect.top - 180 &&
+            rect.top <= preview.rect.bottom + 150;
+          if (!inPreviewRoot && (!inSection || !nearPreview)) {
+            return null;
+          }
+          const text = normalize(node.textContent || "");
+          return {
+            el: (node.closest("button, [role='button'], a") as HTMLElement | null) || node,
+            score:
+              (text === "删除" ? 1000 : 0) +
+              (inPreviewRoot ? 350 : 0) +
+              (nearPreview ? 200 : 0) -
+              Math.abs(rect.top - preview.rect.top) / 3 -
+              Math.abs(rect.left - preview.rect.right) / 5
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b!.score || 0) - (a!.score || 0)) as Array<{ el: HTMLElement; score: number }>;
+      const target = candidates[0]?.el || null;
+      if (!target) {
+        return false;
+      }
+      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      target.click();
+      return true;
+    },
+    { targetSection: sectionName, sectionLabels: GRAPHIC_SECTION_LABELS, uploadPlaceholderPattern: "\u4e0a\u4f20(?:\u767d\u5e95\u56fe|\u4e3b\u56fe|\u8f85\u52a9\u56fe)" }
+  );
 }
 
 async function purgeForbiddenGraphicSectionsSafe(page: Page): Promise<string[]> {
@@ -6071,14 +5624,10 @@ async function purgeForbiddenGraphicSectionsSafe(page: Page): Promise<string[]> 
         break;
       }
 
-      const target = previews[previews.length - 1];
-      await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
-      await page.waitForTimeout(250);
-      const deleteControl = await findDeleteControlNearPreviewSafe(page, target);
-      if (!deleteControl) {
+      const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, sectionName).catch(() => false);
+      if (!clicked) {
         break;
       }
-      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
       await page.waitForTimeout(500);
       await clickConfirmIfVisibleSafe(page);
       await dismissTransientOverlays(page);
@@ -6388,14 +5937,10 @@ async function purgeForbiddenGraphicSectionsStrict(page: Page): Promise<string[]
         break;
       }
 
-      const target = previews[previews.length - 1];
-      await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
-      await page.waitForTimeout(250);
-      const deleteControl = await findDeleteControlNearPreviewSafe(page, target);
-      if (!deleteControl) {
+      const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, sectionName).catch(() => false);
+      if (!clicked) {
         break;
       }
-      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
 
       await page.waitForTimeout(500);
       await clickConfirmIfVisibleStrict(page);
@@ -6429,14 +5974,10 @@ async function clearGraphicSectionPreviewsStrict(page: Page, sectionName: string
       break;
     }
 
-    const target = previews[previews.length - 1];
-    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2).catch(() => {});
-    await page.waitForTimeout(250);
-    const deleteControl = await findDeleteControlNearPreviewSafe(page, target).catch(() => null);
-    if (!deleteControl) {
+    const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, sectionName).catch(() => false);
+    if (!clicked) {
       break;
     }
-    await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
 
     await page.waitForTimeout(500);
     await clickConfirmIfVisibleStrict(page);
@@ -6463,95 +6004,9 @@ async function clearWhiteBackgroundPreviewsStrict(page: Page, maxAttempts = 10):
       break;
     }
 
-    const target = await page.evaluate(() => {
-      const normalize = (value: string): string => String(value || "").replace(/\s+/g, " ").trim();
-      const labels = Array.from(document.querySelectorAll("body *"))
-        .map((el) => {
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return { text: normalize((el as HTMLElement).textContent || ""), rect };
-        })
-        .filter((item) => item.text && item.rect.width > 0 && item.rect.height > 0 && item.rect.left > 250);
-      const label = labels
-        .filter((item) => item.text === "\u767d\u5e95\u56fe" || item.text.startsWith("\u767d\u5e95\u56fe"))
-        .sort((a, b) => a.text.length - b.text.length)[0];
-      if (!label) {
-        return null;
-      }
-      const nextTop =
-        labels
-          .filter((item) => ["\u5546\u54c1\u8be6\u60c5", "\u8be6\u60c5\u9875"].includes(item.text) && item.rect.top > label.rect.top)
-          .sort((a, b) => a.rect.top - b.rect.top)[0]?.rect.top || label.rect.bottom + 500;
-
-      const image = Array.from(document.querySelectorAll("img, [style*='background-image']"))
-        .map((el) => {
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          const style = window.getComputedStyle(el as HTMLElement);
-          if (
-            rect.width < 40 ||
-            rect.height < 40 ||
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            style.position === "fixed" ||
-            style.position === "sticky" ||
-            rect.top < label.rect.top - 20 ||
-            rect.top >= nextTop - 10 ||
-            rect.left <= label.rect.left
-          ) {
-            return null;
-          }
-          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-        })
-        .filter(Boolean)[0] as { x: number; y: number; width: number; height: number } | undefined;
-
-      return image || null;
-    });
-    if (!target) {
+    const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, "\u767d\u5e95\u56fe").catch(() => false);
+    if (!clicked) {
       break;
-    }
-
-    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2).catch(() => {});
-    await page.waitForTimeout(800);
-    const deleteControl = await page
-      .evaluate((preview) => {
-        const controls = Array.from(document.querySelectorAll("div, span, button, a, [role='button'], i, svg"))
-          .map((el) => {
-            const rect = (el as HTMLElement).getBoundingClientRect();
-            const text = ((el as HTMLElement).textContent || "").trim();
-            const marker = [
-              text,
-              el.getAttribute("aria-label") || "",
-              el.getAttribute("title") || "",
-              String((el as HTMLElement).className || "")
-            ]
-              .join(" ")
-              .replace(/\s+/g, "")
-              .toLowerCase();
-            const centerX = rect.x + rect.width / 2;
-            const centerY = rect.y + rect.height / 2;
-            const inPopoverRange =
-              centerX >= preview.x - 30 &&
-              centerX <= preview.x + preview.width + 170 &&
-              centerY >= preview.y - 160 &&
-              centerY <= preview.y + preview.height + 130;
-            if (!inPopoverRange || !(marker.includes("\u5220\u9664") || marker.includes("delete") || marker.includes("trash"))) {
-              return null;
-            }
-            return {
-              x: centerX,
-              y: centerY,
-              score: (text === "\u5220\u9664" ? 1000 : 0) + centerX - Math.abs(centerY - (preview.y - 35))
-            };
-          })
-          .filter(Boolean)
-          .sort((a, b) => (b!.score || 0) - (a!.score || 0));
-        return controls[0] || null;
-      }, target)
-      .catch(() => null);
-
-    if (deleteControl) {
-      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
-    } else {
-      await dispatchDomClickAtPoint(page, { x: target.x + target.width + 82, y: target.y - 38 }).catch(() => false);
     }
     await page.waitForTimeout(1000);
     await clickConfirmIfVisibleStrict(page);
@@ -6681,19 +6136,16 @@ async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
           ) {
             return null;
           }
-          return {
-            x: rect.x + rect.width / 2,
-            y: rect.y + rect.height / 2
-          };
+          return { el };
         })
         .filter(Boolean)
-        .sort((a, b) => a!.y - b!.y);
+        .sort((a, b) => a!.el.getBoundingClientRect().top - b!.el.getBoundingClientRect().top);
 
       const target = nodes[0];
       if (!target) {
         return false;
       }
-      const clickable = document.elementFromPoint(target.x, target.y) as HTMLElement | null;
+      const clickable = (target.el.closest("button, [role='button'], a") as HTMLElement | null) || target.el;
       clickable?.click();
       return Boolean(clickable);
     });
@@ -6782,14 +6234,11 @@ async function clearDetailImagePreviewsStrict(page: Page, maxAttempts = 12): Pro
       break;
     }
 
-    const target = previews[previews.length - 1];
-    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2).catch(() => {});
-    await page.waitForTimeout(450);
-    const deleteControl = await findDeleteControlNearPreviewSafe(page, target).catch(() => null);
-    if (deleteControl) {
-      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
-    } else {
-      await dispatchDomClickAtPoint(page, { x: target.x + target.width + 82, y: target.y - 38 }).catch(() => false);
+    const clicked =
+      (await clickLastGraphicSectionPreviewDeleteByDom(page, "\u8be6\u60c5\u9875").catch(() => false)) ||
+      (await clickLastGraphicSectionPreviewDeleteByDom(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false));
+    if (!clicked) {
+      break;
     }
     await page.waitForTimeout(900);
     await clickConfirmIfVisibleStrict(page);
@@ -6939,17 +6388,11 @@ async function uploadWhiteBackgroundImage(page: Page, assets: ProductAssets): Pr
     if (!previews.length) {
       break;
     }
-    const target = previews[previews.length - 1];
-    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
-    await page.waitForTimeout(250);
-    const deleteControl = await findDeleteControlNearPreviewSafe(page, target);
-    if (deleteControl) {
-      await dispatchDomClickAtPoint(page, deleteControl).catch(() => false);
-    } else {
-      const clickedFallback = await clickWhiteBackgroundDeleteFallback().catch(() => false);
-      if (!clickedFallback) {
-        await dispatchDomClickAtPoint(page, { x: target.x + target.width - 10, y: target.y + 10 }).catch(() => false);
-      }
+    const clicked =
+      (await clickLastGraphicSectionPreviewDeleteByDom(page, "\u767d\u5e95\u56fe").catch(() => false)) ||
+      (await clickWhiteBackgroundDeleteFallback().catch(() => false));
+    if (!clicked) {
+      break;
     }
     await page.waitForTimeout(500);
     await clickConfirmIfVisibleStrict(page);

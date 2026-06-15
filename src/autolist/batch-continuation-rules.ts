@@ -1051,6 +1051,9 @@ function compactAutoListingControllerReason(summary?: string): string {
   if (/Platform SPU query page was not ready|Platform SPU query controls are incomplete|标品检索页.*控件/i.test(text)) {
     return "标品检索页控件未加载完整，已停止，可续跑。";
   }
+  if (/Spec template left .*blank required spec value input|Spectemplateleft.*blankspecvalueinput/i.test(text)) {
+    return "规格模板存在空白占位值；按模板内容为准，续跑时不补写也不删除该空白项。";
+  }
   if (/Price\/inventory verification failed|价格库存模块未完成/i.test(text)) {
     return "价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。";
   }

@@ -57,15 +57,15 @@ assert.deepEqual(
 
 assert.deepEqual(
   evaluateSpecTemplateCompletion({
+    selectedTemplate: "久光小泽",
+    expectedTemplateKeyword: "久光小泽",
     filledSpecValues: 3,
     expectedSpecValues: 4,
     priceRows: 3,
     blankSpecValueInputs: 1
   }),
-  {
-    passed: false,
-    issue: "Spec template left 1 blank required spec value input(s)."
-  }
+  { passed: true, issue: "" },
+  "selected spec templates are authoritative; blank placeholder spec-value inputs must not be filled or deleted"
 );
 
 assert.deepEqual(
@@ -143,22 +143,19 @@ assert.match(
 
 assert.match(
   publishSource,
-  /clickVisibleText\(page, "\\u5c55\\u5f00\\u66f4\\u591a"\)[\s\S]*findModelSpecInputCenter/,
-  "model spec filling must expand hidden category attributes before locating the input"
-);
-
-const findModelSpecStart = publishSource.indexOf("async function findModelSpecInputCenter");
-const findModelSpecEnd = publishSource.indexOf("async function clearAndTypeAtCenter", findModelSpecStart);
-const findModelSpecSource = publishSource.slice(findModelSpecStart, findModelSpecEnd);
-assert.match(
-  findModelSpecSource,
-  /scrollIntoView/,
-  "model spec input must be scrolled into the viewport before returning a click center"
+  /clickVisibleText\(page, "\\u5c55\\u5f00\\u66f4\\u591a"\)[\s\S]*setBasicPublishFieldValue\(page, "modelSpec"/,
+  "model spec filling must expand hidden category attributes before setting the input through DOM field structure"
 );
 
 assert.match(
   publishSource,
-  /if \(!modelSpecCenter\) \{\s*throw new Error\("Model spec input not found on publish page\."\);\s*\}/,
+  /async function setBasicPublishFieldValue[\s\S]*document\.querySelector\(`\[attr-field-id="\$\{fieldId\}"\]`\)[\s\S]*fieldAliases\.some/,
+  "basic-info fields must be selected by attr-field-id or visible label structure, not viewport coordinates"
+);
+
+assert.match(
+  publishSource,
+  /if \(!\(await setBasicPublishFieldValue\(page, "modelSpec", metadata\.modelSpec\)\)\) \{\s*throw new Error\("Model spec input not found on publish page\."\);\s*\}/,
   "model spec filling must not silently continue when the required model spec input is absent"
 );
 
@@ -169,8 +166,8 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /findBasicInputCenterByFieldId[\s\S]*fallbackLabel/,
-  "basic-info input location must fall back to visible label proximity when attr-field-id is missing"
+  /setBasicPublishFieldValue[\s\S]*const labels = Array\.from\(document\.querySelectorAll\("body \*"\)\)[\s\S]*fieldAliases\.some/,
+  "basic-info input location must fall back to visible label structure when attr-field-id is missing"
 );
 
 assert.match(
@@ -263,6 +260,11 @@ assert.doesNotMatch(
   applySpecTemplateSource,
   /chooseDynamicSpecTemplateOnPage\(page, title\)\.catch/,
   "spec template selection failures must not be swallowed and deferred to price/inventory checks"
+);
+assert.doesNotMatch(
+  applySpecTemplateSource,
+  /removeBlankSpecValueInputsFromTemplate|removeOneBlankSpecValueInput/,
+  "spec template flow must not fill or delete blank placeholder spec values; template content is authoritative"
 );
 
 assert.match(

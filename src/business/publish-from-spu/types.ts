@@ -74,8 +74,8 @@ export interface ImageDimensions {
 export interface QueryMatchCandidate {
   rowText: string;
   normalizedText: string;
-  clickX: number;
-  clickY: number;
+  rowIndex: number;
+  publishButtonIndex: number;
 }
 
 export interface QueryDiagnosticError extends Error {
