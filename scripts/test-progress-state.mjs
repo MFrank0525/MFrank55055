@@ -2189,6 +2189,33 @@ assert.equal(
   false,
   "AutoListingController must not automatically retry an interrupted publish with uncertain external side effects"
 );
+const doudianPrePaidPreflightNotReady =
+  "Platform SPU query page was not ready after navigation: Platform SPU query controls are incomplete.";
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: doudianPrePaidPreflightNotReady,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "pre-paid Doudian/SPU readiness failures must be recoverable before image generation spends credits"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: doudianPrePaidPreflightNotReady,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12,
+    activeStep: "source_images_discovered",
+    activeMessage: "checking Doudian login preflight before paid image generation"
+  }),
+  true,
+  "full-flow supervisor must retry pre-paid Doudian/SPU readiness failures instead of stopping before image generation"
+);
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
     childMode: "full",

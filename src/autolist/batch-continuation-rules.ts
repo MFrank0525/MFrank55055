@@ -85,9 +85,15 @@ export function resolveSupervisorRecoveryDelayMs(input: {
 function isRetryablePublishPageFailure(message: string): boolean {
   return (
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
-    /基础信息模块未完成|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|page context was lost|Execution context was destroyed|Target closed/i.test(
+    /基础信息模块未完成|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required|page context was lost|Execution context was destroyed|Target closed/i.test(
       message
     )
+  );
+}
+
+function isRetryablePrePaidDoudianReadinessFailure(message: string): boolean {
+  return /Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required before publishing can continue|publish create page did not become ready|page context was lost|Execution context was destroyed|Target closed/i.test(
+    message
   );
 }
 
@@ -127,6 +133,9 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
     return true;
   }
   if (isRetryablePublishPageFailure(retryableFailureMessage)) {
+    return true;
+  }
+  if (isRetryablePrePaidDoudianReadinessFailure(retryableFailureMessage)) {
     return true;
   }
   return /image generation|main image|timed out|timeout|fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|no progress|watchdog|product folders already contain workbook/i.test(
