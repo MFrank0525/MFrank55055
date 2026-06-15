@@ -2056,6 +2056,36 @@ assert.equal(
   true,
   "full-flow supervisor must self-recover videos-base64 fixed-slot provider failures instead of stopping at 19/20 images"
 );
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64SingleTaskProviderFailure,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12,
+    childMode: "resume",
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 3/5: Image 2: videos-base64 task failed"
+  }),
+  true,
+  "resume-mode supervisor must self-recover videos-base64 fixed-slot provider failures instead of exiting after a resume job"
+);
+const videosBase64RetrySubmitFetchFailure =
+  "failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 3; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 1; reasons: fetch failed";
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64RetrySubmitFetchFailure,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12,
+    childMode: "resume",
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 3/5: Image 2: submitting videos-base64 request."
+  }),
+  true,
+  "resume-mode supervisor must keep waiting and retrying videos-base64 submit transport failures instead of stopping on a preserved checkpoint"
+);
 const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
 const paidImageSafetyBlockWithHtml =
   "paid submission safety block: paid image ledger has ambiguous=20, reserved=0; original: videos-base64 submit failed with HTTP 502: " +

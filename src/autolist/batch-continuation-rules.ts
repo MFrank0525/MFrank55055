@@ -149,6 +149,9 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
   if (/published|Publishing product folder|Retrying publish|Publish failed/i.test(activeText)) {
     return false;
   }
+  if (/main_images_generated|image generation|main image/i.test(`${failureMessage} ${activeText}`)) {
+    return true;
+  }
   return (
     input.childMode === "full" ||
     isSafeResumeTransitionFailure(failureMessage) ||
