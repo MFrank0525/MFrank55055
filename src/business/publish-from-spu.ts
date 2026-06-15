@@ -1291,20 +1291,32 @@ async function clickPlatformBrandDropdownOption(page: Page, expected: string): P
       const style = window.getComputedStyle(el);
       return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
     };
-    const inputs = Array.from(document.querySelectorAll("input, textarea"))
-      .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
-      .filter((input) => {
-        const rect = input.getBoundingClientRect();
-        return (
-          rect.width > 80 &&
-          rect.height > 20 &&
-          visible(input as HTMLElement) &&
-          ((input as HTMLInputElement).getAttribute("type") === "search" ||
-            input.getAttribute("role") === "combobox")
-        );
-      })
-      .sort((a, b) => a.getBoundingClientRect().y - b.getBoundingClientRect().y || a.getBoundingClientRect().x - b.getBoundingClientRect().x);
-    const brandInput = inputs[1] || inputs[0];
+    function findPlatformBrandFieldInput(): HTMLInputElement | null {
+      const targetLabel = "品牌";
+      const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
+        .map((el) => el as HTMLElement)
+        .filter((el) => {
+          const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+          return text === targetLabel && visible(el);
+        })
+        .sort((a, b) => {
+          const ar = a.getBoundingClientRect();
+          const br = b.getBoundingClientRect();
+          return ar.y - br.y || ar.x - br.x;
+        });
+      for (const label of labels) {
+        let root: HTMLElement | null = label;
+        for (let depth = 0; root && depth < 8; depth += 1) {
+          const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
+          if (input && visible(input)) {
+            return input;
+          }
+          root = root.parentElement;
+        }
+      }
+      return null;
+    }
+    const brandInput = findPlatformBrandFieldInput();
     if (!brandInput) {
       return "";
     }
@@ -1372,15 +1384,38 @@ async function clickPlatformBrandDropdownOption(page: Page, expected: string): P
 
 async function isPlatformQueryInputAvailable(page: Page, kind: "brand" | "spu"): Promise<boolean> {
   return page.evaluate((targetKind) => {
+    const visible = (el: HTMLElement): boolean => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
+    };
+    function findPlatformBrandFieldInput(): HTMLInputElement | null {
+      const targetLabel = "品牌";
+      const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
+        .map((el) => el as HTMLElement)
+        .filter((el) => {
+          const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+          return text === targetLabel && visible(el);
+        });
+      for (const label of labels) {
+        let root: HTMLElement | null = label;
+        for (let depth = 0; root && depth < 8; depth += 1) {
+          const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
+          if (input && visible(input)) {
+            return input;
+          }
+          root = root.parentElement;
+        }
+      }
+      return null;
+    }
     const inputs = Array.from(document.querySelectorAll("input, textarea"))
       .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
       .filter((input) => {
-        const rect = input.getBoundingClientRect();
-        const style = window.getComputedStyle(input);
-        return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
+        return visible(input as HTMLElement);
       });
     if (targetKind === "brand") {
-      return inputs.some((input) => input.getAttribute("type") === "search" || input.getAttribute("role") === "combobox");
+      return Boolean(findPlatformBrandFieldInput());
     }
     return inputs.some((input) => {
       const context = [
@@ -1397,6 +1432,36 @@ async function isPlatformQueryInputAvailable(page: Page, kind: "brand" | "spu"):
 async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", value: string): Promise<void> {
   await page.evaluate(
     ({ targetKind, nextValue }) => {
+      const visible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      function findPlatformBrandFieldInput(): HTMLInputElement | null {
+        const targetLabel = "品牌";
+        const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
+          .map((el) => el as HTMLElement)
+          .filter((el) => {
+            const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+            return text === targetLabel && visible(el);
+          })
+          .sort((a, b) => {
+            const ar = a.getBoundingClientRect();
+            const br = b.getBoundingClientRect();
+            return ar.y - br.y || ar.x - br.x;
+          });
+        for (const label of labels) {
+          let root: HTMLElement | null = label;
+          for (let depth = 0; root && depth < 8; depth += 1) {
+            const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
+            if (input && visible(input)) {
+              return input;
+            }
+            root = root.parentElement;
+          }
+        }
+        return null;
+      }
       const inputs = Array.from(document.querySelectorAll("input, textarea"))
         .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
         .map((input) => {
@@ -1419,12 +1484,7 @@ async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", val
 
       const target =
         targetKind === "brand"
-          ? inputs
-              .filter((item) => {
-                const input = item.input as HTMLInputElement;
-                return input.getAttribute("type") === "search" || input.getAttribute("role") === "combobox";
-              })
-              .sort((a, b) => a.y - b.y || a.x - b.x)[1]?.input
+          ? findPlatformBrandFieldInput()
           : inputs
               .map((item) => {
                 const input = item.input as HTMLInputElement;
@@ -1442,12 +1502,24 @@ async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", val
       }
 
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      if (targetKind === "brand") {
+        const selector = (target.closest(".ecom-g-select, .ant-select, .semi-select, [class*='select'], [class*='Select']") ||
+          target.parentElement) as HTMLElement | null;
+        const trigger = (selector?.querySelector(".ecom-g-select-selector, .ant-select-selector, [class*='selector'], [class*='selection']") ||
+          selector ||
+          target) as HTMLElement;
+        trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+        trigger.click();
+      }
       target.focus();
       setter?.call(target, "");
       target.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
       setter?.call(target, nextValue);
       target.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
       target.dispatchEvent(new Event("change", { bubbles: true }));
+      if (targetKind === "brand") {
+        return;
+      }
       target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
       target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }));
       target.blur();
@@ -1459,6 +1531,31 @@ async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", val
 async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): Promise<string> {
   return page.evaluate((targetKind) => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const visible = (el: HTMLElement): boolean => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
+    };
+    function findPlatformBrandFieldInput(): HTMLInputElement | null {
+      const targetLabel = "品牌";
+      const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
+        .map((el) => el as HTMLElement)
+        .filter((el) => {
+          const text = normalize(el.innerText || el.textContent || "");
+          return text === targetLabel && visible(el);
+        });
+      for (const label of labels) {
+        let root: HTMLElement | null = label;
+        for (let depth = 0; root && depth < 8; depth += 1) {
+          const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
+          if (input && visible(input)) {
+            return input;
+          }
+          root = root.parentElement;
+        }
+      }
+      return null;
+    }
     const readSelectDisplay = (input: HTMLInputElement | HTMLTextAreaElement): string => {
       let container: HTMLElement | null = null;
       let node = input.parentElement;
@@ -1525,12 +1622,7 @@ async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): P
 
     const target =
       targetKind === "brand"
-        ? inputs
-            .filter((item) => {
-              const input = item.input as HTMLInputElement;
-              return input.getAttribute("type") === "search" || input.getAttribute("role") === "combobox";
-            })
-            .sort((a, b) => a.y - b.y || a.x - b.x)[1]?.input
+        ? findPlatformBrandFieldInput()
         : inputs
             .map((item) => {
               const input = item.input as HTMLInputElement;

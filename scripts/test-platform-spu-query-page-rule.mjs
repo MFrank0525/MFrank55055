@@ -121,6 +121,25 @@ assert.match(
   "SPU brand dropdown selection must be scoped to options near the brand input, not global page text such as the active shop name"
 );
 assert.match(
+  publishSource,
+  /function findPlatformBrandFieldInput[\s\S]*targetLabel[\s\S]*品牌[\s\S]*ecom-g-label-wrapper-label[\s\S]*input\[type='search'\], input\[role='combobox'\]/,
+  "SPU brand input must be found from the visible 品牌 field label instead of by global search-input order"
+);
+assert.doesNotMatch(
+  publishSource,
+  /targetKind === "brand"[\s\S]{0,900}\.sort\(\(a, b\) => a\.y - b\.y \|\| a\.x - b\.x\)\[1\]/,
+  "SPU brand input must not rely on the second visible search/combobox input"
+);
+const setInputStart = publishSource.indexOf("async function setPlatformQueryInputValue");
+assert.notEqual(setInputStart, -1, "setPlatformQueryInputValue function must exist");
+const setInputEnd = publishSource.indexOf("\nasync function", setInputStart + 1);
+const setInputSource = publishSource.slice(setInputStart, setInputEnd === -1 ? publishSource.length : setInputEnd);
+assert.match(
+  setInputSource,
+  /if \(targetKind === "brand"\) \{[\s\S]{0,160}return;[\s\S]{0,260}KeyboardEvent\("keydown"/,
+  "SPU brand entry must keep the dropdown open for clicking the loaded same-brand option"
+);
+assert.match(
   querySource,
   /clickPlatformBrandDropdownOption\(page, brand\)/,
   "SPU query must use the brand-input-scoped dropdown picker for brand selection"
