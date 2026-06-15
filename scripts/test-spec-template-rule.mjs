@@ -223,13 +223,18 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /async function findSpecTemplateSearchInputIndex[\s\S]*商品规格[\s\S]*规格模板/,
-  "spec template input discovery must be scoped to the 商品规格/规格模板 structure"
+  /async function findSpecTemplateFieldRootOnPage[\s\S]*商品规格[\s\S]*规格模板/,
+  "spec template input discovery must be scoped by DOM structure from 商品规格 to the 规格模板 field root"
 );
 assert.match(
   publishSource,
-  /async function clickVisibleSpecTemplateDropdownOption[\s\S]*role='option'[\s\S]*dropdown[\s\S]*menu[\s\S]*item/,
-  "spec template option clicking must target dropdown/menu options instead of arbitrary page text"
+  /async function findSpecTemplateInputInFieldRootOnPage[\s\S]*input\[type='search'\], input\[role='combobox'\], input\[type='text'\], input:not\(\[type\]\)/,
+  "spec template input discovery must search inside the field root DOM instead of relying on a global input index"
+);
+assert.match(
+  publishSource,
+  /async function clickSpecTemplateOptionByDomStructure/,
+  "spec template option clicking must use the currently opened dropdown/menu DOM structure"
 );
 assert.match(
   publishSource,
@@ -241,13 +246,18 @@ const applySpecTemplateSource = publishSource.slice(
   publishSource.indexOf("async function readSpecModuleErrorOnPage")
 );
 const chooseSpecTemplateSource = publishSource.slice(
-  publishSource.indexOf("async function chooseDynamicSpecTemplateOnPage"),
-  publishSource.indexOf("async function isManualSpecTemplateEntryModeVisible")
+  publishSource.indexOf("async function findSpecTemplateFieldRootOnPage"),
+  publishSource.indexOf("async function scrollMainFormContainerToBottom")
 );
 assert.doesNotMatch(
   chooseSpecTemplateSource,
   /getByText|chooseKeywordFromSearchDropdown/,
   "spec template selection must not fall back to global text search or the generic dropdown helper"
+);
+assert.doesNotMatch(
+  chooseSpecTemplateSource,
+  /score|dispatchDomClickAtPoint|findSpecTemplateSearchInputIndex|getBoundingClientRect\(\)\.x|getBoundingClientRect\(\)\.y/,
+  "spec template selection must not use coordinate clicks, scoring, or global input indexes"
 );
 assert.doesNotMatch(
   applySpecTemplateSource,
@@ -273,7 +283,7 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /async function isSpecTemplateEntryControlVisible[\s\S]*商品规格[\s\S]*规格模板[\s\S]*input\[type='search'\], input\[role='combobox'\]/,
+  /async function isSpecTemplateEntryControlVisible[\s\S]*findSpecTemplateInputInFieldRootOnPage\(page\)/,
   "manual spec setup must recognize the spec-template control itself instead of depending only on the legacy switch button"
 );
 assert.match(

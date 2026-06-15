@@ -3514,148 +3514,94 @@ async function chooseKeywordFromSearchDropdown(page: Page, hints: string[], keyw
   return selectedValue;
 }
 
-async function findSpecTemplateSearchInputIndex(page: Page): Promise<number> {
-  return page.evaluate(() => {
+async function findSpecTemplateFieldRootOnPage(page: Page): Promise<Locator> {
+  const marker = `auto-spec-template-field-${Date.now()}`;
+  const found = await page.evaluate((attributeName) => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const visibleItems = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (!text || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        return { el, rect, text };
-      })
-      .filter(Boolean) as Array<{ el: HTMLElement; rect: DOMRect; text: string }>;
+    const isVisible = (node: Element): boolean => {
+      const el = node as HTMLElement;
+      const style = window.getComputedStyle(el);
+      return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+    };
+    const visibleText = (node: Element | null): string => (node && isVisible(node) ? normalize((node as HTMLElement).innerText || node.textContent || "") : "");
+    document.querySelectorAll(`[${attributeName}]`).forEach((node) => node.removeAttribute(attributeName));
 
-    const specLabel = visibleItems
-      .filter((item) => item.text === "商品规格")
-      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
-    const templateLabel = visibleItems
-      .filter((item) => item.text.includes("规格模板"))
-      .filter((item) => !specLabel || item.rect.top >= specLabel.rect.top - 20)
-      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
-    if (!specLabel || !templateLabel) {
-      return -1;
+    const hasTemplateControl = (node: Element): boolean =>
+      Boolean(node.querySelector("input[type='search'], input[role='combobox'], input[type='text'], input:not([type]), [role='combobox']"));
+    const isTemplateField = (node: Element): boolean => {
+      const text = visibleText(node);
+      return text.includes("规格模板") && !text.includes("运费模板") && hasTemplateControl(node);
+    };
+    const isGoodsSpecSection = (node: Element): boolean => {
+      const text = visibleText(node);
+      return text.includes("商品规格") && text.includes("规格模板") && !text.includes("运费模板");
+    };
+
+    const labels = Array.from(document.querySelectorAll("label, [class*='label'], [class*='Label'], span, div")).filter((node) =>
+      visibleText(node).includes("规格模板")
+    );
+    for (const label of labels) {
+      let field: Element | null = label;
+      while (field && field !== document.body) {
+        if (isTemplateField(field)) {
+          let section: Element | null = field;
+          while (section && section !== document.body) {
+            if (isGoodsSpecSection(section)) {
+              (field as HTMLElement).setAttribute(attributeName, "true");
+              return true;
+            }
+            section = section.parentElement;
+          }
+        }
+        field = field.parentElement;
+      }
     }
-
-    const inputs = Array.from(document.querySelectorAll("input[type='search']"));
-    const scored = inputs
-      .map((el, index) => {
-        const input = el as HTMLInputElement;
-        const rect = input.getBoundingClientRect();
-        const style = window.getComputedStyle(input);
-        if (
-          rect.width <= 120 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          rect.left <= templateLabel.rect.left ||
-          rect.top < templateLabel.rect.top - 60 ||
-          rect.top > templateLabel.rect.bottom + 120
-        ) {
-          return null;
-        }
-        const context = normalize(
-          [
-            input.value || "",
-            input.placeholder || "",
-            input.parentElement?.innerText || "",
-            input.parentElement?.parentElement?.innerText || "",
-            input.closest("div")?.innerText || ""
-          ].join(" ")
-        );
-        const score =
-          (context.includes("规格模板") ? 260 : 0) +
-          (context.includes("商品规格") ? 120 : 0) +
-          (context.includes("买二送一") ? 80 : 0) +
-          (context.includes("久光小泽") ? 80 : 0) -
-          Math.abs(rect.top - templateLabel.rect.top) -
-          (rect.left - templateLabel.rect.left) / 20;
-        return score > 0 ? { index, score } : null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-
-    return scored[0]?.index ?? -1;
-  });
+    return false;
+  }, marker);
+  if (!found) {
+    throw new Error("Spec template field root was not found in 商品规格/规格模板 DOM structure.");
+  }
+  return page.locator(`[${marker}="true"]`).first();
 }
 
-async function clickVisibleSpecTemplateDropdownOption(page: Page, keyword: string): Promise<string> {
-  const normalizedExpected = normalizeMatchText(keyword);
-  const option = await page.evaluate((target) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const normalizeMatch = (value: string): string => value.replace(/\s+/g, "").trim().toLowerCase();
-    const candidates = Array.from(
-      document.querySelectorAll(
-        "[role='option'], [class*='dropdown'], [class*='Dropdown'], [class*='menu'], [class*='Menu'], [class*='item'], [class*='Item']"
-      )
-    )
-      .map((el) => {
-        const node = el as HTMLElement;
-        const rect = node.getBoundingClientRect();
-        const style = window.getComputedStyle(node);
-        const text = normalize(node.innerText || node.textContent || "");
-        const normalizedText = normalizeMatch(text);
-        if (
-          !text ||
-          !normalizedText.includes(target) ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          rect.width > window.innerWidth * 0.8 ||
-          rect.height > 120 ||
-          style.display === "none" ||
-          style.visibility === "hidden"
-        ) {
-          return null;
-        }
-        const marker = [String(node.className || ""), node.getAttribute("role") || "", node.tagName].join(" ").toLowerCase();
-        if (!/option|dropdown|menu|item/.test(marker)) {
-          return null;
-        }
-        const score =
-          (node.getAttribute("role") === "option" ? 300 : 0) +
-          (marker.includes("option") ? 180 : 0) +
-          (marker.includes("item") ? 120 : 0) +
-          (marker.includes("menu") ? 80 : 0) +
-          (marker.includes("dropdown") ? 80 : 0) +
-          (normalizedText === target ? 100 : 0) -
-          text.length / 4;
-        return {
-          text,
-          score,
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-    return candidates[0] || null;
-  }, normalizedExpected);
+async function findSpecTemplateInputInFieldRootOnPage(page: Page): Promise<Locator> {
+  const fieldRoot = await findSpecTemplateFieldRootOnPage(page);
+  const input = fieldRoot.locator("input[type='search'], input[role='combobox'], input[type='text'], input:not([type])").first();
+  if ((await input.count()) > 0) {
+    return input;
+  }
+  const combobox = fieldRoot.locator("[role='combobox']").first();
+  if ((await combobox.count()) > 0) {
+    return combobox;
+  }
+  throw new Error("Spec template input was not found inside 商品规格/规格模板 field root.");
+}
 
-  if (!option) {
+async function clickSpecTemplateOptionByDomStructure(page: Page, keyword: string): Promise<string> {
+  const option = page
+    .locator("[role='listbox'] [role='option'], [role='option'], [class*='dropdown'] [class*='item'], [class*='Dropdown'] [class*='Item'], [class*='menu'] [class*='item'], [class*='Menu'] [class*='Item']")
+    .filter({ hasText: keyword })
+    .first();
+  if ((await option.count()) <= 0) {
     return "";
   }
-  await dispatchDomClickAtPoint(page, option);
-  return option.text || "";
+  const text = (await option.innerText({ timeout: 3000 }).catch(() => "")) || "";
+  await option.click({ timeout: 3000 });
+  return text;
 }
 
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
   await dismissTransientOverlays(page);
-  const inputIndex = await findSpecTemplateSearchInputIndex(page);
-  if (inputIndex < 0) {
-    throw new Error("Spec template search input was not found in 商品规格/规格模板 section.");
-  }
-
-  const input = page.locator("input[type='search']").nth(inputIndex);
+  const input = await findSpecTemplateInputInFieldRootOnPage(page);
   await input.click({ timeout: 3000 });
   await page.waitForTimeout(500);
-  await input.fill(keyword);
+  await input.fill(keyword).catch(async () => {
+    await page.keyboard.press(getSelectAllShortcut());
+    await page.keyboard.type(keyword, { delay: 20 });
+  });
   await page.waitForTimeout(600);
 
-  const clickedText = await clickVisibleSpecTemplateDropdownOption(page, keyword);
+  const clickedText = await clickSpecTemplateOptionByDomStructure(page, keyword);
   if (!clickedText.includes(keyword)) {
     throw new Error(`No visible spec template dropdown option matched keyword: ${keyword}`);
   }
@@ -4554,60 +4500,8 @@ async function isManualSpecTemplateEntryModeVisible(page: Page): Promise<boolean
 }
 
 async function isSpecTemplateEntryControlVisible(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const visibleItems = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        return { el, rect, text };
-      })
-      .filter(Boolean) as Array<{ el: HTMLElement; rect: DOMRect; text: string }>;
-
-    const specLabel = visibleItems
-      .filter((item) => item.text === "商品规格")
-      .sort((a, b) => a.rect.top - b.rect.top)[0];
-    const templateLabel = visibleItems
-      .filter((item) => item.text.includes("规格模板"))
-      .filter((item) => !specLabel || item.rect.top >= specLabel.rect.top - 20)
-      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
-    if (!specLabel || !templateLabel) {
-      return false;
-    }
-
-    const controls = Array.from(document.querySelectorAll("input[type='search'], input[role='combobox']"))
-      .map((el) => el as HTMLInputElement)
-      .filter((input) => {
-        const rect = input.getBoundingClientRect();
-        const style = window.getComputedStyle(input);
-        const context = normalize(
-          [
-            input.value || "",
-            input.placeholder || "",
-            input.parentElement?.innerText || "",
-            input.parentElement?.parentElement?.innerText || "",
-            input.closest("div")?.innerText || ""
-          ].join(" ")
-        );
-        return (
-          rect.width > 120 &&
-          rect.height > 0 &&
-          style.display !== "none" &&
-          style.visibility !== "hidden" &&
-          rect.top >= templateLabel.rect.top - 40 &&
-          rect.top <= templateLabel.rect.bottom + 90 &&
-          rect.left > templateLabel.rect.left &&
-          (context.includes("规格模板") || context.includes("买二送一") || context.includes("久光小泽"))
-        );
-      });
-
-    return controls.length > 0;
-  });
+  await findSpecTemplateInputInFieldRootOnPage(page);
+  return true;
 }
 
 async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {

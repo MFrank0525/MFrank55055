@@ -25,6 +25,11 @@ export interface PublishResultRuleDecision {
   issue: string;
 }
 
+export interface PublishBatchFailureDecision {
+  safelyPublished: boolean;
+  errorClass: string;
+}
+
 export interface PublishRuleCheck {
   passed: boolean;
   issue: string;
@@ -380,8 +385,10 @@ export function classifyPublishFailure(message: string): string {
   }
   if (
     text.includes("Spectemplateselectiondidnotmatchrequiredkeyword") ||
+    text.includes("Spectemplatesearchinputwasnotfound") ||
     text.includes("Novisiblespectemplatematchedkeyword") ||
-    text.includes("Manualspectemplateentrymodewasnotvisible")
+    text.includes("Manualspectemplateentrymodewasnotvisible") ||
+    text.includes("Spectemplateentrycontrolwasnotvisible")
   ) {
     return "spec_template_not_ready";
   }
@@ -451,6 +458,32 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "shop_switch_entry_unavailable",
     "browser_remote_debugging_unavailable"
   ].includes(errorClass);
+}
+
+export function shouldStopPublishBatchAfterFailure(
+  decisions: PublishBatchFailureDecision[],
+  consecutiveFailureThreshold = 2
+): boolean {
+  const systemicClasses = new Set(["spec_template_not_ready", "service_section_not_ready", "basic_info_field_not_ready"]);
+  let lastClass = "";
+  let consecutiveCount = 0;
+  for (const decision of decisions) {
+    if (decision.safelyPublished || !systemicClasses.has(decision.errorClass)) {
+      lastClass = "";
+      consecutiveCount = 0;
+      continue;
+    }
+    if (decision.errorClass === lastClass) {
+      consecutiveCount += 1;
+    } else {
+      lastClass = decision.errorClass;
+      consecutiveCount = 1;
+    }
+    if (consecutiveCount >= consecutiveFailureThreshold) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function evaluatePublishResult(input: PublishResultRuleInput): PublishResultRuleDecision {

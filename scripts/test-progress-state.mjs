@@ -95,6 +95,7 @@ import {
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
   shouldRetryPublishFailure,
+  shouldStopPublishBatchAfterFailure,
   evaluatePublishResult
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 import {
@@ -683,6 +684,30 @@ assert.equal(
   shouldRetryPublishFailure(specTemplateMissingClass, 0),
   true,
   "spec-template readback failures are transient publish-page failures and must receive bounded whole-flow retries"
+);
+const specTemplateSearchInputMissingClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 价格库存模块未完成。Spec template search input was not found in 商品规格/规格模板 section.; keyword=久光小泽"
+);
+assert.equal(
+  specTemplateSearchInputMissingClass,
+  "spec_template_not_ready",
+  "the real 商品规格/规格模板 control-discovery failure must not be classified as unknown"
+);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([
+    { safelyPublished: false, errorClass: "spec_template_not_ready" },
+    { safelyPublished: false, errorClass: "spec_template_not_ready" }
+  ]),
+  true,
+  "systemic spec-template control failures must stop the remaining shop batch instead of producing continuous failures"
+);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([
+    { safelyPublished: true, errorClass: "" },
+    { safelyPublished: false, errorClass: "platform_page_not_ready" }
+  ]),
+  false,
+  "single transient page readiness failures should keep the existing bounded per-item retry behavior"
 );
 
 const finalSubmitTransientClass = classifyPublishFailure(

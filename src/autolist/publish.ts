@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
 import { clearCheckpoint, isStageCompleted, loadCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
-import { evaluatePublishResult, shouldRetryPublishFailure } from "../business/publish-from-spu/publish-rules.js";
+import {
+  evaluatePublishResult,
+  shouldRetryPublishFailure,
+  shouldStopPublishBatchAfterFailure
+} from "../business/publish-from-spu/publish-rules.js";
 import { logInfo } from "../utils/logger.js";
 import {
   extractWatermarkNo,
@@ -530,6 +534,18 @@ export async function publishDistributedProducts(options: {
         `Publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`
       );
       clearCheckpoint(checkpointFile);
+      if (
+        shouldStopPublishBatchAfterFailure(
+          results.map((item) => ({
+            safelyPublished: item.ok === true,
+            errorClass: item.errorClass || ""
+          }))
+        )
+      ) {
+        logInfo(`publish batch stopped after consecutive systemic failure: ${decision.errorClass}`);
+        options.onProgress?.(`Publish batch stopped after consecutive systemic failure: ${decision.errorClass}`);
+        break;
+      }
       continue;
     }
     logInfo(
