@@ -2301,6 +2301,43 @@ assert.equal(
   true,
   "resume-mode supervisor must keep waiting and retrying videos-base64 submit transport failures instead of stopping on a preserved checkpoint"
 );
+const videosBase64RetrySubmitFailToFetchTask =
+  'failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 3; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 2, 4; reasons: videos-base64 submit failed with HTTP 400: {"code":"fail_to_fetch_task","message":"<html><head><title>400 Bad Request</title></head><body><center><h1>400 Bad Request</h1></center><hr><center>openresty</center></body></html>","data":null} | videos-base64 submit failed with HTTP 400: {"code":"fail_to_fetch_task","message":"<html><head><title>400 Bad Request</title></head><body><center><h1>400 Bad Request</h1></center><hr><center>openresty</center></body></html>","data":null}';
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(videosBase64RetrySubmitFailToFetchTask),
+  false,
+  "videos-base64 fail_to_fetch_task submit failures must not enter long external-service wait"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64RetrySubmitFailToFetchTask,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "videos-base64 fail_to_fetch_task submit failures must keep retrying after the generic recovery budget"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(videosBase64RetrySubmitFailToFetchTask),
+  false,
+  "videos-base64 fail_to_fetch_task submit failures did not accept a paid task and must not consume recovery attempts"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64RetrySubmitFailToFetchTask,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12,
+    childMode: "resume",
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 3/5: Image 2: submitting videos-base64 request."
+  }),
+  true,
+  "resume-mode supervisor must self-recover videos-base64 fail_to_fetch_task submit failures"
+);
 const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
 const paidImageSafetyBlockWithHtml =
   "paid submission safety block: paid image ledger has ambiguous=20, reserved=0; original: videos-base64 submit failed with HTTP 502: " +

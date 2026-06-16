@@ -46,7 +46,7 @@ function isRetryableVideosBase64NoAcceptanceTransportFailure(message: string): b
   return (
     /main_images_generated|videos-base64/i.test(message) &&
     /videos-base64 paid image slots failed/i.test(message) &&
-    /fetch failed|failed to fetch|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|AbortError|aborted/i.test(
+    /fetch failed|failed to fetch|fail_to_fetch_task|Bad Request|openresty|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|AbortError|aborted/i.test(
       message
     ) &&
     !/blocked_(?:reserved|ambiguous)|paid submission safety block|ambiguous|reserved/i.test(message) &&
