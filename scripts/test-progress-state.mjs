@@ -123,6 +123,16 @@ assert.match(
   /inferResumeStartStepForTask/,
   "AutoListingController runner must use resume-rules when building resume jobs so recoverable title-folder states resume at publish"
 );
+assert.match(
+  hermesRunnerSource,
+  /const shouldUsePublishRealtime = publishProgressHasNewerActive \|\| publishProgressHasNewerArtifact \|\| !preferStateSummary;/,
+  "AutoListingController status must compute a single gate before exposing publish realtime signals"
+);
+assert.match(
+  hermesRunnerSource,
+  /publishLogMessage:\s*shouldUsePublishRealtime && typeof publishLogProgress\?\.message === "string"/,
+  "AutoListingController status must not expose stale publishLogProgress while current state/image progress is newer"
+);
 const priceInventoryDomSlice = publishFromSpuSource.slice(
   publishFromSpuSource.indexOf("function findPriceInventoryTableDomRows"),
   publishFromSpuSource.indexOf("async function detectPriceInventoryValuesInsideSpecInputs")
@@ -1829,6 +1839,54 @@ assert.deepEqual(
   ],
   "Hermes compact status must not report a failed middle watermark as the latest publish position"
 );
+const reviewMiddleWithLaterPublishedProgress = resolveAutoListingControllerPublishGroupProgress({
+  entries: [
+    ...Array.from({ length: 12 }, (_, index) => ({
+      productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目胶原蛋白敷料水印${String(index + 1).padStart(2, "0")}`,
+      shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
+      watermarkNo: index + 1,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      updatedAt: `2026-06-16T01:${String(index).padStart(2, "0")}:00.000Z`
+    })),
+    {
+      productFolder: "/shops/07店/延草纲目胶原蛋白敷料水印13",
+      shopFolder: "/shops/07店",
+      watermarkNo: 13,
+      status: "failed",
+      finalVerifyStatus: "submit_accepted_unconfirmed",
+      errorClass: "final_publish_state_uncertain",
+      updatedAt: "2026-06-16T01:13:00.000Z"
+    },
+    ...Array.from({ length: 5 }, (_, index) => ({
+      productFolder: `/shops/${String(Math.floor((index + 13) / 2) + 1).padStart(2, "0")}店/延草纲目胶原蛋白敷料水印${String(index + 14).padStart(2, "0")}`,
+      shopFolder: `/shops/${String(Math.floor((index + 13) / 2) + 1).padStart(2, "0")}店`,
+      watermarkNo: index + 14,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      updatedAt: `2026-06-16T01:${String(index + 14).padStart(2, "0")}:00.000Z`
+    }))
+  ]
+});
+assert.equal(reviewMiddleWithLaterPublishedProgress.failed, 0);
+assert.equal(reviewMiddleWithLaterPublishedProgress.review, 1);
+assert.equal(reviewMiddleWithLaterPublishedProgress.reviewWatermarkNo, 13);
+const compactReviewMiddleStatus = formatAutoListingControllerCompactStatusText({
+  status: "running",
+  productName: reviewMiddleWithLaterPublishedProgress.productName,
+  activeItemName: "延草纲目胶原蛋白敷料水印18",
+  latestProgress: "发布模块：最终提交（09店）",
+  publishProductIndex: reviewMiddleWithLaterPublishedProgress.productIndex,
+  publishProductTotal: reviewMiddleWithLaterPublishedProgress.productTotal,
+  publishShopIndex: reviewMiddleWithLaterPublishedProgress.shopIndex,
+  publishShopTotal: reviewMiddleWithLaterPublishedProgress.shopTotal,
+  publishFailed: reviewMiddleWithLaterPublishedProgress.failed,
+  publishReviewWatermarkNo: reviewMiddleWithLaterPublishedProgress.reviewWatermarkNo,
+  feishuCompleted: 2,
+  feishuTotal: 4
+});
+assert.match(compactReviewMiddleStatus.split("\n")[0], /待复核 水印13/);
+assert.doesNotMatch(compactReviewMiddleStatus.split("\n")[0], /失败项/);
 const compactBlankSpecStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",
   summary:

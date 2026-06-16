@@ -158,6 +158,7 @@ interface PublishManifestFile {
     watermarkNo?: number | null;
     status?: "pending" | "published" | "failed" | "skipped";
     finalVerifyStatus?: string;
+    errorClass?: string;
     message?: string;
     updatedAt?: string;
   }>;
@@ -639,7 +640,8 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
       entry.status === "published" &&
       SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus as never)
   );
-  const failed = entries.filter((entry) => entry.status === "failed");
+  const review = entries.filter((entry) => entry.status === "failed" && entry.errorClass === "final_publish_state_uncertain");
+  const failed = entries.filter((entry) => entry.status === "failed" && entry.errorClass !== "final_publish_state_uncertain");
   const pending = entries.filter((entry) => entry.status === "pending");
   const total = Math.max(planItems.length, entries.length, ...entries.map((entry) => entry.watermarkNo || 0));
   const completedKeys = new Set(safelyPublished.map((entry) => entry.runtimeKey).filter(Boolean));
@@ -676,6 +678,7 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
     total,
     safelyPublished: safelyPublished.length,
     failed: failed.length,
+    review: review.length,
     pending: pending.length,
     progressText,
     publishGroupProgress,
@@ -976,6 +979,7 @@ function existingStatus(): Record<string, unknown> {
     exposePublishProgress &&
     Boolean(latestArtifactUpdatedAt) &&
     (!latestStateProgressAt || Date.parse(String(latestArtifactUpdatedAt)) > Date.parse(String(latestStateProgressAt)));
+  const shouldUsePublishRealtime = publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary;
   const batchComplete = feishuProgress ? feishuProgress.batchComplete === true : true;
   const feishuProgressDisplayMode = resolveAutoListingControllerFeishuProgressDisplayMode({
     running,
@@ -1070,7 +1074,7 @@ function existingStatus(): Record<string, unknown> {
         : undefined,
     statusTimestamp: terminalFailureMtimeMs ? new Date(terminalFailureMtimeMs).toISOString() : undefined,
     statusSource:
-      publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary
+      shouldUsePublishRealtime
         ? publishProgress
           ? "publish-manifest"
           : state
@@ -1084,23 +1088,25 @@ function existingStatus(): Record<string, unknown> {
     publishProductTotal: publishGroupProgress?.productTotal === undefined ? undefined : Number(publishGroupProgress.productTotal),
     publishShopIndex: publishGroupProgress?.shopIndex === undefined ? undefined : Number(publishGroupProgress.shopIndex),
     publishShopTotal: publishGroupProgress?.shopTotal === undefined ? undefined : Number(publishGroupProgress.shopTotal),
-    publishActiveRuntimeKey: String((publishProgress?.active as Record<string, unknown> | undefined)?.runtimeKey || ""),
+    publishActiveRuntimeKey: shouldUsePublishRealtime
+      ? String((publishProgress?.active as Record<string, unknown> | undefined)?.runtimeKey || "")
+      : undefined,
     publishActiveUpdatedAt:
-      typeof activePublishUpdatedAt === "string" ? activePublishUpdatedAt : undefined,
+      shouldUsePublishRealtime && typeof activePublishUpdatedAt === "string" ? activePublishUpdatedAt : undefined,
     publishActiveMessage:
-      typeof (publishProgress?.active as Record<string, unknown> | undefined)?.message === "string"
+      shouldUsePublishRealtime && typeof (publishProgress?.active as Record<string, unknown> | undefined)?.message === "string"
         ? String((publishProgress?.active as Record<string, unknown>).message)
         : undefined,
     latestArtifactUpdatedAt:
-      typeof latestArtifactUpdatedAt === "string" ? latestArtifactUpdatedAt : undefined,
+      shouldUsePublishRealtime && typeof latestArtifactUpdatedAt === "string" ? latestArtifactUpdatedAt : undefined,
     latestArtifactName:
-      typeof (publishProgress?.latestArtifact as Record<string, unknown> | undefined)?.name === "string"
+      shouldUsePublishRealtime && typeof (publishProgress?.latestArtifact as Record<string, unknown> | undefined)?.name === "string"
         ? String((publishProgress?.latestArtifact as Record<string, unknown>).name)
         : undefined,
     publishLogTimestamp:
-      typeof publishLogProgress?.timestamp === "string" ? String(publishLogProgress.timestamp) : undefined,
+      shouldUsePublishRealtime && typeof publishLogProgress?.timestamp === "string" ? String(publishLogProgress.timestamp) : undefined,
     publishLogMessage:
-      typeof publishLogProgress?.message === "string" ? String(publishLogProgress.message) : undefined,
+      shouldUsePublishRealtime && typeof publishLogProgress?.message === "string" ? String(publishLogProgress.message) : undefined,
     stateLatestProgressTimestamp:
       typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined,
     stateLatestProgressMessage:
@@ -1118,13 +1124,13 @@ function existingStatus(): Record<string, unknown> {
     logFile: job.logFile,
     jobFile,
     activeRuntimeDir,
-    statusSource: publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary ? (publishProgress ? "publish-manifest" : state ? "state" : "result-log") : "state",
+    statusSource: shouldUsePublishRealtime ? (publishProgress ? "publish-manifest" : state ? "state" : "result-log") : "state",
     summary:
       (resolvedStatus === "external_service_wait"
         ? `图片服务暂时不可用，已保留当前飞书批次和断点；将在 ${String(externalRetryAt)} 自动重试。原因：${compactStatusValue(externalWaitReason)}`
         : resolvedStatus === "failed"
         ? failureSummary || stateSummary
-        : publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary
+        : shouldUsePublishRealtime
           ? publishProgress?.progressText || stateSummary
           : stateSummary) ||
       (running
@@ -1205,6 +1211,8 @@ function formatStatusText(status: Record<string, unknown>): string {
       typeof publishGroupProgress?.shopTotal === "number" ? Number(publishGroupProgress.shopTotal) : undefined,
     publishFailedWatermarkNo:
       typeof publishGroupProgress?.failedWatermarkNo === "number" ? Number(publishGroupProgress.failedWatermarkNo) : undefined,
+    publishReviewWatermarkNo:
+      typeof publishGroupProgress?.reviewWatermarkNo === "number" ? Number(publishGroupProgress.reviewWatermarkNo) : undefined,
     publishLatestAttemptedWatermarkNo:
       typeof publishGroupProgress?.latestAttemptedWatermarkNo === "number" ? Number(publishGroupProgress.latestAttemptedWatermarkNo) : undefined,
     feishuCompleted: counts?.completedCount === undefined ? Number(feishuProgress?.processedRecordCount ?? 0) : Number(counts.completedCount),

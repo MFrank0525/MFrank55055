@@ -1,0 +1,69 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+
+const gatewayRunPath =
+  "/Users/mfrank/.local/share/uv/tools/hermes-agent/lib/python3.11/site-packages/gateway/run.py";
+
+assert.equal(
+  fs.existsSync(gatewayRunPath),
+  true,
+  "Hermes gateway run.py must exist so the project can audit the external auto-listing feedback watchdog"
+);
+
+const source = fs.readFileSync(gatewayRunPath, "utf8");
+
+assert.match(
+  source,
+  /hermesProgress/,
+  "Hermes gateway watchdog must consume the project-owned hermesProgress payload"
+);
+assert.match(
+  source,
+  /last_hermes_progress_key/,
+  "Hermes gateway watchdog must record the full hermesProgress.key as the heartbeat"
+);
+assert.match(
+  source,
+  /last_hermes_progress_notice_key/,
+  "Hermes gateway watchdog must dedupe realtime notices by a stable message-level key"
+);
+assert.match(
+  source,
+  /hermes_progress_key_parts\[:8\].*hermes_progress_key_parts\[9:\]/s,
+  "Hermes gateway watchdog notice key must ignore timestamp-only hermesProgress.key changes"
+);
+assert.match(
+  source,
+  /last_hermes_progress_message/,
+  "Hermes gateway watchdog must remember the last delivered hermesProgress.message"
+);
+assert.doesNotMatch(
+  source,
+  /summary\["safelyPublished"\]\s*>\s*int\(state\.get\("last_safely_published"\)/,
+  "Hermes gateway watchdog must not gate realtime notices on cross-product last_safely_published state"
+);
+assert.doesNotMatch(
+  source,
+  /state\.get\("last_hermes_progress_key"\)\s*!=\s*hermes_progress_key:\s*\n\s*notice_kind = "progress"/,
+  "Hermes gateway watchdog must not send a notice for every timestamp-only hermesProgress.key change"
+);
+assert.doesNotMatch(
+  source,
+  /f"\{job_key\}:\{summary\['realtimeSource'\]\}:\{summary\['realtimeMessage'\]\}"/,
+  "Hermes gateway watchdog must not include latest-artifact text in the stable notice key"
+);
+assert.match(
+  source,
+  /elif not hermes_progress_key and summary\["imageMessage"\]/,
+  "Hermes gateway watchdog must not fall back to image progress while project-owned hermesProgress is available"
+);
+assert.match(
+  source,
+  /elif not hermes_progress_key and progress_key/,
+  "Hermes gateway watchdog must not fall back to legacy publish progress while project-owned hermesProgress is available"
+);
+assert.match(
+  source,
+  /realtimeMessage/,
+  "Hermes gateway progress notices must report the project-owned hermesProgress.message"
+);

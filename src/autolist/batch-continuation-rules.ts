@@ -709,6 +709,7 @@ export type AutoListingControllerCompactStatusTextInput = {
   publishShopIndex?: number;
   publishShopTotal?: number;
   publishFailedWatermarkNo?: number;
+  publishReviewWatermarkNo?: number;
   publishLatestAttemptedWatermarkNo?: number;
   feishuCompleted?: number;
   feishuTotal?: number;
@@ -721,6 +722,7 @@ export type AutoListingControllerPublishGroupProgressEntry = {
   watermarkNo?: number | null;
   status?: string;
   finalVerifyStatus?: string;
+  errorClass?: string;
   updatedAt?: string;
 };
 
@@ -732,7 +734,9 @@ export type AutoListingControllerPublishGroupProgress = {
   shopIndex: number;
   shopTotal: number;
   failed: number;
+  review?: number;
   failedWatermarkNo?: number;
+  reviewWatermarkNo?: number;
   latestAttemptedWatermarkNo?: number;
 };
 
@@ -990,6 +994,10 @@ function isSafelyPublishedPublishEntry(entry: AutoListingControllerPublishGroupP
   );
 }
 
+function isFinalPublishReviewEntry(entry: AutoListingControllerPublishGroupProgressEntry): boolean {
+  return entry.status === "failed" && entry.errorClass === "final_publish_state_uncertain";
+}
+
 export function resolveAutoListingControllerPublishGroupProgress(input: {
   entries: AutoListingControllerPublishGroupProgressEntry[];
   planEntries?: AutoListingControllerPublishGroupProgressEntry[];
@@ -1011,8 +1019,10 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
   const plannedGroupEntries = planEntries.filter((entry) => publishGroupNameFromFolder(entry.productFolder) === productName);
   const scopeEntries = plannedGroupEntries.length ? plannedGroupEntries : groupEntries;
   const safelyPublished = groupEntries.filter(isSafelyPublishedPublishEntry);
-  const failedEntries = groupEntries.filter((entry) => entry.status === "failed");
+  const reviewEntries = groupEntries.filter(isFinalPublishReviewEntry);
+  const failedEntries = groupEntries.filter((entry) => entry.status === "failed" && !isFinalPublishReviewEntry(entry));
   const failed = failedEntries.length;
+  const review = reviewEntries.length;
   const productTotal = Math.max(20, scopeEntries.length, ...scopeEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const maxCompletedWatermark = Math.max(0, ...safelyPublished.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const latestAttemptedWatermark = Math.max(
@@ -1028,6 +1038,7 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
         .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0]
     : undefined;
   const failedWatermark = Math.max(0, ...failedEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
+  const reviewWatermark = Math.max(0, ...reviewEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const activeWatermark = publishWatermarkNoFromEntry(activeEntry);
   const productIndex = Math.max(1, Math.min(productTotal, (failed > 0 && latestAttemptedWatermark > activeWatermark ? latestAttemptedWatermark : activeWatermark) || latestAttemptedWatermark || maxCompletedWatermark || safelyPublished.length + (failed > 0 ? 1 : 0) || 1));
   const shopNames = Array.from(new Set(scopeEntries.map((entry) => cleanAutoListingControllerProductName(publishShopFolderFromEntry(entry))).filter(Boolean)))
@@ -1047,7 +1058,9 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
     shopIndex: Math.min(shopTotal, shopIndex),
     shopTotal,
     failed,
+    ...(review ? { review } : {}),
     ...(failedWatermark ? { failedWatermarkNo: failedWatermark } : {}),
+    ...(reviewWatermark ? { reviewWatermarkNo: reviewWatermark } : {}),
     ...(failed > 0 && latestAttemptedWatermark ? { latestAttemptedWatermarkNo: latestAttemptedWatermark } : {})
   };
 }
@@ -1128,7 +1141,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const lines = [
     !preferPublishProgress && input.imageGenerationProgress
       ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜主图 ${mainImageProgressIndex}/${productTotal}｜飞书 ${feishuCompleted}/${feishuTotal}`
-      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}｜飞书 ${feishuCompleted}/${feishuTotal}`
+      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}${input.publishReviewWatermarkNo ? `｜待复核 水印${input.publishReviewWatermarkNo}` : ""}｜飞书 ${feishuCompleted}/${feishuTotal}`
   ];
 
   if (input.status === "failed") {
