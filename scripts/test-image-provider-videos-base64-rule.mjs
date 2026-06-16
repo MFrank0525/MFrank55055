@@ -133,6 +133,8 @@ assert.match(ruleDoc, /没有取得 task ID.*没有供应商响应摘要.*fetch 
 assert.match(ruleDoc, /no-acceptance.*failed_before_acceptance.*重试同一固定 slot/s);
 assert.match(ruleDoc, /failed_after_acceptance.*只补同一固定 slot/s);
 assert.match(ruleDoc, /内容策略.*仅对该固定 slot.*内容策略兼容降级提示词/s);
+assert.match(ruleDoc, /内容策略.*failed_after_acceptance.*requestDigest.*promptDigest.*允许.*更新/s);
+assert.match(ruleDoc, /普通供应商失败.*不得改变 digest/s);
 assert.match(ruleDoc, /不得降级整份提示词.*整轮重生.*重新提交已完成 slot/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);

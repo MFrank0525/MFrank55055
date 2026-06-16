@@ -91,6 +91,7 @@ export interface ReservePaidImageSlotInput {
   requestDigest: string;
   promptDigest: string;
   owner: PaidImageSlotOwner;
+  allowFailedAfterAcceptanceDigestChange?: boolean;
 }
 
 export interface ResolvePaidImageSlotActionInput {
@@ -879,7 +880,11 @@ export function reservePaidImageSlot(input: ReservePaidImageSlotInput): PaidImag
     if (!existing) {
       throw new Error(`paid image slot ${input.slot} disappeared after reservation conflict`);
     }
-    assertSlotIdentity(existing, input.requestDigest, input.promptDigest);
+    const allowDigestChange =
+      input.allowFailedAfterAcceptanceDigestChange === true && existing.state === "failed_after_acceptance";
+    if (!allowDigestChange) {
+      assertSlotIdentity(existing, input.requestDigest, input.promptDigest);
+    }
     if (isAutoRetryableNoAcceptanceAmbiguousRecord(existing)) {
       const failedBeforeAcceptance = transitionSlotUnlocked(input.productDir, input.slot, ["ambiguous"], "failed_before_acceptance", {
         reason: `auto no-acceptance reconciliation: ${existing.reason || "submit transport failed before provider task id"}`

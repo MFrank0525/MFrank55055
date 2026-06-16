@@ -79,7 +79,20 @@ function listFilesRecursive(dir: string): string[] {
   return files;
 }
 
-function latestRunState(runtimeRootDir: string): AutoListingRunState | undefined {
+function runMatchesAuditMode(stateFile: string, simulateOnly: boolean): boolean {
+  const preflightFile = path.join(path.dirname(stateFile), "preflight.json");
+  if (!fs.existsSync(preflightFile)) {
+    return true;
+  }
+  try {
+    const preflight = readJson<{ simulateOnly?: boolean }>(preflightFile);
+    return preflight.simulateOnly === simulateOnly;
+  } catch {
+    return true;
+  }
+}
+
+function latestRunState(runtimeRootDir: string, simulateOnly: boolean): AutoListingRunState | undefined {
   const root = path.resolve(runtimeRootDir);
   if (!fs.existsSync(root)) {
     return undefined;
@@ -100,6 +113,9 @@ function latestRunState(runtimeRootDir: string): AutoListingRunState | undefined
   }
 
   for (const stateFile of stateFiles) {
+    if (!runMatchesAuditMode(stateFile.filePath, simulateOnly)) {
+      continue;
+    }
     try {
       return readJson<AutoListingRunState>(stateFile.filePath);
     } catch {
@@ -196,7 +212,7 @@ async function main(): Promise<void> {
     ...listFilesRecursive(resolved.shopRootDir),
     ...listFilesRecursive(resolved.runtimeRootDir)
   ];
-  const state = latestRunState(resolved.runtimeRootDir);
+  const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly);
   const discoveredRunImageCount = state?.status === "running" ? state.tasks.length : undefined;
   const latestRuntimeDir = state?.runId ? path.join(resolved.runtimeRootDir, state.runId) : resolved.runtimeRootDir;
   const manifest = loadPublishManifest(latestRuntimeDir);

@@ -521,6 +521,40 @@ assert.throws(
 
 reservePaidImageSlot({
   productDir,
+  slot: 10,
+  requestDigest: "request-10-original",
+  promptDigest: "prompt-10-original",
+  owner: ownerA
+});
+recordPaidImageSubmitted({ productDir, slot: 10, providerTaskId: "provider-task-10" });
+recordPaidImageFailedAfterAcceptance({
+  productDir,
+  slot: 10,
+  reason: 'provider task failed: {"code":"upstream_error","message":"提示词或图片中可能包含违规信息，请修改后重试"}',
+  providerResponse: {
+    id: "provider-task-10",
+    status: "failed",
+    error: { code: "upstream_error", message: "提示词或图片中可能包含违规信息，请修改后重试" }
+  }
+});
+const policyRetryWithNewDigest = reservePaidImageSlot({
+  productDir,
+  slot: 10,
+  requestDigest: "request-10-policy-compatible",
+  promptDigest: "prompt-10-policy-compatible",
+  owner: ownerB,
+  allowFailedAfterAcceptanceDigestChange: true
+});
+assert.equal(policyRetryWithNewDigest.action, "submit");
+assert.equal(policyRetryWithNewDigest.record.requestDigest, "request-10-policy-compatible");
+assert.equal(policyRetryWithNewDigest.record.promptDigest, "prompt-10-policy-compatible");
+assert.deepEqual(
+  policyRetryWithNewDigest.record.audit.map((entry) => entry.state),
+  ["reserved", "submitted", "failed_after_acceptance", "reserved"]
+);
+
+reservePaidImageSlot({
+  productDir,
   slot: 9,
   requestDigest: "request-9",
   promptDigest: "prompt-9",
@@ -577,8 +611,8 @@ assert.throws(() => recordPaidImageCompleted({ productDir, slot: 3, sourceFile: 
 const summary = summarizePaidImageProductLedger(productDir);
 assert.deepEqual(summary, {
   expectedSlotCount: 20,
-  missing: 12,
-  reserved: 3,
+  missing: 11,
+  reserved: 4,
   submitted: 2,
   completed: 1,
   failedBeforeAcceptance: 0,

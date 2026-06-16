@@ -114,6 +114,7 @@ const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-c
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const publishFromSpuSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
 const autoListingCliSource = fs.readFileSync("src/cli/auto-listing.ts", "utf8");
+const auditAutoListingSource = fs.readFileSync("src/cli/audit-auto-listing.ts", "utf8");
 const resumeSource = fs.readFileSync("src/autolist/resume.ts", "utf8");
 const browserLaunchSource = fs.readFileSync("src/browser/launch.ts", "utf8");
 const packageSource = fs.readFileSync("package.json", "utf8");
@@ -250,6 +251,11 @@ assert.match(
   autoListingCliSource,
   /disconnectAutomationBrowserConnections/,
   "Auto-listing CLI must release reusable CDP automation connections after every terminal result"
+);
+assert.match(
+  auditAutoListingSource,
+  /preflight\.json[\s\S]*simulateOnly[\s\S]*latestRunState\(resolved\.runtimeRootDir, resolved\.simulateOnly\)/,
+  "Real auto-listing audits must ignore simulated verification runs when selecting the latest run state"
 );
 assert.match(
   browserLaunchSource,

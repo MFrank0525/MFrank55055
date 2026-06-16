@@ -1214,9 +1214,11 @@ async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
             ? (slotAction.record?.reason || "")
             : "";
-        if (
+        const allowFailedAfterAcceptanceDigestChange =
           slotAction.action === "retry_failed_after_acceptance" &&
-          isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason)
+          isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason);
+        if (
+          allowFailedAfterAcceptanceDigestChange
         ) {
           promptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
           rebuildVideosBase64Request();
@@ -1236,7 +1238,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
           slot: ledgerSlot,
           requestDigest,
           promptDigest,
-          owner: options.paidImageLedger?.owner || { pid: process.pid }
+          owner: options.paidImageLedger?.owner || { pid: process.pid },
+          allowFailedAfterAcceptanceDigestChange
         });
       }
 
