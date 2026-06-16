@@ -370,6 +370,10 @@ function buildPolicyCompatibleImageEditPrompt(promptText: string, imageIndex: nu
     .replaceAll("{{差异化要求}}", buildImageVariationInstruction(imageIndex));
 }
 
+function isPolicyCompatibleRetryFailureReason(reason: string): boolean {
+  return /content[_ -]?policy|policy[_ -]?violation|safety|unsafe|moderation|violat|违规|安全策略|内容策略/i.test(reason);
+}
+
 function resolveShopFolders(shopRootDir: string): Array<{ shopFolder: string; watermarkText: string }> {
   const existingFolders = fs
     .readdirSync(shopRootDir, { withFileTypes: true })
@@ -1180,18 +1184,18 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const generateVideosBase64Image = async (absoluteImageIndex: number): Promise<{ file: string; submitId: string }> => {
     const paddedImageIndex = String(absoluteImageIndex).padStart(2, "0");
     const ledgerSlot = (options.paidImageLedger?.slotOffset || 0) + absoluteImageIndex;
-    const promptText = buildPromptForImageIndex(absoluteImageIndex);
-    const requestBody = JSON.stringify(buildVideosBase64JsonBody(promptText));
-    const requestDigest = sha256Text(requestBody);
-    const promptDigest = sha256Text(promptText);
+    let promptText = buildPromptForImageIndex(absoluteImageIndex);
+    let requestBody = JSON.stringify(buildVideosBase64JsonBody(promptText));
+    let requestDigest = sha256Text(requestBody);
+    let promptDigest = sha256Text(promptText);
+    const rebuildVideosBase64Request = (): void => {
+      requestBody = JSON.stringify(buildVideosBase64JsonBody(promptText));
+      requestDigest = sha256Text(requestBody);
+      promptDigest = sha256Text(promptText);
+    };
     const requestFile = path.join(options.downloadDir, "request-" + paddedImageIndex + ".json");
     const responseFile = path.join(options.downloadDir, "response-" + paddedImageIndex + ".json");
     const targetFile = path.join(options.downloadDir, "generated-" + paddedImageIndex + ".png");
-    writeImageGenerationJsonLog(requestFile, {
-      endpoint: config.apiUrl,
-      mode,
-      ...JSON.parse(requestBody)
-    });
 
     let submitPayload: any | undefined;
     let taskId = "";
@@ -1206,6 +1210,25 @@ async function generateWithOpenAiCompatibleProvider(options: {
         slotAction.action === "retry_failed_before_acceptance" ||
         slotAction.action === "retry_failed_after_acceptance"
       ) {
+        const failedAfterAcceptanceReason =
+          slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
+            ? (slotAction.record?.reason || "")
+            : "";
+        if (
+          slotAction.action === "retry_failed_after_acceptance" &&
+          isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason)
+        ) {
+          promptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
+          rebuildVideosBase64Request();
+          writeImageGenerationJsonLog(
+            path.join(options.downloadDir, "request-" + paddedImageIndex + "-policy-retry.json"),
+            {
+              endpoint: config.apiUrl,
+              mode,
+              ...JSON.parse(requestBody)
+            }
+          );
+        }
         allowExistingSubmittedTaskImport =
           slotAction.action !== "retry_failed_before_acceptance" && slotAction.action !== "retry_failed_after_acceptance";
         slotAction = reservePaidImageSlot({
@@ -1252,6 +1275,12 @@ async function generateWithOpenAiCompatibleProvider(options: {
         options.onProgress?.(`Image ${absoluteImageIndex}: resuming submitted videos-base64 task.`);
       }
     }
+
+    writeImageGenerationJsonLog(requestFile, {
+      endpoint: config.apiUrl,
+      mode,
+      ...JSON.parse(requestBody)
+    });
 
     if (!submitPayload) {
       options.onProgress?.(`Image ${absoluteImageIndex}: submitting videos-base64 request.`);

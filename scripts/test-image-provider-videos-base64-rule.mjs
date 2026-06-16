@@ -85,6 +85,11 @@ assert.match(source, /requestedImageIndexes: missingLocalIndexes/);
 assert.match(source, /summarizeVideosBase64PaidResumePlan/);
 assert.match(source, /allowExistingSubmittedTaskImport/);
 assert.match(source, /allowExistingSubmittedTaskImport =[\s\S]*slotAction\.action !== "retry_failed_before_acceptance"[\s\S]*slotAction\.action !== "retry_failed_after_acceptance"/);
+assert.match(
+  source,
+  /isPolicyCompatibleRetryFailureReason\(reason: string\)[\s\S]*违规[\s\S]*failedAfterAcceptanceReason[\s\S]*slotAction\.action === "retry_failed_after_acceptance"[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)[\s\S]*buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
+  "videos-base64 failed-after-acceptance fixed-slot retries must switch only that slot to the policy-compatible prompt"
+);
 assert.match(source, /submitSlots/);
 assert.match(source, /roundStartImageIndex \+ missingLocalIndexes\[itemIndex\] - 1/);
 assert.match(source, /sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)/);
@@ -124,8 +129,9 @@ assert.match(ruleDoc, /ambiguous.*reserved.*优先.*付费安全阻塞/s);
 assert.match(ruleDoc, /failed_after_acceptance.*固定 slot.*允许.*重试/s);
 assert.match(ruleDoc, /没有取得 task ID.*没有供应商响应摘要.*fetch failed.*no-acceptance/s);
 assert.match(ruleDoc, /no-acceptance.*failed_before_acceptance.*重试同一固定 slot/s);
-assert.match(ruleDoc, /failed_after_acceptance.*原提示词.*同一固定 slot/s);
-assert.match(ruleDoc, /不得因为单张 task 策略误杀.*降级整份提示词/s);
+assert.match(ruleDoc, /failed_after_acceptance.*只补同一固定 slot/s);
+assert.match(ruleDoc, /内容策略.*仅对该固定 slot.*内容策略兼容降级提示词/s);
+assert.match(ruleDoc, /不得降级整份提示词.*整轮重生.*重新提交已完成 slot/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
