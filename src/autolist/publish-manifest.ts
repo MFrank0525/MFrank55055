@@ -14,6 +14,11 @@ export const SAFE_PUBLISH_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
   "list_verified"
 ];
 
+export const BATCH_COMPLETION_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
+  ...SAFE_PUBLISH_FINAL_VERIFY_STATUSES,
+  "submit_accepted_unconfirmed"
+];
+
 export interface PublishManifestEntry {
   productFolder: string;
   runtimeKey: string;
@@ -126,6 +131,47 @@ export function findPublishManifestEntry(manifest: PublishManifest, runtimeKey: 
 
 export function isManifestEntrySafelyPublished(entry: PublishManifestEntry | undefined): boolean {
   return Boolean(entry && entry.status === "published" && SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus));
+}
+
+export function isManifestEntryAcceptedForBatchCompletion(entry: PublishManifestEntry | undefined): boolean {
+  if (!entry || !BATCH_COMPLETION_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus)) {
+    return false;
+  }
+  if (entry.status === "published") {
+    return true;
+  }
+  return entry.status === "failed" &&
+    entry.finalVerifyStatus === "submit_accepted_unconfirmed" &&
+    entry.errorClass === "final_publish_state_uncertain";
+}
+
+export function isManifestEntryAcceptedForBatchCompletionForIdentity(
+  entry: PublishManifestEntry | undefined,
+  identity?: PublishProductIdentity
+): boolean {
+  if (!isManifestEntryAcceptedForBatchCompletion(entry)) {
+    return false;
+  }
+  const expected = normalizePublishProductIdentity(identity);
+  if (!expected) {
+    return true;
+  }
+  const actual = normalizePublishProductIdentity({
+    sourceImagePath: entry?.sourceImagePath,
+    recordId: entry?.recordId,
+    userCognitionName: entry?.userCognitionName,
+    genericName: entry?.genericName
+  });
+  if (!actual) {
+    return false;
+  }
+  if (expected.sourceImagePath && actual.sourceImagePath !== expected.sourceImagePath) {
+    return false;
+  }
+  if (expected.recordId && actual.recordId !== expected.recordId) {
+    return false;
+  }
+  return true;
 }
 
 export function isManifestEntrySafelyPublishedForIdentity(

@@ -2,7 +2,7 @@ import path from "node:path";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import { getProductCategoryPlan } from "./product-category.js";
 import type { ImageTaskState, MainImageGeneratedFile } from "./types.js";
-import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, type PublishManifestEntry } from "./publish-manifest.js";
+import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, BATCH_COMPLETION_FINAL_VERIFY_STATUSES, type PublishManifestEntry } from "./publish-manifest.js";
 
 export type AutoListingAuditSeverity = "error" | "warning";
 
@@ -298,6 +298,9 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
 
   for (const task of tasks) {
     const generatedFiles = task.mainImageArtifact?.generatedFiles || [];
+    const cleanedArtifactsWereRemoved =
+      ["cleaned", "done"].includes(task.status) &&
+      (task.cleanupArtifact?.removedPaths || []).length > 0;
     const promptCount = input.expectedPromptCount ?? getProductCategoryPlan(task.feishuProductRecord?.productCategory).promptCount;
     const expectedForTask = promptCount * input.expectedImagesPerPrompt;
     expectedImageCount += expectedForTask;
@@ -335,7 +338,7 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
           file.imageFile,
           task.taskId
         );
-        if (!input.simulateOnly && !existingFiles.has(normalizePath(file.imageFile))) {
+        if (!cleanedArtifactsWereRemoved && !input.simulateOnly && !existingFiles.has(normalizePath(file.imageFile))) {
           errors.push(issue("error", "main_image_file_missing", `Generated main image file is missing: ${file.imageFile}`, task.taskId, file.imageFile));
         }
       }
@@ -344,12 +347,12 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
         const normalizedProductFolder = normalizePath(file.productFolder);
         const firstSeenProductFolder = !productFolders.has(normalizedProductFolder);
         productFolders.add(normalizedProductFolder);
-        if (firstSeenProductFolder && !input.simulateOnly && !existingFiles.has(normalizedProductFolder)) {
+        if (!cleanedArtifactsWereRemoved && firstSeenProductFolder && !input.simulateOnly && !existingFiles.has(normalizedProductFolder)) {
           errors.push(issue("error", "main_image_product_folder_missing", `Generated product folder is missing: ${file.productFolder}`, task.taskId, file.productFolder));
         }
       }
 
-      if (file.rawImageFile && !input.simulateOnly && !existingFiles.has(normalizePath(file.rawImageFile))) {
+      if (file.rawImageFile && !cleanedArtifactsWereRemoved && !input.simulateOnly && !existingFiles.has(normalizePath(file.rawImageFile))) {
         errors.push(issue("error", "main_image_raw_file_missing", `Generated raw main image file is missing: ${file.rawImageFile}`, task.taskId, file.rawImageFile));
       }
     }
@@ -369,6 +372,18 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
 
 function isSafePublishSignal(status?: string, finalVerifyStatus?: string): boolean {
   return status === "published" && SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(finalVerifyStatus as never);
+}
+
+function isAcceptedBatchCompletionSignal(status?: string, finalVerifyStatus?: string, errorClass?: string): boolean {
+  if (!BATCH_COMPLETION_FINAL_VERIFY_STATUSES.includes(finalVerifyStatus as never)) {
+    return false;
+  }
+  if (isSafePublishSignal(status, finalVerifyStatus)) {
+    return true;
+  }
+  return status === "failed" &&
+    finalVerifyStatus === "submit_accepted_unconfirmed" &&
+    errorClass === "final_publish_state_uncertain";
 }
 
 function taskExpectedPublishFolders(task: ImageTaskState): string[] {
@@ -403,6 +418,19 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
       const manifestSafe = isSafePublishSignal(manifest?.status, manifest?.finalVerifyStatus);
       if (resultSafe || manifestSafe) {
         safelyPublishedCount += 1;
+        continue;
+      }
+      const resultAccepted = isAcceptedBatchCompletionSignal(result?.status, result?.finalVerifyStatus, result?.errorClass);
+      const manifestAccepted = isAcceptedBatchCompletionSignal(manifest?.status, manifest?.finalVerifyStatus, manifest?.errorClass);
+      if (resultAccepted || manifestAccepted) {
+        safelyPublishedCount += 1;
+        warnings.push(issue(
+          "warning",
+          "publish_result_submit_accepted_unconfirmed",
+          `Publish submit was accepted but final platform success was not observed for product folder: ${folder}`,
+          task.taskId,
+          folder
+        ));
         continue;
       }
       const failedResult = result && (result.status === "failed" || result.ok === false || result.finalVerifyStatus === "needs_manual_review");

@@ -2917,6 +2917,79 @@ assert.equal(
   }),
   true
 );
+const acceptedSubmitFolders = Array.from({ length: 20 }, (_, index) => `/work/shop/accepted-submit-product-${index + 1}`);
+assert.equal(
+  isProductFullyProcessed({
+    task: {
+      taskId: "image-accepted-submit",
+      sequenceNo: 2,
+      sourceImagePath: "/work/input/accepted-submit.png",
+      sourceImageName: "accepted-submit.png",
+      status: "done",
+      lastUpdatedAt: new Date().toISOString(),
+      generatedProductFolders: acceptedSubmitFolders,
+      notes: [],
+      shopDistributionArtifact: {
+        distributedFolders: acceptedSubmitFolders,
+        simulated: false
+      }
+    },
+    productIdentity: {
+      sourceImagePath: "/work/input/accepted-submit.png",
+      recordId: "record-accepted-submit"
+    },
+    publishManifestEntries: acceptedSubmitFolders.map((productFolder, index) => ({
+      productFolder,
+      runtimeKey: `shop__accepted-submit-product-${index + 1}`,
+      shopFolder: "/work/shop",
+      watermarkNo: index + 1,
+      sourceImagePath: "/work/input/accepted-submit.png",
+      recordId: "record-accepted-submit",
+      status: index === 12 ? "failed" : "published",
+      finalVerifyStatus: index === 12 ? "submit_accepted_unconfirmed" : "publish_signal_confirmed",
+      errorClass: index === 12 ? "final_publish_state_uncertain" : "",
+      message: index === 12 ? "Publish button click was issued; platform success signal was not observed." : "ok",
+      updatedAt: new Date().toISOString()
+    }))
+  }),
+  true,
+  "A platform-accepted submit with uncertain final signal must close Feishu batch processing instead of rediscovering a cleaned source image."
+);
+const acceptedSubmitPublishAudit = auditPublishCoverage({
+  tasks: [
+    {
+      taskId: "image-accepted-submit",
+      sequenceNo: 2,
+      sourceImagePath: "/work/input/accepted-submit.png",
+      sourceImageName: "accepted-submit.png",
+      status: "done",
+      lastUpdatedAt: new Date().toISOString(),
+      generatedProductFolders: acceptedSubmitFolders,
+      notes: [],
+      shopDistributionArtifact: {
+        distributedFolders: acceptedSubmitFolders,
+        simulated: false
+      }
+    }
+  ],
+  manifestEntries: acceptedSubmitFolders.map((productFolder, index) => ({
+    productFolder,
+    runtimeKey: `shop__accepted-submit-product-${index + 1}`,
+    shopFolder: "/work/shop",
+    watermarkNo: index + 1,
+    sourceImagePath: "/work/input/accepted-submit.png",
+    recordId: "record-accepted-submit",
+    status: index === 12 ? "failed" : "published",
+    finalVerifyStatus: index === 12 ? "submit_accepted_unconfirmed" : "publish_signal_confirmed",
+    errorClass: index === 12 ? "final_publish_state_uncertain" : "",
+    message: index === 12 ? "Publish button click was issued; platform success signal was not observed." : "ok",
+    updatedAt: new Date().toISOString()
+  }))
+});
+assert.equal(acceptedSubmitPublishAudit.ok, true);
+assert.equal(acceptedSubmitPublishAudit.summary.safelyPublishedCount, 20);
+assert.equal(acceptedSubmitPublishAudit.warnings.length, 1);
+assert.equal(acceptedSubmitPublishAudit.warnings[0].code, "publish_result_submit_accepted_unconfirmed");
 assert.equal(
   resolveAutoListingControllerStartAfterFeishuRefresh({
     currentBatchComplete: true,
@@ -3223,6 +3296,29 @@ const generationOk = auditMainImageGeneration({
 assert.equal(generationOk.ok, true);
 assert.equal(generationOk.summary.auditedTaskCount, 1);
 assert.equal(generationOk.summary.generatedImageCount, 8);
+
+const generationCleanedOk = auditMainImageGeneration({
+  tasks: [
+    {
+      ...taskWithMainImages(completeGeneratedFiles),
+      status: "done",
+      cleanupArtifact: {
+        removedPaths: completeGeneratedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder]),
+        simulated: false
+      }
+    }
+  ],
+  existingFiles: [],
+  expectedPromptCount: 2,
+  expectedImagesPerPrompt: 4,
+  simulateOnly: false
+});
+
+assert.equal(
+  generationCleanedOk.ok,
+  true,
+  "Completed tasks with recorded cleanup must audit generation counts without requiring deleted transient files to remain on disk."
+);
 
 assert.equal(
   inferResumeStartStepForTask({
