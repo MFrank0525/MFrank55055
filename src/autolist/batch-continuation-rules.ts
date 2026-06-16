@@ -790,26 +790,33 @@ export function resolveAutoListingControllerRealtimeProgressSignal(
     {
       source: "publish_log" as const,
       timestamp: input.publishLogTimestamp,
-      message: input.publishLogMessage
-    },
-    {
-      source: "latest_artifact" as const,
-      timestamp: input.latestArtifactUpdatedAt,
-      message: input.latestArtifactName ? `最近产物：${input.latestArtifactName}` : undefined
+      message: input.publishLogMessage,
+      priority: 0
     },
     {
       source: "publish_active" as const,
       timestamp: input.publishActiveUpdatedAt,
-      message: input.publishActiveMessage
+      message: input.publishActiveMessage,
+      priority: 1
+    },
+    {
+      source: "latest_artifact" as const,
+      timestamp: input.latestArtifactUpdatedAt,
+      message: input.latestArtifactName ? `最近产物：${input.latestArtifactName}` : undefined,
+      priority: 2
     },
     {
       source: "state" as const,
       timestamp: input.stateLatestProgressTimestamp,
-      message: input.stateLatestProgressMessage
+      message: input.stateLatestProgressMessage,
+      priority: 3
     }
   ]
     .filter((candidate) => Boolean(candidate.message || candidate.timestamp))
     .sort((a, b) => {
+      if (a.priority !== b.priority) {
+        return a.priority - b.priority;
+      }
       const aTime = a.timestamp && Number.isFinite(Date.parse(a.timestamp)) ? Date.parse(a.timestamp) : 0;
       const bTime = b.timestamp && Number.isFinite(Date.parse(b.timestamp)) ? Date.parse(b.timestamp) : 0;
       return bTime - aTime;

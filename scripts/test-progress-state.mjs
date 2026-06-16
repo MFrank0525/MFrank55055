@@ -1847,6 +1847,66 @@ assert.equal(
   false,
   "AutoListingController realtime progress key must not collide across supervisor continuations or new active runs"
 );
+const oldManifestCountWithNewPublishLog = resolveAutoListingControllerRealtimeProgressSignal({
+  jobStartedAt: "2026-06-16T05:38:07.466Z",
+  activeRunId: "20260616-140055",
+  status: "running",
+  statusSource: "publish-manifest",
+  publishSafelyPublished: 19,
+  publishTotal: 20,
+  publishFailed: 1,
+  publishProductIndex: 16,
+  publishProductTotal: 20,
+  publishShopIndex: 8,
+  publishShopTotal: 10,
+  publishActiveRuntimeKey: "08延草纲目家庭护理专营店__延草纲目医用退热贴水印16",
+  publishActiveUpdatedAt: "2026-06-16T07:01:16.001Z",
+  publishActiveMessage: "延草纲目医用退热贴水印16: service_fulfillment",
+  publishLogTimestamp: "2026-06-16T07:01:16.001Z",
+  publishLogMessage: "发布模块：服务履约（08延草纲目家庭护理专营店）"
+});
+assert.equal(
+  oldManifestCountWithNewPublishLog?.source,
+  "publish_log",
+  "Hermes realtime progress must prefer the current publish module log over stale cumulative manifest counters"
+);
+assert.match(
+  oldManifestCountWithNewPublishLog?.key || "",
+  /08延草纲目家庭护理专营店__延草纲目医用退热贴水印16/,
+  "Hermes realtime key must be anchored to the current active product folder, not the previous product's last published item"
+);
+assert.match(
+  oldManifestCountWithNewPublishLog?.message || "",
+  /服务履约/,
+  "Hermes realtime message must expose the current publish module so operator feedback changes during publishing"
+);
+const newerArtifactWithCurrentPublishLog = resolveAutoListingControllerRealtimeProgressSignal({
+  jobStartedAt: "2026-06-16T05:38:07.466Z",
+  activeRunId: "20260616-140055",
+  status: "running",
+  statusSource: "publish-manifest",
+  publishProductIndex: 17,
+  publishProductTotal: 20,
+  publishShopIndex: 9,
+  publishShopTotal: 10,
+  publishActiveRuntimeKey: "09延草纲目中医保健专营店__延草纲目医用退热贴水印17",
+  publishActiveUpdatedAt: "2026-06-16T07:03:04.727Z",
+  publishActiveMessage: "延草纲目医用退热贴水印17: basic_info_fill: basic_info_fill_attempt: 1",
+  latestArtifactUpdatedAt: "2026-06-16T07:03:33.481Z",
+  latestArtifactName: "publish-page-forbidden-graphic-sections-cleared.png",
+  publishLogTimestamp: "2026-06-16T07:03:04.727Z",
+  publishLogMessage: "发布模块：基础信息（09延草纲目中医保健专营店）"
+});
+assert.equal(
+  newerArtifactWithCurrentPublishLog?.source,
+  "publish_log",
+  "Hermes realtime progress must prefer publish module logs over newer screenshot artifacts during publishing"
+);
+assert.match(
+  newerArtifactWithCurrentPublishLog?.message || "",
+  /发布模块：基础信息/,
+  "Hermes realtime progress must report the current workflow module, not only the latest screenshot filename"
+);
 assert.equal(
   selectAutoListingControllerFailedResumeCandidate([
     {
