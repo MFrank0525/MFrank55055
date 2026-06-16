@@ -773,6 +773,20 @@ assert.equal(
 );
 assert.equal(
   shouldStopPublishBatchAfterFailure([
+    { safelyPublished: false, errorClass: "doudian_login_required" }
+  ]),
+  true,
+  "login expiry during publishing must stop the remaining shop batch instead of marking later watermarks failed"
+);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([
+    { safelyPublished: false, errorClass: "shop_context_mismatch" }
+  ]),
+  true,
+  "shop context mismatch must stop the remaining shop batch so recovery resumes from the first unsafe item"
+);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([
     { safelyPublished: true, errorClass: "" },
     { safelyPublished: false, errorClass: "platform_page_not_ready" }
   ]),

@@ -478,7 +478,11 @@ export function shouldStopPublishBatchAfterFailure(
   decisions: PublishBatchFailureDecision[],
   consecutiveFailureThreshold = 2
 ): boolean {
-  const singleFailureStopClasses = new Set(["price_inventory_not_ready"]);
+  const singleFailureStopClasses = new Set([
+    "price_inventory_not_ready",
+    "doudian_login_required",
+    "shop_context_mismatch"
+  ]);
   const systemicClasses = new Set(["spec_template_not_ready", "service_section_not_ready", "basic_info_field_not_ready"]);
   let lastClass = "";
   let consecutiveCount = 0;

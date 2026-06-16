@@ -53,5 +53,10 @@ assert.match(
   /isNavigationContextDestroyedError/,
   "Shop selection must not report target missing when a successful click immediately navigates"
 );
+assert.match(
+  functionBody("ensureShopContext"),
+  /if \(!dialogVisible\) \{[\s\S]*isDoudianLoginRequired\(page\)[\s\S]*Doudian login required[\s\S]*shop-switch-dialog-missing/,
+  "A missing shop switch dialog must be reclassified as login expiry when the page has landed on the Doudian login screen"
+);
 
 console.log("shop switch structure rule passed");

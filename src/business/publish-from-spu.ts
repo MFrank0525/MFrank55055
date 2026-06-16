@@ -1188,6 +1188,12 @@ async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: str
       dialogVisible = await waitForChooseShopDialog(page);
     }
     if (!dialogVisible) {
+      if (await isDoudianLoginRequired(page)) {
+        const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
+        throw new Error(
+          `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
+        );
+      }
       await saveShopSwitchDomSnapshot(page, runtimeDir, "shop-switch-dialog-missing.html").catch(() => "");
       const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-dialog-missing.png").catch(() => "");
       throw new Error(`Shop switch failed: 请选择店铺 dialog did not appear for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
