@@ -41,6 +41,7 @@ import {
   isExternalMainImageRawReuseMessage,
   shouldClearPauseSignalOnAutoListingControllerStart,
   summarizeAutoListingControllerImageGenerationEvents,
+  shouldRefreshAutoListingChildProgressSeenAt,
   resolveAutoListingControllerChildStallTimeoutMs,
   isAutoListingControllerProgressArtifactRelativePath,
   shouldTerminateRecordedAutoListingControllerProcessGroup,
@@ -139,6 +140,43 @@ assert.match(
   hermesSupervisorSource,
   /resolveSupervisorRecoveryChildMode[\s\S]*prepareResumeJob\(\)[\s\S]*nextMode = recoveryMode/,
   "AutoListingController supervisor must rebuild and execute a resume job for safe resume-stage transitions"
+);
+assert.match(
+  hermesSupervisorSource,
+  /shouldRefreshAutoListingChildProgressSeenAt/,
+  "supervisor watchdog must not treat repeated provider queue heartbeats as business progress"
+);
+assert.equal(
+  shouldRefreshAutoListingChildProgressSeenAt({
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 3/5: Image 4: videos-base64 task task_qn0 status queued 0."
+  }),
+  false,
+  "videos-base64 queued 0 is an external-service heartbeat, not business progress"
+);
+assert.equal(
+  shouldRefreshAutoListingChildProgressSeenAt({
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 3/5: Image 4: videos-base64 task task_qn0 status pending 0."
+  }),
+  false,
+  "videos-base64 pending 0 is an external-service heartbeat, not business progress"
+);
+assert.equal(
+  shouldRefreshAutoListingChildProgressSeenAt({
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 3/5: Image 4: videos-base64 task task_qn0 status completed 100."
+  }),
+  true,
+  "completed provider status is real progress"
+);
+assert.equal(
+  shouldRefreshAutoListingChildProgressSeenAt({
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 3/5: Image 4: saved generated-04.png."
+  }),
+  true,
+  "saved image output is real progress"
 );
 assert.match(
   hermesRunnerSource,

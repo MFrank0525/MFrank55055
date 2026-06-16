@@ -313,6 +313,20 @@ export function resolveAutoListingControllerChildStallTimeoutMs(input: AutoListi
   return defaultTimeoutMs;
 }
 
+export function shouldRefreshAutoListingChildProgressSeenAt(input: {
+  activeStep?: string;
+  activeMessage?: string;
+}): boolean {
+  const activeText = `${input.activeStep || ""} ${input.activeMessage || ""}`;
+  if (
+    /main_images_generated/i.test(activeText) &&
+    /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(activeText)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function isAutoListingControllerProgressArtifactRelativePath(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, "/").replace(/^\.?\//, "");
   return normalized.startsWith("publish/") && /\.(?:json|ndjson|png|jpe?g|webp)$/i.test(normalized);

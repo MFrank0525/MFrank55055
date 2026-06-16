@@ -10,6 +10,7 @@ import {
   resolveSupervisorRecoveryChildMode,
   resolveSupervisorRecoveryDelayMs,
   shouldConsumeSupervisorRecoveryAttempt,
+  shouldRefreshAutoListingChildProgressSeenAt,
   shouldTerminateChildAfterTerminalResult,
   shouldContinueFullFlowAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
@@ -292,12 +293,17 @@ async function runChild(label: string, command: string, args: string[]): Promise
       return;
     }
     const progressMtime = latestProgressMtimeMs();
+    let activeProgress: { activeStep?: string; activeMessage?: string } | undefined;
     if (progressMtime > lastProgressMtime) {
       lastProgressMtime = progressMtime;
-      lastProgressSeenAt = Date.now();
-      return;
+      activeProgress = latestProgressSnapshot();
+      if (shouldRefreshAutoListingChildProgressSeenAt(activeProgress)) {
+        lastProgressSeenAt = Date.now();
+        return;
+      }
+      latestChildStallProgress = activeProgress;
     }
-    const activeProgress = latestProgressSnapshot();
+    activeProgress = activeProgress || latestProgressSnapshot();
     const effectiveStallTimeoutMs = resolveAutoListingControllerChildStallTimeoutMs({
       defaultTimeoutMs: childStallTimeoutMs,
       activeStep: activeProgress.activeStep,

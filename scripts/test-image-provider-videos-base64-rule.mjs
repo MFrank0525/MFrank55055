@@ -125,6 +125,8 @@ assert.match(ruleDoc, /固定文件槽位.*禁止按已有文件数量推算/s);
 assert.match(ruleDoc, /进入发布前.*固定 raw 槽位完整性/s);
 assert.match(ruleDoc, /提交准入并发.*默认.*2.*最高.*4/s);
 assert.match(ruleDoc, /已取得.*任务 ID.*状态查询.*结果下载.*传输层瞬断.*同一任务.*退避重试/s);
+assert.match(ruleDoc, /queued 0.*pending 0.*供应商队列心跳.*不代表项目业务进展/s);
+assert.match(ruleDoc, /watchdog.*不得.*队列心跳.*最后真实进展/s);
 assert.match(ruleDoc, /ambiguous.*reserved.*优先.*付费安全阻塞/s);
 assert.match(ruleDoc, /failed_after_acceptance.*固定 slot.*允许.*重试/s);
 assert.match(ruleDoc, /没有取得 task ID.*没有供应商响应摘要.*fetch failed.*no-acceptance/s);
