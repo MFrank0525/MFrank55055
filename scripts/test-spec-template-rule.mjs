@@ -140,6 +140,11 @@ assert.match(
 );
 assert.match(
   publishSource,
+  /const detachedRows = allRows[\s\S]*placeholder\.includes\("请输入库存"\)[\s\S]*placeholder\.includes\("请输入erp编码"\)[\s\S]*return detachedRows;/,
+  "price/inventory row discovery must support Doudian's split table DOM where header and SKU rows are not in the same table"
+);
+assert.match(
+  publishSource,
   /fillVisiblePriceInventoryRowByTableDom[\s\S]*scrollIntoView\(\{ block: "center"/,
   "price/inventory action must center each target row before filling so sticky footers do not cover bottom rows"
 );

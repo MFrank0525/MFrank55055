@@ -7941,7 +7941,44 @@ async function findPriceInventoryTableDomRows(page: Page): Promise<PriceInventor
         return rows;
       }
     }
-    return [];
+    const detachedRows = allRows
+      .map((row, index) => {
+        if (!visible(row)) {
+          return null;
+        }
+        const rowInputs = Array.from(row.querySelectorAll("input")).map((input) => input as HTMLInputElement);
+        const rowText = normalize(row.innerText || row.textContent || "");
+        const stockInput = rowInputs.find((input) => {
+          const placeholder = input.getAttribute("placeholder") || "";
+          return usableInput(input) && placeholder.includes("请输入库存");
+        });
+        const codeInput = rowInputs.find((input) => {
+          const placeholder = input.getAttribute("placeholder") || "";
+          return placeholder.includes("请输入erp编码") || placeholder.includes("商家编码");
+        });
+        const priceInput = rowInputs.find((input) => {
+          const placeholder = input.getAttribute("placeholder") || "";
+          return (
+            usableInput(input) &&
+            input !== stockInput &&
+            input !== codeInput &&
+            (placeholder.includes("请输入") || placeholder.includes("价格") || rowText.includes("￥"))
+          );
+        });
+        if (!priceInput || !stockInput || !codeInput) {
+          return null;
+        }
+        return {
+          trIndex: allRows.indexOf(row),
+          priceInputIndex: rowInputs.indexOf(priceInput),
+          stockInputIndex: rowInputs.indexOf(stockInput),
+          rowOrder: index,
+          priceValue: priceInput.value || "",
+          stockValue: stockInput.value || ""
+        };
+      })
+      .filter((row): row is PriceInventoryDomRow => Boolean(row));
+    return detachedRows;
   });
 }
 
