@@ -13,6 +13,12 @@ interface Args {
   json: boolean;
 }
 
+interface ControllerJobFile {
+  mode?: "full-real-flow" | "resume-real-job";
+  status?: "running";
+  pid?: number;
+}
+
 function parseArgs(argv: string[]): Args {
   const args = new Map<string, string>();
   const flags = new Set<string>();
@@ -55,6 +61,14 @@ function readJson<T>(filePath: string): T {
   const resolved = path.resolve(filePath);
   if (!fs.existsSync(resolved)) {
     throw new Error(`File not found: ${resolved}`);
+  }
+  return JSON.parse(fs.readFileSync(resolved, "utf8")) as T;
+}
+
+function readOptionalJson<T>(filePath: string): T | undefined {
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) {
+    return undefined;
   }
   return JSON.parse(fs.readFileSync(resolved, "utf8")) as T;
 }
@@ -214,13 +228,19 @@ async function main(): Promise<void> {
   ];
   const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly);
   const discoveredRunImageCount = state?.status === "running" ? state.tasks.length : undefined;
+  const controllerJob = readOptionalJson<ControllerJobFile>("data/auto-listing/control/auto-listing-controller-job.json");
+  const expectedDiscoveredRunImageCount =
+    discoveredRunImageCount !== undefined && controllerJob?.status === "running" && controllerJob.mode === "resume-real-job"
+      ? 1
+      : undefined;
   const latestRuntimeDir = state?.runId ? path.join(resolved.runtimeRootDir, state.runId) : resolved.runtimeRootDir;
   const manifest = loadPublishManifest(latestRuntimeDir);
   const continuity = auditAutoListingContinuity({
     records,
     processedImages,
     existingFiles,
-    discoveredRunImageCount
+    discoveredRunImageCount,
+    expectedDiscoveredRunImageCount
   });
   const feishuBatch = summarizeFeishuBatchProgress({
     records,

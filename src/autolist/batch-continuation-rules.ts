@@ -64,6 +64,13 @@ function isRetryableVideosBase64ProviderTaskFailure(message: string): boolean {
   );
 }
 
+function isRetryableVideosBase64AcceptedQueueWait(message: string): boolean {
+  return (
+    /main_images_generated|main image|watchdog|no progress/i.test(message) &&
+    /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(message)
+  );
+}
+
 export function isRetryableExternalServiceAvailabilityFailure(message: string): boolean {
   if (
     isPaidImageSubmissionSafetyBlock(message) ||
@@ -72,6 +79,7 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
     return false;
   }
   return (
+    isRetryableVideosBase64AcceptedQueueWait(message) ||
     (!isRetryableVideosBase64NoAcceptanceTransportFailure(message) && isPaidMainImageTransportFailure(message)) ||
     (/main_images_generated/i.test(message) && /videos-base64 task .*did not finish/i.test(message)) ||
     (/main_images_generated|image generation|main image/i.test(message) &&

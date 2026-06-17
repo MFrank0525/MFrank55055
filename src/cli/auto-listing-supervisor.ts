@@ -514,11 +514,14 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const failureMessage = exitCode === childStallExitCode ? "child made no progress before watchdog timeout" : latestFailureMessage();
     const failureProgress =
       latestChildStallProgress.activeStep || latestChildStallProgress.activeMessage
         ? latestChildStallProgress
         : latestProgressSnapshot();
+    const failureMessage =
+      exitCode === childStallExitCode
+        ? `child made no progress before watchdog timeout during ${failureProgress.activeStep || "unknown"}: ${failureProgress.activeMessage || ""}`.trim()
+        : latestFailureMessage();
     if (
       shouldRecoverFullFlowAfterChildFailure({
         childMode,

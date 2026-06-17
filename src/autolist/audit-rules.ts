@@ -19,6 +19,7 @@ export interface AutoListingContinuityAuditInput {
   processedImages: Iterable<string>;
   existingFiles: Iterable<string>;
   discoveredRunImageCount?: number;
+  expectedDiscoveredRunImageCount?: number;
 }
 
 export interface AutoListingContinuityAuditResult {
@@ -32,6 +33,7 @@ export interface AutoListingContinuityAuditResult {
     existingFileCount: number;
     unmatchedProcessedImageCount: number;
     discoveredRunImageCount?: number;
+    expectedDiscoveredRunImageCount?: number;
   };
   errors: AutoListingAuditIssue[];
   warnings: AutoListingAuditIssue[];
@@ -211,11 +213,12 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
     }
   }
 
-  if (input.discoveredRunImageCount !== undefined && input.discoveredRunImageCount < pendingRecordCount) {
+  const expectedDiscoveredRunImageCount = input.expectedDiscoveredRunImageCount ?? pendingRecordCount;
+  if (input.discoveredRunImageCount !== undefined && input.discoveredRunImageCount < expectedDiscoveredRunImageCount) {
     errors.push(issue(
       "error",
       "run_discovered_too_few_images",
-      `Current run discovered ${input.discoveredRunImageCount} image(s), but ${pendingRecordCount} Feishu product(s) are still pending.`
+      `Current run discovered ${input.discoveredRunImageCount} image(s), but ${expectedDiscoveredRunImageCount} image(s) are required for this run mode.`
     ));
   }
 
@@ -229,7 +232,8 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
       declaredQualificationImageCount,
       existingFileCount: existingFiles.size,
       unmatchedProcessedImageCount: processedImages.size - matchedProcessedImages.size,
-      discoveredRunImageCount: input.discoveredRunImageCount
+      discoveredRunImageCount: input.discoveredRunImageCount,
+      expectedDiscoveredRunImageCount
     },
     errors,
     warnings

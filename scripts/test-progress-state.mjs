@@ -2616,6 +2616,40 @@ assert.equal(
   true,
   "AutoListingController resume children killed by the no-progress watchdog must automatically continue the locked current batch"
 );
+const videosBase64QueuedWatchdogMessage =
+  "child made no progress before watchdog timeout during main_images_generated: Prompt 4/5: Image 4: videos-base64 task task_1bRTM2GdZUb3T status queued 0.";
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(videosBase64QueuedWatchdogMessage),
+  true,
+  "accepted videos-base64 queued 0 watchdog stalls must become external-service waits"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(videosBase64QueuedWatchdogMessage),
+  false,
+  "accepted videos-base64 queued 0 watchdog stalls must not burn generic supervisor recovery attempts"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: videosBase64QueuedWatchdogMessage,
+    externalServiceWaitAttempts: 0
+  }),
+  10 * 60 * 1000,
+  "accepted videos-base64 queued 0 watchdog stalls must use long external-service backoff"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 124,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64QueuedWatchdogMessage,
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 4/5: Image 4: videos-base64 task task_1bRTM2GdZUb3T status queued 0.",
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "accepted videos-base64 queued 0 watchdog stalls must remain self-driven after the generic recovery budget"
+);
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
     childMode: "full",
@@ -3267,6 +3301,25 @@ const underDiscoveredRun = auditAutoListingContinuity({
 
 assert.equal(underDiscoveredRun.ok, false);
 assert.ok(underDiscoveredRun.errors.some((issue) => issue.code === "run_discovered_too_few_images"));
+
+const resumeDiscoveredRun = auditAutoListingContinuity({
+  records: [
+    record("rec-1", "/work/input/auto-listing/feishu-images/product-1.png"),
+    record("rec-2", "/work/input/auto-listing/feishu-images/product-2.png"),
+    record("rec-3", "/work/input/auto-listing/feishu-images/product-3.png")
+  ],
+  processedImages: [],
+  existingFiles: [
+    "/work/input/auto-listing/feishu-images/product-1.png",
+    "/work/input/auto-listing/feishu-images/product-2.png",
+    "/work/input/auto-listing/feishu-images/product-3.png"
+  ],
+  discoveredRunImageCount: 1,
+  expectedDiscoveredRunImageCount: 1
+});
+
+assert.equal(resumeDiscoveredRun.ok, true);
+assert.equal(resumeDiscoveredRun.summary.expectedDiscoveredRunImageCount, 1);
 
 function taskWithMainImages(generatedFiles) {
   return {
