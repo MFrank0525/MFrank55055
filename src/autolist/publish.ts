@@ -385,7 +385,8 @@ export async function publishDistributedProducts(options: {
           spu: fields.spu,
           title: fields.title,
           shortTitle: fields.shortTitle,
-          modelSpec: fields.modelSpec || "盒装"
+          modelSpec: fields.modelSpec || "盒装",
+          feishuRecordId: productIdentity?.recordId
         },
         headless: false,
         retryOnSystemError: true
@@ -441,7 +442,8 @@ export async function publishDistributedProducts(options: {
             spu: fields.spu,
             title: fields.title,
             shortTitle: fields.shortTitle,
-            modelSpec: fields.modelSpec || "盒装"
+            modelSpec: fields.modelSpec || "盒装",
+            feishuRecordId: productIdentity?.recordId
           },
           headless: false,
           retryOnSystemError: true

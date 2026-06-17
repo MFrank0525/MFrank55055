@@ -84,6 +84,7 @@ export interface MainImageGenerationAuditResult {
 export interface PublishCoverageAuditInput {
   tasks: ImageTaskState[];
   manifestEntries: PublishManifestEntry[];
+  allowInProgress?: boolean;
 }
 
 export interface PublishCoverageAuditResult {
@@ -92,6 +93,7 @@ export interface PublishCoverageAuditResult {
     auditedTaskCount: number;
     expectedPublishCount: number;
     safelyPublishedCount: number;
+    inProgressPublishCount: number;
   };
   errors: AutoListingAuditIssue[];
   warnings: AutoListingAuditIssue[];
@@ -431,6 +433,7 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
   const tasks = input.tasks.filter((task) => taskExpectedPublishFolders(task).length > 0 || Boolean(task.publishArtifact));
   let expectedPublishCount = 0;
   let safelyPublishedCount = 0;
+  let inProgressPublishCount = 0;
   const manifestByFolder = new Map(input.manifestEntries.map((entry) => [normalizePath(entry.productFolder), entry]));
 
   for (const task of tasks) {
@@ -461,6 +464,10 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
       }
       const failedResult = result && (result.status === "failed" || result.ok === false || result.finalVerifyStatus === "needs_manual_review");
       const failedManifest = manifest && (manifest.status === "failed" || manifest.finalVerifyStatus === "needs_manual_review");
+      if (!failedResult && !failedManifest && input.allowInProgress) {
+        inProgressPublishCount += 1;
+        continue;
+      }
       errors.push(issue(
         "error",
         failedResult || failedManifest ? "publish_result_unsafe" : "publish_result_missing",
@@ -478,7 +485,8 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
     summary: {
       auditedTaskCount: tasks.length,
       expectedPublishCount,
-      safelyPublishedCount
+      safelyPublishedCount,
+      inProgressPublishCount
     },
     errors,
     warnings

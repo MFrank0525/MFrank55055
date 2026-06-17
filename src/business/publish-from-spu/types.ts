@@ -16,6 +16,7 @@ export interface PublishFromSpuJobInput {
     title?: string;
     shortTitle?: string;
     modelSpec?: string;
+    feishuRecordId?: string;
   };
   publishPageUrl?: string;
   headless?: boolean;

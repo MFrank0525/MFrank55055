@@ -73,6 +73,18 @@ function readOptionalJson<T>(filePath: string): T | undefined {
   return JSON.parse(fs.readFileSync(resolved, "utf8")) as T;
 }
 
+function isProcessAlive(pid: number | undefined): boolean {
+  if (!pid || !Number.isFinite(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 function listFilesRecursive(dir: string): string[] {
   const resolved = path.resolve(dir);
   if (!fs.existsSync(resolved)) {
@@ -200,7 +212,7 @@ function printText(input: {
     `连续性：飞书产品 ${input.continuity.summary.recordCount}，已处理 ${input.continuity.summary.processedRecordCount}，待处理 ${input.continuity.summary.pendingRecordCount}`,
     `飞书批次状态：${batchStatus}`,
     `生图：审计任务 ${input.generation.summary.auditedTaskCount}，生成图片 ${input.generation.summary.generatedImageCount}/${input.generation.summary.expectedImageCount}`,
-    `发布：审计任务 ${input.publish.summary.auditedTaskCount}，安全发布 ${input.publish.summary.safelyPublishedCount}/${input.publish.summary.expectedPublishCount}`,
+    `发布：审计任务 ${input.publish.summary.auditedTaskCount}，安全发布 ${input.publish.summary.safelyPublishedCount}/${input.publish.summary.expectedPublishCount}，进行中 ${input.publish.summary.inProgressPublishCount}`,
     `本地素材文件：${input.continuity.summary.existingFileCount}`,
     `历史运行目录：${input.residue.summary.runDirCount}`,
     input.context.runStatus ? `最新运行状态：${input.context.runStatus}` : undefined,
@@ -229,8 +241,9 @@ async function main(): Promise<void> {
   const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly);
   const discoveredRunImageCount = state?.status === "running" ? state.tasks.length : undefined;
   const controllerJob = readOptionalJson<ControllerJobFile>("data/auto-listing/control/auto-listing-controller-job.json");
+  const activeControllerRunning = controllerJob?.status === "running" && isProcessAlive(controllerJob.pid);
   const expectedDiscoveredRunImageCount =
-    discoveredRunImageCount !== undefined && controllerJob?.status === "running" && controllerJob.mode === "resume-real-job"
+    discoveredRunImageCount !== undefined && activeControllerRunning && controllerJob.mode === "resume-real-job"
       ? 1
       : undefined;
   const latestRuntimeDir = state?.runId ? path.join(resolved.runtimeRootDir, state.runId) : resolved.runtimeRootDir;
@@ -254,7 +267,8 @@ async function main(): Promise<void> {
   });
   const publish = auditPublishCoverage({
     tasks: state?.tasks || [],
-    manifestEntries: manifest.entries
+    manifestEntries: manifest.entries,
+    allowInProgress: state?.status === "running" && activeControllerRunning
   });
   const runDirCount = fs.existsSync(resolved.runtimeRootDir)
     ? fs.readdirSync(resolved.runtimeRootDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[0-9]{8}-[0-9]{6}$/.test(entry.name)).length

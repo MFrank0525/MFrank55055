@@ -9043,7 +9043,7 @@ export async function runPublishFromSpuJob(
     }
 
       const assets = requiresLocalProductFiles
-        ? classifyAssets(productFolder)
+        ? classifyAssets(productFolder, { feishuRecordId: input.metadata?.feishuRecordId })
         : {
             workbookFile: undefined,
             mainImages: [],

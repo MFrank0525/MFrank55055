@@ -113,6 +113,7 @@ const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8
 const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const publishFromSpuSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishAssetsSource = fs.readFileSync("src/business/publish-from-spu/assets.ts", "utf8");
 const autoListingCliSource = fs.readFileSync("src/cli/auto-listing.ts", "utf8");
 const auditAutoListingSource = fs.readFileSync("src/cli/audit-auto-listing.ts", "utf8");
 const resumeSource = fs.readFileSync("src/autolist/resume.ts", "utf8");
@@ -122,6 +123,21 @@ assert.match(
   hermesRunnerSource,
   /inferResumeStartStepForTask/,
   "AutoListingController runner must use resume-rules when building resume jobs so recoverable title-folder states resume at publish"
+);
+assert.match(
+  publishSource,
+  /feishuRecordId:\s*productIdentity\?\.recordId/,
+  "Auto-listing publish jobs must pass the current Feishu recordId into Doudian publish metadata"
+);
+assert.match(
+  publishFromSpuSource,
+  /classifyAssets\(productFolder,\s*\{\s*feishuRecordId:\s*input\.metadata\?\.feishuRecordId\s*\}\)/s,
+  "Doudian publish asset classification must receive the current Feishu recordId"
+);
+assert.match(
+  publishAssetsSource,
+  /findFeishuProductRecordById[\s\S]*getFeishuWhiteBackgroundImages[\s\S]*findFeishuProductRecordById\(feishuRecordId/,
+  "Publish assets must prefer exact Feishu recordId lookup before folder-name fallback matching"
 );
 assert.match(
   hermesRunnerSource,
@@ -266,6 +282,11 @@ assert.match(
   auditAutoListingSource,
   /preflight\.json[\s\S]*simulateOnly[\s\S]*latestRunState\(resolved\.runtimeRootDir, resolved\.simulateOnly\)/,
   "Real auto-listing audits must ignore simulated verification runs when selecting the latest run state"
+);
+assert.match(
+  auditAutoListingSource,
+  /code\s*===\s*"EPERM"/,
+  "Auto-listing audit must treat EPERM from process probes as an alive controller in restricted runtimes"
 );
 assert.match(
   browserLaunchSource,
@@ -3626,3 +3647,34 @@ const publishMissing = auditPublishCoverage({
 
 assert.equal(publishMissing.ok, false);
 assert.ok(publishMissing.errors.some((issue) => issue.code === "publish_result_missing"));
+
+const publishInProgress = auditPublishCoverage({
+  tasks: [publishTask],
+  manifestEntries: [
+    {
+      productFolder: "/work/shop/product-1",
+      runtimeKey: "shop__product-1",
+      shopFolder: "/work/shop",
+      watermarkNo: 1,
+      status: "pending",
+      finalVerifyStatus: "not_checked",
+      message: "basic_info_fill_attempt: 1",
+      updatedAt: "2026-05-23T00:00:00.000Z"
+    }
+  ],
+  allowInProgress: true
+});
+
+assert.equal(publishInProgress.ok, true);
+assert.equal(publishInProgress.summary.safelyPublishedCount, 0);
+assert.equal(publishInProgress.summary.inProgressPublishCount, 1);
+assert.equal(publishInProgress.errors.length, 0);
+
+const publishTerminalMissing = auditPublishCoverage({
+  tasks: [publishTask],
+  manifestEntries: [],
+  allowInProgress: false
+});
+
+assert.equal(publishTerminalMissing.ok, false);
+assert.ok(publishTerminalMissing.errors.some((issue) => issue.code === "publish_result_missing"));

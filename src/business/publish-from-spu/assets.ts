@@ -157,13 +157,33 @@ function assertMainImageSet(mainImages: string[], productFolder: string): void {
   }
 }
 
-function getFeishuWhiteBackgroundImages(productFolder: string): string[] {
+function whiteBackgroundImagesFromRecord(record: any): string[] {
+  return Array.isArray(record?.whiteBackgroundImages)
+    ? record.whiteBackgroundImages
+        .map((attachment: any) => String(attachment?.localFile || ""))
+        .filter(Boolean)
+        .map((filePath: string) => path.resolve(filePath))
+        .filter((filePath: string) => fs.existsSync(filePath))
+    : [];
+}
+
+function findFeishuProductRecordById(recordId: string): any | undefined {
+  const normalized = String(recordId || "").trim();
+  return normalized ? readFeishuProductsData().find((record) => String(record?.recordId || "").trim() === normalized) : undefined;
+}
+
+function getFeishuWhiteBackgroundImages(productFolder: string, feishuRecordId?: string): string[] {
   const folderWhiteImages = fs
     .readdirSync(productFolder)
     .filter((name) => isWhiteBackgroundImageFile(name))
     .map((name) => path.join(productFolder, name));
   if (folderWhiteImages.length) {
     return sortByFileRule(folderWhiteImages).slice(0, 1);
+  }
+
+  const recordIdWhiteImages = whiteBackgroundImagesFromRecord(findFeishuProductRecordById(feishuRecordId || ""));
+  if (recordIdWhiteImages.length) {
+    return sortByFileRule(recordIdWhiteImages).slice(0, 1);
   }
 
   const matchDecision = resolveFeishuAssetRecordForFolder({
@@ -173,14 +193,7 @@ function getFeishuWhiteBackgroundImages(productFolder: string): string[] {
   if (matchDecision.issue && !matchDecision.record) {
     throw new Error(`${matchDecision.issue}: ${productFolder}`);
   }
-  const matchedRecord = matchDecision.record;
-  const recordWhiteImages = Array.isArray(matchedRecord?.whiteBackgroundImages)
-    ? matchedRecord.whiteBackgroundImages
-        .map((attachment: any) => String(attachment?.localFile || ""))
-        .filter(Boolean)
-        .map((filePath: string) => path.resolve(filePath))
-        .filter((filePath: string) => fs.existsSync(filePath))
-    : [];
+  const recordWhiteImages = whiteBackgroundImagesFromRecord(matchDecision.record);
   if (recordWhiteImages.length) {
     return sortByFileRule(recordWhiteImages).slice(0, 1);
   }
@@ -207,7 +220,7 @@ function findPrimaryMainImage(productFolder: string): string[] {
   return sortByFileRule(preferWatermarkedPrimaryCandidates(generatedMainCandidates)).slice(0, 1);
 }
 
-export function classifyAssets(productFolder: string): ProductAssets {
+export function classifyAssets(productFolder: string, options: { feishuRecordId?: string } = {}): ProductAssets {
   const names = fs.readdirSync(productFolder).sort((a, b) => a.localeCompare(b, "zh-CN"));
   const detailImages: string[] = [];
   const otherFiles: string[] = [];
@@ -249,7 +262,7 @@ export function classifyAssets(productFolder: string): ProductAssets {
   }
 
   const mainImages = [...primaryMainImageSet, ...getFixedAuxiliaryImages()];
-  const whiteBackgroundImages = getFeishuWhiteBackgroundImages(productFolder);
+  const whiteBackgroundImages = getFeishuWhiteBackgroundImages(productFolder, options.feishuRecordId);
   if (primaryMainImageSet.size === 0) {
     throw new Error(`No generated watermarked main image was found in product folder: ${productFolder}`);
   }
