@@ -671,6 +671,15 @@ function formatFeishuProductProgress(value: unknown): string | undefined {
   return `飞书产品 ${Math.min(total, current)}/${total}`;
 }
 
+function compactImageProviderQueueWaitProgress(message?: string): string | undefined {
+  const text = String(message || "").replace(/\s+/g, " ").trim();
+  const match = /(Prompt\s+\d+\/\d+:\s*Image\s+\d+:\s*videos-base64 task \S+ status (?:queued|pending)\s+0\.?)/i.exec(text);
+  if (!match) {
+    return undefined;
+  }
+  return `等待图片服务队列：${match[1].replace(/\.$/, "")}`;
+}
+
 export function resolveAutoListingControllerHermesStatusPayload(
   status: Record<string, unknown>
 ): AutoListingControllerHermesStatusPayload {
@@ -683,7 +692,10 @@ export function resolveAutoListingControllerHermesStatusPayload(
       publishProgress && typeof publishProgress.progressText === "string"
         ? String(publishProgress.progressText)
         : undefined;
-    const realtimeMessage = typeof realtimeProgress.message === "string" ? String(realtimeProgress.message) : undefined;
+    const realtimeMessage =
+      typeof realtimeProgress.message === "string"
+        ? compactImageProviderQueueWaitProgress(String(realtimeProgress.message)) || String(realtimeProgress.message)
+        : undefined;
     const message =
       publishProgressText && realtimeMessage && realtimeMessage !== publishProgressText && !publishProgressText.includes(realtimeMessage)
         ? `${publishProgressText}；${realtimeMessage}`
@@ -1126,6 +1138,10 @@ function compactAutoListingControllerReason(summary?: string): string {
 }
 
 function compactAutoListingControllerImageProgress(progress?: string): string {
+  const queueWait = compactImageProviderQueueWaitProgress(progress);
+  if (queueWait) {
+    return queueWait;
+  }
   const text = String(progress || "").replace(/\s+/g, " ").trim();
   return text.length > 180 ? `${text.slice(0, 180)}...` : text;
 }

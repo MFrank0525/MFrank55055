@@ -1644,7 +1644,7 @@ assert.deepEqual(
   [
     "状态：运行中｜主图 20/20｜飞书产品 0/4",
     "当前：医用芦荟凝胶",
-    "进度：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0."
+    "进度：等待图片服务队列：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0"
   ],
   "AutoListingController text status must show main-image generation progress without labeling image slots as products or shops"
 );
