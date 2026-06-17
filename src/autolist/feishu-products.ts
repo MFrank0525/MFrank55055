@@ -93,6 +93,42 @@ function attachmentLocalFiles(record: FeishuProductRecord): string[] {
     .map((filePath) => path.resolve(filePath));
 }
 
+function assertUniqueWhiteBackgroundLocalFiles(records: FeishuProductRecord[]): void {
+  const duplicate = findSharedFeishuWhiteBackgroundLocalFile(records);
+  if (duplicate) {
+    throw new Error(
+      `Feishu records ${duplicate.previousRecordId} and ${duplicate.recordId} share one local white background image path: ${duplicate.filePath}`
+    );
+  }
+}
+
+export function findSharedFeishuWhiteBackgroundLocalFile(records: FeishuProductRecord[]): {
+  filePath: string;
+  previousRecordId: string;
+  recordId: string;
+} | undefined {
+  const owners = new Map<string, string>();
+  for (const [index, record] of records.entries()) {
+    const owner = record.recordId || `row ${index + 1}`;
+    for (const filePath of attachmentLocalFiles(record)) {
+      const previousOwner = owners.get(filePath);
+      if (previousOwner && previousOwner !== owner) {
+        return {
+          filePath,
+          previousRecordId: previousOwner,
+          recordId: owner
+        };
+      }
+      owners.set(filePath, owner);
+    }
+  }
+  return undefined;
+}
+
+export function hasSharedFeishuWhiteBackgroundLocalFile(records: FeishuProductRecord[]): boolean {
+  return Boolean(findSharedFeishuWhiteBackgroundLocalFile(records));
+}
+
 export function resolveFeishuProductSourceImages(productDataFile: string): string[] {
   return resolvePendingFeishuProductSourceImagesFromRecords({
     records: readPayload(productDataFile)
@@ -100,6 +136,7 @@ export function resolveFeishuProductSourceImages(productDataFile: string): strin
 }
 
 export function resolvePendingFeishuProductSourceImagesFromRecords(input: PendingFeishuProductSourceImageInput): string[] {
+  assertUniqueWhiteBackgroundLocalFiles(input.records);
   const processedImages = new Set(Array.from(input.processedImages || []).filter(Boolean).map((filePath) => path.resolve(filePath)));
   const exists = input.fileExists || fs.existsSync;
   const pendingImages: string[] = [];
@@ -129,9 +166,16 @@ function matchRecordByImage(records: FeishuProductRecord[], imagePath: string): 
   const resolved = path.resolve(imagePath);
   const basename = normalize(path.basename(imagePath));
 
-  const byLocalFile = records.find((record) => attachmentLocalFiles(record).includes(resolved));
-  if (byLocalFile) {
-    return byLocalFile;
+  const byLocalFile = records.filter((record) => attachmentLocalFiles(record).includes(resolved));
+  if (byLocalFile.length > 1) {
+    throw new Error(
+      `Multiple Feishu product records share source image ${resolved}: ${byLocalFile
+        .map((record) => record.recordId || "unknown")
+        .join(", ")}`
+    );
+  }
+  if (byLocalFile.length === 1) {
+    return byLocalFile[0];
   }
 
   const byFileName = records.find((record) => {
@@ -155,6 +199,7 @@ export function loadFeishuProductRuntimeRecord(options: {
   if (records.length === 0) {
     throw new Error(`Feishu product data file had no records: ${path.resolve(options.productDataFile)}`);
   }
+  assertUniqueWhiteBackgroundLocalFiles(records);
   const record = matchRecordByImage(records, options.sourceImagePath);
   if (!record) {
     throw new Error(`No Feishu product record matched source image: ${options.sourceImagePath}`);

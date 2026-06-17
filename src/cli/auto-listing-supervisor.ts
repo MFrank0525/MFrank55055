@@ -20,7 +20,7 @@ import {
 } from "../autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
-import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
+import { findSharedFeishuWhiteBackgroundLocalFile, loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { cleanupStaleRunHistory } from "../autolist/cleanup.js";
 import { removePaidImageBatchLedger } from "../autolist/paid-image-submission-ledger.js";
@@ -434,6 +434,25 @@ function readBatchProgress(): { batchComplete: boolean; fingerprint: string; rec
   };
 }
 
+function currentFeishuAssetCacheUnsafe(): boolean {
+  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  const feishuProductDataFile = path.resolve(
+    rootDir,
+    job?.input?.feishuProductDataFile || "data/feishu/products.json"
+  );
+  if (!fs.existsSync(feishuProductDataFile)) {
+    return false;
+  }
+  const duplicate = findSharedFeishuWhiteBackgroundLocalFile(loadFeishuProductRecords(feishuProductDataFile));
+  if (duplicate) {
+    console.log(
+      `Feishu local asset cache is unsafe; records ${duplicate.previousRecordId} and ${duplicate.recordId} share ${duplicate.filePath}. Refreshing assets before continuing.`
+    );
+    return true;
+  }
+  return false;
+}
+
 function cleanupCompletedBatchArtifacts(batchFingerprint: string): void {
   const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   const paidImageSubmissionLedgerDir = path.resolve(
@@ -475,7 +494,10 @@ function prepareResumeJob(): boolean {
 
 function runFullFlow(reason: FullFlowContinuationReason): Promise<number | null> {
   const args = ["dist/src/cli/flow-mac-feishu.js", "--real"];
-  if (!shouldRefreshFeishuAssetsBeforeFullFlow({ continuationReason: reason })) {
+  if (!shouldRefreshFeishuAssetsBeforeFullFlow({
+    continuationReason: reason,
+    localAssetCacheUnsafe: currentFeishuAssetCacheUnsafe()
+  })) {
     args.push("--skip-feishu-assets-refresh");
   }
   if (reason === "same_batch_pending") {

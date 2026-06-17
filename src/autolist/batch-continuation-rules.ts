@@ -509,9 +509,13 @@ export type FullFlowFeishuRefreshInput = {
   continuationReason: FullFlowContinuationReason;
   currentBatchComplete?: boolean;
   sameBatchRefreshAvailable?: boolean;
+  localAssetCacheUnsafe?: boolean;
 };
 
 export function shouldRefreshFeishuAssetsBeforeFullFlow(input: FullFlowFeishuRefreshInput): boolean {
+  if (input.localAssetCacheUnsafe) {
+    return true;
+  }
   if (input.currentBatchComplete === false) {
     return input.sameBatchRefreshAvailable === true;
   }

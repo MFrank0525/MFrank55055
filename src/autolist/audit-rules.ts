@@ -107,6 +107,29 @@ function localFiles(items: Array<{ localFile?: string }>): string[] {
   return items.map((item) => item.localFile || "").filter(Boolean).map(normalizePath);
 }
 
+function recordDuplicateLocalFileIssues(input: {
+  files: string[];
+  ownerRecordId: string;
+  label: string;
+  seenByFile: Map<string, string>;
+  errors: AutoListingAuditIssue[];
+}): void {
+  for (const filePath of input.files) {
+    const previousRecordId = input.seenByFile.get(filePath);
+    if (previousRecordId && previousRecordId !== input.ownerRecordId) {
+      input.errors.push(issue(
+        "error",
+        input.label === "white" ? "duplicate_white_image_local_file" : "duplicate_qualification_image_local_file",
+        `Feishu records ${previousRecordId} and ${input.ownerRecordId} share one local ${input.label} image path; refresh assets before continuing.`,
+        input.ownerRecordId,
+        filePath
+      ));
+      continue;
+    }
+    input.seenByFile.set(filePath, input.ownerRecordId);
+  }
+}
+
 export function collectFeishuProductAssetFiles(records: FeishuProductRecord[]): string[] {
   const seen = new Set<string>();
   const files: string[] = [];
@@ -171,13 +194,31 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
   let declaredWhiteImageCount = 0;
   let declaredQualificationImageCount = 0;
   const matchedProcessedImages = new Set<string>();
+  const whiteLocalFileOwners = new Map<string, string>();
+  const qualificationLocalFileOwners = new Map<string, string>();
 
   for (const [index, record] of input.records.entries()) {
+    const ownerRecordId = record.recordId || `row-${index + 1}`;
     const rowLabel = `row ${index + 1}${record.recordId ? ` (${record.recordId})` : ""}`;
     const whiteImages = localFiles(record.whiteBackgroundImages || []);
     const qualificationImages = localFiles(record.qualificationImages || []);
     declaredWhiteImageCount += whiteImages.length;
     declaredQualificationImageCount += qualificationImages.length;
+
+    recordDuplicateLocalFileIssues({
+      files: whiteImages,
+      ownerRecordId,
+      label: "white",
+      seenByFile: whiteLocalFileOwners,
+      errors
+    });
+    recordDuplicateLocalFileIssues({
+      files: qualificationImages,
+      ownerRecordId,
+      label: "qualification",
+      seenByFile: qualificationLocalFileOwners,
+      errors
+    });
 
     if (whiteImages.length === 0) {
       errors.push(issue("error", "white_image_not_declared", `Feishu ${rowLabel} has no downloaded white background image.`, record.recordId));

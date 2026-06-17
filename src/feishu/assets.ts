@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { sanitizeFileName } from "../doubao/paths.js";
 import { downloadFeishuMedia } from "./client.js";
 import type { FeishuBitableAttachment, FeishuProductRecord } from "./types.js";
@@ -34,13 +35,30 @@ function extensionFromAttachment(attachment: FeishuBitableAttachment): string {
   throw new Error(`Unsupported Feishu attachment image MIME type: ${mimeType || "unknown"}`);
 }
 
+function attachmentIdentityDigest(attachment: FeishuBitableAttachment): string {
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        fileToken: attachment.fileToken || "",
+        name: attachment.name || "",
+        size: attachment.size || 0,
+        mimeType: attachment.mimeType || ""
+      })
+    )
+    .digest("hex")
+    .slice(0, 10);
+}
+
 function buildFileName(record: FeishuProductRecord, label: string, attachment: FeishuBitableAttachment, index: number): string {
   const baseName = sanitizeFileName(
     [
       record.spu || record.recordId,
       record.userCognitionName || record.genericName,
+      record.recordId,
       label,
-      String(index + 1).padStart(2, "0")
+      String(index + 1).padStart(2, "0"),
+      attachmentIdentityDigest(attachment)
     ]
       .filter(Boolean)
       .join("-")
@@ -54,7 +72,7 @@ function listLocalAssetFiles(dir: string): string[] {
   }
   return fs
     .readdirSync(dir)
-    .filter((name) => /(白底图|资质图片)-\d{2}\.(png|jpg|jpeg|webp|gif|bin)$/i.test(name))
+    .filter((name) => /(白底图|资质图片)-\d{2}(?:-[a-f0-9]{10})?\.(png|jpg|jpeg|webp|gif|bin)$/i.test(name))
     .map((name) => path.resolve(dir, name));
 }
 

@@ -379,6 +379,21 @@ function compactStatusLine(line: string): string {
   return compact.length > 500 ? `${compact.slice(0, 500)}... [truncated]` : compact;
 }
 
+function latestAutoListingChildFailureFromLog(logFile: string | undefined): string | undefined {
+  const lines = tailFile(logFile || "", 40).map(compactStatusLine);
+  let exitFailure: string | undefined;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (/^Error: /i.test(line)) {
+      return line.replace(/^Error:\s*/i, "");
+    }
+    if (/Auto-listing failed with exit code/i.test(line)) {
+      exitFailure = exitFailure || line;
+    }
+  }
+  return exitFailure;
+}
+
 function compactStatusValue(value: string | undefined): string | undefined {
   return value ? compactStatusLine(value) : value;
 }
@@ -1074,12 +1089,14 @@ function existingStatus(): Record<string, unknown> {
     ((result?.ok === true && String(result.status || "") !== "failed") ||
       (state?.status === "completed") ||
       (publishProgress && publishProgress.total === publishProgress.safelyPublished && publishProgress.failed === 0));
+  const childFailureMessage = !running ? latestAutoListingChildFailureFromLog(job.logFile) : undefined;
   const failed =
     !running &&
     !completed &&
     ((result && result.ok === false) ||
       (state?.status === "failed") ||
-      (publishProgress && Number(publishProgress.failed || 0) > 0));
+      (publishProgress && Number(publishProgress.failed || 0) > 0) ||
+      Boolean(childFailureMessage));
   const hasPendingFeishuProducts = !running && !batchComplete;
   const resultError = result?.error as Record<string, unknown> | undefined;
   const stateError = (state?.currentTask as Record<string, unknown> | undefined)?.error as Record<string, unknown> | undefined;
@@ -1090,7 +1107,9 @@ function existingStatus(): Record<string, unknown> {
   const terminalFailureMessage =
     running && ((result && (result.ok === false || result.status === "failed")) || state?.status === "failed")
       ? compactStatusValue(resultFailureText || stateFailureText || "")
-      : undefined;
+      : childFailureMessage
+        ? compactStatusValue(childFailureMessage)
+        : undefined;
   const resolvedStatus = resolveAutoListingControllerRuntimeStatus({
     running,
     activeWaitState: Boolean(activeWaitState),
@@ -1139,7 +1158,9 @@ function existingStatus(): Record<string, unknown> {
         : "")
     : undefined;
   const failedError = stateError || resultError;
-  const failureSummary = failedError?.message ? compactStatusValue(String(failedError.message)) : undefined;
+  const failureSummary = failedError?.message
+    ? compactStatusValue(String(failedError.message))
+    : terminalFailureMessage;
   const terminalFailureMtimeMs = fileMtimeMs(resultFile);
   const externalWaitReason = activeWaitState?.reason || terminalFailureMessage;
   const externalRetryAt = activeWaitState?.retryAt || "供应商恢复后";

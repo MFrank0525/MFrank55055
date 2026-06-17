@@ -60,7 +60,7 @@ import {
   resolveAutoListingControllerPublishGroupProgress
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
-import { resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
+import { hasSharedFeishuWhiteBackgroundLocalFile, resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
 import { appendProcessedImages, clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
 import { selectCleanupTargets, selectStaleRunHistoryTargets } from "../dist/src/autolist/cleanup-rules.js";
 import { cleanupStaleRunHistory } from "../dist/src/autolist/cleanup.js";
@@ -114,6 +114,7 @@ const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-c
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const publishFromSpuSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
 const publishAssetsSource = fs.readFileSync("src/business/publish-from-spu/assets.ts", "utf8");
+const feishuAssetsSource = fs.readFileSync("src/feishu/assets.ts", "utf8");
 const autoListingCliSource = fs.readFileSync("src/cli/auto-listing.ts", "utf8");
 const auditAutoListingSource = fs.readFileSync("src/cli/audit-auto-listing.ts", "utf8");
 const resumeSource = fs.readFileSync("src/autolist/resume.ts", "utf8");
@@ -138,6 +139,21 @@ assert.match(
   publishAssetsSource,
   /findFeishuProductRecordById[\s\S]*getFeishuWhiteBackgroundImages[\s\S]*findFeishuProductRecordById\(feishuRecordId/,
   "Publish assets must prefer exact Feishu recordId lookup before folder-name fallback matching"
+);
+assert.match(
+  feishuAssetsSource,
+  /record\.recordId[\s\S]*attachmentIdentityDigest/,
+  "Feishu asset filenames must include recordId and attachment identity so same-SPU packaging variants cannot share local files"
+);
+assert.match(
+  hermesSupervisorSource,
+  /currentFeishuAssetCacheUnsafe[\s\S]*findSharedFeishuWhiteBackgroundLocalFile[\s\S]*localAssetCacheUnsafe/,
+  "Supervisor must refresh Feishu assets before same-batch continuation when local white-image paths collide across records"
+);
+assert.match(
+  hermesRunnerSource,
+  /latestAutoListingChildFailureFromLog[\s\S]*childFailureMessage[\s\S]*terminalFailureMessage/,
+  "AutoListingController status must expose a failed child continuation instead of hiding it behind pending-products"
 );
 assert.match(
   hermesRunnerSource,
@@ -1282,6 +1298,35 @@ assert.equal(continuityOk.summary.recordCount, 3);
 assert.equal(continuityOk.summary.processedRecordCount, 1);
 assert.equal(continuityOk.summary.pendingRecordCount, 2);
 
+const duplicateWhiteLocalFileAudit = auditAutoListingContinuity({
+  records: [
+    record("rec-packaging-a", "/work/input/auto-listing/feishu-images/same-spu-product.png"),
+    record("rec-packaging-b", "/work/input/auto-listing/feishu-images/same-spu-product.png")
+  ],
+  processedImages: [],
+  existingFiles: ["/work/input/auto-listing/feishu-images/same-spu-product.png"]
+});
+
+assert.equal(duplicateWhiteLocalFileAudit.ok, false);
+assert.ok(
+  duplicateWhiteLocalFileAudit.errors.some((issue) => issue.code === "duplicate_white_image_local_file"),
+  "Different Feishu product records must not share one local white-background image path"
+);
+assert.equal(
+  hasSharedFeishuWhiteBackgroundLocalFile([
+    record("rec-packaging-a", "/work/input/auto-listing/feishu-images/same-spu-product.png"),
+    record("rec-packaging-b", "/work/input/auto-listing/feishu-images/same-spu-product.png")
+  ]),
+  true
+);
+assert.equal(
+  hasSharedFeishuWhiteBackgroundLocalFile([
+    record("rec-packaging-a", "/work/input/auto-listing/feishu-images/packaging-a.png"),
+    record("rec-packaging-b", "/work/input/auto-listing/feishu-images/packaging-b.png")
+  ]),
+  false
+);
+
 const batchProgress = summarizeFeishuBatchProgress({
   records: [
     record("rec-1", "/work/input/auto-listing/feishu-images/product-1.png"),
@@ -1311,6 +1356,19 @@ const pendingFeishuSourceImages = resolvePendingFeishuProductSourceImagesFromRec
   fileExists: (filePath) => filePath.endsWith("product-2.png")
 });
 assert.deepEqual(pendingFeishuSourceImages, [path.resolve("/work/input/auto-listing/feishu-images/product-2.png")]);
+
+assert.throws(
+  () =>
+    resolvePendingFeishuProductSourceImagesFromRecords({
+      records: [
+        record("rec-packaging-a", "/work/input/auto-listing/feishu-images/same-spu-product.png"),
+        record("rec-packaging-b", "/work/input/auto-listing/feishu-images/same-spu-product.png")
+      ],
+      processedImages: [],
+      fileExists: () => true
+    }),
+  /share one local white background image path/
+);
 
 assert.throws(
   () =>
@@ -1442,6 +1500,16 @@ assert.equal(
   }),
   true,
   "Same-batch pending flow must refresh Feishu assets when online identity matches the locked local batch."
+);
+assert.equal(
+  shouldRefreshFeishuAssetsBeforeFullFlow({
+    continuationReason: "same_batch_pending",
+    currentBatchComplete: false,
+    sameBatchRefreshAvailable: false,
+    localAssetCacheUnsafe: true
+  }),
+  true,
+  "Same-batch pending flow must refresh Feishu assets when local attachment cache has cross-record path collisions."
 );
 assert.equal(
   shouldRefreshFeishuAssetsBeforeFullFlow({
