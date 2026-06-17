@@ -39,7 +39,7 @@ import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../a
 import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
-import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES } from "../autolist/publish-manifest.js";
+import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-manifest.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
   inferResumeStartStepForTask,
@@ -635,13 +635,9 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
     return undefined;
   }
 
-  const safelyPublished = entries.filter(
-    (entry) =>
-      entry.status === "published" &&
-      SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus as never)
-  );
-  const review = entries.filter((entry) => entry.status === "failed" && entry.errorClass === "final_publish_state_uncertain");
-  const failed = entries.filter((entry) => entry.status === "failed" && entry.errorClass !== "final_publish_state_uncertain");
+  const safelyPublished = entries.filter((entry) => isManifestEntryAcceptedForBatchCompletion(entry as never));
+  const review: typeof entries = [];
+  const failed = entries.filter((entry) => entry.status === "failed" && !isManifestEntryAcceptedForBatchCompletion(entry as never));
   const pending = entries.filter((entry) => entry.status === "pending");
   const total = Math.max(planItems.length, entries.length, ...entries.map((entry) => entry.watermarkNo || 0));
   const completedKeys = new Set(safelyPublished.map((entry) => entry.runtimeKey).filter(Boolean));
@@ -1518,11 +1514,7 @@ function taskHasExternalMainImageRawReuse(runtimeDir: string, taskId: string | u
 
 function countSafelyPublishedManifestEntries(runtimeDir: string): number {
   const manifest = readJsonFile<PublishManifestFile>(path.join(runtimeDir, "publish-manifest.json"));
-  return (manifest?.entries || []).filter(
-    (entry) =>
-      entry.status === "published" &&
-      SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus as never)
-  ).length;
+  return (manifest?.entries || []).filter((entry) => isManifestEntryAcceptedForBatchCompletion(entry as never)).length;
 }
 
 function findLatestInterruptedStateForResume(): {

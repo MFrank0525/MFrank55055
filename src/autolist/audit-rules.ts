@@ -290,8 +290,8 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
   const existingFiles = new Set(Array.from(input.existingFiles || []).filter(Boolean).map(normalizePath));
   const errors: AutoListingAuditIssue[] = [];
   const warnings: AutoListingAuditIssue[] = [];
-  const imageFilePaths = new Set<string>();
-  const productFolders = new Set<string>();
+  const activeImageFilePaths = new Set<string>();
+  const activeProductFolders = new Set<string>();
   const tasks = input.tasks.filter((task) => Boolean(task.mainImageArtifact));
   let generatedImageCount = 0;
   let expectedImageCount = 0;
@@ -301,6 +301,8 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
     const cleanedArtifactsWereRemoved =
       ["cleaned", "done"].includes(task.status) &&
       (task.cleanupArtifact?.removedPaths || []).length > 0;
+    const taskImageFilePaths = new Set<string>();
+    const taskProductFolders = new Set<string>();
     const promptCount = input.expectedPromptCount ?? getProductCategoryPlan(task.feishuProductRecord?.productCategory).promptCount;
     const expectedForTask = promptCount * input.expectedImagesPerPrompt;
     expectedImageCount += expectedForTask;
@@ -331,13 +333,23 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
     for (const file of generatedFiles) {
       if (file.imageFile) {
         pushDuplicatePathIssue(
-          imageFilePaths,
+          taskImageFilePaths,
           errors,
           "main_image_duplicate_file",
           `Generated main image path is duplicated: ${file.imageFile}`,
           file.imageFile,
           task.taskId
         );
+        if (!cleanedArtifactsWereRemoved) {
+          pushDuplicatePathIssue(
+            activeImageFilePaths,
+            errors,
+            "main_image_duplicate_file",
+            `Generated main image path is duplicated: ${file.imageFile}`,
+            file.imageFile,
+            task.taskId
+          );
+        }
         if (!cleanedArtifactsWereRemoved && !input.simulateOnly && !existingFiles.has(normalizePath(file.imageFile))) {
           errors.push(issue("error", "main_image_file_missing", `Generated main image file is missing: ${file.imageFile}`, task.taskId, file.imageFile));
         }
@@ -345,8 +357,18 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
 
       if (file.productFolder) {
         const normalizedProductFolder = normalizePath(file.productFolder);
-        const firstSeenProductFolder = !productFolders.has(normalizedProductFolder);
-        productFolders.add(normalizedProductFolder);
+        const firstSeenProductFolder = !taskProductFolders.has(normalizedProductFolder);
+        taskProductFolders.add(normalizedProductFolder);
+        if (!cleanedArtifactsWereRemoved && firstSeenProductFolder) {
+          pushDuplicatePathIssue(
+            activeProductFolders,
+            errors,
+            "main_image_duplicate_product_folder",
+            `Generated product folder path is duplicated across active tasks: ${file.productFolder}`,
+            file.productFolder,
+            task.taskId
+          );
+        }
         if (!cleanedArtifactsWereRemoved && firstSeenProductFolder && !input.simulateOnly && !existingFiles.has(normalizedProductFolder)) {
           errors.push(issue("error", "main_image_product_folder_missing", `Generated product folder is missing: ${file.productFolder}`, task.taskId, file.productFolder));
         }

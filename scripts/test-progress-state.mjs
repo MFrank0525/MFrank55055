@@ -1869,8 +1869,9 @@ const reviewMiddleWithLaterPublishedProgress = resolveAutoListingControllerPubli
   ]
 });
 assert.equal(reviewMiddleWithLaterPublishedProgress.failed, 0);
-assert.equal(reviewMiddleWithLaterPublishedProgress.review, 1);
-assert.equal(reviewMiddleWithLaterPublishedProgress.reviewWatermarkNo, 13);
+assert.equal(reviewMiddleWithLaterPublishedProgress.review || 0, 0);
+assert.equal(reviewMiddleWithLaterPublishedProgress.reviewWatermarkNo || 0, 0);
+assert.equal(reviewMiddleWithLaterPublishedProgress.productIndex, 18);
 const compactReviewMiddleStatus = formatAutoListingControllerCompactStatusText({
   status: "running",
   productName: reviewMiddleWithLaterPublishedProgress.productName,
@@ -1885,7 +1886,7 @@ const compactReviewMiddleStatus = formatAutoListingControllerCompactStatusText({
   feishuCompleted: 2,
   feishuTotal: 4
 });
-assert.match(compactReviewMiddleStatus.split("\n")[0], /待复核 水印13/);
+assert.doesNotMatch(compactReviewMiddleStatus.split("\n")[0], /待复核/);
 assert.doesNotMatch(compactReviewMiddleStatus.split("\n")[0], /失败项/);
 const compactBlankSpecStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",
@@ -3318,6 +3319,39 @@ assert.equal(
   generationCleanedOk.ok,
   true,
   "Completed tasks with recorded cleanup must audit generation counts without requiring deleted transient files to remain on disk."
+);
+
+const generationCleanedPathReuseOk = auditMainImageGeneration({
+  tasks: [
+    {
+      ...taskWithMainImages(completeGeneratedFiles),
+      taskId: "image-cleaned-a",
+      status: "done",
+      cleanupArtifact: {
+        removedPaths: completeGeneratedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder]),
+        simulated: false
+      }
+    },
+    {
+      ...taskWithMainImages(completeGeneratedFiles),
+      taskId: "image-cleaned-b",
+      status: "done",
+      cleanupArtifact: {
+        removedPaths: completeGeneratedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder]),
+        simulated: false
+      }
+    }
+  ],
+  existingFiles: [],
+  expectedPromptCount: 2,
+  expectedImagesPerPrompt: 4,
+  simulateOnly: false
+});
+
+assert.equal(
+  generationCleanedPathReuseOk.ok,
+  true,
+  "Sequential completed tasks may reuse the same shop output paths after cleanup; audit must not treat historical path reuse as concurrent overwrite risk."
 );
 
 assert.equal(

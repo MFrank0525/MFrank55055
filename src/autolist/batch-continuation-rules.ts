@@ -1,4 +1,4 @@
-import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, type PublishFinalVerifyStatus } from "./publish-manifest.js";
+import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
 
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
@@ -988,14 +988,11 @@ function publishShopFolderFromEntry(entry: AutoListingControllerPublishGroupProg
 }
 
 function isSafelyPublishedPublishEntry(entry: AutoListingControllerPublishGroupProgressEntry): boolean {
-  return (
-    entry.status === "published" &&
-    SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus as PublishFinalVerifyStatus)
-  );
+  return isManifestEntryAcceptedForBatchCompletion(entry as never);
 }
 
 function isFinalPublishReviewEntry(entry: AutoListingControllerPublishGroupProgressEntry): boolean {
-  return entry.status === "failed" && entry.errorClass === "final_publish_state_uncertain";
+  return false;
 }
 
 export function resolveAutoListingControllerPublishGroupProgress(input: {
@@ -1020,7 +1017,7 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
   const scopeEntries = plannedGroupEntries.length ? plannedGroupEntries : groupEntries;
   const safelyPublished = groupEntries.filter(isSafelyPublishedPublishEntry);
   const reviewEntries = groupEntries.filter(isFinalPublishReviewEntry);
-  const failedEntries = groupEntries.filter((entry) => entry.status === "failed" && !isFinalPublishReviewEntry(entry));
+  const failedEntries = groupEntries.filter((entry) => entry.status === "failed" && !isFinalPublishReviewEntry(entry) && !isSafelyPublishedPublishEntry(entry));
   const failed = failedEntries.length;
   const review = reviewEntries.length;
   const productTotal = Math.max(20, scopeEntries.length, ...scopeEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
