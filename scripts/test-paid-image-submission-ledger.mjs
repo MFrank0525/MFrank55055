@@ -6,6 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   currentPaidImageLedgerProcessIdentity,
+  expireSubmittedPaidImageQueue,
   initializePaidImageProductLedger,
   migrateLegacyPaidImageProductLedgers,
   removePaidImageBatchLedger,
@@ -486,6 +487,33 @@ assert.deepEqual(
 
 reservePaidImageSlot({
   productDir,
+  slot: 11,
+  requestDigest: "request-11",
+  promptDigest: "prompt-11",
+  owner: ownerA
+});
+recordPaidImageSubmitted({ productDir, slot: 11, providerTaskId: "provider-task-11" });
+assert.equal(
+  expireSubmittedPaidImageQueue({
+    productDir,
+    slot: 11,
+    minSubmittedAgeMs: 24 * 60 * 60 * 1000,
+    reason: "not stale yet"
+  }),
+  undefined,
+  "fresh submitted slots must not be expired as dead queue"
+);
+const staleQueue = expireSubmittedPaidImageQueue({
+  productDir,
+  slot: 11,
+  minSubmittedAgeMs: 0,
+  reason: "accepted task stayed queued beyond threshold"
+});
+assert.equal(staleQueue?.state, "failed_after_acceptance");
+assert.equal(resolvePaidImageSlotAction({ productDir, slot: 11 }).action, "retry_failed_after_acceptance");
+
+reservePaidImageSlot({
+  productDir,
   slot: 8,
   requestDigest: "request-8",
   promptDigest: "prompt-8",
@@ -611,12 +639,12 @@ assert.throws(() => recordPaidImageCompleted({ productDir, slot: 3, sourceFile: 
 const summary = summarizePaidImageProductLedger(productDir);
 assert.deepEqual(summary, {
   expectedSlotCount: 20,
-  missing: 11,
+  missing: 10,
   reserved: 4,
   submitted: 2,
   completed: 1,
   failedBeforeAcceptance: 0,
-  failedAfterAcceptance: 1,
+  failedAfterAcceptance: 2,
   ambiguous: 1
 });
 

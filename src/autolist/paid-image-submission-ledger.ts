@@ -153,6 +153,13 @@ export interface RecordPaidImageFailedAfterAcceptanceInput {
   providerResponse?: unknown;
 }
 
+export interface ExpireSubmittedPaidImageQueueInput {
+  productDir: string;
+  slot: number;
+  minSubmittedAgeMs: number;
+  reason: string;
+}
+
 const states = new Set<PaidImageSlotState>([
   "reserved",
   "submitted",
@@ -1081,6 +1088,34 @@ export function recordPaidImageFailedAfterAcceptance(input: RecordPaidImageFaile
   return transitionSlot(input.productDir, input.slot, ["submitted"], "failed_after_acceptance", {
     reason: cleanText(requireNonEmpty(input.reason, "reason")),
     providerResponseSummary: providerResponseSummary(input.providerResponse)
+  });
+}
+
+export function expireSubmittedPaidImageQueue(input: ExpireSubmittedPaidImageQueueInput): PaidImageSlotRecord | undefined {
+  if (!Number.isFinite(input.minSubmittedAgeMs) || input.minSubmittedAgeMs < 0) {
+    throw new Error("minSubmittedAgeMs must be a non-negative finite number");
+  }
+  validateSlotRange(input.productDir, input.slot);
+  return withSlotLock(input.productDir, input.slot, () => {
+    const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (!record || record.state !== "submitted") {
+      return undefined;
+    }
+    let submittedAt = record.updatedAt || record.createdAt;
+    for (let index = record.audit.length - 1; index >= 0; index -= 1) {
+      if (record.audit[index]?.state === "submitted") {
+        submittedAt = record.audit[index].at;
+        break;
+      }
+    }
+    const ageMs = Date.now() - Date.parse(submittedAt);
+    if (!Number.isFinite(ageMs) || ageMs < input.minSubmittedAgeMs) {
+      return undefined;
+    }
+    return transitionSlotUnlocked(input.productDir, input.slot, ["submitted"], "failed_after_acceptance", {
+      reason: cleanText(requireNonEmpty(input.reason, "reason")),
+      providerResponseSummary: record.providerResponseSummary
+    });
   });
 }
 

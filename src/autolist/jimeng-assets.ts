@@ -21,6 +21,7 @@ import { applyLocalWatermark } from "./local-watermark.js";
 import { readManualTextBlock } from "./operation-manual.js";
 import {
   initializePaidImageProductLedger,
+  expireSubmittedPaidImageQueue,
   migrateLegacyPaidImageProductLedgers,
   paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
@@ -56,6 +57,7 @@ interface OpenAiCompatibleImageConfig {
   statusUrl?: string;
   pollIntervalMs?: number;
   maxPollMs?: number;
+  acceptedQueueStaleMs?: number;
   allowMediaGenerateWithoutReference?: boolean;
   referenceImageUpload?: {
     provider?: "tmpfiles";
@@ -792,6 +794,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const responseFormat = config.responseFormat || "b64_json";
   const timeoutMs = Math.max(30000, config.timeoutMs || 180000);
   const videosBase64SubmitTimeoutMs = resolveVideosBase64SubmitTimeoutMs(config.submitTimeoutMs || timeoutMs, config.maxPollMs);
+  const videosBase64AcceptedQueueStaleMs = Math.max(0, config.acceptedQueueStaleMs ?? config.maxPollMs ?? 30 * 60 * 1000);
   const submitGate =
     options.videosBase64SubmitGate || createConcurrencyGate(resolveVideosBase64SubmitConcurrency(config.submitConcurrency));
   const maxTransientRetries = Math.max(0, config.maxTransientRetries ?? 3);
@@ -1250,6 +1253,27 @@ async function generateWithOpenAiCompatibleProvider(options: {
         }
         options.onProgress?.(`Image ${absoluteImageIndex}: reused completed paid image ledger result.`);
         return { file: targetFile, submitId: slotAction.record.providerTaskId || "ledger-reuse" };
+      }
+      if (slotAction.action === "poll") {
+        const expired = videosBase64AcceptedQueueStaleMs > 0
+          ? expireSubmittedPaidImageQueue({
+              productDir: videosBase64Ledger.productDir,
+              slot: ledgerSlot,
+              minSubmittedAgeMs: videosBase64AcceptedQueueStaleMs,
+              reason: `videos-base64 accepted task stayed queued/pending beyond ${videosBase64AcceptedQueueStaleMs}ms; retrying fixed slot ${ledgerSlot}.`
+            })
+          : undefined;
+        if (expired) {
+          options.onProgress?.(`Image ${absoluteImageIndex}: videos-base64 accepted task queue timed out; retrying fixed paid slot.`);
+          allowExistingSubmittedTaskImport = false;
+          slotAction = reservePaidImageSlot({
+            productDir: videosBase64Ledger.productDir,
+            slot: ledgerSlot,
+            requestDigest,
+            promptDigest,
+            owner: options.paidImageLedger?.owner || { pid: process.pid }
+          });
+        }
       }
       if (slotAction.action === "poll") {
         taskId = slotAction.providerTaskId;
