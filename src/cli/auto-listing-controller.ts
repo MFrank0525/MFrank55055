@@ -105,6 +105,12 @@ interface AutoListingResultFile {
     sourceImageName?: string;
     sourceImagePath?: string;
     status?: string;
+    feishuProductRecord?: {
+      recordId?: string;
+      userCognitionName?: string;
+      genericName?: string;
+      spu?: string;
+    };
     generatedProductFolders?: string[];
     mainImageArtifact?: {
       generatedFiles?: Array<{
@@ -133,6 +139,12 @@ interface AutoListingStateFile {
     sourceImageName?: string;
     sourceImagePath?: string;
     status?: string;
+    feishuProductRecord?: {
+      recordId?: string;
+      userCognitionName?: string;
+      genericName?: string;
+      spu?: string;
+    };
     generatedProductFolders?: string[];
     mainImageArtifact?: {
       generatedFiles?: Array<{
@@ -156,6 +168,10 @@ interface PublishManifestFile {
     runtimeKey?: string;
     shopFolder?: string;
     watermarkNo?: number | null;
+    sourceImagePath?: string;
+    recordId?: string;
+    userCognitionName?: string;
+    genericName?: string;
     status?: "pending" | "published" | "failed" | "skipped";
     finalVerifyStatus?: string;
     errorClass?: string;
@@ -426,6 +442,12 @@ function compactTaskForStatus<
     sourceImageName?: string;
     sourceImagePath?: string;
     status?: string;
+    feishuProductRecord?: {
+      recordId?: string;
+      userCognitionName?: string;
+      genericName?: string;
+      spu?: string;
+    };
     generatedProductFolders?: string[];
     error?: { step?: string; message?: string };
   }
@@ -437,6 +459,10 @@ function compactTaskForStatus<
     taskId: task.taskId,
     sourceImageName: task.sourceImageName,
     sourceImagePath: task.sourceImagePath,
+    recordId: task.feishuProductRecord?.recordId,
+    userCognitionName: task.feishuProductRecord?.userCognitionName,
+    genericName: task.feishuProductRecord?.genericName,
+    spu: task.feishuProductRecord?.spu,
     status: task.status,
     ...compactProductFolders(task.generatedProductFolders),
     error: compactErrorObject(task.error)
@@ -724,6 +750,56 @@ function summarizeFeishuProgress(): Record<string, unknown> | undefined {
   }
 }
 
+function attachmentLocalFile(record: { whiteBackgroundImages?: Array<{ localFile?: string }> }): string {
+  return path.resolve(String(record.whiteBackgroundImages?.[0]?.localFile || ""));
+}
+
+function summarizeFeishuCurrentProduct(input: {
+  records: ReturnType<typeof loadFeishuProductRecords>;
+  currentTask?: Record<string, unknown>;
+  publishProgress?: Record<string, unknown>;
+}): Record<string, unknown> | undefined {
+  const total = input.records.length;
+  if (total <= 0) {
+    return undefined;
+  }
+  const active = input.publishProgress?.active as Record<string, unknown> | undefined;
+  const latestPublished = input.publishProgress?.latestPublished as Record<string, unknown> | undefined;
+  const candidates = [
+    {
+      recordId: String(input.currentTask?.recordId || ""),
+      sourceImagePath: String(input.currentTask?.sourceImagePath || "")
+    },
+    {
+      recordId: String(active?.recordId || ""),
+      sourceImagePath: String(active?.sourceImagePath || "")
+    },
+    {
+      recordId: String(latestPublished?.recordId || ""),
+      sourceImagePath: String(latestPublished?.sourceImagePath || "")
+    }
+  ];
+  for (const candidate of candidates) {
+    const sourceImagePath = candidate.sourceImagePath ? path.resolve(rootDir, candidate.sourceImagePath) : "";
+    const index = input.records.findIndex((record) =>
+      (candidate.recordId && record.recordId === candidate.recordId) ||
+      (sourceImagePath && attachmentLocalFile(record) === sourceImagePath)
+    );
+    if (index >= 0) {
+      const record = input.records[index];
+      return {
+        current: index + 1,
+        total,
+        recordId: record.recordId,
+        userCognitionName: record.userCognitionName,
+        genericName: record.genericName,
+        spu: record.spu
+      };
+    }
+  }
+  return undefined;
+}
+
 function loadFeishuEnv(configFile: string): NodeJS.ProcessEnv {
   if (!fs.existsSync(configFile)) {
     return process.env;
@@ -923,6 +999,15 @@ function existingStatus(): Record<string, unknown> {
   const state = summarizeState(runtimeDir);
   const publishLogProgress = summarizePublishLogProgress(job.logFile);
   const currentTask = state?.currentTask as Record<string, unknown> | undefined;
+  const fullJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  const feishuProductDataFile = path.resolve(rootDir, fullJob?.input?.feishuProductDataFile || "data/feishu/products.json");
+  const feishuCurrentProduct = fs.existsSync(feishuProductDataFile)
+    ? summarizeFeishuCurrentProduct({
+        records: loadFeishuProductRecords(feishuProductDataFile),
+        currentTask,
+        publishProgress
+      })
+    : undefined;
   const imageProgress = summarizeImageGenerationProgress(runtimeDir, currentTask?.taskId ? String(currentTask.taskId) : undefined);
   const activeResumeReusableArtifactCount =
     job.mode === "resume-real-job" && runtimeDir && currentTask?.taskId
@@ -1145,6 +1230,7 @@ function existingStatus(): Record<string, unknown> {
     publishLogProgress,
     publishProgress: exposePublishProgress ? publishProgress : undefined,
     feishuProgress,
+    feishuCurrentProduct,
     feishuProgressDisplayMode,
     feishuBatchDisplayCounts: feishuProgress
       ? resolveAutoListingControllerFeishuBatchDisplayCounts({
@@ -1166,6 +1252,7 @@ function formatStatusText(status: Record<string, unknown>): string {
   const state = status.state as Record<string, unknown> | undefined;
   const progress = status.publishProgress as Record<string, unknown> | undefined;
   const feishuProgress = status.feishuProgress as Record<string, unknown> | undefined;
+  const feishuCurrentProduct = status.feishuCurrentProduct as Record<string, unknown> | undefined;
   const counts = status.feishuBatchDisplayCounts as Record<string, unknown> | undefined;
   const currentTask = state?.currentTask as Record<string, unknown> | undefined;
   const latestProgress = state?.latestProgress as Record<string, unknown> | undefined;
@@ -1211,6 +1298,8 @@ function formatStatusText(status: Record<string, unknown>): string {
       typeof publishGroupProgress?.reviewWatermarkNo === "number" ? Number(publishGroupProgress.reviewWatermarkNo) : undefined,
     publishLatestAttemptedWatermarkNo:
       typeof publishGroupProgress?.latestAttemptedWatermarkNo === "number" ? Number(publishGroupProgress.latestAttemptedWatermarkNo) : undefined,
+    feishuProductIndex:
+      typeof feishuCurrentProduct?.current === "number" ? Number(feishuCurrentProduct.current) : undefined,
     feishuCompleted: counts?.completedCount === undefined ? Number(feishuProgress?.processedRecordCount ?? 0) : Number(counts.completedCount),
     feishuTotal: counts?.recordCount === undefined ? Number(feishuProgress?.recordCount ?? 0) : Number(counts.recordCount)
   });

@@ -671,6 +671,11 @@ const groupedHermesPayload = resolveAutoListingControllerHermesStatusPayload({
   status: "running",
   summary: "当前商品：延草纲目宝元堂痛风医用远红外治疗凝胶，产品 20/20，店铺 10/10",
   realtimeProgress: groupedHermesRealtimeProgress,
+  feishuCurrentProduct: {
+    current: 4,
+    total: 7,
+    userCognitionName: "宝元堂痛风凝胶"
+  },
   publishProgress: {
     safelyPublished: 39,
     total: 40,
@@ -695,6 +700,12 @@ assert.equal(
   /39\/40|40\/40|60\/60|Main images ready/.test(JSON.stringify(groupedHermesPayload.hermesProgress || {})),
   false,
   "Hermes progress payload must hide cumulative publish counts and stale image progress while publishing"
+);
+assert.equal(groupedHermesPayload.publishProgress, undefined);
+assert.match(
+  String(groupedHermesPayload.hermesProgress?.message || ""),
+  /^飞书产品 4\/7；/,
+  "Hermes progress message must lead with the current Feishu table product ordinal"
 );
 assert.match(
   String(groupedHermesPayload.hermesProgress?.message || ""),
@@ -1610,7 +1621,7 @@ const compactFailedStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactFailedStatus.split("\n"),
   [
-    "状态：失败｜产品 15/20｜店铺 8/10｜飞书 2/3",
+    "状态：失败｜产品 15/20｜店铺 8/10｜飞书产品 2/3",
     "商品：医用面部生物膜",
     "原因：导购短标题字段缺失，已停止，可续跑。"
   ],
@@ -1631,7 +1642,7 @@ const compactImageGenerationStatus = formatAutoListingControllerCompactStatusTex
 assert.deepEqual(
   compactImageGenerationStatus.split("\n"),
   [
-    "状态：运行中｜主图 20/20｜飞书 0/4",
+    "状态：运行中｜主图 20/20｜飞书产品 0/4",
     "当前：医用芦荟凝胶",
     "进度：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0."
   ],
@@ -1654,7 +1665,7 @@ const compactPublishStageStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactPublishStageStatus.split("\n"),
   [
-    "状态：运行中｜产品 11/20｜店铺 6/10｜飞书 0/2",
+    "状态：运行中｜产品 11/20｜店铺 6/10｜飞书产品 0/2",
     "当前：延草纲目宝元堂痛风医用远红外治疗凝胶",
     "进度：发布模块：基础信息（06延草纲目理疗器械旗舰店）"
   ],
@@ -1675,7 +1686,7 @@ const compactPlatformFailedStatus = formatAutoListingControllerCompactStatusText
 assert.deepEqual(
   compactPlatformFailedStatus.split("\n"),
   [
-    "状态：失败｜产品 15/20｜店铺 8/10｜飞书 2/3",
+    "状态：失败｜产品 15/20｜店铺 8/10｜飞书产品 2/3",
     "商品：医用面部生物膜",
     "原因：标品检索页控件未加载完整，已停止，可续跑。"
   ],
@@ -1734,12 +1745,13 @@ const compactCompletedGroupedStatus = formatAutoListingControllerCompactStatusTe
   publishProductTotal: groupedPublishProgress.productTotal,
   publishShopIndex: groupedPublishProgress.shopIndex,
   publishShopTotal: groupedPublishProgress.shopTotal,
+  feishuProductIndex: 4,
   feishuCompleted: 5,
   feishuTotal: 5
 });
 assert.equal(
   compactCompletedGroupedStatus.split("\n")[0],
-  "状态：完成｜产品 20/20｜店铺 10/10｜飞书 5/5",
+  "状态：完成｜产品 20/20｜店铺 10/10｜飞书产品 4/5",
   "Hermes-facing compact text must not expose cumulative publish totals such as 60/60"
 );
 assert.equal(/发布 60\/60/.test(compactCompletedGroupedStatus), false);
@@ -1833,7 +1845,7 @@ const compactFailedMiddleStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactFailedMiddleStatus.split("\n"),
   [
-    "状态：失败｜产品 20/20｜店铺 10/10｜失败项 水印16｜飞书 0/4",
+    "状态：失败｜产品 20/20｜店铺 10/10｜失败项 水印16｜飞书产品 0/4",
     "商品：延草纲目遠紅外治療貼",
     "原因：价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。"
   ],
@@ -1904,7 +1916,7 @@ const compactBlankSpecStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactBlankSpecStatus.split("\n"),
   [
-    "状态：失败｜产品 20/20｜店铺 10/10｜失败项 水印16｜飞书 0/4",
+    "状态：失败｜产品 20/20｜店铺 10/10｜失败项 水印16｜飞书产品 0/4",
     "商品：延草纲目遠紅外治療貼",
     "原因：规格模板存在空白占位值；按模板内容为准，续跑时不补写也不删除该空白项。"
   ],

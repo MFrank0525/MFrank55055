@@ -650,12 +650,26 @@ export type AutoListingControllerHermesStatusPayload = Record<string, unknown> &
   hermesProgress?: Record<string, unknown>;
 };
 
+function formatFeishuProductProgress(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const progress = value as Record<string, unknown>;
+  const current = Number(progress.current ?? progress.index ?? 0);
+  const total = Number(progress.total ?? 0);
+  if (!Number.isFinite(current) || !Number.isFinite(total) || current <= 0 || total <= 0) {
+    return undefined;
+  }
+  return `飞书产品 ${Math.min(total, current)}/${total}`;
+}
+
 export function resolveAutoListingControllerHermesStatusPayload(
   status: Record<string, unknown>
 ): AutoListingControllerHermesStatusPayload {
   const publishProgress = status.publishProgress as Record<string, unknown> | undefined;
   const realtimeProgress = status.realtimeProgress as Record<string, unknown> | undefined;
   const payload: AutoListingControllerHermesStatusPayload = { ...status };
+  const feishuProductProgress = formatFeishuProductProgress(status.feishuCurrentProduct);
   if (realtimeProgress && typeof realtimeProgress === "object") {
     const publishProgressText =
       publishProgress && typeof publishProgress.progressText === "string"
@@ -666,9 +680,13 @@ export function resolveAutoListingControllerHermesStatusPayload(
       publishProgressText && realtimeMessage && realtimeMessage !== publishProgressText && !publishProgressText.includes(realtimeMessage)
         ? `${publishProgressText}；${realtimeMessage}`
         : publishProgressText || realtimeMessage;
+    const feishuPrefixedMessage =
+      feishuProductProgress && message && !message.includes(feishuProductProgress)
+        ? `${feishuProductProgress}；${message}`
+        : message || feishuProductProgress;
     const hermesProgress = {
       source: realtimeProgress.source,
-      message,
+      message: feishuPrefixedMessage,
       timestamp: realtimeProgress.timestamp,
       key: realtimeProgress.key
     };
@@ -676,6 +694,7 @@ export function resolveAutoListingControllerHermesStatusPayload(
   }
   if (publishProgress) {
     delete payload.imageProgress;
+    delete payload.publishProgress;
   }
   return payload;
 }
@@ -711,6 +730,7 @@ export type AutoListingControllerCompactStatusTextInput = {
   publishFailedWatermarkNo?: number;
   publishReviewWatermarkNo?: number;
   publishLatestAttemptedWatermarkNo?: number;
+  feishuProductIndex?: number;
   feishuCompleted?: number;
   feishuTotal?: number;
 };
@@ -1131,14 +1151,15 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const productIndex = Math.max(1, Math.min(productTotal, input.publishProductIndex ?? fallbackProductIndex));
   const shopTotal = input.publishShopTotal ?? Math.max(1, Math.ceil(productTotal / 2));
   const shopIndex = Math.max(1, Math.min(shopTotal, input.publishShopIndex ?? Math.ceil(productIndex / 2)));
-  const feishuCompleted = input.feishuCompleted ?? "?";
+  const feishuCompleted = input.feishuProductIndex ?? input.feishuCompleted ?? "?";
   const feishuTotal = input.feishuTotal ?? "?";
+  const feishuLabel = `飞书产品 ${feishuCompleted}/${feishuTotal}`;
   const preferPublishProgress = shouldPreferAutoListingControllerPublishProgress(input);
   const mainImageProgressIndex = resolveAutoListingControllerMainImageProgressIndex(input.imageGenerationProgress, productTotal);
   const lines = [
     !preferPublishProgress && input.imageGenerationProgress
-      ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜主图 ${mainImageProgressIndex}/${productTotal}｜飞书 ${feishuCompleted}/${feishuTotal}`
-      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}${input.publishReviewWatermarkNo ? `｜待复核 水印${input.publishReviewWatermarkNo}` : ""}｜飞书 ${feishuCompleted}/${feishuTotal}`
+      ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜主图 ${mainImageProgressIndex}/${productTotal}｜${feishuLabel}`
+      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}${input.publishReviewWatermarkNo ? `｜待复核 水印${input.publishReviewWatermarkNo}` : ""}｜${feishuLabel}`
   ];
 
   if (input.status === "failed") {
