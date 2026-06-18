@@ -1013,6 +1013,19 @@ const spuPrefillFailedClass = classifyPublishFailure(
 );
 assert.equal(spuPrefillFailedClass, "platform_spu_prefill_failed");
 assert.equal(shouldRetryPublishFailure(spuPrefillFailedClass, 0), true);
+const emptyPublishSectionsAfterSpuClass = classifyPublishFailure(
+  "Publish create page has no publish sections after SPU query."
+);
+assert.equal(
+  emptyPublishSectionsAfterSpuClass,
+  "platform_spu_prefill_failed",
+  "A create page with no publish sections after SPU query is a transient platform prefill failure"
+);
+assert.equal(
+  shouldRetryPublishFailure(emptyPublishSectionsAfterSpuClass, 0),
+  true,
+  "A create page with no publish sections after SPU query must be retried"
+);
 
 assert.deepEqual(
   evaluatePublishCreatePageReadiness({
@@ -2348,6 +2361,39 @@ assert.equal(
   resolveSupervisorRecoveryChildMode("failed at main_images_generated: fetch failed"),
   "full",
   "Ordinary retryable failures must keep the existing full-flow recovery behavior"
+);
+const emptyPublishSectionsAfterSpuFailure =
+  "failed at published: Publish failed for /work/shop/product-03: Publish create page has no publish sections after SPU query.";
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: emptyPublishSectionsAfterSpuFailure,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true,
+  "The supervisor must classify an empty create page after SPU query as a retryable publish-page failure"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: emptyPublishSectionsAfterSpuFailure,
+    activeStep: "published",
+    activeMessage:
+      "Publish failed: product-03: Publish create page has no publish sections after SPU query.",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true,
+  "A retryable terminal publish failure must not be blocked by the active published progress state"
+);
+assert.equal(
+  resolveSupervisorRecoveryChildMode(emptyPublishSectionsAfterSpuFailure),
+  "resume",
+  "Retryable publish-page failures must rebuild a manifest-backed resume job instead of restarting the full flow"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({

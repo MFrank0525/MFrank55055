@@ -108,7 +108,7 @@ export function resolveSupervisorRecoveryDelayMs(input: {
 function isRetryablePublishPageFailure(message: string): boolean {
   return (
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
-    /基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required|page context was lost|Execution context was destroyed|Target closed/i.test(
+    /基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required|page context was lost|Execution context was destroyed|Target closed/i.test(
       message
     )
   );
@@ -128,8 +128,19 @@ function isSafeResumeTransitionFailure(message: string): boolean {
   return /product folders already contain workbook/i.test(message);
 }
 
+function isSafeManifestBackedPublishResumeFailure(message: string): boolean {
+  return (
+    isRetryablePublishPageFailure(message) &&
+    /基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required/i.test(
+      message
+    )
+  );
+}
+
 export function resolveSupervisorRecoveryChildMode(failureMessage: string): SupervisorChildMode {
-  return isSafeResumeTransitionFailure(failureMessage) ? "resume" : "full";
+  return isSafeResumeTransitionFailure(failureMessage) || isSafeManifestBackedPublishResumeFailure(failureMessage)
+    ? "resume"
+    : "full";
 }
 
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
@@ -181,7 +192,12 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
   }
   const failureMessage = input.retryableFailureMessage || "";
   const activeText = `${input.activeStep || ""} ${input.activeMessage || ""}`;
-  if (/published|Publishing product folder|Retrying publish|Publish failed/i.test(activeText)) {
+  const retryablePublishFailure = isRetryablePublishPageFailure(failureMessage);
+  const safeManifestBackedPublishResume = isSafeManifestBackedPublishResumeFailure(failureMessage);
+  if (
+    /published|Publishing product folder|Retrying publish|Publish failed/i.test(activeText) &&
+    !safeManifestBackedPublishResume
+  ) {
     return false;
   }
   if (/main_images_generated|image generation|main image/i.test(`${failureMessage} ${activeText}`)) {
@@ -190,7 +206,8 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
   return (
     input.childMode === "full" ||
     isSafeResumeTransitionFailure(failureMessage) ||
-    isRetryablePublishPageFailure(failureMessage) ||
+    safeManifestBackedPublishResume ||
+    input.childMode === "resume" && retryablePublishFailure ||
     isChildWatchdogFailure(failureMessage)
   );
 }

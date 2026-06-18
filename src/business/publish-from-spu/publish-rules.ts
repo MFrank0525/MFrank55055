@@ -349,6 +349,7 @@ export function classifyPublishFailure(message: string): string {
   }
   if (
     text.includes("Publishcreatepagedidnotbecomeready") ||
+    text.includes("PublishcreatepagehasnopublishsectionsafterSPUquery") ||
     text.includes("spu信息填充失败") ||
     text.includes("spu填充失败") ||
     text.includes("信息填充失败")
