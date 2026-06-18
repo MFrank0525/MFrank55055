@@ -2681,6 +2681,29 @@ assert.equal(
   true,
   "resume-mode supervisor must self-recover videos-base64 fail_to_fetch_task submit failures"
 );
+const videosBase64Cloudflare521StatusFailure =
+  "failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; reasons: paid image slot identity conflict for slot 7 | videos-base64 status failed with HTTP 521: Web server is down";
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(videosBase64Cloudflare521StatusFailure),
+  true,
+  "Cloudflare 520-524 status-read failures must be classified as temporary external-service outages"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(videosBase64Cloudflare521StatusFailure),
+  false,
+  "Cloudflare 520-524 outages must not consume the bounded fixed-slot provider-failure retry budget"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64Cloudflare521StatusFailure,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "The supervisor must remain self-driven during Cloudflare 520-524 image status outages"
+);
 const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
 const paidImageSafetyBlockWithHtml =
   "paid submission safety block: paid image ledger has ambiguous=20, reserved=0; original: videos-base64 submit failed with HTTP 502: " +

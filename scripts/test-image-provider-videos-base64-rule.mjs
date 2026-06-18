@@ -10,7 +10,8 @@ import {
   resolvePaidImageLedgerFailureDisposition,
   resolveMissingFixedImageIndexes,
   resolveVideosBase64SubmitConcurrency,
-  resolveVideosBase64SubmitTimeoutMs
+  resolveVideosBase64SubmitTimeoutMs,
+  shouldKeepPaidImagePolicyCompatiblePrompt
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
   initializePaidImageProductLedger,
@@ -35,6 +36,16 @@ assert.equal(example.apiUrl.endsWith("/v1/videos"), true);
 assert.equal(example.size, "1024x1024");
 assert.equal(example.videoMetadata.aspect_ratio, "1:1");
 assert.equal(example.submitConcurrency, 2);
+assert.equal(
+  shouldKeepPaidImagePolicyCompatiblePrompt({
+    failureReason: 'provider task failed: {"message":"失败了超时 请重试","code":"upstream_error"}',
+    recordedPromptDigest: "policy-digest",
+    originalPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest"
+  }),
+  true,
+  "A fixed slot that already switched to the policy-compatible prompt must keep that identity after later provider timeouts"
+);
 assert.match(source, /mode\?: "generations" \| "edits" \| "media-generate" \| "videos-base64"/);
 assert.match(source, /buildVideosBase64JsonBody/);
 assert.match(source, /data:image\/\$\{mimeType\.split\("\/"\)\[1\]\};base64,/);
@@ -87,7 +98,7 @@ assert.match(source, /allowExistingSubmittedTaskImport/);
 assert.match(source, /allowExistingSubmittedTaskImport =[\s\S]*slotAction\.action !== "retry_failed_before_acceptance"[\s\S]*slotAction\.action !== "retry_failed_after_acceptance"/);
 assert.match(
   source,
-  /isPolicyCompatibleRetryFailureReason\(reason: string\)[\s\S]*违规[\s\S]*failedAfterAcceptanceReason[\s\S]*slotAction\.action === "retry_failed_after_acceptance"[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)[\s\S]*buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
+  /isPolicyCompatibleRetryFailureReason\(reason: string\)[\s\S]*违规[\s\S]*failedAfterAcceptanceReason[\s\S]*buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*shouldKeepPaidImagePolicyCompatiblePrompt[\s\S]*keepPolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
   "videos-base64 failed-after-acceptance fixed-slot retries must switch only that slot to the policy-compatible prompt"
 );
 assert.match(source, /submitSlots/);

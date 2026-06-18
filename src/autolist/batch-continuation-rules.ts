@@ -83,7 +83,7 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
     (!isRetryableVideosBase64NoAcceptanceTransportFailure(message) && isPaidMainImageTransportFailure(message)) ||
     (/main_images_generated/i.test(message) && /videos-base64 task .*did not finish/i.test(message)) ||
     (/main_images_generated|image generation|main image/i.test(message) &&
-      (/HTTP\s*(429|502|503|504)/i.test(message) ||
+      (/HTTP\s*(429|502|503|504|520|521|522|523|524)/i.test(message) ||
         /temporarily unavailable|gateway unavailable|service unavailable|resource[_ -]?overloaded|server overloaded|timed out|timeout|aborted/i.test(message)))
   );
 }

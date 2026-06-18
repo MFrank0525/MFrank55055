@@ -15,7 +15,8 @@ import {
   resolveImageGenerationTransportRetryPolicy,
   providerExplicitlyProvesNoPaidTaskAccepted,
   submitTransportFailureProvesNoPaidTaskAccepted,
-  shouldRetryImageGenerationWithPolicyPrompt
+  shouldRetryImageGenerationWithPolicyPrompt,
+  shouldKeepPaidImagePolicyCompatiblePrompt
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { readManualTextBlock } from "./operation-manual.js";
@@ -288,7 +289,8 @@ function isContentPolicyError(message: string): boolean {
 }
 
 function isTransientImageProviderStatus(status: number): boolean {
-  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504 ||
+    status === 520 || status === 521 || status === 522 || status === 523 || status === 524;
 }
 
 function isTransientImageProviderErrorMessage(message: string): boolean {
@@ -1217,13 +1219,26 @@ async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
             ? (slotAction.record?.reason || "")
             : "";
+        const originalPromptDigest = promptDigest;
+        const policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
+        const policyCompatiblePromptDigest = sha256Text(policyCompatiblePromptText);
+        const keepPolicyCompatiblePrompt =
+          slotAction.action === "retry_failed_after_acceptance" &&
+          "record" in slotAction &&
+          shouldKeepPaidImagePolicyCompatiblePrompt({
+            failureReason: failedAfterAcceptanceReason,
+            recordedPromptDigest: slotAction.record?.promptDigest || "",
+            originalPromptDigest,
+            policyCompatiblePromptDigest
+          });
         const allowFailedAfterAcceptanceDigestChange =
           slotAction.action === "retry_failed_after_acceptance" &&
-          isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason);
+          isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason) &&
+          slotAction.record?.promptDigest !== policyCompatiblePromptDigest;
         if (
-          allowFailedAfterAcceptanceDigestChange
+          keepPolicyCompatiblePrompt
         ) {
-          promptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
+          promptText = policyCompatiblePromptText;
           rebuildVideosBase64Request();
           writeImageGenerationJsonLog(
             path.join(options.downloadDir, "request-" + paddedImageIndex + "-policy-retry.json"),

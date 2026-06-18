@@ -145,7 +145,7 @@ export function resolveImageGenerationHttpRetryPolicy(input: ImageGenerationHttp
       reason: "provider_resource_overloaded"
     };
   }
-  if ([502, 503, 504].includes(input.status)) {
+  if ([502, 503, 504, 520, 521, 522, 523, 524].includes(input.status)) {
     return {
       maxRetries: longMaxRetries,
       delayMs: longDelayMs,
@@ -188,4 +188,22 @@ export type PolicyPromptRetryInput = {
 
 export function shouldRetryImageGenerationWithPolicyPrompt(input: PolicyPromptRetryInput): boolean {
   return !input.responseOk && /content[_ -]?policy|policy[_ -]?violation|safety|unsafe|moderation|violat/i.test(input.responseText);
+}
+
+export function shouldKeepPaidImagePolicyCompatiblePrompt(input: {
+  failureReason: string;
+  recordedPromptDigest: string;
+  originalPromptDigest: string;
+  policyCompatiblePromptDigest: string;
+}): boolean {
+  return (
+    /content[_ -]?policy|policy[_ -]?violation|safety|unsafe|moderation|violat|违规|安全策略|内容策略/i.test(
+      input.failureReason
+    ) ||
+    Boolean(
+      input.recordedPromptDigest &&
+        input.recordedPromptDigest !== input.originalPromptDigest &&
+        input.recordedPromptDigest === input.policyCompatiblePromptDigest
+    )
+  );
 }
