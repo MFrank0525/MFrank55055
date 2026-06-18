@@ -5376,31 +5376,66 @@ async function ensureMedicalDeviceCertificateFromFirstQualification(
   };
 }
 
+type DetailQualificationUploadResult = {
+  attemptedCount: number;
+  acknowledgedCount: number;
+  finalCount: number;
+  failedFileIndex?: number;
+};
+
 async function uploadDetailImagesByInputCapability(
   page: Page,
-  initialInput: { index: number; multiple: boolean },
-  files: string[]
-): Promise<number> {
+  files: string[],
+  baselineCount: number
+): Promise<DetailQualificationUploadResult> {
   if (!files.length) {
-    return 0;
-  }
-  if (initialInput.multiple) {
-    await page.locator("input[type='file']").nth(initialInput.index).setInputFiles(files);
-    return files.length;
+    return { attemptedCount: 0, acknowledgedCount: 0, finalCount: baselineCount };
   }
 
-  let uploaded = 0;
-  for (const file of files) {
-    const inputs = await collectFileInputs(page);
-    const input = pickBestFileInput(inputs, scoreDetailGraphicInput);
-    if (!input) {
-      break;
+  let acknowledgedCount = 0;
+  let previousCount = baselineCount;
+  for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+    let acknowledged = false;
+    for (let attempt = 0; attempt < 2 && !acknowledged; attempt += 1) {
+      await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
+      const detailSectionVisible =
+        (await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false)) ||
+        (await scrollGraphicSectionIntoView(page, "\u8be6\u60c5\u9875").catch(() => false));
+      if (!detailSectionVisible) {
+        await scrollPublishSectionContentIntoView(page, "\u56fe\u6587\u4fe1\u606f").catch(() => false);
+      }
+      await dismissTransientOverlays(page);
+
+      const inputs = await collectFileInputs(page);
+      const input =
+        pickBestSectionFileInput(inputs, "\u5546\u54c1\u8be6\u60c5", scoreDetailGraphicInput) ||
+        pickBestSectionFileInput(inputs, "\u8be6\u60c5\u9875", scoreDetailGraphicInput);
+      if (!input) {
+        continue;
+      }
+      await page.locator("input[type='file']").nth(input.index).setInputFiles(files[fileIndex]);
+      const observedCount = await waitForPreviewCount(
+        page,
+        () => countDetailImagePreviews(page),
+        previousCount + 1,
+        15000
+      );
+      if (observedCount >= previousCount + 1) {
+        previousCount = observedCount;
+        acknowledgedCount += 1;
+        acknowledged = true;
+      }
     }
-    await page.locator("input[type='file']").nth(input.index).setInputFiles(file);
-    uploaded += 1;
-    await page.waitForTimeout(1100);
+    if (!acknowledged) {
+      return {
+        attemptedCount: fileIndex + 1,
+        acknowledgedCount,
+        finalCount: previousCount,
+        failedFileIndex: fileIndex + 1
+      };
+    }
   }
-  return uploaded;
+  return { attemptedCount: files.length, acknowledgedCount, finalCount: previousCount };
 }
 
 async function uploadFilesToSectionSlots(
@@ -6569,49 +6604,6 @@ async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
   return false;
 }
 
-async function uploadQualificationImagesToDetailSection(
-  page: Page,
-  assets: ProductAssets,
-  filledFromMain: boolean,
-  expectedDetailCount: number
-): Promise<boolean> {
-  if (!assets.detailImages.length) {
-    return false;
-  }
-  const currentCount = await countDetailImagePreviews(page).catch(() => 0);
-
-  if (currentCount === 0 && !filledFromMain) {
-    const filled = await clickFillFromMainForDetailSection(page).catch(() => false);
-    if (!filled) {
-      return false;
-    }
-  }
-
-  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
-  const detailSectionVisible =
-    (await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false)) ||
-    (await scrollGraphicSectionIntoView(page, "\u8be6\u60c5\u9875").catch(() => false));
-  if (!detailSectionVisible) {
-    await scrollPublishSectionContentIntoView(page, "\u56fe\u6587\u4fe1\u606f").catch(() => false);
-  }
-  await page.mouse.wheel(0, 500).catch(() => {});
-  await page.waitForTimeout(800);
-  await dismissTransientOverlays(page);
-
-  const inputs = await collectFileInputs(page);
-  const detailInput = pickBestSectionFileInput(inputs, "\u5546\u54c1\u8be6\u60c5", scoreDetailGraphicInput) ||
-    pickBestSectionFileInput(inputs, "\u8be6\u60c5\u9875", scoreDetailGraphicInput) ||
-    pickBestFileInput(inputs, scoreDetailGraphicInput);
-  if (!detailInput) {
-    return (await countDetailImagePreviews(page).catch(() => 0)) >= expectedDetailCount;
-  }
-
-  await uploadDetailImagesByInputCapability(page, detailInput, assets.detailImages);
-  await page.waitForTimeout(2200);
-  await dismissTransientOverlays(page);
-  return (await countDetailImagePreviews(page).catch(() => 0)) >= expectedDetailCount;
-}
-
 async function clearDetailImagePreviewsStrict(page: Page, maxAttempts = 12): Promise<number> {
   let removedCount = 0;
   await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
@@ -6695,18 +6687,22 @@ async function ensureDetailImagesFromMainThenQualifications(
   }
 
   const expectedDetailCount = countAfterFillFromMain + assets.detailImages.length;
-  const detailCompleted = await uploadQualificationImagesToDetailSection(page, assets, filledFromMain, expectedDetailCount).catch(() => false);
-  const finalCount = await waitForPreviewCount(page, () => countDetailImagePreviews(page), expectedDetailCount, 60000);
+  const uploadResult = await uploadDetailImagesByInputCapability(
+    page,
+    assets.detailImages,
+    countAfterFillFromMain
+  ).catch(() => ({ attemptedCount: 0, acknowledgedCount: 0, finalCount: countAfterFillFromMain, failedFileIndex: 1 }));
+  const finalCount = await waitForPreviewCount(page, () => countDetailImagePreviews(page), expectedDetailCount, 15000);
   const detailRule = evaluateDetailImageCompletion({
     filledFromMain,
     baselineDetailCount: countAfterFillFromMain,
     qualificationImageCount: assets.detailImages.length,
-    acknowledgedQualificationCount: detailCompleted ? assets.detailImages.length : 0,
+    acknowledgedQualificationCount: uploadResult.acknowledgedCount,
     finalDetailCount: finalCount,
     expectedDetailCount
   });
   const detailOutcome = evaluateDetailUploadOutcome({
-    uploadActionCompleted: detailCompleted,
+    uploadActionCompleted: uploadResult.acknowledgedCount === assets.detailImages.length,
     detailRule
   });
   if (detailOutcome.passed) {
@@ -6723,7 +6719,7 @@ async function ensureDetailImagesFromMainThenQualifications(
     completed: false,
     filledFromMain,
     group: "",
-    issue: detailOutcome.issue || `Detail images did not reach expected count after fill-from-main plus Feishu qualifications. expected=${expectedDetailCount}; actual=${finalCount}; qualificationImages=${assets.detailImages.length}`
+    issue: `${detailOutcome.issue || `Detail images did not reach expected count after fill-from-main plus Feishu qualifications. expected=${expectedDetailCount}; actual=${finalCount}`} acknowledged=${uploadResult.acknowledgedCount}; qualificationImages=${assets.detailImages.length}; failedFileIndex=${uploadResult.failedFileIndex ?? "none"}`
   };
 }
 

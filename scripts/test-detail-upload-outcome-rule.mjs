@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {
   evaluateDetailImageCompletion,
   evaluateDetailUploadOutcome
@@ -63,5 +64,14 @@ const fullyAcknowledged = evaluateDetailImageCompletion({
   expectedDetailCount: 8
 });
 assert.deepEqual(fullyAcknowledged, { passed: true, issue: "" });
+
+const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const uploadStart = publishSource.indexOf("async function uploadDetailImagesByInputCapability");
+const uploadEnd = publishSource.indexOf("async function uploadFilesToSectionSlots", uploadStart);
+const uploadSource = publishSource.slice(uploadStart, uploadEnd);
+assert.match(uploadSource, /pickBestSectionFileInput\(inputs, "\\u5546\\u54c1\\u8be6\\u60c5"/);
+assert.match(uploadSource, /pickBestSectionFileInput\(inputs, "\\u8be6\\u60c5\\u9875"/);
+assert.match(uploadSource, /waitForPreviewCount[\s\S]*previousCount \+ 1/);
+assert.doesNotMatch(uploadSource, /pickBestFileInput\(inputs, scoreDetailGraphicInput\)/);
 
 console.log("detail upload outcome rule passed");
