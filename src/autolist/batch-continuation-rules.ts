@@ -1214,6 +1214,24 @@ function shouldPreferAutoListingControllerPublishProgress(input: AutoListingCont
   return /发布|publish|basic_info|商品|店铺|spu/i.test(input.latestProgress);
 }
 
+export function formatAutoListingControllerExternalServiceWaitSummary(input: {
+  retryAt?: string;
+  nowMs: number;
+  reason?: string;
+}): string {
+  const retryAtMs = Date.parse(input.retryAt || "");
+  const remainingSeconds = Number.isFinite(retryAtMs)
+    ? Math.max(0, Math.ceil((retryAtMs - input.nowMs) / 1000))
+    : undefined;
+  const countdown =
+    remainingSeconds === undefined
+      ? "供应商恢复后"
+      : `${Math.floor(remainingSeconds / 60)}分${remainingSeconds % 60}秒后`;
+  const slot = /timeout circuit open for slot\s+(\d+)/i.exec(input.reason || "")?.[1];
+  const slotText = slot ? `槽位 ${slot}；` : "";
+  return `图片服务冷却中：${slotText}${countdown}（${input.retryAt || "时间待定"}）自动重试。`;
+}
+
 export function formatAutoListingControllerCompactStatusText(input: AutoListingControllerCompactStatusTextInput): string {
   const productTotal = input.publishProductTotal ?? 20;
   const fallbackProductIndex = (input.publishSafelyPublished || 0) + (input.publishFailed ? 1 : 0) || 1;
@@ -1242,7 +1260,12 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
 
   const active = cleanAutoListingControllerProductName(input.activeItemName || input.productName);
   lines.push(`当前：${active}`);
-  const latestProgress = preferPublishProgress ? input.latestProgress : input.imageGenerationProgress || input.latestProgress;
+  const latestProgress =
+    input.status === "external_service_wait"
+      ? input.summary
+      : preferPublishProgress
+        ? input.latestProgress
+        : input.imageGenerationProgress || input.latestProgress;
   if (latestProgress) {
     lines.push(`进度：${!preferPublishProgress && input.imageGenerationProgress ? compactAutoListingControllerImageProgress(latestProgress) : compactAutoListingControllerReason(latestProgress)}`);
   } else if (input.summary) {

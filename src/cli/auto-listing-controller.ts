@@ -32,6 +32,7 @@ import {
   shouldTerminateRecordedAutoListingControllerProcessGroup,
   shouldUseExpectedResultFileInRunningStatus,
   summarizeAutoListingControllerImageGenerationEvents,
+  formatAutoListingControllerExternalServiceWaitSummary,
   formatAutoListingControllerCompactStatusText,
   selectAutoListingControllerFailedResumeCandidate
 } from "../autolist/batch-continuation-rules.js";
@@ -1212,7 +1213,6 @@ function existingStatus(): Record<string, unknown> {
     : terminalFailureMessage;
   const terminalFailureMtimeMs = fileMtimeMs(resultFile);
   const externalWaitReason = activeWaitState?.reason || terminalFailureMessage;
-  const externalRetryAt = activeWaitState?.retryAt || "供应商恢复后";
   const publishGroupProgress = publishProgress?.publishGroupProgress as Record<string, unknown> | undefined;
   const realtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
     jobStartedAt: job.startedAt,
@@ -1278,7 +1278,11 @@ function existingStatus(): Record<string, unknown> {
     statusSource: shouldUsePublishRealtime ? (publishProgress ? "publish-manifest" : state ? "state" : "result-log") : "state",
     summary:
       (resolvedStatus === "external_service_wait"
-        ? `图片服务暂时不可用，已保留当前飞书批次和断点；将在 ${String(externalRetryAt)} 自动重试。原因：${compactStatusValue(externalWaitReason)}`
+        ? formatAutoListingControllerExternalServiceWaitSummary({
+            retryAt: activeWaitState?.retryAt,
+            nowMs: Date.now(),
+            reason: externalWaitReason
+          })
         : resolvedStatus === "failed"
         ? failureSummary || stateSummary
         : shouldUsePublishRealtime

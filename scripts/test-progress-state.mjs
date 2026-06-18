@@ -88,6 +88,7 @@ import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/s
 import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
 import { assertGeneratedTitlesBelongToProduct } from "../dist/src/autolist/title-rules.js";
 import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-from-spu/asset-rules.js";
+const progressRulesModule = await import("../dist/src/autolist/batch-continuation-rules.js");
 import {
   classifyPublishFailure,
   evaluateDetailImageCompletion,
@@ -2752,6 +2753,30 @@ assert.equal(
   600000,
   "Out-of-range slot cooldown text must not create an unbounded supervisor sleep"
 );
+assert.equal(
+  typeof progressRulesModule.formatAutoListingControllerExternalServiceWaitSummary,
+  "function",
+  "External-service status must expose a deterministic countdown formatter"
+);
+const externalWaitSummary = progressRulesModule.formatAutoListingControllerExternalServiceWaitSummary({
+  retryAt: "2026-06-18T06:30:00.000Z",
+  nowMs: Date.parse("2026-06-18T06:10:29.000Z"),
+  reason: "paid image provider timeout circuit open for slot 17; retry after 1171000ms."
+});
+assert.match(externalWaitSummary, /19分31秒后/);
+assert.match(externalWaitSummary, /2026-06-18T06:30:00.000Z/);
+assert.match(externalWaitSummary, /槽位 17/);
+const compactExternalWait = formatAutoListingControllerCompactStatusText({
+  status: "external_service_wait",
+  summary: externalWaitSummary,
+  productName: "李时珍膝盖部位凝胶",
+  imageGenerationProgress: "Prompt 4/5: staged 4 image(s).",
+  mainImageCompleted: 19,
+  feishuCompleted: 5,
+  feishuTotal: 7
+});
+assert.match(compactExternalWait, /19分31秒后/);
+assert.doesNotMatch(compactExternalWait, /staged 4 image/);
 const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
 const paidImageSafetyBlockWithHtml =
   "paid submission safety block: paid image ledger has ambiguous=20, reserved=0; original: videos-base64 submit failed with HTTP 502: " +
