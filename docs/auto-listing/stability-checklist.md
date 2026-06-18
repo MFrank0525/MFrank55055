@@ -247,6 +247,7 @@
 44. `videos-base64` 的单商品 20 张并发提交是允许的，但仅限首次提交当前商品当前批次的 20 个异步 task。同一商品只要已有 task ID、轮询状态、部分 raw 图片或暂存图，任何 `fetch failed`、轮询超时、abort、网络中断都必须进入外部服务等待/续查同一批 task；禁止 supervisor 快速重启生成新的 runtimeDir 后再次提交 20 个付费任务。
 45. 付费图片账本属于当前未完成产品的项目级恢复控制状态，固定保存在 `data/auto-listing/paid-image-submissions`，不得放在 runtime task 目录。项目 controller/supervisor、清理和续跑都必须尊重该共享账本；Hermes 不读取、不修改账本。产品安全完成后删除产品账本，批次完成或确认重跑时删除整批账本，禁止把共享账本长期保存为历史主图库。
 46. 20 个 slot 和 5 个提示词轮次必须使用 all-settled 协调。任一 worker 失败时必须等待其他 worker 落账后再退出；`reserved` 或 `ambiguous` 是安全阻断，项目 supervisor 禁止自动重启或再次提交。
+47. 详情资质图必须逐张通过商品详情专属 input 上传，并以每张上传后的预览计数 `+1` 作为确认；禁止回退到其他图文模块的通用 file input。首个商品目录在既有图文模块重试后仍出现确定性资质上传失败时，必须停止该商品剩余目录，禁止重复跑完全部水印。只有 manifest 证明失败发生在最终提交前且不存在 `submit_accepted_unconfirmed` 等不确定副作用时，supervisor 才允许重建 resume 任务；已安全发布项必须跳过。
 
 ## 推荐执行顺序
 
