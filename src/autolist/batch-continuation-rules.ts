@@ -115,12 +115,19 @@ export function resolveSupervisorRecoveryDelayMs(input: {
   return validSlotDelay ? Math.max(normalDelayMs, slotDelayMs) : normalDelayMs;
 }
 
+function isDeterministicDetailQualificationFailure(message: string): boolean {
+  return (
+    /图文信息模块未完成/i.test(message) &&
+    /Qualification detail upload was not acknowledged per file|Detail image count did not reach expected count/i.test(message)
+  );
+}
+
 function isRetryablePublishPageFailure(message: string): boolean {
   return (
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
-    /基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required|page context was lost|Execution context was destroyed|Target closed/i.test(
+    (/基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required|page context was lost|Execution context was destroyed|Target closed/i.test(
       message
-    )
+    ) || isDeterministicDetailQualificationFailure(message))
   );
 }
 
@@ -141,9 +148,9 @@ function isSafeResumeTransitionFailure(message: string): boolean {
 function isSafeManifestBackedPublishResumeFailure(message: string): boolean {
   return (
     isRetryablePublishPageFailure(message) &&
-    /基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required/i.test(
+    (/基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required/i.test(
       message
-    )
+    ) || isDeterministicDetailQualificationFailure(message))
   );
 }
 

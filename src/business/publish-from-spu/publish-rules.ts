@@ -405,6 +405,13 @@ export function classifyPublishFailure(message: string): string {
     return "price_inventory_not_ready";
   }
   if (
+    text.includes("图文信息模块未完成") &&
+    (text.includes("Qualificationdetailuploadwasnotacknowledgedperfile") ||
+      text.includes("Detailimagecountdidnotreachexpectedcount"))
+  ) {
+    return "detail_qualification_not_ready";
+  }
+  if (
     text.includes("最终发布动作未完成") ||
     text.includes("Publishproductbuttonclickfailed") ||
     text.includes("Publishproductbuttonwasclicked,butnosubmissionsuccesssignalwasdetected")
@@ -481,6 +488,7 @@ export function shouldStopPublishBatchAfterFailure(
 ): boolean {
   const singleFailureStopClasses = new Set([
     "price_inventory_not_ready",
+    "detail_qualification_not_ready",
     "doudian_login_required",
     "shop_context_mismatch"
   ]);

@@ -789,6 +789,15 @@ assert.equal(
   true,
   "basic-info field readiness failures are transient publish-page failures and must retry with a fresh SPU-prefilled page"
 );
+const detailQualificationClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 图文信息模块未完成。Qualification detail upload was not acknowledged per file. expected=2; acknowledged=0; baseline=6; final=6"
+);
+assert.equal(detailQualificationClass, "detail_qualification_not_ready");
+assert.equal(
+  shouldStopPublishBatchAfterFailure([{ safelyPublished: false, errorClass: detailQualificationClass }]),
+  true,
+  "a deterministic detail qualification failure must stop the remaining product folders after the first failure"
+);
 const disappearedBasicFieldsClass = classifyPublishFailure(
   "All expected basic-info fields disappeared from the publish page."
 );
@@ -992,7 +1001,9 @@ assert.equal(
 assert.deepEqual(
   evaluateDetailImageCompletion({
     filledFromMain: true,
+    baselineDetailCount: 5,
     qualificationImageCount: 4,
+    acknowledgedQualificationCount: 4,
     finalDetailCount: 9,
     expectedDetailCount: 9
   }),
@@ -1003,7 +1014,9 @@ assert.equal(isUploadPlaceholderGraphicContext("主图3:4 + 上传辅助图"), t
 assert.equal(isUploadPlaceholderGraphicContext("白底图 删除 预览图片"), false);
 const duplicateDetailCheck = evaluateDetailImageCompletion({
   filledFromMain: true,
+  baselineDetailCount: 5,
   qualificationImageCount: 4,
+  acknowledgedQualificationCount: 4,
   finalDetailCount: 13,
   expectedDetailCount: 9
 });
@@ -2423,6 +2436,23 @@ assert.equal(
   resolveSupervisorRecoveryChildMode(emptyPublishSectionsAfterSpuFailure),
   "resume",
   "Retryable publish-page failures must rebuild a manifest-backed resume job instead of restarting the full flow"
+);
+const detailFailureMessage =
+  "failed at published: Publish failed for /work/shop/product-01: Sequential publish flow stopped: 图文信息模块未完成。Qualification detail upload was not acknowledged per file. expected=2; acknowledged=0; baseline=6; final=6";
+assert.equal(resolveSupervisorRecoveryChildMode(detailFailureMessage), "resume");
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: detailFailureMessage,
+    activeStep: "published",
+    activeMessage: "Publish failed: detail_qualification_not_ready",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "an exact pre-submit detail qualification failure must rebuild the manifest-backed resume job"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
