@@ -2704,6 +2704,21 @@ assert.equal(
   true,
   "The supervisor must remain self-driven during Cloudflare 520-524 image status outages"
 );
+const videosBase64ProviderCircuitOpen =
+  "failed at main_images_generated: paid image provider timeout circuit open for slot 17; retry after 1740000ms.";
+assert.equal(isRetryableExternalServiceAvailabilityFailure(videosBase64ProviderCircuitOpen), true);
+assert.equal(shouldConsumeSupervisorRecoveryAttempt(videosBase64ProviderCircuitOpen), false);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64ProviderCircuitOpen,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "A fixed-slot provider timeout circuit must remain project-owned and self-driven after the generic recovery budget"
+);
 const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
 const paidImageSafetyBlockWithHtml =
   "paid submission safety block: paid image ledger has ambiguous=20, reserved=0; original: videos-base64 submit failed with HTTP 502: " +

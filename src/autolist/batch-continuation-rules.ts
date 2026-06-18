@@ -80,6 +80,7 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
   }
   return (
     isRetryableVideosBase64AcceptedQueueWait(message) ||
+    /paid image provider timeout circuit open/i.test(message) ||
     (!isRetryableVideosBase64NoAcceptanceTransportFailure(message) && isPaidMainImageTransportFailure(message)) ||
     (/main_images_generated/i.test(message) && /videos-base64 task .*did not finish/i.test(message)) ||
     (/main_images_generated|image generation|main image/i.test(message) &&

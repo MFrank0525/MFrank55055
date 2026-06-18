@@ -11,7 +11,8 @@ import {
   resolveMissingFixedImageIndexes,
   resolveVideosBase64SubmitConcurrency,
   resolveVideosBase64SubmitTimeoutMs,
-  shouldKeepPaidImagePolicyCompatiblePrompt
+  shouldKeepPaidImagePolicyCompatiblePrompt,
+  resolvePaidImageProviderTimeoutRetry
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
   initializePaidImageProductLedger,
@@ -45,6 +46,33 @@ assert.equal(
   }),
   true,
   "A fixed slot that already switched to the policy-compatible prompt must keep that identity after later provider timeouts"
+);
+const repeatedProviderTimeoutAudit = [
+  { state: "failed_after_acceptance", at: "2026-06-18T01:00:00.000Z", reason: "provider task failed: 失败了超时 请重试" },
+  { state: "failed_after_acceptance", at: "2026-06-18T01:20:00.000Z", reason: "provider task failed: timed out" },
+  { state: "failed_after_acceptance", at: "2026-06-18T01:40:00.000Z", reason: "provider task failed: 失败了超时 请重试" }
+];
+assert.deepEqual(
+  resolvePaidImageProviderTimeoutRetry({
+    failureReason: "provider task failed: 失败了超时 请重试",
+    audit: repeatedProviderTimeoutAudit,
+    recordedPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-06-18T01:41:00.000Z")
+  }),
+  { usePolicyCompatiblePrompt: true, deferMs: 0 },
+  "Three accepted provider timeouts must switch only the failed fixed slot to the stability-compatible prompt"
+);
+assert.deepEqual(
+  resolvePaidImageProviderTimeoutRetry({
+    failureReason: "provider task failed: 失败了超时 请重试",
+    audit: repeatedProviderTimeoutAudit,
+    recordedPromptDigest: "policy-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-06-18T01:41:00.000Z")
+  }),
+  { usePolicyCompatiblePrompt: true, deferMs: 29 * 60 * 1000 },
+  "A stability-compatible slot that still times out must enter a fixed-slot cooldown instead of immediate paid resubmission"
 );
 assert.match(source, /mode\?: "generations" \| "edits" \| "media-generate" \| "videos-base64"/);
 assert.match(source, /buildVideosBase64JsonBody/);
@@ -100,6 +128,11 @@ assert.match(
   source,
   /isPolicyCompatibleRetryFailureReason\(reason: string\)[\s\S]*违规[\s\S]*failedAfterAcceptanceReason[\s\S]*buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*shouldKeepPaidImagePolicyCompatiblePrompt[\s\S]*keepPolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
   "videos-base64 failed-after-acceptance fixed-slot retries must switch only that slot to the policy-compatible prompt"
+);
+assert.match(
+  source,
+  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*timeoutRetry\.usePolicyCompatiblePrompt[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)/,
+  "Repeated provider timeouts must explicitly authorize the one-time fixed-slot digest switch to the stability-compatible prompt"
 );
 assert.match(source, /submitSlots/);
 assert.match(source, /roundStartImageIndex \+ missingLocalIndexes\[itemIndex\] - 1/);

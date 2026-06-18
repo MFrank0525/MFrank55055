@@ -16,7 +16,8 @@ import {
   providerExplicitlyProvesNoPaidTaskAccepted,
   submitTransportFailureProvesNoPaidTaskAccepted,
   shouldRetryImageGenerationWithPolicyPrompt,
-  shouldKeepPaidImagePolicyCompatiblePrompt
+  shouldKeepPaidImagePolicyCompatiblePrompt,
+  resolvePaidImageProviderTimeoutRetry
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { readManualTextBlock } from "./operation-manual.js";
@@ -1222,18 +1223,35 @@ async function generateWithOpenAiCompatibleProvider(options: {
         const originalPromptDigest = promptDigest;
         const policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
         const policyCompatiblePromptDigest = sha256Text(policyCompatiblePromptText);
+        const timeoutRetry =
+          slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
+            ? resolvePaidImageProviderTimeoutRetry({
+                failureReason: failedAfterAcceptanceReason,
+                audit: slotAction.record?.audit || [],
+                recordedPromptDigest: slotAction.record?.promptDigest || "",
+                policyCompatiblePromptDigest,
+                nowMs: Date.now()
+              })
+            : { usePolicyCompatiblePrompt: false, deferMs: 0 };
+        if (timeoutRetry.deferMs > 0) {
+          throw normalizeImageGenerationError(
+            `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${timeoutRetry.deferMs}ms.`
+          );
+        }
         const keepPolicyCompatiblePrompt =
           slotAction.action === "retry_failed_after_acceptance" &&
           "record" in slotAction &&
-          shouldKeepPaidImagePolicyCompatiblePrompt({
-            failureReason: failedAfterAcceptanceReason,
-            recordedPromptDigest: slotAction.record?.promptDigest || "",
-            originalPromptDigest,
-            policyCompatiblePromptDigest
-          });
+          (timeoutRetry.usePolicyCompatiblePrompt ||
+            shouldKeepPaidImagePolicyCompatiblePrompt({
+              failureReason: failedAfterAcceptanceReason,
+              recordedPromptDigest: slotAction.record?.promptDigest || "",
+              originalPromptDigest,
+              policyCompatiblePromptDigest
+            }));
         const allowFailedAfterAcceptanceDigestChange =
           slotAction.action === "retry_failed_after_acceptance" &&
-          isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason) &&
+          (timeoutRetry.usePolicyCompatiblePrompt ||
+            isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason)) &&
           slotAction.record?.promptDigest !== policyCompatiblePromptDigest;
         if (
           keepPolicyCompatiblePrompt

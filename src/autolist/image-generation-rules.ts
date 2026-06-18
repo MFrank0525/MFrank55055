@@ -207,3 +207,37 @@ export function shouldKeepPaidImagePolicyCompatiblePrompt(input: {
     )
   );
 }
+
+export function resolvePaidImageProviderTimeoutRetry(input: {
+  failureReason: string;
+  audit: Array<{ state?: string; at?: string; reason?: string }>;
+  recordedPromptDigest: string;
+  policyCompatiblePromptDigest: string;
+  nowMs: number;
+  timeoutThreshold?: number;
+  cooldownMs?: number;
+}): { usePolicyCompatiblePrompt: boolean; deferMs: number } {
+  const timeoutThreshold = Math.max(1, input.timeoutThreshold ?? 3);
+  const cooldownMs = Math.max(0, input.cooldownMs ?? 30 * 60 * 1000);
+  const timeoutPattern = /timeout|timed out|超时/i;
+  const timeoutFailures = input.audit.filter(
+    (entry) => entry.state === "failed_after_acceptance" && timeoutPattern.test(entry.reason || "")
+  );
+  const repeatedTimeout = timeoutPattern.test(input.failureReason) && timeoutFailures.length >= timeoutThreshold;
+  if (!repeatedTimeout) {
+    return { usePolicyCompatiblePrompt: false, deferMs: 0 };
+  }
+  const alreadyPolicyCompatible =
+    Boolean(input.recordedPromptDigest) && input.recordedPromptDigest === input.policyCompatiblePromptDigest;
+  if (!alreadyPolicyCompatible) {
+    return { usePolicyCompatiblePrompt: true, deferMs: 0 };
+  }
+  const latestFailureMs = Math.max(
+    ...timeoutFailures.map((entry) => Date.parse(entry.at || "")).filter((value) => Number.isFinite(value)),
+    0
+  );
+  return {
+    usePolicyCompatiblePrompt: true,
+    deferMs: Math.max(0, latestFailureMs + cooldownMs - input.nowMs)
+  };
+}
