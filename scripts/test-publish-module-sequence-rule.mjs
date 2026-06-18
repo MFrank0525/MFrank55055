@@ -3,6 +3,7 @@ import fs from "node:fs";
 
 const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
 const autolistPublishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
+const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 
 function sliceFunction(name) {
   const start = publishSource.indexOf(`async function ${name}`);
@@ -234,6 +235,34 @@ assert.match(
   afterMedicalBeforeSubmit,
   /final_forbidden_graphic_repair/,
   "final forbidden graphic repair must be tracked separately from ordinary module sequencing"
+);
+
+assert.match(
+  publishSource,
+  /prepareQualificationImagesForUpload\(\{[\s\S]*files: classifiedAssets\.detailImages[\s\S]*outputDir: path\.join\(runtimeDir, "qualification-images-normalized"\)/,
+  "publish jobs must prepare qualification images in the current runtime before upload"
+);
+assert.match(
+  publishSource,
+  /detailImages: preparedQualificationImages\.files/,
+  "only prepared qualification paths may populate the in-memory detail image upload set"
+);
+assert.doesNotMatch(
+  publishSource,
+  /fs\.(?:copyFileSync|renameSync)\([^\n]*detailImages/,
+  "publish preparation must not overwrite or rename distributed qualification evidence"
+);
+const runJobStart = publishSource.indexOf("export async function runPublishFromSpuJob");
+const prepareQualificationIndex = publishSource.indexOf("await prepareQualificationImagesForUpload", runJobStart);
+const firstBrowserModeIndex = publishSource.indexOf('if (mode === "open_platform_spu")', runJobStart);
+assert.ok(
+  prepareQualificationIndex > runJobStart && prepareQualificationIndex < firstBrowserModeIndex,
+  "qualification image preparation must finish before the first publish browser mode begins"
+);
+assert.match(
+  packageJson.scripts["rules:check"],
+  /node scripts\/test-qualification-image-normalization-rule\.mjs/,
+  "the qualification dimension regression must be part of the full rule closure"
 );
 
 console.log("publish module sequence rule passed");

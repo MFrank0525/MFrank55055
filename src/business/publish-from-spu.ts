@@ -6,6 +6,7 @@ import { getSelectAllShortcut } from "../utils/platform.js";
 import { logInfo, logWarn } from "../utils/logger.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { classifyAssets, validateMainImageAspectRatio } from "./publish-from-spu/assets.js";
+import { prepareQualificationImagesForUpload } from "./publish-from-spu/qualification-image-normalizer.js";
 import {
   FIXED_FREIGHT_TEMPLATE_KEYWORD,
   FIXED_PRICES,
@@ -9040,7 +9041,7 @@ export async function runPublishFromSpuJob(
       throw new Error(`Product folder not found: ${productFolder}`);
     }
 
-      const assets = requiresLocalProductFiles
+      const classifiedAssets = requiresLocalProductFiles
         ? classifyAssets(productFolder, { feishuRecordId: input.metadata?.feishuRecordId })
         : {
             workbookFile: undefined,
@@ -9049,6 +9050,16 @@ export async function runPublishFromSpuJob(
             detailImages: [],
             otherFiles: []
           };
+      const preparedQualificationImages = requiresLocalProductFiles
+        ? await prepareQualificationImagesForUpload({
+            files: classifiedAssets.detailImages,
+            outputDir: path.join(runtimeDir, "qualification-images-normalized")
+          })
+        : { files: [], entries: [] };
+      const assets: ProductAssets = {
+        ...classifiedAssets,
+        detailImages: preparedQualificationImages.files
+      };
       if (requiresLocalProductFiles) {
         assertProductAssetsForShop(assets, shopFolder, productFolder);
       }
