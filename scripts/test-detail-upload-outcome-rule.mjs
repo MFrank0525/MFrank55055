@@ -6,7 +6,9 @@ import {
 
 const satisfiedFinalCount = evaluateDetailImageCompletion({
   filledFromMain: true,
+  baselineDetailCount: 5,
   qualificationImageCount: 4,
+  acknowledgedQualificationCount: 4,
   finalDetailCount: 9,
   expectedDetailCount: 9
 });
@@ -21,7 +23,9 @@ assert.deepEqual(
 
 const shortFinalCount = evaluateDetailImageCompletion({
   filledFromMain: true,
+  baselineDetailCount: 5,
   qualificationImageCount: 4,
+  acknowledgedQualificationCount: 4,
   finalDetailCount: 8,
   expectedDetailCount: 9
 });
@@ -36,5 +40,28 @@ assert.deepEqual(
     issue: "Detail image count did not reach expected count. expected=9; actual=8"
   }
 );
+
+const missingAcknowledgement = evaluateDetailImageCompletion({
+  filledFromMain: true,
+  baselineDetailCount: 6,
+  qualificationImageCount: 2,
+  acknowledgedQualificationCount: 1,
+  finalDetailCount: 8,
+  expectedDetailCount: 8
+});
+assert.deepEqual(missingAcknowledgement, {
+  passed: false,
+  issue: "Qualification detail upload was not acknowledged per file. expected=2; acknowledged=1; baseline=6; final=8"
+});
+
+const fullyAcknowledged = evaluateDetailImageCompletion({
+  filledFromMain: true,
+  baselineDetailCount: 6,
+  qualificationImageCount: 2,
+  acknowledgedQualificationCount: 2,
+  finalDetailCount: 8,
+  expectedDetailCount: 8
+});
+assert.deepEqual(fullyAcknowledged, { passed: true, issue: "" });
 
 console.log("detail upload outcome rule passed");

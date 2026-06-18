@@ -6699,7 +6699,9 @@ async function ensureDetailImagesFromMainThenQualifications(
   const finalCount = await waitForPreviewCount(page, () => countDetailImagePreviews(page), expectedDetailCount, 60000);
   const detailRule = evaluateDetailImageCompletion({
     filledFromMain,
+    baselineDetailCount: countAfterFillFromMain,
     qualificationImageCount: assets.detailImages.length,
+    acknowledgedQualificationCount: detailCompleted ? assets.detailImages.length : 0,
     finalDetailCount: finalCount,
     expectedDetailCount
   });

@@ -566,7 +566,9 @@ export function isUploadPlaceholderGraphicContext(value: string): boolean {
 
 export function evaluateDetailImageCompletion(input: {
   filledFromMain: boolean;
+  baselineDetailCount: number;
   qualificationImageCount: number;
+  acknowledgedQualificationCount: number;
   finalDetailCount: number;
   expectedDetailCount: number;
 }): PublishRuleCheck {
@@ -575,6 +577,12 @@ export function evaluateDetailImageCompletion(input: {
   }
   if (input.qualificationImageCount <= 0) {
     return { passed: false, issue: "No Feishu qualification images were available for detail section." };
+  }
+  if (input.acknowledgedQualificationCount !== input.qualificationImageCount) {
+    return {
+      passed: false,
+      issue: `Qualification detail upload was not acknowledged per file. expected=${input.qualificationImageCount}; acknowledged=${input.acknowledgedQualificationCount}; baseline=${input.baselineDetailCount}; final=${input.finalDetailCount}`
+    };
   }
   if (input.finalDetailCount < input.expectedDetailCount) {
     return {
