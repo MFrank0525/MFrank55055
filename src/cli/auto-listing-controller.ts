@@ -1234,7 +1234,7 @@ function existingStatus(): Record<string, unknown> {
         : "state",
     publishSafelyPublished: Number(publishProgress?.safelyPublished ?? 0),
     publishTotal: publishProgress?.total === undefined ? undefined : Number(publishProgress.total),
-    publishFailed: Number(publishProgress?.failed ?? 0),
+    publishFailed: typeof publishGroupProgress?.failed === "number" ? Number(publishGroupProgress.failed) : Number(publishProgress?.failed ?? 0),
     publishProductIndex: publishGroupProgress?.productIndex === undefined ? undefined : Number(publishGroupProgress.productIndex),
     publishProductTotal: publishGroupProgress?.productTotal === undefined ? undefined : Number(publishGroupProgress.productTotal),
     publishShopIndex: publishGroupProgress?.shopIndex === undefined ? undefined : Number(publishGroupProgress.shopIndex),

@@ -39,5 +39,10 @@ assert.match(
   /latestProgress: undefined/,
   "AutoListingController status must hide stale state latestProgress when publish progress is newer"
 );
+assert.match(
+  runnerSource,
+  /publishFailed:\s*typeof publishGroupProgress\?\.failed === "number"\s*\? Number\(publishGroupProgress\.failed\)\s*:\s*Number\(publishProgress\?\.failed \?\? 0\)/s,
+  "AutoListingController realtime progress key must use current product-group failed count instead of stale manifest-wide failures"
+);
 
 console.log("hermes publish progress artifact rule passed");

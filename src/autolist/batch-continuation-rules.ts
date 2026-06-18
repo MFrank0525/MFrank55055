@@ -1087,6 +1087,11 @@ function isFinalPublishReviewEntry(entry: AutoListingControllerPublishGroupProgr
   return false;
 }
 
+function publishEntryUpdatedAtMs(entry: AutoListingControllerPublishGroupProgressEntry | undefined): number {
+  const value = Date.parse(String(entry?.updatedAt || ""));
+  return Number.isFinite(value) ? value : 0;
+}
+
 export function resolveAutoListingControllerPublishGroupProgress(input: {
   entries: AutoListingControllerPublishGroupProgressEntry[];
   planEntries?: AutoListingControllerPublishGroupProgressEntry[];
@@ -1107,28 +1112,42 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
   const groupEntries = entries.filter((entry) => publishGroupNameFromFolder(entry.productFolder) === productName);
   const plannedGroupEntries = planEntries.filter((entry) => publishGroupNameFromFolder(entry.productFolder) === productName);
   const scopeEntries = plannedGroupEntries.length ? plannedGroupEntries : groupEntries;
+  const activeEntryUpdatedAtMs = publishEntryUpdatedAtMs(activeEntry);
+  const activeWatermark = publishWatermarkNoFromEntry(activeEntry);
+  const isActiveAttemptInProgress = ["pending", "running", "in_progress"].includes(String(activeEntry.status || ""));
+  const displayGroupEntries =
+    isActiveAttemptInProgress && activeEntryUpdatedAtMs > 0
+      ? groupEntries.filter((entry) => {
+          if (publishEntryUpdatedAtMs(entry) >= activeEntryUpdatedAtMs) {
+            return true;
+          }
+          if (isSafelyPublishedPublishEntry(entry)) {
+            return true;
+          }
+          return publishWatermarkNoFromEntry(entry) <= activeWatermark;
+        })
+      : groupEntries;
   const safelyPublished = groupEntries.filter(isSafelyPublishedPublishEntry);
-  const reviewEntries = groupEntries.filter(isFinalPublishReviewEntry);
-  const failedEntries = groupEntries.filter((entry) => entry.status === "failed" && !isFinalPublishReviewEntry(entry) && !isSafelyPublishedPublishEntry(entry));
+  const reviewEntries = displayGroupEntries.filter(isFinalPublishReviewEntry);
+  const failedEntries = displayGroupEntries.filter((entry) => entry.status === "failed" && !isFinalPublishReviewEntry(entry) && !isSafelyPublishedPublishEntry(entry));
   const failed = failedEntries.length;
   const review = reviewEntries.length;
   const productTotal = Math.max(20, scopeEntries.length, ...scopeEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const maxCompletedWatermark = Math.max(0, ...safelyPublished.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const latestAttemptedWatermark = Math.max(
     0,
-    ...groupEntries
+    ...displayGroupEntries
       .filter((entry) => entry.status === "published" || entry.status === "failed" || entry.status === "pending")
       .map(publishWatermarkNoFromEntry)
       .filter(Number.isFinite)
   );
   const latestAttemptedEntry = latestAttemptedWatermark
-    ? [...groupEntries]
+    ? [...displayGroupEntries]
         .filter((entry) => publishWatermarkNoFromEntry(entry) === latestAttemptedWatermark)
         .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0]
     : undefined;
   const failedWatermark = Math.max(0, ...failedEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const reviewWatermark = Math.max(0, ...reviewEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
-  const activeWatermark = publishWatermarkNoFromEntry(activeEntry);
   const productIndex = Math.max(1, Math.min(productTotal, (failed > 0 && latestAttemptedWatermark > activeWatermark ? latestAttemptedWatermark : activeWatermark) || latestAttemptedWatermark || maxCompletedWatermark || safelyPublished.length + (failed > 0 ? 1 : 0) || 1));
   const shopNames = Array.from(new Set(scopeEntries.map((entry) => cleanAutoListingControllerProductName(publishShopFolderFromEntry(entry))).filter(Boolean)))
     .sort((a, b) => (publishShopIndexFromName(a) || 0) - (publishShopIndexFromName(b) || 0) || a.localeCompare(b, "zh-CN"));

@@ -1928,6 +1928,87 @@ assert.deepEqual(
   },
   "AutoListingController publish display must use the full publish plan for shop total instead of currently touched shops"
 );
+const resumedHistoricalFailureShopNames = [
+  "01延草纲目大药房专营店",
+  "02延草纲目药品专营店",
+  "03延草纲目个护保健专营店",
+  "04延草纲目康复理疗专营店",
+  "05延草纲目医疗保健专营店",
+  "06延草纲目理疗器械旗舰店",
+  "07延草纲目健康护理专营店",
+  "08延草纲目家庭护理专营店",
+  "09延草纲目中医保健专营店",
+  "10延草纲目养生器械专营店"
+];
+const resumedPublishWithHistoricalFutureFailuresProgress = resolveAutoListingControllerPublishGroupProgress({
+  entries: [
+    ...Array.from({ length: 2 }, (_, index) => ({
+      productFolder: `/shops/01延草纲目大药房专营店/延草纲目远红外磁疗舒痛贴水印${String(index + 1).padStart(2, "0")}`,
+      shopFolder: "/shops/01延草纲目大药房专营店",
+      runtimeKey: `01延草纲目大药房专营店__延草纲目远红外磁疗舒痛贴水印${String(index + 1).padStart(2, "0")}`,
+      watermarkNo: index + 1,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      updatedAt: `2026-06-18T16:1${index + 4}:00.000Z`
+    })),
+    {
+      productFolder: "/shops/02延草纲目药品专营店/延草纲目远红外磁疗舒痛贴水印03",
+      shopFolder: "/shops/02延草纲目药品专营店",
+      runtimeKey: "02延草纲目药品专营店__延草纲目远红外磁疗舒痛贴水印03",
+      watermarkNo: 3,
+      status: "pending",
+      finalVerifyStatus: "not_checked",
+      updatedAt: "2026-06-18T16:18:27.102Z"
+    },
+    ...Array.from({ length: 17 }, (_, index) => {
+      const watermarkNo = index + 4;
+      const shopName = resumedHistoricalFailureShopNames[Math.floor((watermarkNo - 1) / 2)];
+      return {
+        productFolder: `/shops/${shopName}/延草纲目远红外磁疗舒痛贴水印${String(watermarkNo).padStart(2, "0")}`,
+        shopFolder: `/shops/${shopName}`,
+        runtimeKey: `${shopName}__延草纲目远红外磁疗舒痛贴水印${String(watermarkNo).padStart(2, "0")}`,
+        watermarkNo,
+        status: "failed",
+        finalVerifyStatus: "needs_manual_review",
+        updatedAt: `2026-06-18T13:${String(watermarkNo).padStart(2, "0")}:00.000Z`
+      };
+    })
+  ],
+  activeRuntimeKey: "02延草纲目药品专营店__延草纲目远红外磁疗舒痛贴水印03"
+});
+assert.deepEqual(
+  resumedPublishWithHistoricalFutureFailuresProgress,
+  {
+    productName: "延草纲目远红外磁疗舒痛贴",
+    productIndex: 3,
+    productTotal: 20,
+    shopName: "02延草纲目药品专营店",
+    shopIndex: 2,
+    shopTotal: 10,
+    failed: 0
+  },
+  "AutoListingController publish display must ignore older future-watermark failures once a newer resume attempt is active"
+);
+const compactResumedPublishWithHistoricalFutureFailuresStatus = formatAutoListingControllerCompactStatusText({
+  status: "running",
+  summary: "当前商品：延草纲目远红外磁疗舒痛贴，产品 3/20，店铺 2/10",
+  productName: resumedPublishWithHistoricalFutureFailuresProgress.productName,
+  latestProgress: "发布模块：服务履约（02延草纲目药品专营店）",
+  publishProductIndex: resumedPublishWithHistoricalFutureFailuresProgress.productIndex,
+  publishProductTotal: resumedPublishWithHistoricalFutureFailuresProgress.productTotal,
+  publishShopIndex: resumedPublishWithHistoricalFutureFailuresProgress.shopIndex,
+  publishShopTotal: resumedPublishWithHistoricalFutureFailuresProgress.shopTotal,
+  publishFailed: resumedPublishWithHistoricalFutureFailuresProgress.failed,
+  publishFailedWatermarkNo: resumedPublishWithHistoricalFutureFailuresProgress.failedWatermarkNo,
+  feishuProductIndex: 1,
+  feishuTotal: 4
+});
+assert.equal(
+  compactResumedPublishWithHistoricalFutureFailuresStatus.split("\n")[0],
+  "状态：运行中｜产品 3/20｜店铺 2/10｜飞书产品 1/4",
+  "Hermes compact status must not display historical future failures while an earlier watermark is actively being retried"
+);
+assert.doesNotMatch(compactResumedPublishWithHistoricalFutureFailuresStatus, /失败项|20\/20|10\/10/);
 const failedMiddleWithLaterPublishedProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: [
     ...Array.from({ length: 15 }, (_, index) => ({
