@@ -48,7 +48,12 @@ import {
 } from "../autolist/resume-rules.js";
 import { hasIncompleteFixedMainImageRoundFiles, summarizeReusableTaskArtifacts } from "../autolist/resume-artifacts.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
-import { removePaidImageBatchLedger } from "../autolist/paid-image-submission-ledger.js";
+import {
+  paidImageProductLedgerDir,
+  removePaidImageBatchLedger,
+  summarizePaidImageProductLedger,
+  type PaidImageLedgerSummary
+} from "../autolist/paid-image-submission-ledger.js";
 
 interface RunnerJob {
   pid: number;
@@ -890,6 +895,37 @@ function clearCurrentBatchPaidImageLedger(): boolean {
   return removePaidImageBatchLedger(ledgerRoot, fingerprint);
 }
 
+function summarizeCurrentPaidImageProgress(input: {
+  job?: AutoListingJobFile;
+  batchFingerprint?: string;
+  currentTask?: Record<string, unknown>;
+}): PaidImageLedgerSummary | undefined {
+  const batchFingerprint = input.batchFingerprint || "";
+  const productRecord = input.currentTask?.feishuProductRecord as Record<string, unknown> | undefined;
+  const recordId =
+    typeof input.currentTask?.recordId === "string"
+      ? input.currentTask.recordId
+      : typeof productRecord?.recordId === "string"
+        ? productRecord.recordId
+        : "";
+  if (!batchFingerprint || !recordId) {
+    return undefined;
+  }
+  const ledgerRoot = path.resolve(
+    rootDir,
+    input.job?.input?.paidImageSubmissionLedgerDir || "data/auto-listing/paid-image-submissions"
+  );
+  const productDir = paidImageProductLedgerDir(ledgerRoot, batchFingerprint, recordId);
+  if (!fs.existsSync(productDir)) {
+    return undefined;
+  }
+  try {
+    return summarizePaidImageProductLedger(productDir);
+  } catch {
+    return undefined;
+  }
+}
+
 function summarizeCurrentFeishuBatchForResume(): { batchComplete: boolean; pendingSourceImages: string[] } | undefined {
   const progress = summarizeFeishuProgress();
   if (!progress) {
@@ -1024,6 +1060,12 @@ function existingStatus(): Record<string, unknown> {
       })
     : undefined;
   const imageProgress = summarizeImageGenerationProgress(runtimeDir, currentTask?.taskId ? String(currentTask.taskId) : undefined);
+  const paidImageProgress = summarizeCurrentPaidImageProgress({
+    job: fullJob,
+    batchFingerprint:
+      typeof feishuProgress?.batchFingerprint === "string" ? String(feishuProgress.batchFingerprint) : undefined,
+    currentTask
+  });
   const activeResumeReusableArtifactCount =
     job.mode === "resume-real-job" && runtimeDir && currentTask?.taskId
       ? summarizeReusableTaskArtifacts({ runtimeDir, taskId: String(currentTask.taskId) }).reusableArtifactCount
@@ -1248,6 +1290,7 @@ function existingStatus(): Record<string, unknown> {
     progressHeartbeat,
     realtimeProgress,
     imageProgress,
+    paidImageProgress,
     publishLogProgress,
     publishProgress: exposePublishProgress ? publishProgress : undefined,
     feishuProgress,
@@ -1278,6 +1321,7 @@ function formatStatusText(status: Record<string, unknown>): string {
   const currentTask = state?.currentTask as Record<string, unknown> | undefined;
   const latestProgress = state?.latestProgress as Record<string, unknown> | undefined;
   const publishLogProgress = status.publishLogProgress as Record<string, unknown> | undefined;
+  const paidImageProgress = status.paidImageProgress as Record<string, unknown> | undefined;
   const latestProgressText =
     typeof publishLogProgress?.message === "string"
       ? String(publishLogProgress.message)
@@ -1301,6 +1345,10 @@ function formatStatusText(status: Record<string, unknown>): string {
     imageGenerationProgress:
       shouldExposeImageGenerationProgress && typeof (status.imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
         ? String((status.imageProgress as Record<string, unknown>).latestMessage)
+        : undefined,
+    mainImageCompleted:
+      shouldExposeImageGenerationProgress && typeof paidImageProgress?.completed === "number"
+        ? Number(paidImageProgress.completed)
         : undefined,
     publishSafelyPublished: Number(progress?.safelyPublished ?? 0),
     publishTotal: progress?.total === undefined ? undefined : Number(progress.total),

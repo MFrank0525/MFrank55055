@@ -1071,6 +1071,15 @@ assert.equal(
   }),
   12 * 60 * 1000
 );
+assert.equal(
+  resolveAutoListingControllerChildStallTimeoutMs({
+    defaultTimeoutMs: 12 * 60 * 1000,
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_queued status queued 0."
+  }),
+  35 * 60 * 1000,
+  "The supervisor must let the provider's 30-minute accepted-task poll deadline finish before declaring a queue stall"
+);
 
 const alreadyInTargetShop = evaluateShopSwitchMenuState({
   expectedShopName: "延草纲目康复理疗专营店",
@@ -1735,6 +1744,7 @@ const compactImageGenerationStatus = formatAutoListingControllerCompactStatusTex
   summary: "任务正在运行，当前阶段：main_images_generated",
   productName: "湘械注准20212141818-医用芦荟凝胶-白底图-01.png",
   imageGenerationProgress: "Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0.",
+  mainImageCompleted: 15,
   publishSafelyPublished: 0,
   publishTotal: 20,
   publishFailed: 0,
@@ -1744,11 +1754,11 @@ const compactImageGenerationStatus = formatAutoListingControllerCompactStatusTex
 assert.deepEqual(
   compactImageGenerationStatus.split("\n"),
   [
-    "状态：运行中｜主图 20/20｜飞书产品 0/4",
+    "状态：运行中｜主图 15/20｜飞书产品 0/4",
     "当前：医用芦荟凝胶",
     "进度：等待图片服务队列：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0"
   ],
-  "AutoListingController text status must show main-image generation progress without labeling image slots as products or shops"
+  "AutoListingController text status must use completed paid-ledger slots instead of the currently polled slot ordinal"
 );
 const compactPublishStageStatus = formatAutoListingControllerCompactStatusText({
   status: "running",

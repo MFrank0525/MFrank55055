@@ -331,6 +331,12 @@ export function resolveAutoListingControllerChildStallTimeoutMs(input: AutoListi
   const defaultTimeoutMs = Math.max(180000, input.defaultTimeoutMs);
   const activeText = `${input.activeStep || ""} ${input.activeMessage || ""}`;
   if (
+    /main_images_generated/i.test(activeText) &&
+    /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(activeText)
+  ) {
+    return Math.max(defaultTimeoutMs, 35 * 60 * 1000);
+  }
+  if (
     /published|Publishing product folder|Retrying publish|Publish failed|page_context_lost|browser_remote_debugging_unavailable/i.test(activeText)
   ) {
     return Math.min(defaultTimeoutMs, 4 * 60 * 1000);
@@ -760,6 +766,7 @@ export type AutoListingControllerCompactStatusTextInput = {
   productName?: string;
   activeItemName?: string;
   imageGenerationProgress?: string;
+  mainImageCompleted?: number;
   latestProgress?: string;
   publishSafelyPublished?: number;
   publishTotal?: number;
@@ -1200,7 +1207,10 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const feishuTotal = input.feishuTotal ?? "?";
   const feishuLabel = `飞书产品 ${feishuCompleted}/${feishuTotal}`;
   const preferPublishProgress = shouldPreferAutoListingControllerPublishProgress(input);
-  const mainImageProgressIndex = resolveAutoListingControllerMainImageProgressIndex(input.imageGenerationProgress, productTotal);
+  const mainImageProgressIndex =
+    input.mainImageCompleted === undefined
+      ? resolveAutoListingControllerMainImageProgressIndex(input.imageGenerationProgress, productTotal)
+      : Math.max(0, Math.min(productTotal, input.mainImageCompleted));
   const lines = [
     !preferPublishProgress && input.imageGenerationProgress
       ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜主图 ${mainImageProgressIndex}/${productTotal}｜${feishuLabel}`
