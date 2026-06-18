@@ -2728,6 +2728,30 @@ assert.equal(
   true,
   "A fixed-slot provider timeout circuit must remain project-owned and self-driven after the generic recovery budget"
 );
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: videosBase64ProviderCircuitOpen,
+    externalServiceWaitAttempts: 0
+  }),
+  1740000,
+  "The supervisor must honor a valid slot cooldown instead of waking on the generic 10-minute delay"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: "paid image provider timeout circuit open for slot 17; retry after invalidms.",
+    externalServiceWaitAttempts: 0
+  }),
+  600000,
+  "Malformed slot cooldown text must fall back to the normal external-service delay"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: "paid image provider timeout circuit open for slot 17; retry after 999999999ms.",
+    externalServiceWaitAttempts: 0
+  }),
+  600000,
+  "Out-of-range slot cooldown text must not create an unbounded supervisor sleep"
+);
 const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
 const paidImageSafetyBlockWithHtml =
   "paid submission safety block: paid image ledger has ambiguous=20, reserved=0; original: videos-base64 submit failed with HTTP 502: " +
