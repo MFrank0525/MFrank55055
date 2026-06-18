@@ -553,7 +553,7 @@ export type ActiveTaskStatusSummaryInput = {
 };
 
 export function shouldPreferActiveTaskStateSummary(input: ActiveTaskStatusSummaryInput): boolean {
-  return input.running && input.stateHasActiveTask && input.publishProgressAvailable;
+  return input.running && input.stateHasActiveTask;
 }
 
 export type AutoListingControllerStatusResultCandidate = {

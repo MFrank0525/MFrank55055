@@ -1570,6 +1570,15 @@ assert.equal(
   }),
   true
 );
+assert.equal(
+  shouldPreferActiveTaskStateSummary({
+    running: true,
+    stateHasActiveTask: true,
+    publishProgressAvailable: false
+  }),
+  true,
+  "A running current task must suppress stale publish-log progress even before the current runtime has a publish manifest"
+);
 assert.equal(resolveImageDownloadTimeoutMs(180000), 180000);
 assert.equal(resolveImageDownloadTimeoutMs(10000), 30000);
 assert.equal(resolveImageGenerationRequestDeadlineMs(180000), 210000);
