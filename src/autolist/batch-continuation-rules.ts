@@ -783,6 +783,13 @@ export type AutoListingControllerCompactStatusTextInput = {
   feishuTotal?: number;
 };
 
+export function resolveAutoListingControllerPaidImageRecordId(input: {
+  currentTaskRecordId?: string;
+  feishuCurrentProductRecordId?: string;
+}): string {
+  return input.currentTaskRecordId?.trim() || input.feishuCurrentProductRecordId?.trim() || "";
+}
+
 export type AutoListingControllerPublishGroupProgressEntry = {
   productFolder?: string;
   runtimeKey?: string;

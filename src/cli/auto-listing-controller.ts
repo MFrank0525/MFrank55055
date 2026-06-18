@@ -20,6 +20,7 @@ import {
   selectAutoListingControllerStatusRuntimeDir,
   resolveAutoListingControllerRealtimeProgressSignal,
   resolveAutoListingControllerPublishGroupProgress,
+  resolveAutoListingControllerPaidImageRecordId,
   resolveAutoListingControllerHermesStatusPayload,
   shouldClearPauseSignalOnAutoListingControllerStart,
   shouldExposePublishProgressInAutoListingControllerStatus,
@@ -899,15 +900,20 @@ function summarizeCurrentPaidImageProgress(input: {
   job?: AutoListingJobFile;
   batchFingerprint?: string;
   currentTask?: Record<string, unknown>;
+  feishuCurrentProduct?: Record<string, unknown>;
 }): PaidImageLedgerSummary | undefined {
   const batchFingerprint = input.batchFingerprint || "";
   const productRecord = input.currentTask?.feishuProductRecord as Record<string, unknown> | undefined;
-  const recordId =
-    typeof input.currentTask?.recordId === "string"
-      ? input.currentTask.recordId
-      : typeof productRecord?.recordId === "string"
-        ? productRecord.recordId
-        : "";
+  const recordId = resolveAutoListingControllerPaidImageRecordId({
+    currentTaskRecordId:
+      typeof input.currentTask?.recordId === "string"
+        ? input.currentTask.recordId
+        : typeof productRecord?.recordId === "string"
+          ? productRecord.recordId
+          : undefined,
+    feishuCurrentProductRecordId:
+      typeof input.feishuCurrentProduct?.recordId === "string" ? input.feishuCurrentProduct.recordId : undefined
+  });
   if (!batchFingerprint || !recordId) {
     return undefined;
   }
@@ -1064,7 +1070,8 @@ function existingStatus(): Record<string, unknown> {
     job: fullJob,
     batchFingerprint:
       typeof feishuProgress?.batchFingerprint === "string" ? String(feishuProgress.batchFingerprint) : undefined,
-    currentTask
+    currentTask,
+    feishuCurrentProduct
   });
   const activeResumeReusableArtifactCount =
     job.mode === "resume-real-job" && runtimeDir && currentTask?.taskId

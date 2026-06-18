@@ -57,7 +57,8 @@ import {
   resolveAutoListingControllerRuntimeStatus,
   resolveAutoListingControllerIdleStatus,
   resolveAutoListingControllerDryRunStartDecision,
-  resolveAutoListingControllerPublishGroupProgress
+  resolveAutoListingControllerPublishGroupProgress,
+  resolveAutoListingControllerPaidImageRecordId
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { hasSharedFeishuWhiteBackgroundLocalFile, resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -1759,6 +1760,14 @@ assert.deepEqual(
     "进度：等待图片服务队列：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0"
   ],
   "AutoListingController text status must use completed paid-ledger slots instead of the currently polled slot ordinal"
+);
+assert.equal(
+  resolveAutoListingControllerPaidImageRecordId({
+    currentTaskRecordId: "",
+    feishuCurrentProductRecordId: "rec-current"
+  }),
+  "rec-current",
+  "Resume startup must use the current Feishu product identity when compact task state has not restored recordId yet"
 );
 const compactPublishStageStatus = formatAutoListingControllerCompactStatusText({
   status: "running",
