@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { assertFeishuAuthConfigReady, getTenantAccessToken } from "../feishu/auth.js";
 import { downloadFeishuProductAssets } from "../feishu/assets.js";
+import { FEISHU_CACHE_SCHEMA_VERSION, FEISHU_FIELD_MAP_VERSION } from "../feishu/cache-contract.js";
 import { listBitableFields, resolveWikiNode, searchBitableRecords } from "../feishu/client.js";
 import { assertFeishuBitableConfigReady, loadFeishuBitableConfig } from "../feishu/config.js";
 import {
@@ -154,6 +156,9 @@ async function main(): Promise<void> {
 
   const sanitizedRecords = records.map((record) => sanitizeFeishuProductRecord(record));
   const payload = {
+    schemaVersion: FEISHU_CACHE_SCHEMA_VERSION,
+    fieldMapVersion: FEISHU_FIELD_MAP_VERSION,
+    batchFingerprint: buildFeishuBatchFingerprint(records),
     ok: missingMappedFields.length === 0 && invalidRecords.length === 0,
     count: records.length,
     skippedEmptyCount: allRecords.length - records.length,

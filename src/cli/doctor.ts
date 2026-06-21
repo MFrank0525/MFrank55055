@@ -3,6 +3,8 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
 import { getShopSpecs } from "../autolist/product-category.js";
+import { validateFeishuProductPayload } from "../feishu/cache-contract.js";
+import { loadFeishuBitableConfig } from "../feishu/config.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { getPythonCommand } from "../utils/platform.js";
 
@@ -324,17 +326,27 @@ function autoListingChecks(options: DoctorOptions): CheckResult[] {
   ];
 }
 
+function checkFeishuConfig(filePath: string): CheckResult {
+  const resolved = path.resolve(filePath);
+  try {
+    loadFeishuBitableConfig(resolved);
+    return { name: "Feishu config", ok: true, detail: `${resolved}; current field map valid` };
+  } catch (error) {
+    return {
+      name: "Feishu config",
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 function checkFeishuProductData(filePath: string): CheckResult {
   const resolved = path.resolve(filePath);
   if (!fs.existsSync(resolved)) {
     return { name: "Feishu product data", ok: false, detail: `missing: ${resolved}` };
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as {
-      ok?: boolean;
-      count?: number;
-      invalidRecords?: Array<{ recordId: string; missing: string[] }>;
-    };
+    const parsed = validateFeishuProductPayload(JSON.parse(fs.readFileSync(resolved, "utf8")));
     const invalidRecords = parsed.invalidRecords || [];
     const count = parsed.count || 0;
     if (invalidRecords.length > 0 || parsed.ok === false) {
@@ -356,7 +368,7 @@ function checkFeishuProductData(filePath: string): CheckResult {
 
 function feishuChecks(): CheckResult[] {
   return [
-    checkPath("Feishu config", "input/feishu-bitable.config.json"),
+    checkFeishuConfig("input/feishu-bitable.config.json"),
     checkJson("input/feishu-bitable.config.example.json"),
     checkFeishuProductData("data/feishu/products.json")
   ];

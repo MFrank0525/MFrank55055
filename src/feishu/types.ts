@@ -67,3 +67,17 @@ export interface FeishuProductRecord {
   whiteBackgroundImages: FeishuBitableAttachment[];
   rawFields: Record<string, unknown>;
 }
+
+export interface FeishuProductPayload {
+  schemaVersion: number;
+  fieldMapVersion: number;
+  batchFingerprint: string;
+  ok?: boolean;
+  count?: number;
+  skippedEmptyCount?: number;
+  missingMappedFields?: string[];
+  invalidRecords?: Array<{ recordId: string; missing: string[] }>;
+  records: FeishuProductRecord[];
+  downloadedFiles?: string[];
+  removedStaleFiles?: string[];
+}

@@ -1,13 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { sanitizeFeishuProductRecord } from "../feishu/product-records.js";
+import { validateFeishuProductPayload } from "../feishu/cache-contract.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import { buildFeishuSellingPointText } from "./selling-point-rules.js";
 import type { SellingPointArtifact } from "./types.js";
-
-interface FeishuProductPayload {
-  records?: FeishuProductRecord[];
-}
 
 export interface FeishuProductRuntimeRecord {
   record: FeishuProductRecord;
@@ -30,9 +27,8 @@ function readPayload(filePath: string): FeishuProductRecord[] {
   if (!fs.existsSync(resolved)) {
     throw new Error(`Feishu product data file not found: ${resolved}`);
   }
-  const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as FeishuProductPayload | FeishuProductRecord[];
-  const records = Array.isArray(parsed) ? parsed : parsed.records || [];
-  return records
+  const parsed = validateFeishuProductPayload(JSON.parse(fs.readFileSync(resolved, "utf8")));
+  return parsed.records
     .filter((record) => record && typeof record === "object")
     .map((record) => sanitizeFeishuProductRecord(record));
 }
