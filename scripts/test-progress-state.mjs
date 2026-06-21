@@ -2315,8 +2315,8 @@ assert.equal(
     failureMessage: "failed at main_images_generated: fetch failed",
     externalServiceWaitAttempts: 0
   }),
-  10 * 60 * 1000,
-  "Main-image transport failures must use external-service long backoff"
+  5 * 60 * 1000,
+  "Main-image transport failures must use the fixed five-minute external-service wait"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
@@ -2604,8 +2604,8 @@ assert.equal(
   "Temporary external-service outages must remain recoverable after the generic recovery budget is exhausted"
 );
 assert.equal(shouldConsumeSupervisorRecoveryAttempt(providerUnavailableMessage), false);
-assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 0 }), 10 * 60 * 1000);
-assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 3 }), 30 * 60 * 1000);
+assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 0 }), 5 * 60 * 1000);
+assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 3 }), 5 * 60 * 1000);
 assert.equal(
   isRetryableExternalServiceAvailabilityFailure(
     "failed at main_images_generated: Image generation request timed out. The provider did not respond in time. Raw error: This operation was aborted"
@@ -2827,15 +2827,15 @@ assert.equal(
     failureMessage: videosBase64ProviderCircuitOpen,
     externalServiceWaitAttempts: 0
   }),
-  1740000,
-  "The supervisor must honor a valid slot cooldown instead of waking on the generic 10-minute delay"
+  5 * 60 * 1000,
+  "The supervisor must cap every slot cooldown at the requested five-minute wait"
 );
 assert.equal(
   resolveSupervisorRecoveryDelayMs({
     failureMessage: "paid image provider timeout circuit open for slot 17; retry after invalidms.",
     externalServiceWaitAttempts: 0
   }),
-  600000,
+  5 * 60 * 1000,
   "Malformed slot cooldown text must fall back to the normal external-service delay"
 );
 assert.equal(
@@ -2843,7 +2843,7 @@ assert.equal(
     failureMessage: "paid image provider timeout circuit open for slot 17; retry after 999999999ms.",
     externalServiceWaitAttempts: 0
   }),
-  600000,
+  5 * 60 * 1000,
   "Out-of-range slot cooldown text must not create an unbounded supervisor sleep"
 );
 assert.equal(
@@ -2895,8 +2895,8 @@ assert.equal(
     failureMessage: videosBase64PollTimeoutMessage,
     externalServiceWaitAttempts: 0
   }),
-  10 * 60 * 1000,
-  "videos-base64 submitted-task poll timeouts must use long external-service backoff"
+  5 * 60 * 1000,
+  "videos-base64 submitted-task poll timeouts must use the fixed five-minute external-service wait"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
@@ -2976,8 +2976,8 @@ assert.equal(
     failureMessage: videosBase64QueuedWatchdogMessage,
     externalServiceWaitAttempts: 0
   }),
-  10 * 60 * 1000,
-  "accepted videos-base64 queued 0 watchdog stalls must use long external-service backoff"
+  5 * 60 * 1000,
+  "accepted videos-base64 queued 0 watchdog stalls must use the fixed five-minute external-service wait"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({

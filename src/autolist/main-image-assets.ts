@@ -17,7 +17,7 @@ import {
   submitTransportFailureProvesNoPaidTaskAccepted,
   shouldRetryImageGenerationWithPolicyPrompt,
   shouldKeepPaidImagePolicyCompatiblePrompt,
-  resolvePaidImageProviderTimeoutRetry
+  resolvePaidImageFixedSlotRecovery
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { readManualTextBlock } from "./operation-manual.js";
@@ -1166,7 +1166,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
     return { ...result, promptText: nextPromptText || currentPromptText };
   };
 
-  const generateVideosBase64Image = async (absoluteImageIndex: number): Promise<{ file: string; submitId: string }> => {
+  const generateVideosBase64ImageAttempt = async (absoluteImageIndex: number): Promise<{ file: string; submitId: string }> => {
     const paddedImageIndex = String(absoluteImageIndex).padStart(2, "0");
     const ledgerSlot = (options.paidImageLedger?.slotOffset || 0) + absoluteImageIndex;
     let promptText = buildPromptForImageIndex(absoluteImageIndex);
@@ -1202,25 +1202,25 @@ async function generateWithOpenAiCompatibleProvider(options: {
         const originalPromptDigest = promptDigest;
         const policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
         const policyCompatiblePromptDigest = sha256Text(policyCompatiblePromptText);
-        const timeoutRetry =
+        const fixedSlotRecovery =
           slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
-            ? resolvePaidImageProviderTimeoutRetry({
+            ? resolvePaidImageFixedSlotRecovery({
                 failureReason: failedAfterAcceptanceReason,
                 audit: slotAction.record?.audit || [],
                 recordedPromptDigest: slotAction.record?.promptDigest || "",
                 policyCompatiblePromptDigest,
                 nowMs: Date.now()
               })
-            : { usePolicyCompatiblePrompt: false, deferMs: 0 };
-        if (timeoutRetry.deferMs > 0) {
+            : { action: "bubble" as const, usePolicyCompatiblePrompt: false, deferMs: 0 };
+        if (fixedSlotRecovery.action === "defer_to_supervisor") {
           throw normalizeImageGenerationError(
-            `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${timeoutRetry.deferMs}ms.`
+            `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${fixedSlotRecovery.deferMs}ms.`
           );
         }
         const keepPolicyCompatiblePrompt =
           slotAction.action === "retry_failed_after_acceptance" &&
           "record" in slotAction &&
-          (timeoutRetry.usePolicyCompatiblePrompt ||
+          (fixedSlotRecovery.usePolicyCompatiblePrompt ||
             shouldKeepPaidImagePolicyCompatiblePrompt({
               failureReason: failedAfterAcceptanceReason,
               recordedPromptDigest: slotAction.record?.promptDigest || "",
@@ -1229,7 +1229,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
             }));
         const allowFailedAfterAcceptanceDigestChange =
           slotAction.action === "retry_failed_after_acceptance" &&
-          (timeoutRetry.usePolicyCompatiblePrompt ||
+          (fixedSlotRecovery.usePolicyCompatiblePrompt ||
             isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason)) &&
           slotAction.record?.promptDigest !== policyCompatiblePromptDigest;
         if (
@@ -1445,6 +1445,48 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
     options.onProgress?.(`Image ${absoluteImageIndex}: saved ${path.basename(targetFile)}.`);
     return { file: targetFile, submitId: taskId };
+  };
+
+  const generateVideosBase64Image = async (absoluteImageIndex: number): Promise<{ file: string; submitId: string }> => {
+    const ledgerSlot = (options.paidImageLedger?.slotOffset || 0) + absoluteImageIndex;
+    for (;;) {
+      try {
+        return await generateVideosBase64ImageAttempt(absoluteImageIndex);
+      } catch (error) {
+        if (!videosBase64Ledger) {
+          throw error;
+        }
+        const slotAction = resolvePaidImageSlotAction({
+          productDir: videosBase64Ledger.productDir,
+          slot: ledgerSlot
+        });
+        if (slotAction.action !== "retry_failed_after_acceptance" || !slotAction.record) {
+          throw error;
+        }
+        const originalPromptText = buildPromptForImageIndex(absoluteImageIndex);
+        const policyCompatiblePromptDigest = sha256Text(
+          buildPolicyCompatibleImageEditPrompt(originalPromptText, absoluteImageIndex)
+        );
+        const recovery = resolvePaidImageFixedSlotRecovery({
+          failureReason: slotAction.record.reason || "",
+          audit: slotAction.record.audit || [],
+          recordedPromptDigest: slotAction.record.promptDigest || "",
+          policyCompatiblePromptDigest,
+          nowMs: Date.now()
+        });
+        if (recovery.action === "defer_to_supervisor") {
+          throw normalizeImageGenerationError(
+            `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${recovery.deferMs}ms.`
+          );
+        }
+        if (recovery.action !== "retry_fixed_slot_now") {
+          throw error;
+        }
+        options.onProgress?.(
+          `Image ${absoluteImageIndex}: provider task timed out; retrying fixed paid slot ${ledgerSlot} in current run.`
+        );
+      }
+    }
   };
 
   if (mode === "videos-base64") {

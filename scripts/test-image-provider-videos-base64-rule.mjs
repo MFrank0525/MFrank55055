@@ -12,7 +12,8 @@ import {
   resolveVideosBase64SubmitConcurrency,
   resolveVideosBase64SubmitTimeoutMs,
   shouldKeepPaidImagePolicyCompatiblePrompt,
-  resolvePaidImageProviderTimeoutRetry
+  resolvePaidImageProviderTimeoutRetry,
+  resolvePaidImageFixedSlotRecovery
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
   initializePaidImageProductLedger,
@@ -31,6 +32,7 @@ const typesSource = fs.readFileSync("src/autolist/types.ts", "utf8");
 const imageGenerationRulesSource = fs.readFileSync("src/autolist/image-generation-rules.ts", "utf8");
 const example = JSON.parse(fs.readFileSync("input/image-generation.config.videos-base64.example.json", "utf8"));
 const ruleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
+const stabilityChecklist = fs.readFileSync("docs/auto-listing/stability-checklist.md", "utf8");
 
 assert.equal(example.mode, "videos-base64");
 assert.equal(example.apiUrl.endsWith("/v1/videos"), true);
@@ -53,6 +55,41 @@ const repeatedProviderTimeoutAudit = [
   { state: "failed_after_acceptance", at: "2026-06-18T01:40:00.000Z", reason: "provider task failed: 失败了超时 请重试" }
 ];
 assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: 'provider task failed: {"code":"task_timeout","message":"任务失败，超时5分钟"}',
+    audit: [
+      {
+        state: "failed_after_acceptance",
+        at: "2026-06-18T01:00:00.000Z",
+        reason: 'provider task failed: {"code":"task_timeout","message":"任务失败，超时5分钟"}'
+      }
+    ],
+    recordedPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-06-18T01:01:00.000Z")
+  }),
+  { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: false, deferMs: 0 },
+  "A first explicit provider task timeout must retry only its fixed slot in the current child process"
+);
+for (const failureReason of [
+  "provider task failed: invalid image",
+  "provider task failed: permission denied",
+  "provider task failed: insufficient balance",
+  "submit response was ambiguous after timeout"
+]) {
+  assert.deepEqual(
+    resolvePaidImageFixedSlotRecovery({
+      failureReason,
+      audit: [],
+      recordedPromptDigest: "original-digest",
+      policyCompatiblePromptDigest: "policy-digest",
+      nowMs: Date.parse("2026-06-18T01:01:00.000Z")
+    }),
+    { action: "bubble", usePolicyCompatiblePrompt: false, deferMs: 0 },
+    `Unsafe or non-timeout provider failure must not be locally replayed: ${failureReason}`
+  );
+}
+assert.deepEqual(
   resolvePaidImageProviderTimeoutRetry({
     failureReason: "provider task failed: 失败了超时 请重试",
     audit: repeatedProviderTimeoutAudit,
@@ -64,6 +101,17 @@ assert.deepEqual(
   "Three accepted provider timeouts must switch only the failed fixed slot to the stability-compatible prompt"
 );
 assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: "provider task failed: timed out",
+    audit: repeatedProviderTimeoutAudit,
+    recordedPromptDigest: "policy-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-06-18T01:41:00.000Z")
+  }),
+  { action: "defer_to_supervisor", usePolicyCompatiblePrompt: true, deferMs: 4 * 60 * 1000 },
+  "A policy-compatible fixed slot that still times out must defer with the exact circuit cooldown"
+);
+assert.deepEqual(
   resolvePaidImageProviderTimeoutRetry({
     failureReason: "provider task failed: 失败了超时 请重试",
     audit: repeatedProviderTimeoutAudit,
@@ -71,7 +119,7 @@ assert.deepEqual(
     policyCompatiblePromptDigest: "policy-digest",
     nowMs: Date.parse("2026-06-18T01:41:00.000Z")
   }),
-  { usePolicyCompatiblePrompt: true, deferMs: 29 * 60 * 1000 },
+  { usePolicyCompatiblePrompt: true, deferMs: 4 * 60 * 1000 },
   "A stability-compatible slot that still times out must enter a fixed-slot cooldown instead of immediate paid resubmission"
 );
 assert.match(source, /mode\?: "generations" \| "edits" \| "media-generate" \| "videos-base64"/);
@@ -85,6 +133,16 @@ assert.match(source, /recordPaidImageFailedAfterAcceptance/);
 assert.match(source, /recordPaidImageFailedBeforeAcceptance/);
 assert.match(source, /\[redacted base64 image data url\]/);
 assert.match(source, /generateVideosBase64Image/);
+assert.match(
+  source,
+  /generateVideosBase64ImageAttempt[\s\S]*const generateVideosBase64Image =[\s\S]*for \(;;\)[\s\S]*generateVideosBase64ImageAttempt\(absoluteImageIndex\)[\s\S]*resolvePaidImageSlotAction[\s\S]*retry_failed_after_acceptance[\s\S]*resolvePaidImageFixedSlotRecovery[\s\S]*retry_fixed_slot_now[\s\S]*retrying fixed paid slot/s,
+  "An explicit accepted provider timeout must retry only the failed fixed slot inside the current child process"
+);
+assert.match(
+  source,
+  /defer_to_supervisor[\s\S]*paid image provider timeout circuit open for slot \$\{ledgerSlot\}; retry after \$\{recovery\.deferMs\}ms/s,
+  "Only an opened fixed-slot timeout circuit may defer the child back to the supervisor"
+);
 assert.match(source, /readVideosBase64SubmittedTask/);
 assert.match(source, /resuming submitted videos-base64 task/);
 assert.match(source, /initializePaidImageProductLedger/);
@@ -131,7 +189,7 @@ assert.match(
 );
 assert.match(
   source,
-  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*timeoutRetry\.usePolicyCompatiblePrompt[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)/,
+  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*fixedSlotRecovery\.usePolicyCompatiblePrompt[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)/,
   "Repeated provider timeouts must explicitly authorize the one-time fixed-slot digest switch to the stability-compatible prompt"
 );
 assert.match(source, /submitSlots/);
@@ -176,6 +234,22 @@ assert.match(ruleDoc, /failed_after_acceptance.*固定 slot.*允许.*重试/s);
 assert.match(ruleDoc, /没有取得 task ID.*没有供应商响应摘要.*fetch failed.*no-acceptance/s);
 assert.match(ruleDoc, /no-acceptance.*failed_before_acceptance.*重试同一固定 slot/s);
 assert.match(ruleDoc, /failed_after_acceptance.*只补同一固定 slot/s);
+assert.match(
+  ruleDoc,
+  /明确终态超时.*当前子进程.*同一固定 slot.*禁止.*整批.*supervisor/s,
+  "Main-image rules must require local fixed-slot recovery before escalating to the supervisor"
+);
+assert.match(
+  ruleDoc,
+  /超时熔断.*supervisor.*精确冷却/s,
+  "Only a fixed-slot timeout circuit may defer terminal timeouts to the supervisor"
+);
+assert.match(ruleDoc, /超时熔断.*5 分钟/s, "Fixed-slot timeout circuit cooldown must be five minutes");
+assert.match(
+  stabilityChecklist,
+  /外部服务.*固定等待 5 分钟.*不再指数增长/s,
+  "External image-service waits must stay at five minutes instead of growing exponentially"
+);
 assert.match(ruleDoc, /内容策略.*仅对该固定 slot.*内容策略兼容降级提示词/s);
 assert.match(ruleDoc, /内容策略.*failed_after_acceptance.*requestDigest.*promptDigest.*允许.*更新/s);
 assert.match(ruleDoc, /普通供应商失败.*不得改变 digest/s);

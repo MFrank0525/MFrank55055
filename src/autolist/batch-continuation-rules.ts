@@ -103,16 +103,13 @@ export function resolveSupervisorRecoveryDelayMs(input: {
   if (!isRetryableExternalServiceAvailabilityFailure(input.failureMessage)) {
     return 10000;
   }
-  const normalDelayMs = Math.min(
-    30 * 60 * 1000,
-    10 * 60 * 1000 * Math.pow(2, Math.max(0, input.externalServiceWaitAttempts))
-  );
+  const normalDelayMs = 5 * 60 * 1000;
   const retryMatch = /paid image provider timeout circuit open[\s\S]*?retry after\s+(\d+)ms/i.exec(
     input.failureMessage
   );
   const slotDelayMs = retryMatch ? Number(retryMatch[1]) : Number.NaN;
   const validSlotDelay = slotDelayMs >= 1000 && slotDelayMs <= 6 * 60 * 60 * 1000;
-  return validSlotDelay ? Math.max(normalDelayMs, slotDelayMs) : normalDelayMs;
+  return validSlotDelay ? Math.min(normalDelayMs, slotDelayMs) : normalDelayMs;
 }
 
 function isDeterministicDetailQualificationFailure(message: string): boolean {

@@ -218,7 +218,7 @@ export function resolvePaidImageProviderTimeoutRetry(input: {
   cooldownMs?: number;
 }): { usePolicyCompatiblePrompt: boolean; deferMs: number } {
   const timeoutThreshold = Math.max(1, input.timeoutThreshold ?? 3);
-  const cooldownMs = Math.max(0, input.cooldownMs ?? 30 * 60 * 1000);
+  const cooldownMs = Math.max(0, input.cooldownMs ?? 5 * 60 * 1000);
   const timeoutPattern = /timeout|timed out|超时/i;
   const timeoutFailures = input.audit.filter(
     (entry) => entry.state === "failed_after_acceptance" && timeoutPattern.test(entry.reason || "")
@@ -240,4 +240,40 @@ export function resolvePaidImageProviderTimeoutRetry(input: {
     usePolicyCompatiblePrompt: true,
     deferMs: Math.max(0, latestFailureMs + cooldownMs - input.nowMs)
   };
+}
+
+export function resolvePaidImageFixedSlotRecovery(input: {
+  failureReason: string;
+  audit: Array<{ state?: string; at?: string; reason?: string }>;
+  recordedPromptDigest: string;
+  policyCompatiblePromptDigest: string;
+  nowMs: number;
+}): {
+  action: "retry_fixed_slot_now" | "defer_to_supervisor" | "bubble";
+  usePolicyCompatiblePrompt: boolean;
+  deferMs: number;
+} {
+  const failureReason = input.failureReason || "";
+  const unsafeReplay =
+    /permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
+      failureReason
+    );
+  const explicitAcceptedTaskTimeout =
+    /provider task failed/i.test(failureReason) && /task_timeout|timeout|timed out|超时/i.test(failureReason);
+  if (!explicitAcceptedTaskTimeout || unsafeReplay) {
+    return { action: "bubble", usePolicyCompatiblePrompt: false, deferMs: 0 };
+  }
+
+  const timeoutRetry = resolvePaidImageProviderTimeoutRetry(input);
+  return timeoutRetry.deferMs > 0
+    ? {
+        action: "defer_to_supervisor",
+        usePolicyCompatiblePrompt: timeoutRetry.usePolicyCompatiblePrompt,
+        deferMs: timeoutRetry.deferMs
+      }
+    : {
+        action: "retry_fixed_slot_now",
+        usePolicyCompatiblePrompt: timeoutRetry.usePolicyCompatiblePrompt,
+        deferMs: 0
+      };
 }
