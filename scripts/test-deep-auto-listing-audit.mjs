@@ -1,9 +1,25 @@
 import assert from "node:assert/strict";
 import {
   auditCanonicalPublishEvidence,
+  auditRuntimeControllerConsistency,
   auditRuleContradictions,
   runDeepAuditRules
 } from "../dist/src/autolist/deep-audit-rules.js";
+import fs from "node:fs";
+
+const controllerFailureAudit = auditRuntimeControllerConsistency({
+  controllerStatus: "failed",
+  controllerActive: false,
+  runStatus: "paused"
+});
+assert.equal(controllerFailureAudit.ok, false);
+assert.deepEqual(
+  controllerFailureAudit.errors.map((item) => item.code),
+  ["controller_terminal_failed", "controller_run_status_contradiction"]
+);
+const auditCliSource = fs.readFileSync("src/cli/audit-auto-listing.ts", "utf8");
+assert.match(auditCliSource, /auditRuntimeControllerConsistency/);
+assert.match(auditCliSource, /controllerRuntimeAudit\.evidence/);
 
 const dimensions = runDeepAuditRules({
   rules: { errors: [], warnings: [], evidence: ["rule source loaded"] },

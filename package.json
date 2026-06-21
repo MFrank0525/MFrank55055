@@ -5,7 +5,8 @@
   "description": "抖音店铺自动上架工具：飞书产品数据 → 飞书海报提示词 → 中转站图片生成 → 飞书标题关键词组合 → 浏览器发布",
   "type": "module",
   "scripts": {
-    "build": "node scripts/clean-build-output.mjs && tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "build:clean": "node scripts/clean-build-output.mjs && tsc -p tsconfig.json",
     "publish:spu": "npm run build && node dist/src/cli/publish-from-spu.js",
     "auto-listing": "npm run build && node dist/src/cli/auto-listing.js",
     "auto-listing:pause": "npm run build && node dist/src/cli/auto-listing-controller.js pause --text",

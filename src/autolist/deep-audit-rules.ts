@@ -44,6 +44,42 @@ export function runDeepAuditRules(
   };
 }
 
+export function auditRuntimeControllerConsistency(input: {
+  controllerStatus?: "running" | "completed" | "failed";
+  controllerActive: boolean;
+  runStatus?: string;
+}): { ok: boolean; errors: DeepAuditIssue[]; warnings: DeepAuditIssue[]; evidence: string[] } {
+  const errors: DeepAuditIssue[] = [];
+  if (input.controllerStatus === "running" && !input.controllerActive) {
+    errors.push({
+      code: "controller_job_stale_running",
+      message: "Controller job declares running but its supervisor process is not alive."
+    });
+  }
+  if (input.controllerStatus === "failed") {
+    errors.push({
+      code: "controller_terminal_failed",
+      message: "The latest controller job is terminal failed."
+    });
+    if (input.runStatus && input.runStatus !== "failed") {
+      errors.push({
+        code: "controller_run_status_contradiction",
+        message: `Controller status is failed but the latest run status is ${input.runStatus}.`
+      });
+    }
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings: [],
+    evidence: [
+      `controllerStatus=${input.controllerStatus || "missing"}`,
+      `controllerActive=${input.controllerActive}`,
+      `runStatus=${input.runStatus || "missing"}`
+    ]
+  };
+}
+
 function duplicateValues(values: string[]): string[] {
   const seen = new Set<string>();
   const duplicates = new Set<string>();

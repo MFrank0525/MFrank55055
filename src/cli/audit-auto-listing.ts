@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { auditAutoListingContinuity, auditCompletedBatchResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
-import { auditCanonicalPublishEvidence, auditRuleContradictions, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
+import { auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
@@ -307,9 +307,12 @@ async function main(): Promise<void> {
     runDirCount,
     paidLedgerBatchExists: fs.existsSync(paidImageBatchLedgerDir(resolved.paidImageSubmissionLedgerDir, batchFingerprint))
   });
-  if (controllerJob?.status === "running" && !activeControllerRunning) {
-    runtimeErrors.push({ code: "controller_job_stale_running", message: "Controller job declares running but its supervisor process is not alive." });
-  }
+  const controllerRuntimeAudit = auditRuntimeControllerConsistency({
+    controllerStatus: controllerJob?.status,
+    controllerActive: activeControllerRunning,
+    runStatus: state?.status
+  });
+  runtimeErrors.push(...controllerRuntimeAudit.errors);
   if (state?.status === "completed" && state.feishuBatchFingerprint && records.length > 0 && state.feishuBatchFingerprint !== batchFingerprint) {
     runtimeErrors.push({ code: "runtime_batch_fingerprint_mismatch", message: "Latest run fingerprint does not match the current Feishu cache." });
   }
@@ -365,7 +368,7 @@ async function main(): Promise<void> {
   const deepAudit = runDeepAuditRules({
     rules: { errors: ruleErrors, warnings: [], evidence: [`records=${records.length}`] },
     contradictions: contradictionAudit,
-    runtime: { errors: runtimeErrors, warnings: [], evidence: [`runStatus=${state?.status || "missing"}`, `controllerActive=${activeControllerRunning}`] },
+    runtime: { errors: runtimeErrors, warnings: [], evidence: controllerRuntimeAudit.evidence },
     identities: identityAudit,
     recovery: {
       errors: state?.feishuBatchFingerprint && records.length > 0 && state.feishuBatchFingerprint !== batchFingerprint
