@@ -1719,8 +1719,11 @@ function buildStagedImageFile(
   return path.join(stageDir, baseName + ext);
 }
 
-function buildProductFolder(shopFolder: string, productName: string, imageIndex: number): string {
-  return path.join(shopFolder, sanitizeFileName(productName + "水印" + String(imageIndex).padStart(2, "0")));
+function buildProductFolder(shopFolder: string, productName: string, recordIdentity: string, imageIndex: number): string {
+  return path.join(
+    shopFolder,
+    sanitizeFileName(`${productName}-${recordIdentity}-水印${String(imageIndex).padStart(2, "0")}`)
+  );
 }
 
 function stageWatermarkedFile(options: {
@@ -1892,12 +1895,13 @@ function finalizeProductFolders(
     submitId?: string;
     imageIndex: number;
   }>,
-  productName: string
+  productName: string,
+  recordIdentity: string
 ): MainImageGeneratedFile[] {
   const generatedFiles: MainImageGeneratedFile[] = [];
 
   for (const item of stagedFiles) {
-    const productFolder = buildProductFolder(item.shopFolder, productName, item.imageIndex);
+    const productFolder = buildProductFolder(item.shopFolder, productName, recordIdentity, item.imageIndex);
     fs.mkdirSync(productFolder, { recursive: true });
     const shopRootFile = path.join(item.shopFolder, path.basename(item.stagedFile));
     if (fs.existsSync(shopRootFile)) {
@@ -1933,6 +1937,7 @@ function buildSimulatedFiles(options: {
   expectedImageCount: number;
   imagesPerShop: number;
   shopCodes: string[];
+  recordIdentity: string;
 }): MainImageGeneratedFile[] {
   const generatedFiles: MainImageGeneratedFile[] = [];
   const shopMap = shopFolderByCode(options.shopFolders);
@@ -1954,7 +1959,7 @@ function buildSimulatedFiles(options: {
         options.taskDir,
         "simulated-shops",
         sanitizeFileName(path.basename(shop.shopFolder)),
-        sanitizeFileName(options.brandedGenericName + "水印" + String(imageIndex).padStart(2, "0"))
+        sanitizeFileName(`${options.brandedGenericName}-${options.recordIdentity}-水印${String(imageIndex).padStart(2, "0")}`)
       );
       fs.mkdirSync(productFolder, { recursive: true });
       const imageFile = path.join(
@@ -2049,7 +2054,8 @@ export async function generateMainImageAssets(options: {
         promptFiles: options.wordFiles.slice(0, promptCount),
         expectedImageCount: options.mainImageExpectedCount,
         imagesPerShop,
-        shopCodes
+        shopCodes,
+        recordIdentity: options.feishuRecordId || options.taskId
       }),
       simulated: true
     };
@@ -2277,7 +2283,7 @@ export async function generateMainImageAssets(options: {
 
   return {
     promptFile,
-    generatedFiles: finalizeProductFolders(stagedFiles, productName),
+    generatedFiles: finalizeProductFolders(stagedFiles, productName, options.feishuRecordId || options.taskId),
     simulated: false
   };
 }

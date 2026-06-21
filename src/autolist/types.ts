@@ -1,4 +1,5 @@
 import type { FeishuProductRecord } from "../feishu/types.js";
+import type { PublishTargetIdentity } from "./publish-identity.js";
 
 export const AUTO_LISTING_STEPS = [
   "source_images_discovered",
@@ -155,6 +156,8 @@ export interface PublishArtifact {
     message: string;
   }>;
   results: Array<{
+    targetKey: string;
+    targetIdentity: PublishTargetIdentity;
     productFolder: string;
     ok: boolean;
     status: string;

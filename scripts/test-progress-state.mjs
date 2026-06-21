@@ -964,6 +964,14 @@ fs.writeFileSync(
 const uncertainPublishResult = await publishDistributedProducts({
   runtimeDir: uncertainPublishRuntime,
   distributedFolders: [uncertainProduct],
+  productIdentity: {
+    batchFingerprint: "batch-uncertain",
+    taskId: "image-001",
+    recordId: "record-uncertain",
+    sourceImagePath: "/tmp/source.png",
+    userCognitionName: "护理软膏",
+    genericName: "医用重组胶原蛋白护理软膏"
+  },
   simulateOnly: true
 });
 assert.equal(

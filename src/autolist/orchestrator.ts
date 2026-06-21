@@ -144,8 +144,10 @@ function collectProtectedCleanupAssetFiles(feishuProductDataFile: string): strin
   }
 }
 
-function buildPublishProductIdentity(task: ImageTaskState): PublishProductIdentity {
+function buildPublishProductIdentity(task: ImageTaskState, batchFingerprint: string | undefined): PublishProductIdentity {
   return {
+    batchFingerprint,
+    taskId: task.taskId,
     sourceImagePath: task.sourceImagePath,
     recordId: task.feishuProductRecord?.recordId,
     userCognitionName: task.feishuProductRecord?.userCognitionName || task.sellingPointArtifact?.userCognitionName,
@@ -747,7 +749,7 @@ async function executeTaskChain(
       const publishArtifact = await publishDistributedProducts({
         runtimeDir,
         distributedFolders: current.shopDistributionArtifact.distributedFolders,
-        productIdentity: buildPublishProductIdentity(current),
+        productIdentity: buildPublishProductIdentity(current, feishuBatchFingerprint),
         simulateOnly,
         assertNotPaused: () => assertNotPaused(pauseSignalFile, current.taskId, step),
         onProgress: (message) => {
@@ -1123,7 +1125,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           isProductFullyProcessed({
             task: completedTask,
             publishManifestEntries: publishManifest.entries,
-            productIdentity: buildPublishProductIdentity(completedTask)
+            productIdentity: buildPublishProductIdentity(completedTask, feishuBatchFingerprint)
           })
         ) {
           appendProcessedImages(resolved.processedImageManifest, [task.sourceImagePath], feishuBatchFingerprint);

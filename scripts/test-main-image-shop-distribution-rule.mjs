@@ -38,12 +38,14 @@ async function runSimulatedCategory(category) {
     promptCount: plan.promptCount,
     shopCodes: plan.shopCodes,
     imagesPerShop: plan.imagesPerShop,
+    feishuRecordId: `record-${category}`,
     simulateOnly: true
   });
 }
 
 const medical = await runSimulatedCategory("医疗器械");
 assert.equal(medical.generatedFiles.length, 20);
+assert.ok(medical.generatedFiles.every((item) => path.basename(item.productFolder).includes("record-医疗器械")));
 assert.deepEqual(
   medical.generatedFiles.map((item) => path.basename(item.shopFolder).slice(0, 2)),
   ["01", "01", "02", "02", "03", "03", "04", "04", "05", "05", "06", "06", "07", "07", "08", "08", "09", "09", "10", "10"]

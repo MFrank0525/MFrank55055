@@ -8,6 +8,8 @@ import {
   shouldStopPublishBatchAfterFailure
 } from "../business/publish-from-spu/publish-rules.js";
 import { logInfo } from "../utils/logger.js";
+import { shopCodeFromFolder } from "./product-category.js";
+import { buildPublishTargetIdentity, publishTargetKey } from "./publish-identity.js";
 import {
   extractWatermarkNo,
   findPublishManifestEntry,
@@ -242,6 +244,24 @@ export async function publishDistributedProducts(options: {
 }): Promise<PublishArtifact> {
   const productIdentity = normalizePublishProductIdentity(options.productIdentity);
   const productIdentityFields = productIdentity || {};
+  if (!productIdentity?.batchFingerprint || !productIdentity.recordId || !productIdentity.taskId) {
+    throw new Error("Publish requires batchFingerprint, recordId, and taskId canonical identity.");
+  }
+  const targetContextForFolder = (productFolder: string) => {
+    const watermarkNo = extractWatermarkNo(productFolder);
+    if (!watermarkNo) {
+      throw new Error(`Publish product folder is missing a watermark number: ${productFolder}`);
+    }
+    const targetIdentity = buildPublishTargetIdentity({
+      batchFingerprint: productIdentity.batchFingerprint as string,
+      recordId: productIdentity.recordId as string,
+      taskId: productIdentity.taskId as string,
+      shopCode: shopCodeFromFolder(path.dirname(productFolder)),
+      watermarkNo
+    });
+    const targetKey = publishTargetKey(targetIdentity);
+    return { targetIdentity, targetKey, runtimeKey: targetKey };
+  };
   const orderedFolders = [...options.distributedFolders].sort((a, b) => {
     const shopDiff = path.dirname(a).localeCompare(path.dirname(b), "zh-CN");
     if (shopDiff !== 0) {
@@ -252,10 +272,12 @@ export async function publishDistributedProducts(options: {
 
   const manifest = loadPublishManifest(options.runtimeDir);
   const plan = orderedFolders.map((productFolder) => {
-    const runtimeKey = publishRuntimeKey(productFolder);
-    const manifestEntry = findPublishManifestEntry(manifest, runtimeKey);
+    const { targetIdentity, targetKey, runtimeKey } = targetContextForFolder(productFolder);
+    const manifestEntry = findPublishManifestEntry(manifest, targetKey);
     if (isManifestEntrySafelyPublishedForIdentity(manifestEntry, productIdentity)) {
       return {
+        targetIdentity,
+        targetKey,
         productFolder,
         runtimeKey,
         action: "skip" as const,
@@ -269,6 +291,8 @@ export async function publishDistributedProducts(options: {
       const decision = evaluatePublishResult(readPublishResultSummary(resultFile));
       if (decision.safelyPublished) {
         return {
+          targetIdentity,
+          targetKey,
           productFolder,
           runtimeKey,
           action: "skip" as const,
@@ -279,6 +303,8 @@ export async function publishDistributedProducts(options: {
       }
     }
     return {
+      targetIdentity,
+      targetKey,
       productFolder,
       runtimeKey,
       action: "publish" as const,
@@ -292,11 +318,13 @@ export async function publishDistributedProducts(options: {
   const alreadyPublishedResults: PublishArtifact["results"] = [];
 
   const pendingFolders = orderedFolders.filter((productFolder) => {
-    const runtimeKey = publishRuntimeKey(productFolder);
+    const { targetIdentity, targetKey, runtimeKey } = targetContextForFolder(productFolder);
     const publishRuntimeDir = path.join(options.runtimeDir, "publish", runtimeKey);
     const planItem = plan.find((item) => item.runtimeKey === runtimeKey);
     if (planItem?.action === "skip") {
       alreadyPublishedResults.push({
+        targetIdentity,
+        targetKey,
         productFolder,
         ok: true,
         status: "published",
@@ -311,6 +339,7 @@ export async function publishDistributedProducts(options: {
     }
 
     upsertPublishManifestEntry(options.runtimeDir, {
+      ...targetContextForFolder(productFolder),
       productFolder,
       runtimeKey,
       shopFolder: path.dirname(productFolder),
@@ -322,6 +351,8 @@ export async function publishDistributedProducts(options: {
       ...productIdentityFields
     });
     alreadyPublishedResults.push({
+      targetIdentity,
+      targetKey,
       productFolder,
       ok: true,
       status: "published",
@@ -336,17 +367,22 @@ export async function publishDistributedProducts(options: {
   if (options.simulateOnly) {
     return {
       preflightErrors,
-      results: pendingFolders.map((productFolder) => ({
-        productFolder,
-        ok: true,
-        status: preflightErrors.some((item) => item.productFolder === productFolder)
-          ? "simulated_with_preflight_warnings"
-          : "simulated",
-        message: preflightErrors
-          .filter((item) => item.productFolder === productFolder)
-          .map((item) => item.message)
-          .join(" | ") || "Publish simulated."
-      })).concat(alreadyPublishedResults),
+      results: pendingFolders.map((productFolder) => {
+        const { targetIdentity, targetKey } = targetContextForFolder(productFolder);
+        return {
+          targetIdentity,
+          targetKey,
+          productFolder,
+          ok: true,
+          status: preflightErrors.some((item) => item.productFolder === productFolder)
+            ? "simulated_with_preflight_warnings"
+            : "simulated",
+          message: preflightErrors
+            .filter((item) => item.productFolder === productFolder)
+            .map((item) => item.message)
+            .join(" | ") || "Publish simulated."
+        };
+      }).concat(alreadyPublishedResults),
       simulated: true
     };
   }
@@ -364,11 +400,13 @@ export async function publishDistributedProducts(options: {
     options.assertNotPaused?.();
     const shopFolder = path.dirname(productFolder);
     const fields = readProductWorkbookFields(findWorkbookFile(productFolder));
-    const runtimeKey = publishRuntimeKey(productFolder);
+    const { targetIdentity, targetKey, runtimeKey } = targetContextForFolder(productFolder);
     const startMessage = `Publishing product folder: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
     logInfo(startMessage.replace(/^Publishing/, "publishing"));
     options.onProgress?.(startMessage);
     upsertPublishManifestEntry(options.runtimeDir, {
+      targetIdentity,
+      targetKey,
       productFolder,
       runtimeKey,
       shopFolder,
@@ -403,6 +441,8 @@ export async function publishDistributedProducts(options: {
         onProgress: (message) => {
           const progressMessage = `${path.basename(productFolder)}: ${message}`;
           upsertPublishManifestEntry(options.runtimeDir, {
+            targetIdentity,
+            targetKey,
             productFolder,
             runtimeKey,
             shopFolder,
@@ -428,6 +468,8 @@ export async function publishDistributedProducts(options: {
         `Retrying publish for ${path.basename(productFolder)} (${path.basename(shopFolder)}): ${decision.errorClass}; attempt ${retryAttempt + 1}`
       );
       upsertPublishManifestEntry(options.runtimeDir, {
+        targetIdentity,
+        targetKey,
         productFolder,
         runtimeKey,
         shopFolder,
@@ -461,6 +503,8 @@ export async function publishDistributedProducts(options: {
           onProgress: (message) => {
             const progressMessage = `${path.basename(productFolder)}: ${message}`;
             upsertPublishManifestEntry(options.runtimeDir, {
+              targetIdentity,
+              targetKey,
               productFolder,
               runtimeKey,
               shopFolder,
@@ -480,6 +524,8 @@ export async function publishDistributedProducts(options: {
     }
 
     results.push({
+      targetIdentity,
+      targetKey,
       productFolder,
       ok: publishResult.ok,
       status: publishResult.status,
@@ -489,6 +535,8 @@ export async function publishDistributedProducts(options: {
       errorClass: decision.errorClass
     });
     upsertPublishManifestEntry(options.runtimeDir, {
+      targetIdentity,
+      targetKey,
       productFolder,
       runtimeKey,
       shopFolder,

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteJson } from "../utils/atomic-file.js";
+import type { PublishTargetIdentity } from "./publish-identity.js";
 
 export type PublishFinalVerifyStatus =
   | "not_checked"
@@ -20,10 +21,14 @@ export const BATCH_COMPLETION_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] 
 ];
 
 export interface PublishManifestEntry {
+  targetKey: string;
+  targetIdentity: PublishTargetIdentity;
   productFolder: string;
   runtimeKey: string;
   shopFolder: string;
   watermarkNo: number | null;
+  batchFingerprint?: string;
+  taskId?: string;
   sourceImagePath?: string;
   recordId?: string;
   userCognitionName?: string;
@@ -42,6 +47,8 @@ export interface PublishManifest {
 }
 
 export interface PublishPlanItem {
+  targetKey: string;
+  targetIdentity: PublishTargetIdentity;
   productFolder: string;
   runtimeKey: string;
   action: "skip" | "publish" | "review";
@@ -51,6 +58,8 @@ export interface PublishPlanItem {
 }
 
 export interface PublishProductIdentity {
+  batchFingerprint?: string;
+  taskId?: string;
   sourceImagePath?: string;
   recordId?: string;
   userCognitionName?: string;
@@ -73,6 +82,8 @@ export function normalizePublishProductIdentity(identity: PublishProductIdentity
     return undefined;
   }
   const normalized: PublishProductIdentity = {
+    batchFingerprint: normalizeIdentityText(identity.batchFingerprint),
+    taskId: normalizeIdentityText(identity.taskId),
     sourceImagePath: normalizeIdentityPath(identity.sourceImagePath),
     recordId: normalizeIdentityText(identity.recordId),
     userCognitionName: normalizeIdentityText(identity.userCognitionName),
@@ -126,7 +137,7 @@ export function savePublishPlan(runtimeDir: string, plan: PublishPlanItem[]): st
 }
 
 export function findPublishManifestEntry(manifest: PublishManifest, runtimeKey: string): PublishManifestEntry | undefined {
-  return manifest.entries.find((entry) => entry.runtimeKey === runtimeKey);
+  return manifest.entries.find((entry) => entry.targetKey === runtimeKey);
 }
 
 export function isManifestEntrySafelyPublished(entry: PublishManifestEntry | undefined): boolean {
@@ -157,12 +168,20 @@ export function isManifestEntryAcceptedForBatchCompletionForIdentity(
     return true;
   }
   const actual = normalizePublishProductIdentity({
+    batchFingerprint: entry?.batchFingerprint,
+    taskId: entry?.taskId,
     sourceImagePath: entry?.sourceImagePath,
     recordId: entry?.recordId,
     userCognitionName: entry?.userCognitionName,
     genericName: entry?.genericName
   });
   if (!actual) {
+    return false;
+  }
+  if (expected.batchFingerprint && actual.batchFingerprint !== expected.batchFingerprint) {
+    return false;
+  }
+  if (expected.taskId && actual.taskId !== expected.taskId) {
     return false;
   }
   if (expected.sourceImagePath && actual.sourceImagePath !== expected.sourceImagePath) {
@@ -186,12 +205,20 @@ export function isManifestEntrySafelyPublishedForIdentity(
     return true;
   }
   const actual = normalizePublishProductIdentity({
+    batchFingerprint: entry?.batchFingerprint,
+    taskId: entry?.taskId,
     sourceImagePath: entry?.sourceImagePath,
     recordId: entry?.recordId,
     userCognitionName: entry?.userCognitionName,
     genericName: entry?.genericName
   });
   if (!actual) {
+    return false;
+  }
+  if (expected.batchFingerprint && actual.batchFingerprint !== expected.batchFingerprint) {
+    return false;
+  }
+  if (expected.taskId && actual.taskId !== expected.taskId) {
     return false;
   }
   if (expected.sourceImagePath && actual.sourceImagePath !== expected.sourceImagePath) {
@@ -207,7 +234,7 @@ export function upsertPublishManifestEntry(runtimeDir: string, entry: Omit<Publi
   const manifest = loadPublishManifest(runtimeDir);
   const identity = normalizePublishProductIdentity(entry);
   const updated: PublishManifestEntry = { ...entry, ...identity, updatedAt: new Date().toISOString() };
-  const existingIndex = manifest.entries.findIndex((item) => item.runtimeKey === updated.runtimeKey);
+  const existingIndex = manifest.entries.findIndex((item) => item.targetKey === updated.targetKey);
   if (existingIndex >= 0) {
     manifest.entries[existingIndex] = updated;
   } else {
