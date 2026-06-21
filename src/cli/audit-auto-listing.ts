@@ -2,11 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { auditAutoListingContinuity, auditCompletedBatchResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
+import { auditCanonicalPublishEvidence, auditRuleContradictions, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
+import { extractWatermarkNo } from "../autolist/publish-manifest.js";
+import { buildPublishTargetIdentity, publishTargetKey } from "../autolist/publish-identity.js";
+import { getProductCategoryPlan, shopCodeFromFolder, type ProductCategory } from "../autolist/product-category.js";
 import { paidImageBatchLedgerDir } from "../autolist/paid-image-submission-ledger.js";
 import type { AutoListingJobFile, AutoListingRunState } from "../autolist/types.js";
+import { loadFeishuBitableConfig } from "../feishu/config.js";
+import type { FeishuProductRecord } from "../feishu/types.js";
 
 interface Args {
   jobFile: string;
@@ -228,7 +234,24 @@ function printText(input: {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const resolved = resolveFromJob(args.jobFile);
-  const records = loadFeishuProductRecords(resolved.feishuProductDataFile);
+  const ruleErrors: DeepAuditIssue[] = [];
+  let records: FeishuProductRecord[] = [];
+  try {
+    loadFeishuBitableConfig("input/feishu-bitable.config.json");
+  } catch (error) {
+    ruleErrors.push({
+      code: "feishu_config_invalid",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+  try {
+    records = loadFeishuProductRecords(resolved.feishuProductDataFile);
+  } catch (error) {
+    ruleErrors.push({
+      code: "feishu_cache_invalid",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
   const batchFingerprint = buildFeishuBatchFingerprint(records);
   const processedImages = readProcessedImages(resolved.processedImageManifest, batchFingerprint);
   const existingFiles = [
@@ -247,7 +270,13 @@ async function main(): Promise<void> {
       ? 1
       : undefined;
   const latestRuntimeDir = state?.runId ? path.join(resolved.runtimeRootDir, state.runId) : resolved.runtimeRootDir;
-  const manifest = loadPublishManifest(latestRuntimeDir);
+  let manifest = { generatedAt: new Date().toISOString(), entries: [] as ReturnType<typeof loadPublishManifest>["entries"] };
+  const runtimeErrors: DeepAuditIssue[] = [];
+  try {
+    manifest = loadPublishManifest(latestRuntimeDir);
+  } catch (error) {
+    runtimeErrors.push({ code: "publish_manifest_invalid", message: error instanceof Error ? error.message : String(error) });
+  }
   const continuity = auditAutoListingContinuity({
     records,
     processedImages,
@@ -278,7 +307,84 @@ async function main(): Promise<void> {
     runDirCount,
     paidLedgerBatchExists: fs.existsSync(paidImageBatchLedgerDir(resolved.paidImageSubmissionLedgerDir, batchFingerprint))
   });
-  const ok = mergeAuditResults([continuity, generation, publish, residue]);
+  if (controllerJob?.status === "running" && !activeControllerRunning) {
+    runtimeErrors.push({ code: "controller_job_stale_running", message: "Controller job declares running but its supervisor process is not alive." });
+  }
+  if (state?.status === "completed" && state.feishuBatchFingerprint && records.length > 0 && state.feishuBatchFingerprint !== batchFingerprint) {
+    runtimeErrors.push({ code: "runtime_batch_fingerprint_mismatch", message: "Latest run fingerprint does not match the current Feishu cache." });
+  }
+
+  const expectedTargetKeys: string[] = [];
+  const identityBuildErrors: DeepAuditIssue[] = [];
+  for (const task of state?.tasks || []) {
+    for (const productFolder of task.shopDistributionArtifact?.distributedFolders || []) {
+      try {
+        const watermarkNo = extractWatermarkNo(productFolder);
+        if (!watermarkNo) throw new Error("watermark number missing");
+        expectedTargetKeys.push(publishTargetKey(buildPublishTargetIdentity({
+          batchFingerprint: state?.feishuBatchFingerprint || "",
+          recordId: task.feishuProductRecord?.recordId || "",
+          taskId: task.taskId,
+          shopCode: shopCodeFromFolder(path.dirname(productFolder)),
+          watermarkNo
+        })));
+      } catch (error) {
+        identityBuildErrors.push({
+          code: "publish_target_identity_invalid",
+          message: `${task.taskId}:${productFolder}: ${error instanceof Error ? error.message : String(error)}`
+        });
+      }
+    }
+  }
+  const identityAudit = auditCanonicalPublishEvidence({
+    expectedTargetKeys,
+    manifestTargetKeys: manifest.entries.map((entry) => entry.targetKey).filter(Boolean),
+    artifactTargetKeys: (state?.tasks || []).flatMap((task) => task.publishArtifact?.results.map((result) => result.targetKey).filter(Boolean) || [])
+  });
+  identityAudit.errors.unshift(...identityBuildErrors);
+  const categories: ProductCategory[] = ["医疗器械", "非处方药", "保健食品"];
+  const contradictionAudit = auditRuleContradictions({
+    categoryPlans: categories.map((category) => {
+      const plan = getProductCategoryPlan(category);
+      return { category, titleCount: plan.titleCount, shopCount: plan.shopCodes.length, promptCount: plan.promptCount };
+    }),
+    titleRuleText: fs.readFileSync("docs/auto-listing/steps/05-title-generation.md", "utf8"),
+    shopRuleText: fs.readFileSync("docs/auto-listing/steps/09-shop-distribution.md", "utf8"),
+    promptRuleText: fs.readFileSync("docs/auto-listing/steps/02-deepseek-prompts.md", "utf8")
+  });
+
+  const toDeepIssues = (issues: Array<{ code: string; message: string }>): DeepAuditIssue[] =>
+    issues.map((issue) => ({ code: issue.code, message: issue.message }));
+  const artifactErrors = [
+    ...toDeepIssues(generation.errors),
+    ...toDeepIssues(publish.errors)
+  ];
+  if (resolved.simulateOnly && (state?.tasks.length || 0) === 0) {
+    artifactErrors.push({ code: "simulation_not_representative", message: "Zero-task simulation does not exercise the business workflow." });
+  }
+  const deepAudit = runDeepAuditRules({
+    rules: { errors: ruleErrors, warnings: [], evidence: [`records=${records.length}`] },
+    contradictions: contradictionAudit,
+    runtime: { errors: runtimeErrors, warnings: [], evidence: [`runStatus=${state?.status || "missing"}`, `controllerActive=${activeControllerRunning}`] },
+    identities: identityAudit,
+    recovery: {
+      errors: state?.feishuBatchFingerprint && records.length > 0 && state.feishuBatchFingerprint !== batchFingerprint
+        ? [{ code: "recovery_batch_fingerprint_mismatch", message: "Runtime artifacts cannot be reused for the current Feishu batch." }]
+        : [],
+      warnings: [],
+      evidence: [`cacheFingerprint=${batchFingerprint}`, `runFingerprint=${state?.feishuBatchFingerprint || "missing"}`]
+    },
+    sideEffects: {
+      errors: [],
+      warnings: manifest.entries
+        .filter((entry) => entry.finalVerifyStatus === "submit_accepted_unconfirmed")
+        .map((entry) => ({ code: "publish_submit_unconfirmed", message: `Manual platform review required: ${entry.targetKey || entry.productFolder}` })),
+      evidence: [`unconfirmed=${manifest.entries.filter((entry) => entry.finalVerifyStatus === "submit_accepted_unconfirmed").length}`]
+    },
+    artifacts: { errors: artifactErrors, warnings: [...toDeepIssues(generation.warnings), ...toDeepIssues(publish.warnings)], evidence: identityAudit.evidence },
+    residue: { errors: toDeepIssues(residue.errors), warnings: toDeepIssues(residue.warnings), evidence: [`runDirs=${runDirCount}`] }
+  });
+  const ok = deepAudit.ok;
 
   const output = {
     ok,
@@ -296,7 +402,8 @@ async function main(): Promise<void> {
     continuity,
     generation,
     publish,
-    residue
+    residue,
+    deepAudit
   };
 
   if (args.json) {
@@ -313,6 +420,11 @@ async function main(): Promise<void> {
         discoveredRunImageCount
       }
     });
+    console.log(
+      deepAudit.dimensions
+        .map((dimension) => `${dimension.ok ? "通过" : "失败"} ${dimension.name}: errors=${dimension.errors.length}, warnings=${dimension.warnings.length}`)
+        .join("\n")
+    );
   }
 
   if (!ok) {
