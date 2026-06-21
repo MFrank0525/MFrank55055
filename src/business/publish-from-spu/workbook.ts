@@ -149,7 +149,8 @@ export async function summarizeWorkbook(xlsxPath?: string): Promise<ProductSheet
       shortTitle: rows[2]?.[1]?.trim() || "",
       brand: rows[3]?.[1]?.trim() || "",
       spu: rows[4]?.[1]?.trim() || "",
-      modelSpec: rows[5]?.[1]?.trim() || ""
+      modelSpec: rows[5]?.[1]?.trim() || "",
+      productPriceText: rows.find((row) => (row[0] || "").trim() === "产品价格")?.[1]?.trim() || ""
     };
   } catch (error) {
     return {

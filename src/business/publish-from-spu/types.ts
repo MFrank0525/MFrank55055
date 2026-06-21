@@ -16,6 +16,7 @@ export interface PublishFromSpuJobInput {
     title?: string;
     shortTitle?: string;
     modelSpec?: string;
+    productPriceText?: string;
     feishuRecordId?: string;
   };
   publishPageUrl?: string;
@@ -55,6 +56,7 @@ export interface ProductSheetSummary {
   title?: string;
   shortTitle?: string;
   modelSpec?: string;
+  productPriceText?: string;
   rows: string[][];
   parseError?: string;
 }

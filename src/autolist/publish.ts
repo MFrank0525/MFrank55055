@@ -27,6 +27,7 @@ type ProductWorkbookFields = {
   brand: string;
   spu: string;
   modelSpec: string;
+  productPriceText: string;
 };
 
 type PublishPreflightError = {
@@ -75,7 +76,8 @@ function readProductWorkbookFields(workbookFile: string): ProductWorkbookFields 
     shortTitle: rows[2]?.[1]?.trim() || "",
     brand: rows[3]?.[1]?.trim() || "",
     spu: rows[4]?.[1]?.trim() || "",
-    modelSpec: rows[5]?.[1]?.trim() || "盒装"
+    modelSpec: rows[5]?.[1]?.trim() || "盒装",
+    productPriceText: rows.find((row) => (row[0] || "").trim() === "产品价格")?.[1]?.trim() || ""
   };
 }
 
@@ -95,6 +97,9 @@ function validateWorkbookFields(fields: ProductWorkbookFields): string[] {
   }
   if (!fields.modelSpec.trim()) {
     missing.push("modelSpec");
+  }
+  if (!fields.productPriceText.trim()) {
+    missing.push("productPriceText");
   }
   return missing;
 }
@@ -386,6 +391,7 @@ export async function publishDistributedProducts(options: {
           title: fields.title,
           shortTitle: fields.shortTitle,
           modelSpec: fields.modelSpec || "盒装",
+          productPriceText: fields.productPriceText,
           feishuRecordId: productIdentity?.recordId
         },
         headless: false,
@@ -443,6 +449,7 @@ export async function publishDistributedProducts(options: {
             title: fields.title,
             shortTitle: fields.shortTitle,
             modelSpec: fields.modelSpec || "盒装",
+            productPriceText: fields.productPriceText,
             feishuRecordId: productIdentity?.recordId
           },
           headless: false,

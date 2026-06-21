@@ -38,7 +38,6 @@ import {
   summarizePaidImageProductLedger
 } from "./paid-image-submission-ledger.js";
 import { getShopSpecs, resolveMainImageShopAssignments, shopCodeFromFolder } from "./product-category.js";
-import { buildMainImageEditInstruction } from "./rule-text.js";
 import type { ImageGenerationProvider, MainImageArtifact, MainImageCountStrategy, MainImageGeneratedFile } from "./types.js";
 
 interface OpenAiCompatibleImageConfig {
@@ -190,16 +189,6 @@ function parseSellingPointFields(sellingPointText: string): {
     userCognitionName,
     genericName
   };
-}
-
-function buildImageVariationInstruction(imageIndex: number): string {
-  const variants = [
-    "本轮第1张：背景风格与本 Word 其他图片保持相近，主标题偏左上大字排版，副标题紧跟主标题下方，产品主体偏右且正面展示，卖点纵向排列。",
-    "本轮第2张：背景风格与本 Word 其他图片保持相近，主标题居中或偏上横向排版，产品主体居中偏下且轻微侧角展示，卖点分组排列。",
-    "本轮第3张：背景风格与本 Word 其他图片保持相近，主标题偏右上或斜向层次排版，产品主体偏左或居中放大，展示不同光影和道具层次。",
-    "本轮第4张：背景风格与本 Word 其他图片保持相近，主标题采用更紧凑的艺术字排版，产品主体站位和角度区别于前三张，卖点布局更有节奏。"
-  ];
-  return variants[(imageIndex - 1) % variants.length];
 }
 
 function ensureTaskDir(runtimeDir: string, taskId: string): string {
@@ -356,7 +345,7 @@ function extractTitleLine(promptText: string, label: string): string {
   return match?.[1]?.trim() || "";
 }
 
-function buildPolicyCompatibleImageEditPrompt(promptText: string, imageIndex: number): string {
+function buildPolicyCompatibleImageEditPrompt(promptText: string, _imageIndex: number): string {
   const userCognitionName = extractTitleLine(promptText, "主标题") || "产品海报";
   const genericName = extractTitleLine(promptText, "副标题") || "产品";
   const visualBadges = [
@@ -372,7 +361,7 @@ function buildPolicyCompatibleImageEditPrompt(promptText: string, imageIndex: nu
     .replaceAll("{{主标题}}", userCognitionName)
     .replaceAll("{{副标题}}", genericName)
     .replaceAll("{{中性信息点}}", visualBadges)
-    .replaceAll("{{差异化要求}}", buildImageVariationInstruction(imageIndex));
+    .replaceAll("{{差异化要求}}", "");
 }
 
 function isPolicyCompatibleRetryFailureReason(reason: string): boolean {
@@ -441,27 +430,18 @@ function inferBrandedGenericName(brandedGenericName: string, sellingPointText: s
   return segments[1] || segments[0] || "未命名产品";
 }
 
-function buildImageEditPromptFromWord(options: {
+export function buildImageEditPromptFromWord(options: {
   paragraphs: string[];
   promptWordFile: string;
-  brand: string;
-  userCognitionName: string;
-  genericName: string;
 }): string {
   const cleaned = options.paragraphs.map((item) => item.trim()).filter(Boolean);
-  if (cleaned.length !== 3) {
-    throw new Error("Prompt Word file must contain exactly 3 paragraphs (instruction1, selling points, deepseek prompt): " + options.promptWordFile);
+  if (cleaned.length !== 5) {
+    throw new Error("Prompt Word file must contain exactly 5 paragraphs (main instruction, selling points, DeepSeek prompt, positive prompt, negative prompt): " + options.promptWordFile);
   }
-  const sellingPoints = cleaned[1] || "";
-  const deepseekPrompt = cleaned[cleaned.length - 1] || "";
-  if (!sellingPoints || !deepseekPrompt) {
+  if (cleaned.some((item) => !item)) {
     throw new Error("Prompt Word file had empty required paragraph: " + options.promptWordFile);
   }
-  return [
-    buildMainImageEditInstruction(options.brand, options.userCognitionName, options.genericName, sellingPoints),
-    readManualTextBlock("main_images_generated", "主图输出文字护栏"),
-    deepseekPrompt
-  ].join("\n");
+  return cleaned.join("\n");
 }
 
 function readOpenAiCompatibleImageConfig(configFile: string): OpenAiCompatibleImageConfig {
@@ -1156,8 +1136,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
     return form;
   };
 
-  const buildPromptForImageIndex = (imageIndex: number): string =>
-    [options.promptText, buildImageVariationInstruction(imageIndex)].join("\n");
+  const buildPromptForImageIndex = (_imageIndex: number): string => options.promptText;
 
   const sendPolicyPromptRetry = async (
     imageIndex: number,
@@ -1698,8 +1677,7 @@ export async function generateOpenAiCompatibleImagePreview(options: {
   const paragraphs = readSimpleWordDocument(options.promptWordFile);
   const promptText = buildImageEditPromptFromWord({
     paragraphs,
-    promptWordFile: options.promptWordFile,
-    ...parseSellingPointFields(options.sellingPointText)
+    promptWordFile: options.promptWordFile
   });
   fs.mkdirSync(options.outputDir, { recursive: true });
   const promptFile = path.join(options.outputDir, "prompt.txt");
@@ -2118,8 +2096,7 @@ export async function generateMainImageAssets(options: {
     const wordParagraphs = readSimpleWordDocument(promptWordFile);
     const promptText = buildImageEditPromptFromWord({
       paragraphs: wordParagraphs,
-      promptWordFile,
-      ...parseSellingPointFields(options.sellingPointText)
+      promptWordFile
     });
 
     const roundDir = path.join(taskDir, "main-image-" + String(promptIndex + 1).padStart(2, "0"));

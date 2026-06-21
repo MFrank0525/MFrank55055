@@ -9,15 +9,14 @@ import { classifyAssets, validateMainImageAspectRatio } from "./publish-from-spu
 import { prepareQualificationImagesForUpload } from "./publish-from-spu/qualification-image-normalizer.js";
 import {
   FIXED_FREIGHT_TEMPLATE_KEYWORD,
-  FIXED_PRICES,
   FIXED_SPEC_VALUES,
-  FIXED_STOCK,
   FORBIDDEN_GRAPHIC_SECTION_LABELS,
   GRAPHIC_SECTION_LABELS,
   PLATFORM_SPU_URL,
   SPEC_TEMPLATE_KEYWORD_DEFAULT,
   SPEC_TEMPLATE_KEYWORD_JIUGUANG
 } from "./publish-from-spu/constants.js";
+import { resolveFeishuPriceInventoryRows, type PriceInventoryRowValue } from "./publish-from-spu/price-inventory-rules.js";
 import { readPublishRuleSummary } from "./publish-from-spu/publish-rule-text.js";
 import type {
   PublishActionResult,
@@ -182,6 +181,7 @@ function assertResolvedMetadata(
     title: string;
     shortTitle: string;
     modelSpec: string;
+    productPriceText: string;
   },
   mode: string
 ): void {
@@ -200,6 +200,9 @@ function assertResolvedMetadata(
   }
   if (!metadata.modelSpec.trim()) {
     missingFields.push("modelSpec");
+  }
+  if (!metadata.productPriceText.trim()) {
+    missingFields.push("productPriceText");
   }
   if (missingFields.length > 0) {
     throw new Error(`Publish workbook metadata was incomplete for mode=${mode}: ${missingFields.join(", ")}`);
@@ -7987,7 +7990,10 @@ async function findPriceInventoryTableDomRows(page: Page): Promise<PriceInventor
   });
 }
 
-async function detectPriceInventoryValuesInsideSpecInputs(page: Page): Promise<string[]> {
+async function detectPriceInventoryValuesInsideSpecInputs(
+  page: Page,
+  priceInventoryRows: PriceInventoryRowValue[]
+): Promise<string[]> {
   return page.evaluate((expectedValues) => {
     const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
     const dangerousValues = expectedValues.map((value) => normalize(String(value)));
@@ -8022,7 +8028,7 @@ async function detectPriceInventoryValuesInsideSpecInputs(page: Page): Promise<s
         return dangerousValues.includes(value) ? input.value || "" : "";
       })
       .filter(Boolean);
-  }, [...FIXED_PRICES, FIXED_STOCK]);
+  }, [...priceInventoryRows.map((row) => row.price), ...priceInventoryRows.map((row) => row.stock)]);
 }
 
 type PriceInventoryRowTarget = {
@@ -8147,53 +8153,11 @@ async function countVisiblePriceInventoryRows(page: Page): Promise<number> {
   return rows.length;
 }
 
-async function applyPriceInventory(
-  runtimeDir: string,
-  publishPageUrl: string
-): Promise<{
-  pageUrl: string;
-  pageTitle: string;
-  screenshotFile: string;
-  filledRows: number;
-}> {
-  const context = await launchPersistentBrowser();
-  try {
-    const page = context.pages().find((item) => !item.isClosed()) || (await context.newPage());
-    await page.bringToFront();
-    await page.goto(publishPageUrl, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(3500);
-    await page.mouse.wheel(0, 2300).catch(() => {});
-    await page.waitForTimeout(1000);
-
-    const rows = await readVisiblePriceInventoryRows(page);
-    if (!rows.length) {
-      throw new Error("No visible price/inventory rows found on publish page.");
-    }
-
-    const filledRows = Math.min(rows.length, FIXED_PRICES.length);
-    for (let index = 0; index < filledRows; index += 1) {
-      const rowIssue = await fillAndVerifyPriceInventoryRow(page, index, FIXED_PRICES[index], FIXED_STOCK);
-      if (rowIssue) {
-        throw new Error(rowIssue);
-      }
-    }
-
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-price-inventory-filled.png");
-    return {
-      pageUrl: page.url(),
-      pageTitle: await page.title(),
-      screenshotFile,
-      filledRows
-    };
-  } finally {
-    await context.browser()?.close().catch(() => {});
-  }
-}
-
 async function applyPriceInventoryOnPage(
   page: Page,
   runtimeDir: string,
-  fileName: string
+  fileName: string,
+  priceInventoryRows: PriceInventoryRowValue[]
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -8206,7 +8170,7 @@ async function applyPriceInventoryOnPage(
   await ensurePriceInventorySectionReady(page);
   await dismissTransientOverlays(page);
 
-  const pollutedSpecInputsBeforeFill = await detectPriceInventoryValuesInsideSpecInputs(page).catch(() => []);
+  const pollutedSpecInputsBeforeFill = await detectPriceInventoryValuesInsideSpecInputs(page, priceInventoryRows).catch(() => []);
   if (pollutedSpecInputsBeforeFill.length) {
     const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
     return {
@@ -8230,9 +8194,10 @@ async function applyPriceInventoryOnPage(
     };
   }
 
-  const filledRows = Math.min(rows.length, FIXED_PRICES.length);
+  const filledRows = Math.min(rows.length, priceInventoryRows.length);
   for (let index = 0; index < filledRows; index += 1) {
-    const rowIssue = await fillAndVerifyPriceInventoryRow(page, index, FIXED_PRICES[index], FIXED_STOCK);
+    const expected = priceInventoryRows[index];
+    const rowIssue = await fillAndVerifyPriceInventoryRow(page, index, expected.price, expected.stock);
     if (rowIssue) {
       const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
       return {
@@ -8246,7 +8211,7 @@ async function applyPriceInventoryOnPage(
   }
 
   const finalRows = await readVisiblePriceInventoryRows(page);
-  const pollutedSpecInputsAfterFill = await detectPriceInventoryValuesInsideSpecInputs(page).catch(() => []);
+  const pollutedSpecInputsAfterFill = await detectPriceInventoryValuesInsideSpecInputs(page, priceInventoryRows).catch(() => []);
   if (pollutedSpecInputsAfterFill.length) {
     const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
     return {
@@ -8257,16 +8222,16 @@ async function applyPriceInventoryOnPage(
       priceIssue: `Price/inventory values were incorrectly written into spec value inputs: ${pollutedSpecInputsAfterFill.join(", ")}`
     };
   }
-  const missingRows = FIXED_PRICES.map((price, index) => {
+  const missingRows = priceInventoryRows.map((expected, index) => {
     const currentRow = finalRows[index];
     if (!currentRow) {
       return `row ${index + 1} missing`;
     }
-    const priceOk = normalizeNumericInputValue(currentRow.priceValue) === normalizeNumericInputValue(String(price));
-    const stockOk = normalizeNumericInputValue(currentRow.stockValue) === normalizeNumericInputValue(String(FIXED_STOCK));
+    const priceOk = normalizeNumericInputValue(currentRow.priceValue) === normalizeNumericInputValue(String(expected.price));
+    const stockOk = normalizeNumericInputValue(currentRow.stockValue) === normalizeNumericInputValue(String(expected.stock));
     return priceOk && stockOk
       ? ""
-      : `row ${index + 1} expected price=${price}, stock=${FIXED_STOCK}; actual price=${currentRow.priceValue || "<empty>"}, stock=${currentRow.stockValue || "<empty>"}`;
+      : `row ${index + 1} expected price=${expected.price}, stock=${expected.stock}; actual price=${currentRow.priceValue || "<empty>"}, stock=${currentRow.stockValue || "<empty>"}`;
   }).filter(Boolean);
 
   if (missingRows.length) {
@@ -8276,8 +8241,9 @@ async function applyPriceInventoryOnPage(
       pageTitle: await page.title(),
       screenshotFile,
       filledRows: finalRows.filter((row, index) => {
-        const priceOk = normalizeNumericInputValue(row.priceValue) === normalizeNumericInputValue(String(FIXED_PRICES[index] ?? ""));
-        const stockOk = normalizeNumericInputValue(row.stockValue) === normalizeNumericInputValue(String(FIXED_STOCK));
+        const expected = priceInventoryRows[index];
+        const priceOk = normalizeNumericInputValue(row.priceValue) === normalizeNumericInputValue(String(expected?.price ?? ""));
+        const stockOk = normalizeNumericInputValue(row.stockValue) === normalizeNumericInputValue(String(expected?.stock ?? ""));
         return priceOk && stockOk;
       }).length,
       priceIssue: `Price/inventory verification failed: ${missingRows.join(" | ")}`
@@ -8296,7 +8262,7 @@ async function applyPriceInventoryOnPage(
 
 async function runPublishFlow(
   runtimeDir: string,
-  metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string },
+  metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string; productPriceText?: string },
   assets: ProductAssets,
   shopFolder: string,
   publishPageUrl?: string,
@@ -8358,6 +8324,7 @@ async function runPublishFlow(
   let createPageUrl = publishPageUrl || "";
   let matchedRowText = "";
   let shopVerifiedBeforeCreatePage = false;
+  const priceInventoryRows = resolveFeishuPriceInventoryRows(metadata.productPriceText || "");
 
   if (!createPageUrl) {
     const queryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
@@ -8585,13 +8552,18 @@ async function runPublishFlow(
 
       await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_price_inventory_module");
       logInfo(`publish module started: price_inventory (${path.basename(shopFolder)})`);
-      const priceInventoryResult = await applyPriceInventoryOnPage(page, runtimeDir, "publish-page-price-inventory-filled.png");
+      const priceInventoryResult = await applyPriceInventoryOnPage(
+        page,
+        runtimeDir,
+        "publish-page-price-inventory-filled.png",
+        priceInventoryRows
+      );
       screenshotFiles.push(priceInventoryResult.screenshotFile);
       filledPriceRows = priceInventoryResult.filledRows;
       priceIssue = priceInventoryResult.priceIssue;
       const priceRule = evaluatePriceInventoryCompletion({
         filledPriceRows,
-        expectedRows: FIXED_PRICES.length,
+        expectedRows: priceInventoryRows.length,
         priceIssue,
         specIssue
       });
@@ -8607,7 +8579,7 @@ async function runPublishFlow(
     if (!priceInventoryCompleted) {
       const priceRule = evaluatePriceInventoryCompletion({
         filledPriceRows,
-        expectedRows: FIXED_PRICES.length,
+        expectedRows: priceInventoryRows.length,
         priceIssue,
         specIssue
       });
@@ -8847,7 +8819,7 @@ async function runPublishFlow(
 
 async function runGraphicFlow(
   runtimeDir: string,
-  metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string },
+  metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string; productPriceText?: string },
   assets: ProductAssets,
   shopFolder: string,
   publishPageUrl?: string,
@@ -9072,7 +9044,8 @@ export async function runPublishFromSpuJob(
         spu: metadataOverride.spu || workbook.spu || "",
         title: metadataOverride.title || workbook.title || "",
         shortTitle: metadataOverride.shortTitle || workbook.shortTitle || "",
-        modelSpec: metadataOverride.modelSpec || workbook.modelSpec || "\u76D2\u88C5"
+        modelSpec: metadataOverride.modelSpec || workbook.modelSpec || "\u76D2\u88C5",
+        productPriceText: metadataOverride.productPriceText || workbook.productPriceText || ""
       };
       if (mode !== "open_platform_spu") {
         assertResolvedMetadata(resolvedMetadata, mode);
@@ -9125,7 +9098,8 @@ export async function runPublishFromSpuJob(
           spu: resolvedMetadata.spu,
           title: resolvedMetadata.title,
           shortTitle: resolvedMetadata.shortTitle,
-          modelSpec: resolvedMetadata.modelSpec
+          modelSpec: resolvedMetadata.modelSpec,
+          productPriceText: resolvedMetadata.productPriceText
         },
         assets,
         shopFolder,
@@ -9166,7 +9140,8 @@ export async function runPublishFromSpuJob(
           spu: resolvedMetadata.spu,
           title: resolvedMetadata.title,
           shortTitle: resolvedMetadata.shortTitle,
-          modelSpec: resolvedMetadata.modelSpec
+          modelSpec: resolvedMetadata.modelSpec,
+          productPriceText: resolvedMetadata.productPriceText
         },
         assets,
         shopFolder,
@@ -9273,7 +9248,8 @@ export async function runPublishFromSpuJob(
           spu: resolvedMetadata.spu,
           title: resolvedMetadata.title,
           shortTitle: resolvedMetadata.shortTitle,
-          modelSpec: resolvedMetadata.modelSpec
+          modelSpec: resolvedMetadata.modelSpec,
+          productPriceText: resolvedMetadata.productPriceText
         },
         assets,
         shopFolder,
@@ -9394,7 +9370,8 @@ export async function runPublishFromSpuJob(
               metadataOverride.spu ||
               metadataOverride.title ||
               metadataOverride.shortTitle ||
-              metadataOverride.modelSpec
+              metadataOverride.modelSpec ||
+              metadataOverride.productPriceText
           ),
           workbookParsed: !workbook.parseError
         },
@@ -9416,8 +9393,8 @@ export async function runPublishFromSpuJob(
           shippingTime: "48\u5C0F\u65F6",
           productStatus: "\u4E0A\u67B6",
           specValues: FIXED_SPEC_VALUES,
-          priceRows: FIXED_PRICES,
-          stockRows: [FIXED_STOCK, FIXED_STOCK, FIXED_STOCK, FIXED_STOCK]
+          priceRows: resolveFeishuPriceInventoryRows(resolvedMetadata.productPriceText).map((row) => row.price),
+          stockRows: resolveFeishuPriceInventoryRows(resolvedMetadata.productPriceText).map((row) => row.stock)
         },
         executionRules: {
           unitOfWork: "single_product_folder",

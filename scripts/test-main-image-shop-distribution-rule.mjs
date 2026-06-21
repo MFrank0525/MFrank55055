@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { generateMainImageAssets, resolveOpenAiCompatibleGeneratedImageIndex } from "../dist/src/autolist/jimeng-assets.js";
-import { writeDeepSeekPromptWordFiles } from "../dist/src/autolist/deepseek-word-docs.js";
+import { writeFeishuPromptWordFiles } from "../dist/src/autolist/deepseek-word-docs.js";
 import { getProductCategoryPlan, getShopSpecs } from "../dist/src/autolist/product-category.js";
 
 const fixturePng = fs.readFileSync("input/fixed-main-images/辅助图02.png");
@@ -61,13 +61,13 @@ async function runRecoveredRawCategory(category) {
   const shopRoot = prepareShopRoot(tmp);
   const sourceImagePath = path.join(tmp, "source.png");
   fs.writeFileSync(sourceImagePath, fixturePng);
-  const wordFiles = writeDeepSeekPromptWordFiles({
+  const wordFiles = writeFeishuPromptWordFiles({
     jimengImageDir: path.join(tmp, "words"),
+    mainImageInstructionText: "飞书主图指令",
     sellingPointText: "产品卖点",
-    brand: "延草纲目",
-    userCognitionName: "示例产品",
-    brandedGenericName: "延草纲目示例通用名称",
     prompts: ["场景一,产品展示", "场景二,产品展示", "场景三,产品展示", "场景四,产品展示", "场景五,产品展示"],
+    positivePromptText: "飞书正向提示词",
+    negativePromptText: "飞书反向提示词",
     promptCount: 5
   });
   const configFile = path.join(tmp, "image-generation.config.json");

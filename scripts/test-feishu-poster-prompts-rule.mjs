@@ -11,46 +11,13 @@ const jimengAssetsSource = fs.readFileSync("src/autolist/jimeng-assets.ts", "utf
 
 assert.match(
   mainImageRuleDoc,
-  /卖点文案.*图案元素|图案化/,
-  "main image prompt rules must require selling points to be designed as visual elements"
-);
-assert.match(
-  mainImageRuleDoc,
-  /不要在主图里增加.*部位前后对比|前后对比效果图/,
-  "main image prompt rules must forbid before-after body-part comparison imagery"
-);
-for (const forbiddenImageText of [
-  "放心使用",
-  "过敏",
-  "红敏",
-  "治疗",
-  "泛红",
-  "敏感肌",
-  "消肿止痛",
-  "敏肌",
-  "红肿",
-  "抗敏",
-  "抗炎",
-  "炎症",
-  "消炎",
-  "日本",
-  "进口"
-]) {
-  assert.match(
-    mainImageRuleDoc,
-    new RegExp(forbiddenImageText),
-    `main image prompt rules must list forbidden image text: ${forbiddenImageText}`
-  );
-}
-assert.match(
-  mainImageRuleDoc,
-  /违禁词不得出现在图片里/,
-  "main image prompt rules must explicitly forbid prohibited words from appearing in generated images"
+  /飞书 `主图指令`[\s\S]*飞书 `正向提示词`[\s\S]*飞书 `反向提示词`/,
+  "main image prompt rules must use Feishu dynamic prompt fields"
 );
 assert.doesNotMatch(
   mainImageRuleDoc,
-  /绿色对号/,
-  "main image prompt rules must not require simple green-check selling point text layout"
+  /### 主图指令模板|### 主图输出文字护栏/,
+  "main image prompt rules must not preserve internal fixed prompt blocks"
 );
 assert.match(
   imageGenerationExampleConfig,

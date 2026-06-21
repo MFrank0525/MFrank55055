@@ -1,12 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { formatTimestamp, sanitizeFileName } from "../doubao/paths.js";
-import { getProductCategoryPlan } from "./product-category.js";
-import { assertGeneratedTitlesBelongToProduct, countTitleCharacters, normalizeDoubaoGeneratedTitleForDoudian } from "./title-rules.js";
+import { countTitleCharacters, DOUDIAN_TITLE_MAX_CHARACTERS, normalizeDoubaoGeneratedTitleForDoudian } from "./title-rules.js";
 import { writeSimpleWorkbook } from "./xlsx-lite.js";
 import type { TitleSheetArtifact, TitleSheetFile } from "./types.js";
-
-const TITLE_PREFIXES = ["医用级", "正品", "官方正品"];
 
 function cleanTitleToken(value: string): string {
   return Array.from(value.replace(/\s+/g, "").trim())
@@ -34,20 +31,21 @@ function totalTitleLength(tokens: string[]): number {
   return tokens.reduce((sum, token) => sum + countTitleCharacters(token), 0);
 }
 
-function findBestKeywordCombination(keywords: string[], targetLength: number): string[] {
+function findBestKeywordCombination(keywords: string[], targetLength: number, seed: number): string[] {
   if (targetLength <= 0) {
     return [];
   }
 
   let best: string[] = [];
   for (let offset = 0; offset < keywords.length; offset += 1) {
-    const ordered = rotate(keywords, offset);
+    const ordered = rotate(seed % 2 === 0 ? keywords : [...keywords].reverse(), offset + seed);
     const selected: string[] = [];
     let currentLength = 0;
     let changed = false;
     do {
       changed = false;
-      for (const keyword of ordered) {
+      for (let index = 0; index < ordered.length; index += 1) {
+        const keyword = ordered[index];
         const length = countTitleCharacters(keyword);
         if (currentLength + length > targetLength) {
           continue;
@@ -67,54 +65,36 @@ function findBestKeywordCombination(keywords: string[], targetLength: number): s
   return best;
 }
 
-function resolveTitleShape(options: { brand: string; genericName: string; productCategory?: string; index: number }): {
-  prefix: string;
-  suffix: string;
-  targetLength: number;
-} {
-  const plan = getProductCategoryPlan(options.productCategory);
-  if (plan.titleRule === "health_food") {
-    return { prefix: "", suffix: "", targetLength: plan.titleCharacterCount };
-  }
-  const prefix = TITLE_PREFIXES[options.index % TITLE_PREFIXES.length];
-  const suffix = plan.titleRule === "otc_drug" ? options.genericName.trim() : `${options.genericName.trim()}${options.brand.trim()}`;
-  return { prefix, suffix, targetLength: plan.titleCharacterCount };
-}
-
 export function buildTitlesFromFeishuKeywords(options: {
   keywordText: string;
-  brand: string;
-  genericName: string;
+  fixedSuffixText: string;
   productCategory?: string;
   titleCount: number;
 }): string[] {
   const keywords = parseFeishuTitleKeywords(options.keywordText);
+  const suffix = cleanTitleToken(options.fixedSuffixText);
   if (!keywords.length) {
     throw new Error("Feishu 标题关键词 is required.");
   }
-  if (!options.genericName.trim()) {
-    throw new Error("Feishu keyword title generation requires genericName.");
+  if (!suffix) {
+    throw new Error("Feishu 标题固定后缀 is required.");
   }
 
   const titles: string[] = [];
   const seen = new Set<string>();
-  for (let index = 0; titles.length < options.titleCount && index < options.titleCount * Math.max(8, keywords.length); index += 1) {
-    const shape = resolveTitleShape({
-      brand: options.brand,
-      genericName: options.genericName,
-      productCategory: options.productCategory,
-      index
-    });
-    const fixedLength = countTitleCharacters(shape.prefix) + countTitleCharacters(shape.suffix);
-    const bodyLength = shape.targetLength - fixedLength;
+  const bodyLength = DOUDIAN_TITLE_MAX_CHARACTERS - countTitleCharacters(suffix);
+  if (bodyLength <= 0) {
+    throw new Error("Feishu 标题固定后缀 is too long; full title cannot exceed 120 characters.");
+  }
+  for (let index = 0; titles.length < options.titleCount && index < options.titleCount * Math.max(16, keywords.length * 2); index += 1) {
     const ordered = rotate(index % 2 === 0 ? keywords : [...keywords].reverse(), index);
-    const bodyTokens = findBestKeywordCombination(ordered, bodyLength);
+    const bodyTokens = findBestKeywordCombination(ordered, bodyLength, index);
     if (!bodyTokens.length && bodyLength > 0) {
       continue;
     }
-    const variedBodyTokens = index % 3 === 2 ? [...bodyTokens].reverse() : rotate(bodyTokens, index);
-    const title = `${shape.prefix}${variedBodyTokens.join("")}${shape.suffix}`;
-    if (countTitleCharacters(title) > shape.targetLength || seen.has(title)) {
+    const variedBodyTokens = index % 3 === 2 ? [...bodyTokens].reverse() : rotate(bodyTokens, index % bodyTokens.length);
+    const title = `${variedBodyTokens.join("")}${suffix}`;
+    if (countTitleCharacters(title) > DOUDIAN_TITLE_MAX_CHARACTERS || seen.has(title)) {
       continue;
     }
     seen.add(title);
@@ -123,14 +103,9 @@ export function buildTitlesFromFeishuKeywords(options: {
 
   if (titles.length < options.titleCount) {
     throw new Error(
-      `Feishu 标题关键词 could only compose ${titles.length}/${options.titleCount} title(s) without exceeding category length. Add more varied keywords.`
+      `Feishu 标题关键词 could only compose ${titles.length}/${options.titleCount} unique title(s) without exceeding 120 characters. Add more varied keywords.`
     );
   }
-  assertGeneratedTitlesBelongToProduct({
-    titles,
-    genericName: options.genericName,
-    productCategory: options.productCategory
-  });
   return titles;
 }
 
@@ -138,14 +113,15 @@ function inferProductName(userCognitionName: string | undefined, genericName: st
   return sanitizeFileName(userCognitionName?.trim() || genericName?.trim() || "未命名产品") || "未命名产品";
 }
 
-function buildWorkbookRows(title: string): string[][] {
+function buildWorkbookRows(title: string, productPriceText: string): string[][] {
   return [
     ["字段", "内容"],
     ["标题", title],
     ["导购短标题", ""],
     ["品牌", ""],
     ["SPU信息", ""],
-    ["型号规格", "盒装"]
+    ["型号规格", "盒装"],
+    ["产品价格", productPriceText]
   ];
 }
 
@@ -154,6 +130,7 @@ function buildTitleWorkbookFiles(options: {
   productName: string;
   titles: string[];
   timestamp: string;
+  productPriceText: string;
 }): TitleSheetFile[] {
   return options.titles.map((title, index) => {
     const normalized = normalizeDoubaoGeneratedTitleForDoudian(title);
@@ -161,7 +138,7 @@ function buildTitleWorkbookFiles(options: {
       options.titleDir,
       `${sanitizeFileName(`${options.productName}标题${String(index + 1).padStart(2, "0")}${options.timestamp}`)}.xlsx`
     );
-    writeSimpleWorkbook(workbookFile, buildWorkbookRows(normalized.title));
+    writeSimpleWorkbook(workbookFile, buildWorkbookRows(normalized.title, options.productPriceText));
     return {
       title: normalized.title,
       workbookFile
@@ -174,6 +151,8 @@ export async function generateTitleSheets(options: {
   sourceImagePath: string;
   sellingPointText: string;
   titleKeywordText?: string;
+  fixedSuffixText?: string;
+  productPriceText?: string;
   brand?: string;
   userCognitionName?: string;
   genericName?: string;
@@ -189,8 +168,7 @@ export async function generateTitleSheets(options: {
   fs.mkdirSync(outputDir, { recursive: true });
   const titles = buildTitlesFromFeishuKeywords({
     keywordText: options.titleKeywordText || "",
-    brand: options.brand || "",
-    genericName: options.genericName || "",
+    fixedSuffixText: options.fixedSuffixText || "",
     productCategory: options.productCategory,
     titleCount: options.titleCount
   });
@@ -200,7 +178,8 @@ export async function generateTitleSheets(options: {
       titleDir: outputDir,
       productName,
       titles,
-      timestamp
+      timestamp,
+      productPriceText: options.productPriceText || ""
     }),
     simulated: options.simulateOnly
   };

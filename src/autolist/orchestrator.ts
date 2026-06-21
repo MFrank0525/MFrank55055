@@ -5,7 +5,7 @@ import {
   assertDeepSeekPromptsBelongToCurrentProduct,
   buildDeepSeekPromptValidationContext
 } from "./deepseek-prompt-rules.js";
-import { writeDeepSeekPromptWordFiles } from "./deepseek-word-docs.js";
+import { writeFeishuPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateMainImageAssets } from "./jimeng-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
@@ -412,13 +412,13 @@ async function executeTaskChain(
         promptCount,
         simulateOnly
       });
-      deepseekArtifact.wordFiles = writeDeepSeekPromptWordFiles({
+      deepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
         jimengImageDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
         sellingPointText: current.sellingPointArtifact.sellingPointText,
-        brand: current.sellingPointArtifact.brand,
-        userCognitionName: current.sellingPointArtifact.userCognitionName,
-        brandedGenericName: current.sellingPointArtifact.brandedGenericName,
+        mainImageInstructionText: current.feishuProductRecord?.mainImageInstructionText || "",
         prompts: deepseekArtifact.prompts,
+        positivePromptText: current.feishuProductRecord?.positivePromptText || "",
+        negativePromptText: current.feishuProductRecord?.negativePromptText || "",
         promptCount
       });
       current = {
@@ -485,13 +485,13 @@ async function executeTaskChain(
           promptCount: productPlan.promptCount,
           simulateOnly
         });
-        regeneratedDeepseekArtifact.wordFiles = writeDeepSeekPromptWordFiles({
+        regeneratedDeepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
           jimengImageDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
           sellingPointText: current.sellingPointArtifact.sellingPointText,
-          brand: current.sellingPointArtifact.brand,
-          userCognitionName: current.sellingPointArtifact.userCognitionName,
-          brandedGenericName: current.sellingPointArtifact.brandedGenericName,
+          mainImageInstructionText: current.feishuProductRecord?.mainImageInstructionText || "",
           prompts: regeneratedDeepseekArtifact.prompts,
+          positivePromptText: current.feishuProductRecord?.positivePromptText || "",
+          negativePromptText: current.feishuProductRecord?.negativePromptText || "",
           promptCount: productPlan.promptCount
         });
         current = {
@@ -592,6 +592,8 @@ async function executeTaskChain(
         sourceImagePath: current.sourceImagePath,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
         titleKeywordText: current.feishuProductRecord?.titleKeywordText,
+        fixedSuffixText: current.feishuProductRecord?.titleSuffixText,
+        productPriceText: current.feishuProductRecord?.productPriceText,
         brand: current.feishuProductRecord?.brand,
         userCognitionName: current.feishuProductRecord?.userCognitionName,
         genericName: current.feishuProductRecord?.genericName,

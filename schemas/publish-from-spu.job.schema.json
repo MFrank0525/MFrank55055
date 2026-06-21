@@ -24,7 +24,8 @@
             "spu": { "type": "string" },
             "title": { "type": "string" },
             "shortTitle": { "type": "string" },
-            "modelSpec": { "type": "string" }
+            "modelSpec": { "type": "string" },
+            "productPriceText": { "type": "string" }
           }
         },
         "publishPageUrl": { "type": "string" },

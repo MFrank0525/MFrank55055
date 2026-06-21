@@ -48,6 +48,11 @@ function assertRecordReady(record: FeishuProductRecord): void {
   if (!record.brand) missing.push("brand");
   if (!record.spu) missing.push("spu");
   if (!record.sellingPointText) missing.push("sellingPointText");
+  if (!record.mainImageInstructionText) missing.push("mainImageInstructionText");
+  if (!record.positivePromptText) missing.push("positivePromptText");
+  if (!record.negativePromptText) missing.push("negativePromptText");
+  if (!record.titleSuffixText) missing.push("titleSuffixText");
+  if (!record.productPriceText) missing.push("productPriceText");
   if (!record.shortTitle) missing.push("shortTitle");
   if (missing.length > 0) {
     throw new Error(`Feishu product record ${record.recordId} is incomplete: ${missing.join(", ")}`);

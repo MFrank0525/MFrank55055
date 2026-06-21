@@ -85,8 +85,11 @@ import {
 import { recoverDistributedFoldersFromShopRoot } from "../dist/src/autolist/resume.js";
 import { isProductFullyProcessed } from "../dist/src/autolist/processed-completion-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
-import { normalizeDoubaoGeneratedTitleForDoudian } from "../dist/src/autolist/title-rules.js";
-import { assertGeneratedTitlesBelongToProduct } from "../dist/src/autolist/title-rules.js";
+import {
+  assertGeneratedTitlesBelongToProduct,
+  countTitleCharacters,
+  normalizeDoubaoGeneratedTitleForDoudian
+} from "../dist/src/autolist/title-rules.js";
 import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-from-spu/asset-rules.js";
 const progressRulesModule = await import("../dist/src/autolist/batch-continuation-rules.js");
 import {
@@ -855,7 +858,7 @@ assert.equal(
   "systemic spec-template control failures must stop the remaining shop batch instead of producing continuous failures"
 );
 const priceInventoryVerificationClass = classifyPublishFailure(
-  "Sequential publish flow stopped: 价格库存模块未完成。Price/inventory verification failed: row 1 expected price=89, stock=1000; actual price=<empty>, stock=0 | row 2 expected price=86, stock=1000; actual price=<empty>, stock=0"
+  "Sequential publish flow stopped: 价格库存模块未完成。Price/inventory verification failed: row 1 expected price=129, stock=2000; actual price=<empty>, stock=0 | row 2 expected price=99, stock=2000; actual price=<empty>, stock=0"
 );
 assert.equal(
   priceInventoryVerificationClass,
@@ -2055,7 +2058,7 @@ assert.deepEqual(
 const compactFailedMiddleStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",
   summary:
-    "Publish failed for /shops/08店/延草纲目遠紅外治療貼水印16: Sequential publish flow stopped: 价格库存模块未完成。Price/inventory verification failed: row 1 expected price=89, stock=1000; actual price=<empty>, stock=0",
+    "Publish failed for /shops/08店/延草纲目遠紅外治療貼水印16: Sequential publish flow stopped: 价格库存模块未完成。Price/inventory verification failed: row 1 expected price=129, stock=2000; actual price=<empty>, stock=0",
   productName: failedMiddleWithLaterPublishedProgress.productName,
   publishProductIndex: failedMiddleWithLaterPublishedProgress.productIndex,
   publishProductTotal: failedMiddleWithLaterPublishedProgress.productTotal,
@@ -3602,19 +3605,22 @@ assert.equal(
   false
 );
 
-const exactSixtyTitle = "标".repeat(60);
-const exactSixtyTitleDecision = normalizeDoubaoGeneratedTitleForDoudian(exactSixtyTitle);
-assert.equal(exactSixtyTitleDecision.title, exactSixtyTitle);
-assert.equal(exactSixtyTitleDecision.changed, false);
-assert.equal(exactSixtyTitleDecision.originalLength, 60);
-assert.equal(exactSixtyTitleDecision.maxLength, 60);
+const exactMaxTitle = "标".repeat(60);
+const exactMaxTitleDecision = normalizeDoubaoGeneratedTitleForDoudian(exactMaxTitle);
+assert.equal(exactMaxTitleDecision.title, exactMaxTitle);
+assert.equal(exactMaxTitleDecision.changed, false);
+assert.equal(exactMaxTitleDecision.originalLength, 120);
+assert.equal(exactMaxTitleDecision.maxLength, 120);
 
-const overSixtyTitle = `${"删".repeat(5)}${"留".repeat(60)}`;
-const overSixtyTitleDecision = normalizeDoubaoGeneratedTitleForDoudian(overSixtyTitle);
-assert.equal(overSixtyTitleDecision.title, "留".repeat(60));
-assert.equal(overSixtyTitleDecision.changed, true);
-assert.equal(overSixtyTitleDecision.originalLength, 65);
-assert.equal(overSixtyTitleDecision.maxLength, 60);
+const overMaxTitle = `${"留".repeat(60)}删`;
+const overMaxTitleDecision = normalizeDoubaoGeneratedTitleForDoudian(overMaxTitle);
+assert.equal(overMaxTitleDecision.title, "留".repeat(60));
+assert.equal(overMaxTitleDecision.changed, true);
+assert.equal(overMaxTitleDecision.originalLength, 122);
+assert.equal(overMaxTitleDecision.maxLength, 120);
+
+assert.equal(countTitleCharacters("ABC123"), 6);
+assert.equal(countTitleCharacters("标题ABC"), 7);
 
 assert.doesNotThrow(() =>
   assertGeneratedTitlesBelongToProduct({

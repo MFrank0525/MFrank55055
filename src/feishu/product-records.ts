@@ -124,7 +124,12 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     spu: extractText(field("spu")),
     sellingPointText: extractText(field("sellingPointText")),
     deepseekPromptText: extractText(field("deepseekPromptText")),
+    mainImageInstructionText: extractText(field("mainImageInstructionText")),
+    positivePromptText: extractText(field("positivePromptText")),
+    negativePromptText: extractText(field("negativePromptText")),
     titleKeywordText: extractText(field("titleKeywordText")),
+    titleSuffixText: extractText(field("titleSuffixText")),
+    productPriceText: extractText(field("productPriceText")),
     shortTitle: extractText(field("shortTitle")),
     productCategory: extractText(field("productCategory")),
     qualificationImages: extractAttachments(field("qualificationImages")),
@@ -141,7 +146,12 @@ export function validateFeishuProductRecord(record: FeishuProductRecord): string
   if (!record.spu) missing.push("spu");
   if (!record.sellingPointText) missing.push("sellingPointText");
   if (!record.deepseekPromptText) missing.push("deepseekPromptText");
+  if (!record.mainImageInstructionText) missing.push("mainImageInstructionText");
+  if (!record.positivePromptText) missing.push("positivePromptText");
+  if (!record.negativePromptText) missing.push("negativePromptText");
   if (!record.titleKeywordText) missing.push("titleKeywordText");
+  if (!record.titleSuffixText) missing.push("titleSuffixText");
+  if (!record.productPriceText) missing.push("productPriceText");
   if (!record.shortTitle) missing.push("shortTitle");
   if (!record.qualificationImages.length) missing.push("qualificationImages");
   if (!record.whiteBackgroundImages.length) missing.push("whiteBackgroundImages");
@@ -161,7 +171,12 @@ export function isEmptyFeishuProductRecord(record: FeishuProductRecord): boolean
     !record.spu &&
     !record.sellingPointText &&
     !record.deepseekPromptText &&
+    !record.mainImageInstructionText &&
+    !record.positivePromptText &&
+    !record.negativePromptText &&
     !record.titleKeywordText &&
+    !record.titleSuffixText &&
+    !record.productPriceText &&
     !record.shortTitle &&
     !record.productCategory &&
     record.qualificationImages.length === 0 &&

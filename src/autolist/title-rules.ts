@@ -1,4 +1,4 @@
-export const DOUDIAN_TITLE_MAX_CHARACTERS = 60;
+export const DOUDIAN_TITLE_MAX_CHARACTERS = 120;
 
 export type TitleNormalizationResult = {
   title: string;
@@ -8,15 +8,28 @@ export type TitleNormalizationResult = {
 };
 
 export function countTitleCharacters(title: string): number {
-  return Array.from(title).length;
+  return Array.from(title).reduce((total, character) => total + (/^[\x00-\x7F]$/.test(character) ? 1 : 2), 0);
+}
+
+function truncateTitleToCharacterLimit(title: string, maxLength: number): string {
+  let currentLength = 0;
+  const kept: string[] = [];
+  for (const character of Array.from(title)) {
+    const characterLength = /^[\x00-\x7F]$/.test(character) ? 1 : 2;
+    if (currentLength + characterLength > maxLength) {
+      break;
+    }
+    kept.push(character);
+    currentLength += characterLength;
+  }
+  return kept.join("");
 }
 
 export function normalizeDoubaoGeneratedTitleForDoudian(
   title: string,
   maxLength = DOUDIAN_TITLE_MAX_CHARACTERS
 ): TitleNormalizationResult {
-  const characters = Array.from(title);
-  const originalLength = characters.length;
+  const originalLength = countTitleCharacters(title);
   if (originalLength <= maxLength) {
     return {
       title,
@@ -27,7 +40,7 @@ export function normalizeDoubaoGeneratedTitleForDoudian(
   }
 
   return {
-    title: characters.slice(originalLength - maxLength).join(""),
+    title: truncateTitleToCharacterLimit(title, maxLength),
     changed: true,
     originalLength,
     maxLength
