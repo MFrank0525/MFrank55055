@@ -6,6 +6,33 @@ const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" });
 const removedChatProvider = ["dou", "bao"].join("");
 const removedImageModule = ["ji", "meng"].join("");
 const removedImageCli = ["dream", "ina"].join("");
+const excludedRootDirs = new Set([".git", ".codegraph", "data", "node_modules"]);
+
+function listOperationalPaths(dir = ".", relativeDir = "") {
+  const paths = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!relativeDir && excludedRootDirs.has(entry.name)) {
+      continue;
+    }
+    if (entry.name === "node_modules") {
+      continue;
+    }
+    const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+    paths.push(relativePath);
+    if (entry.isDirectory()) {
+      paths.push(...listOperationalPaths(`${dir}/${entry.name}`, relativePath));
+    }
+  }
+  return paths;
+}
+
+for (const filePath of listOperationalPaths()) {
+  const normalizedPath = filePath.toLowerCase();
+  for (const token of [removedChatProvider, removedImageModule, removedImageCli]) {
+    assert.equal(normalizedPath.includes(token), false, `obsolete provider path remains: ${filePath}`);
+  }
+}
+
 for (const forbidden of [
   `src/${removedChatProvider}/`,
   `src/browser/${removedChatProvider}.ts`,
@@ -25,6 +52,7 @@ for (const token of [removedChatProvider, removedImageModule, removedImageCli]) 
 }
 
 const operationalFiles = [
+  ".gitignore",
   "README.md",
   "README.ai.md",
   ...fs.readdirSync("docs/auto-listing/steps").map((name) => `docs/auto-listing/steps/${name}`),
@@ -38,5 +66,7 @@ for (const file of operationalFiles) {
     assert.equal(source.toLowerCase().includes(token), false, `obsolete provider wording remains in ${file}: ${token}`);
   }
 }
+
+execFileSync(process.execPath, ["scripts/test-build-output-cleanup-rule.mjs"], { stdio: "inherit" });
 
 console.log("obsolete provider removal rule passed");

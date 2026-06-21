@@ -30,8 +30,6 @@ data/browser-profile/
 data/browser-profile-fallback/
 input/auto-listing/feishu-images/*
 !input/auto-listing/feishu-images/.gitkeep
-input/auto-listing/jimeng-images/*
-!input/auto-listing/jimeng-images/.gitkeep
 input/auto-listing/titles/*
 !input/auto-listing/titles/.gitkeep
 input/auto-listing/qualifications/*
