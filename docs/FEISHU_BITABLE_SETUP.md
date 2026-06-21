@@ -1,6 +1,6 @@
 # Feishu Bitable Setup
 
-目标：从飞书多维表格读取产品数据，替代原先“豆包生成卖点 + 本地 Excel 回填”的数据来源。
+目标：从飞书多维表格读取自动上架所需的全部产品字段和附件。
 
 ## 需要的授权信息
 
@@ -173,7 +173,7 @@ npm run auto-listing:hermes-pause
 
 同一店铺出现 2 次上架是当前 20 张主图计划的正常分配：医疗器械/保健食品每店 2 个水印商品目录。真正的重复上架风险是最终提交后的不确定重试；这类 `final_publish_state_uncertain` 必须进入人工确认/平台结果查询，不允许自动重新提交同一商品。
 
-这个 job 通过 `feishuProductDataFile` 读取 `data/feishu/products.json`。配置后，自动上架流程里的卖点上下文会来自飞书字段 `产品卖点`，不再调用豆包生成产品卖点。
+这个 job 通过 `feishuProductDataFile` 读取 `data/feishu/products.json`。自动上架流程里的卖点上下文唯一来自飞书字段 `产品卖点`。
 
 飞书产品执行顺序：
 
@@ -205,7 +205,7 @@ npm run auto-listing:hermes-pause
 /Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><用户认知名>/
 ```
 
-真实流程不再调用豆包网页生成电商标题。标题关键词来自飞书 `标题关键词` 字段，脚本只做类目规则内的排列组合。
+标题关键词来自飞书 `标题关键词` 字段，脚本只做类目规则内的排列组合。
 
 真实流程的生图 provider 已切换为 OpenAI-compatible 中转站 `gpt-image-2`。本地密钥和接口配置放在 `input/image-generation.config.json`，该文件被 `.gitignore` 忽略；仓库只提交 `input/image-generation.config.example.json`。如果运行时报余额、额度或计费不足，需要先给中转站账号充值。
 

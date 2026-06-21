@@ -1,0 +1,20 @@
+{
+  "recordId": "rec-representative-001",
+  "userCognitionName": "医用测试贴",
+  "genericName": "医用测试敷贴",
+  "brand": "延草纲目",
+  "spu": "TEST-SPU-001",
+  "sellingPointText": "规格明确,使用方便,独立包装,日常护理,贴合舒适",
+  "deepseekPromptText": "医疗护理场景,延草纲目医用测试敷贴正面展示,蓝白背景,信息层级清晰\n\n家庭护理场景,延草纲目医用测试敷贴组合展示,干净背景,使用步骤清晰\n\n药房陈列场景,延草纲目医用测试敷贴近景展示,专业灯光,卖点排版清晰\n\n居家使用场景,延草纲目医用测试敷贴包装展示,柔和背景,适用部位清晰\n\n简洁电商场景,延草纲目医用测试敷贴主体展示,白蓝配色,功能图标清晰",
+  "mainImageInstructionText": "保持参考产品主体，生成电商主图",
+  "positivePromptText": "主体清晰，版式规整",
+  "negativePromptText": "低清晰度，主体缺失",
+  "titleKeywordText": "官方正品,医疗器械,日常护理,家用便携,独立包装,使用方便,贴合舒适,规格明确,品牌直营,快速发货",
+  "titleSuffixText": "延草纲目医用测试敷贴",
+  "productPriceText": "129,99,79,59",
+  "shortTitle": "医用测试敷贴",
+  "productCategory": "医疗器械",
+  "qualificationImages": [],
+  "whiteBackgroundImages": [],
+  "rawFields": {}
+}

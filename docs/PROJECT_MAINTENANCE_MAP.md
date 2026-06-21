@@ -57,7 +57,7 @@
 
 - 卖点上下文：`src/autolist/feishu-products.ts`
 - 图片提示词：`src/autolist/deepseek-prompts.ts`
-- 主图生成 provider / 水印 / 产品文件夹：`src/autolist/jimeng-assets.ts`
+- 主图生成 provider / 水印 / 产品文件夹：`src/autolist/main-image-assets.ts`
 - 标题表：`src/autolist/title-sheets.ts`
 - 商品信息回填：`src/autolist/metadata.ts`
 - 资质图：`src/autolist/qualifications.ts`
