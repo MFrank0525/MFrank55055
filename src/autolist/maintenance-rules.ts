@@ -12,6 +12,25 @@ export interface MaintenanceResidueTarget {
 
 const ONE_OFF_SCRIPT_NAME_PATTERN = /(?:^|[-_.])(inspect|debug|tmp|temp|temporary|patch|fix|relist)(?:[-_.]|$)/i;
 
+export type ControllerJobStatus = "running" | "completed" | "failed";
+
+export function resolveControllerJobClosure(input: {
+  declaredStatus: ControllerJobStatus;
+  processAlive: boolean;
+  terminalResult?: "completed" | "failed";
+}): { action: "keep_running" | "write_terminal" | "clear_stale"; status: ControllerJobStatus } {
+  if (input.declaredStatus !== "running") {
+    return { action: "write_terminal", status: input.declaredStatus };
+  }
+  if (input.processAlive) {
+    return { action: "keep_running", status: "running" };
+  }
+  if (input.terminalResult) {
+    return { action: "write_terminal", status: input.terminalResult };
+  }
+  return { action: "clear_stale", status: "failed" };
+}
+
 function normalizePath(value: string): string {
   return path.resolve(value);
 }

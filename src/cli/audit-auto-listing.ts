@@ -21,7 +21,7 @@ interface Args {
 
 interface ControllerJobFile {
   mode?: "full-real-flow" | "resume-real-job";
-  status?: "running";
+  status?: "running" | "completed" | "failed";
   pid?: number;
 }
 

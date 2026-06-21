@@ -41,6 +41,7 @@ import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../a
 import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
+import { resolveControllerJobClosure, type ControllerJobStatus } from "../autolist/maintenance-rules.js";
 import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-manifest.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
@@ -66,7 +67,8 @@ interface RunnerJob {
   logFile: string;
   expectedResultFile?: string;
   mode: "full-real-flow" | "resume-real-job";
-  status: "running";
+  status: ControllerJobStatus;
+  finishedAt?: string;
 }
 
 interface ExternalServiceWait {
@@ -245,6 +247,9 @@ function isPidRunning(pid: number | undefined): boolean {
 }
 
 function isRunnerJobRunning(job: RunnerJob): boolean {
+  if (job.status !== "running") {
+    return false;
+  }
   const command = readProcessCommand(job.pid);
   return isAutoListingControllerRunningProcessConfirmed({
     pidAlive: isPidRunning(job.pid),
@@ -1171,6 +1176,17 @@ function existingStatus(): Record<string, unknown> {
     resultStatus: typeof result?.status === "string" ? result.status : undefined,
     terminalFailureMessage
   });
+  const terminalResult = resolvedStatus === "completed" ? "completed" : resolvedStatus === "failed" ? "failed" : undefined;
+  const closure = resolveControllerJobClosure({
+    declaredStatus: job.status,
+    processAlive: running,
+    terminalResult
+  });
+  if (closure.action === "write_terminal" && job.status !== closure.status) {
+    atomicWriteJson(jobFile, { ...job, status: closure.status, finishedAt: new Date().toISOString() });
+  } else if (closure.action === "clear_stale") {
+    fs.rmSync(jobFile, { force: true });
+  }
   const suppressHistoricalResult = shouldSuppressHistoricalResultInAutoListingControllerStatus({
     running,
     publishProgressAvailable: exposePublishProgress,
