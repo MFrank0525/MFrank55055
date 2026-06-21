@@ -40,14 +40,14 @@ function collectTitleDirTargets(titleDir?: string): string[] {
     .map((entry) => path.join(titleDir, entry.name));
 }
 
-function collectJimengDirTargets(jimengImageDir?: string): string[] {
-  if (!jimengImageDir || !fs.existsSync(jimengImageDir)) {
+function collectMainImageDirTargets(mainImageWorkDir?: string): string[] {
+  if (!mainImageWorkDir || !fs.existsSync(mainImageWorkDir)) {
     return [];
   }
   return fs
-    .readdirSync(jimengImageDir, { withFileTypes: true })
+    .readdirSync(mainImageWorkDir, { withFileTypes: true })
     .filter((entry) => entry.name !== ".gitkeep")
-    .map((entry) => path.join(jimengImageDir, entry.name));
+    .map((entry) => path.join(mainImageWorkDir, entry.name));
 }
 
 function collectDirectoryChildren(dir?: string): string[] {
@@ -112,7 +112,7 @@ export function cleanupAfterPublish(options: {
   shopRootDir?: string;
   autoListingInputDir?: string;
   titleDir?: string;
-  jimengImageDir?: string;
+  mainImageWorkDir?: string;
   protectedAssetFiles?: string[];
   cleanupAfterPublish: boolean;
   simulateOnly: boolean;
@@ -132,13 +132,13 @@ export function cleanupAfterPublish(options: {
     ...(options.publishRuntimeDirs || []),
     ...(options.taskRuntimeDir ? [options.taskRuntimeDir] : []),
     ...collectTitleDirTargets(options.titleDir),
-    ...collectJimengDirTargets(options.jimengImageDir),
+    ...collectMainImageDirTargets(options.mainImageWorkDir),
     ...(!options.simulateOnly
       ? [
           ...collectDirectoryChildren(options.feishuImageDir),
           ...collectDirectoryChildren(options.qualificationDir),
           ...collectDirectoryChildren(options.titleDir),
-          ...collectDirectoryChildren(options.jimengImageDir),
+          ...collectDirectoryChildren(options.mainImageWorkDir),
           ...collectShopRootStaleTargets(options.shopRootDir),
           ...collectGeneratedResumeJobTargets(options.autoListingInputDir),
           ...collectGeneratedMaintenanceResidueTargets(options.autoListingInputDir)

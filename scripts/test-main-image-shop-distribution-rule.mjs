@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { generateMainImageAssets, resolveOpenAiCompatibleGeneratedImageIndex } from "../dist/src/autolist/jimeng-assets.js";
+import { generateMainImageAssets, resolveOpenAiCompatibleGeneratedImageIndex } from "../dist/src/autolist/main-image-assets.js";
 import { writeFeishuPromptWordFiles } from "../dist/src/autolist/deepseek-word-docs.js";
 import { getProductCategoryPlan, getShopSpecs } from "../dist/src/autolist/product-category.js";
 
@@ -62,7 +62,7 @@ async function runRecoveredRawCategory(category) {
   const sourceImagePath = path.join(tmp, "source.png");
   fs.writeFileSync(sourceImagePath, fixturePng);
   const wordFiles = writeFeishuPromptWordFiles({
-    jimengImageDir: path.join(tmp, "words"),
+    mainImageWorkDir: path.join(tmp, "words"),
     mainImageInstructionText: "飞书主图指令",
     sellingPointText: "产品卖点",
     prompts: ["场景一,产品展示", "场景二,产品展示", "场景三,产品展示", "场景四,产品展示", "场景五,产品展示"],

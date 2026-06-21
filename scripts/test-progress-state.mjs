@@ -88,7 +88,7 @@ import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/s
 import {
   assertGeneratedTitlesBelongToProduct,
   countTitleCharacters,
-  normalizeDoubaoGeneratedTitleForDoudian
+  normalizeTitleForDoudian
 } from "../dist/src/autolist/title-rules.js";
 import { resolveFeishuAssetRecordForFolder } from "../dist/src/business/publish-from-spu/asset-rules.js";
 const progressRulesModule = await import("../dist/src/autolist/batch-continuation-rules.js");
@@ -104,12 +104,6 @@ import {
   shouldStopPublishBatchAfterFailure,
   evaluatePublishResult
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
-import {
-  looksLikeDoubaoTitleResponse,
-  isRetryableDoubaoCaptureError,
-  resolveDoubaoCaptureRetryPolicy
-} from "../dist/src/doubao/capture-rules.js";
-import { saveTitlesFromRaw } from "../dist/src/doubao/save.js";
 import { publishDistributedProducts } from "../dist/src/autolist/publish.js";
 
 const hermesRunnerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
@@ -326,7 +320,7 @@ assert.match(
 );
 assert.doesNotMatch(
   resumeSource,
-  /options\.jimengImageDir/,
+  /options\.mainImageWorkDir/,
   "Resume must recover Word prompts only from the current runtime task directory, never a shared global directory"
 );
 assert.match(
@@ -572,29 +566,6 @@ const saved = recordTaskProgress(updated, "main_images_generated", "Prompt 2/5: 
 assert.equal(saved.status, "main_images_generated");
 assert.equal(saved.notes.at(-1), "main_images_generated: Prompt 2/5: Image 4: saved generated-04.png.");
 assert.ok(saved.notes.length <= 25);
-assert.deepEqual(resolveDoubaoCaptureRetryPolicy("titles"), {
-  maxAttempts: 4,
-  delayMs: [30000, 60000, 90000]
-});
-assert.equal(isRetryableDoubaoCaptureError("Doubao title response was not found in the latest visible answer."), true);
-assert.equal(isRetryableDoubaoCaptureError("Doubao conversation page not found"), false);
-const inlineDoubaoTitles = Array.from({ length: 20 }, (_, index) => {
-  const no = String(index + 1).padStart(2, "0");
-  return `${no}、医用透明质酸钠液体敷料延草纲目测试内容`;
-}).join("");
-assert.equal(looksLikeDoubaoTitleResponse(inlineDoubaoTitles, 20), true);
-const inlineTitleDir = fs.mkdtempSync(path.join(os.tmpdir(), "doubao-inline-titles-"));
-const inlineRawFile = path.join(inlineTitleDir, "raw.txt");
-fs.writeFileSync(inlineRawFile, inlineDoubaoTitles, "utf8");
-assert.equal(
-  saveTitlesFromRaw({
-    rawFile: inlineRawFile,
-    outputDir: inlineTitleDir,
-    titleCount: 20
-  }).titleCount,
-  20
-);
-
 assert.equal(
   buildFeishuSellingPointText({
     userCognitionName: "医用芦荟凝胶",
@@ -1268,7 +1239,7 @@ assert.deepEqual(
 const sameSpuFolderMatch = resolveFeishuAssetRecordForFolder({
   folderSearchParts: [
     "延草纲目舒奈美医用医用重组Ⅲ型人源化胶原蛋白软膏水印01",
-    "医用修复乳液豆包0120260524-144025.xlsx",
+    "医用修复乳液标题0120260524-144025.xlsx",
     "湘械注准20222141001-医用修复乳液-资质图片-01.png"
   ],
   records: [
@@ -3606,14 +3577,14 @@ assert.equal(
 );
 
 const exactMaxTitle = "标".repeat(60);
-const exactMaxTitleDecision = normalizeDoubaoGeneratedTitleForDoudian(exactMaxTitle);
+const exactMaxTitleDecision = normalizeTitleForDoudian(exactMaxTitle);
 assert.equal(exactMaxTitleDecision.title, exactMaxTitle);
 assert.equal(exactMaxTitleDecision.changed, false);
 assert.equal(exactMaxTitleDecision.originalLength, 120);
 assert.equal(exactMaxTitleDecision.maxLength, 120);
 
 const overMaxTitle = `${"留".repeat(60)}删`;
-const overMaxTitleDecision = normalizeDoubaoGeneratedTitleForDoudian(overMaxTitle);
+const overMaxTitleDecision = normalizeTitleForDoudian(overMaxTitle);
 assert.equal(overMaxTitleDecision.title, "留".repeat(60));
 assert.equal(overMaxTitleDecision.changed, true);
 assert.equal(overMaxTitleDecision.originalLength, 122);
@@ -3700,7 +3671,7 @@ function taskWithMainImages(generatedFiles) {
     notes: [],
     feishuProductRecord: record("rec-main", "/work/input/source.png"),
     mainImageArtifact: {
-      promptFile: "/work/run/tasks/image-001/jimeng-prompts.txt",
+      promptFile: "/work/run/tasks/image-001/main-image-prompts.txt",
       generatedFiles,
       simulated: false
     }

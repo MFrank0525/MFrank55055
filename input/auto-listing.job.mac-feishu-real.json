@@ -1,17 +1,13 @@
 {
   "input": {
     "feishuImageDir": "./input/auto-listing/feishu-images",
-    "mainImageWorkDir": "./input/auto-listing/jimeng-images",
+    "mainImageWorkDir": "./input/auto-listing/main-images",
     "titleDir": "./input/auto-listing/titles",
     "qualificationDir": "./input/auto-listing/qualifications",
     "feishuProductDataFile": "./data/feishu/products.json",
     "shopRootDir": "./input/auto-listing/shops",
     "imageGenerationProvider": "openai-compatible",
     "imageGenerationConfigFile": "./input/image-generation.config.json",
-    "dreaminaPollSeconds": 120,
-    "dreaminaModelVersion": "5.0",
-    "dreaminaResolutionType": "2k",
-    "dreaminaRatio": "1:1",
     "mainImageExpectedCount": 4,
     "mainImageCountStrategy": "require_exact",
     "runtimeRootDir": "./data/auto-listing/runs",

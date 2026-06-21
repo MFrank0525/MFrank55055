@@ -23,7 +23,7 @@ export function isGptPlusWebUrl(value: string): boolean {
 export function assertNoGptPlusWebUrl(value: string, context: string): void {
   if (isGptPlusWebUrl(value)) {
     throw new Error(
-      `GPT Plus quota guard blocked ${context}: ${value}. The auto-listing flow must not use ChatGPT web/Plus message quota. Use Feishu data, Doubao/DeepSeek/Doudian, Dreamina, or API billing that is separate from GPT Plus.`
+      `GPT Plus quota guard blocked ${context}: ${value}. The auto-listing flow must not use ChatGPT web/Plus message quota. Use Feishu data, the configured API providers, and Doudian.`
     );
   }
 }

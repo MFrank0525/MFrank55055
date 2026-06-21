@@ -56,15 +56,15 @@ function clearTitleDir(titleDir: string, removed: string[]): void {
   }
 }
 
-function clearJimengDir(jimengImageDir: string, removed: string[]): void {
-  if (!fs.existsSync(jimengImageDir)) {
+function clearMainImageDir(mainImageWorkDir: string, removed: string[]): void {
+  if (!fs.existsSync(mainImageWorkDir)) {
     return;
   }
-  for (const entry of fs.readdirSync(jimengImageDir, { withFileTypes: true })) {
+  for (const entry of fs.readdirSync(mainImageWorkDir, { withFileTypes: true })) {
     if (entry.name === ".gitkeep") {
       continue;
     }
-    safeRemove(path.join(jimengImageDir, entry.name), removed);
+    safeRemove(path.join(mainImageWorkDir, entry.name), removed);
   }
 }
 
@@ -92,7 +92,7 @@ function clearShopRoot(shopRootDir: string, removed: string[]): void {
 
 export function prepareTestRunOutputs(options: {
   runtimeDir: string;
-  jimengImageDir: string;
+  mainImageWorkDir: string;
   titleDir: string;
   shopRootDir: string;
   enabled: boolean;
@@ -104,7 +104,7 @@ export function prepareTestRunOutputs(options: {
   }
 
   clearRuntimeDir(options.runtimeDir, removed);
-  clearJimengDir(options.jimengImageDir, removed);
+  clearMainImageDir(options.mainImageWorkDir, removed);
   clearTitleDir(options.titleDir, removed);
   clearShopRoot(options.shopRootDir, removed);
   return removed;

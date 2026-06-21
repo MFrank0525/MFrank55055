@@ -3,7 +3,7 @@
   "resultFile": "./data/auto-listing/runs/latest/result.json",
   "input": {
     "feishuImageDir": "./input/auto-listing/feishu-images",
-    "mainImageWorkDir": "./input/auto-listing/jimeng-images",
+    "mainImageWorkDir": "./input/auto-listing/main-images",
     "titleDir": "./input/auto-listing/titles",
     "qualificationDir": "./input/auto-listing/qualifications",
     "productInfoXlsx": "./input/auto-listing/product-info.xlsx",

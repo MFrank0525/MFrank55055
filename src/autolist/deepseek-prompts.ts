@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { sanitizeFileName } from "../doubao/paths.js";
+import { sanitizeFileName } from "../utils/path-names.js";
 import type { DeepSeekArtifact } from "./types.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import {

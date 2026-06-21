@@ -1,33 +1,6 @@
 import { readManualTextBlock } from "./operation-manual.js";
 import { RULE_CONTRACT_MARKERS } from "./rule-contracts.js";
 
-export const DOUBAO_URL = "https://www.doubao.com/chat/";
-export const DEEPSEEK_URL = "https://chat.deepseek.com/";
-
-export function getDoubaoConversationTitle(): string {
-  throw new Error("Legacy selling point generation is disabled. Auto-listing selling points must come from Feishu product data.");
-}
-
-export function buildDoubaoSellingPointPrompt(): string {
-  throw new Error("Legacy selling point generation is disabled. Auto-listing selling points must come from Feishu product data.");
-}
-
-export function getDeepSeekConversationTitle(): string {
-  throw new Error("DeepSeek browser prompt generation is disabled. Poster prompts must come from Feishu DeepSeek提示词.");
-}
-
-export function getDeepSeekInstruction1(): string {
-  throw new Error("DeepSeek browser prompt generation is disabled. Poster prompts must come from Feishu DeepSeek提示词.");
-}
-
-export function buildDeepSeekInstruction2(): string {
-  throw new Error("DeepSeek browser prompt generation is disabled. Poster prompts must come from Feishu DeepSeek提示词.");
-}
-
-export function getDeepSeekRetryInstruction(): string {
-  throw new Error("DeepSeek browser prompt generation is disabled. Poster prompts must come from Feishu DeepSeek提示词.");
-}
-
 function assertIncludes(text: string, expected: string, label: string): void {
   if (!text.includes(expected)) {
     throw new Error(`Rule text integrity check failed for ${label}: missing "${expected}".`);

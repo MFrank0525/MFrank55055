@@ -5,7 +5,7 @@ const read = (file) => fs.readFileSync(file, "utf8");
 
 const imageManual = read("docs/auto-listing/steps/03-main-image-generation.md");
 const publishManual = read("docs/auto-listing/steps/10-publish.md");
-const jimengSource = read("src/autolist/jimeng-assets.ts");
+const mainImageSource = read("src/autolist/main-image-assets.ts");
 const publishSource = read("src/business/publish-from-spu.ts");
 const publishConstantsSource = read("src/business/publish-from-spu/constants.ts");
 
@@ -45,7 +45,7 @@ for (const forbidden of [
   "specModuleRule:"
 ]) {
   assert.equal(
-    jimengSource.includes(forbidden) || publishSource.includes(forbidden) || publishConstantsSource.includes(forbidden),
+    mainImageSource.includes(forbidden) || publishSource.includes(forbidden) || publishConstantsSource.includes(forbidden),
     false,
     `rule text or rule summary must not be hard-coded in action source: ${forbidden}`
   );

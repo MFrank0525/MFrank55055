@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { summarizeVideosBase64PaidResumePlan } from "../dist/src/autolist/jimeng-assets.js";
+import { summarizeVideosBase64PaidResumePlan } from "../dist/src/autolist/main-image-assets.js";
 import {
   providerExplicitlyProvesNoPaidTaskAccepted,
   submitTransportFailureProvesNoPaidTaskAccepted,
@@ -24,7 +24,7 @@ import {
   reservePaidImageSlot
 } from "../dist/src/autolist/paid-image-submission-ledger.js";
 
-const source = fs.readFileSync("src/autolist/jimeng-assets.ts", "utf8");
+const source = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 const configSource = fs.readFileSync("src/autolist/config.ts", "utf8");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const typesSource = fs.readFileSync("src/autolist/types.ts", "utf8");

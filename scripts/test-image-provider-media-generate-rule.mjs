@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const source = fs.readFileSync("src/autolist/jimeng-assets.ts", "utf8");
+const source = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 const orchestrator = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const feishuTypes = fs.readFileSync("src/feishu/types.ts", "utf8");
 const example = JSON.parse(fs.readFileSync("input/image-generation.config.media-generate.example.json", "utf8"));

@@ -14,7 +14,7 @@
 - 当前产品白底图
 - 当前产品对应的标题表格
 - 当前产品对应的 Word 文档
-- 当前产品对应的 Dreamina 产物
+- 当前产品对应的主图生成中间产物
 - 当前产品对应的产品图片文件夹
 - 当前产品对应的店铺目录残留
 - 当前产品无水印主图归档路径
@@ -36,7 +36,7 @@
 
 除这个归档文件夹外，当前产品的白底图、资质下载附件、Word 文档、标题表、运行目录、店铺产品文件夹、水印图、中间请求响应文件都必须清理。
 
-真实流程完成清理时，`input/auto-listing/feishu-images`、`input/auto-listing/qualifications`、`input/auto-listing/titles`、`input/auto-listing/jimeng-images` 目录下所有非 `.gitkeep` 文件都视为过时中间产物，必须一并清空；`input/auto-listing/shops` 下保留店铺目录本身，但店铺目录内所有非 `.gitkeep` 商品产物都必须清空；自动生成的断点恢复 job（`*.resume.generated.json`）也必须清理。
+真实流程完成清理时，`input/auto-listing/feishu-images`、`input/auto-listing/qualifications`、`input/auto-listing/titles`、`input/auto-listing/main-images` 目录下所有非 `.gitkeep` 文件都视为过时中间产物，必须一并清空；`input/auto-listing/shops` 下保留店铺目录本身，但店铺目录内所有非 `.gitkeep` 商品产物都必须清空；自动生成的断点恢复 job（`*.resume.generated.json`）也必须清理。
 
 自动上架项目禁止长期保留一次性调试脚本、临时补丁脚本、重上架补丁 job 或历史生成 job。`input/auto-listing/*.generated.json` 中除当前运行正在使用的 resume job 外都属于过时动作文件，完成清理时必须删除；`scripts/` 下以 `inspect`、`debug`、`tmp`、`temp`、`temporary`、`patch`、`fix`、`relist` 命名的一次性脚本必须删除或迁移成正式规则/动作入口，不能留给后续工具学习或误用。`rules:check` 必须检查这类维护冗余，发现即失败。
 
@@ -55,7 +55,7 @@
 7. 无水印主图归档来源只能是主图生成节点下的 `openai-compatible/raw/generated-*` 文件；飞书白底源图、资质图、水印图、模拟图都不能作为无水印主图归档来源。
 8. 每张归档图片复制后必须立即校验目标文件实际存在且文件大小大于 0；只写入 notes 但目标目录不存在，不能判定为归档成功。
 9. 必须清理当前产品白底图和资质下载附件。
-10. 必须清理该产品对应的 Word、Dreamina 产物、标题表格、产品图片文件夹、店铺目录残留。
+10. 必须清理该产品对应的 Word、主图生成中间产物、标题表格、产品图片文件夹和店铺目录残留。
 11. 不允许把当前产品残留留给下一个产品继续使用。
 12. `simulateOnly=true` 时只能记录将要清理的路径，不允许实际删除任何文件或目录。
 13. 模拟模式的清理报告只记录当前任务显式生成或引用的路径，不扫描正式标题目录、正式主图工作目录里的历史产物。

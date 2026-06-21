@@ -10,7 +10,7 @@
 
 ## 动作脚本
 
-- [jimeng-assets.ts](src/autolist/jimeng-assets.ts)（历史文件名，实际节点为主图生成）
+- [main-image-assets.ts](src/autolist/main-image-assets.ts)（历史文件名，实际节点为主图生成）
 - [local-watermark.ts](src/autolist/local-watermark.ts)
 - [local-watermark.py](src/autolist/local-watermark.py)
 
@@ -137,5 +137,5 @@
 2. 核对第一段来自飞书 `主图指令`，第四段来自飞书 `正向提示词`，第五段来自飞书 `反向提示词`。
 3. 核对 `request-XX.json` 是否显示 `mode=edits`、`size=1024x1024`，且 `imagePath` 指向当前飞书白底图。
 4. 查看失败时的 `fail_reason` 是否清晰。
-5. 确认没有把豆包长卖点段直接送给生图模型。
+5. 确认只把当前飞书字段约定的五段内容送给生图模型。
 6. 确认水印内容顺序严格为：大药房专营店、药品专营店、个护保健专营店、康复理疗专营店、医疗保健专营店、理疗器械旗舰店、健康护理专营店、家庭护理专营店、中医保健专营店、养生器械专营店。

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { formatTimestamp } from "../doubao/paths.js";
+import { formatTimestamp } from "../utils/path-names.js";
 import { AUTO_LISTING_STEPS, normalizeAutoListingStep } from "./types.js";
 import type { AutoListingJobFile, AutoListingJobInput, AutoListingResolvedJob } from "./types.js";
 
@@ -29,8 +29,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
 
   return {
     feishuImageDir: ensureDirExists(input.feishuImageDir, "Feishu image dir"),
-    mainImageWorkDir: ensureDirExists(input.mainImageWorkDir || input.jimengImageDir || "", "Main image work dir"),
-    jimengImageDir: ensureDirExists(input.mainImageWorkDir || input.jimengImageDir || "", "Main image work dir"),
+    mainImageWorkDir: ensureDirExists(input.mainImageWorkDir || "", "Main image work dir"),
     titleDir: ensureDirExists(input.titleDir, "Title dir"),
     qualificationDir: ensureDirExists(input.qualificationDir, "Qualification dir"),
     productInfoXlsx: input.productInfoXlsx

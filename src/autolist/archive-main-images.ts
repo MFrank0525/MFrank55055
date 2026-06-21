@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { sanitizeFileName } from "../doubao/paths.js";
+import { sanitizeFileName } from "../utils/path-names.js";
 import type { MainImageArtifact } from "./types.js";
 
 const DEFAULT_ARCHIVE_ROOT = "/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图";

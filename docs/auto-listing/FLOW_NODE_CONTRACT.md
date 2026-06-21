@@ -29,13 +29,13 @@
 
 - 标题当前固定由飞书 `标题关键词` 排列组合生成，节点名只能叫 `titles_generated` 或“标题生成完成”，不能叫工具名。
 - 图片提示词当前固定由 DeepSeek 生成，节点名只能叫 `poster_prompts_generated` 或“图片提示词就绪”，不能叫“DeepSeek 生成”。
-- 主图当前固定由中转站 OpenAI-compatible `gpt-image-2` 生成，节点名只能叫 `main_images_generated` 或“主图生成完成”，不能叫“即梦/Dreamina 生成”。
-- 卖点上下文当前固定来自飞书 `产品卖点` 字段，节点名只能叫 `selling_points_loaded` 或“卖点上下文就绪”，不能叫“豆包卖点生成”。
+- 主图当前固定由中转站 OpenAI-compatible `gpt-image-2` 生成，节点名只能叫 `main_images_generated` 或“主图生成完成”。
+- 卖点上下文当前固定来自飞书 `产品卖点` 字段，节点名只能叫 `selling_points_loaded` 或“卖点上下文就绪”。
 - 数据来源可从飞书切换到其他数据源，但必须继续提供 SPU、导购短标题、品牌名称、产品卖点、资质图和白底图。
 
 ## 禁止事项
 
-- 禁止在 state、result、events、job、文档主流程中使用 `doubao_generated`、`deepseek_generated`、`jimeng_generated` 这类旧工具名。
+- state、result、events、job 和文档主流程只允许使用本文件定义的业务节点名。
 - 历史 step id 只允许在代码解析层处理已有运行记录，不能出现在新 job、文档或用户操作说明里。
 - 禁止切换 provider 时跳过上架前必要产物。
 - 禁止因为某个工具失败就把业务节点删除。

@@ -3,7 +3,7 @@ import path from "node:path";
 import { writeSimpleWordDocument } from "./docx-lite.js";
 
 export function writeFeishuPromptWordFiles(options: {
-  jimengImageDir: string;
+  mainImageWorkDir: string;
   sellingPointText: string;
   mainImageInstructionText: string;
   prompts: string[];
@@ -22,9 +22,9 @@ export function writeFeishuPromptWordFiles(options: {
   if (options.prompts.length < promptCount) {
     throw new Error(`Poster prompt generation returned ${options.prompts.length} prompt(s), expected ${promptCount}.`);
   }
-  fs.mkdirSync(options.jimengImageDir, { recursive: true });
+  fs.mkdirSync(options.mainImageWorkDir, { recursive: true });
   return options.prompts.slice(0, promptCount).map((prompt, index) => {
-    const filePath = path.join(options.jimengImageDir, `主图提示词${String(index + 1).padStart(2, "0")}.docx`);
+    const filePath = path.join(options.mainImageWorkDir, `主图提示词${String(index + 1).padStart(2, "0")}.docx`);
     writeSimpleWordDocument(filePath, [
       mainImageInstructionText,
       sellingPointText,

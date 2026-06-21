@@ -12,12 +12,6 @@ npm run auto-listing:hermes-start
 
 Hermes 不要直接同步执行底层流程脚本；真实流程可能超过终端工具超时和调用预算。后台入口会快速返回，并通过 `npm run auto-listing:hermes-status` 查看运行状态。
 
-豆包业务：
-
-```bash
-npm run business:doubao -- --job ./input/doubao-job.example.json
-```
-
 SPU 发布业务：
 
 ```bash

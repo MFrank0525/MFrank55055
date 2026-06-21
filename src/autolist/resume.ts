@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { sanitizeFileName } from "../doubao/paths.js";
+import { sanitizeFileName } from "../utils/path-names.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import { loadFeishuProductRuntimeRecord } from "./feishu-products.js";
 import { getProductCategoryPlan } from "./product-category.js";
@@ -61,7 +61,7 @@ export function recoverArtifactsFromWordFiles(options: {
   feishuProductRecord?: FeishuProductRecord;
 } {
   const candidateDirs = [path.join(options.runtimeDir, "tasks", options.taskId, "poster-word-files")];
-  const wordDir = candidateDirs.find((dir) => fs.existsSync(dir) && fs.readdirSync(dir).some((name) => /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(name)));
+  const wordDir = candidateDirs.find((dir) => fs.existsSync(dir) && fs.readdirSync(dir).some((name) => /^主图提示词\d{2}\.docx$/i.test(name)));
   if (!wordDir) {
     throw new Error(
       `Resume requires saved Word prompt files, but none were found in: ${candidateDirs.join(" | ")}`
@@ -69,7 +69,7 @@ export function recoverArtifactsFromWordFiles(options: {
   }
   const wordFiles = fs
     .readdirSync(wordDir)
-    .filter((name) => /^(主图提示词|即梦提示词)\d{2}\.docx$/i.test(name))
+    .filter((name) => /^主图提示词\d{2}\.docx$/i.test(name))
     .sort((a, b) => a.localeCompare(b, "zh-CN"))
     .map((name) => path.join(wordDir, name));
 

@@ -173,7 +173,7 @@ function resolveFromJob(jobFile: string): {
     feishuProductDataFile: path.resolve(job.input.feishuProductDataFile || "data/feishu/products.json"),
     feishuImageDir: path.resolve(job.input.feishuImageDir),
     qualificationDir: path.resolve(job.input.qualificationDir),
-    mainImageWorkDir: path.resolve(job.input.mainImageWorkDir || job.input.jimengImageDir || "input/auto-listing/jimeng-images"),
+    mainImageWorkDir: path.resolve(job.input.mainImageWorkDir || job.input.mainImageWorkDir || "input/auto-listing/main-images"),
     shopRootDir: path.resolve(job.input.shopRootDir),
     processedImageManifest: path.resolve(job.input.processedImageManifest || "data/auto-listing/processed-images.json"),
     runtimeRootDir: path.resolve(job.input.runtimeRootDir || "data/auto-listing/runs"),

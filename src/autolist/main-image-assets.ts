@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { sanitizeFileName } from "../doubao/paths.js";
+import { sanitizeFileName } from "../utils/path-names.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import {
@@ -198,7 +198,7 @@ function ensureTaskDir(runtimeDir: string, taskId: string): string {
 }
 
 function writePromptSummary(taskDir: string, promptFiles: string[]): string {
-  const promptFile = path.join(taskDir, "jimeng-prompts.txt");
+  const promptFile = path.join(taskDir, "main-image-prompts.txt");
   fs.writeFileSync(promptFile, promptFiles.join("\n") + "\n", "utf8");
   return promptFile;
 }
@@ -2281,5 +2281,3 @@ export async function generateMainImageAssets(options: {
     simulated: false
   };
 }
-
-export const generateJimengAssets = generateMainImageAssets;

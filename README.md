@@ -1,6 +1,6 @@
 # Douyin Business Automation
 
-本仓库保留三条明确入口：豆包业务、SPU 发布业务、飞书全自动上架业务。自动上架由项目调度器执行；Hermes 只负责启动和查询状态。
+本仓库保留两条明确入口：SPU 发布业务和飞书全自动上架业务。自动上架由项目调度器执行；Hermes 只负责启动和查询状态。
 
 ## 入口
 
@@ -19,12 +19,6 @@ npm run auto-listing:hermes-status
 ```
 
 启动器会快速返回，并把真实流程放到后台运行。它会优先续跑当前失败的真实任务，复用已经生成的提示词、主图、标题和发布产物；没有可续跑任务时才启动完整真实流程。
-
-### 豆包业务
-
-```bash
-npm run business:doubao -- --job ./input/doubao-job.example.json
-```
 
 ### SPU 发布业务
 

@@ -17,19 +17,10 @@ export const AUTO_LISTING_STEPS = [
 ] as const;
 
 export type AutoListingStep = (typeof AUTO_LISTING_STEPS)[number];
-// Legacy step ids are accepted only for reading old job/state files. New outputs must use AUTO_LISTING_STEPS.
-export type LegacyAutoListingStep = "discovered" | "doubao_generated" | "deepseek_generated" | "jimeng_generated";
-export type AutoListingStepInput = AutoListingStep | LegacyAutoListingStep;
-
-export const LEGACY_AUTO_LISTING_STEP_ALIASES: Record<LegacyAutoListingStep, AutoListingStep> = {
-  discovered: "source_images_discovered",
-  doubao_generated: "selling_points_loaded",
-  deepseek_generated: "poster_prompts_generated",
-  jimeng_generated: "main_images_generated"
-};
+export type AutoListingStepInput = AutoListingStep;
 
 export function normalizeAutoListingStep(step: AutoListingStepInput): AutoListingStep {
-  return (LEGACY_AUTO_LISTING_STEP_ALIASES as Partial<Record<string, AutoListingStep>>)[step] || (step as AutoListingStep);
+  return step;
 }
 
 export type AutoListingStatus = AutoListingStep | "failed";
@@ -39,7 +30,6 @@ export type ImageGenerationProvider = "openai-compatible";
 export interface AutoListingJobInput {
   feishuImageDir: string;
   mainImageWorkDir?: string;
-  jimengImageDir?: string;
   titleDir: string;
   qualificationDir: string;
   productInfoXlsx?: string;

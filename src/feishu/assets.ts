@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { sanitizeFileName } from "../doubao/paths.js";
+import { sanitizeFileName } from "../utils/path-names.js";
 import { downloadFeishuMedia } from "./client.js";
 import type { FeishuBitableAttachment, FeishuProductRecord } from "./types.js";
 

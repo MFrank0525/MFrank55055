@@ -3,12 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { writeFeishuPromptWordFiles } from "../dist/src/autolist/deepseek-word-docs.js";
-import { buildImageEditPromptFromWord } from "../dist/src/autolist/jimeng-assets.js";
+import { buildImageEditPromptFromWord } from "../dist/src/autolist/main-image-assets.js";
 import { readSimpleWordDocument } from "../dist/src/autolist/docx-lite.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "feishu-dynamic-image-prompts-"));
 const wordFiles = writeFeishuPromptWordFiles({
-  jimengImageDir: tmp,
+  mainImageWorkDir: tmp,
   mainImageInstructionText: "飞书主图指令：白底图产品主体锁定，包装文字不改。",
   sellingPointText: "飞书产品卖点：唇部干燥护理，保湿润护。",
   prompts: [

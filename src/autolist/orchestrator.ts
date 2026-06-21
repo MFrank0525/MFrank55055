@@ -6,7 +6,7 @@ import {
   buildDeepSeekPromptValidationContext
 } from "./deepseek-prompt-rules.js";
 import { writeFeishuPromptWordFiles } from "./deepseek-word-docs.js";
-import { generateMainImageAssets } from "./jimeng-assets.js";
+import { generateMainImageAssets } from "./main-image-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
 import { auditMainImageGeneration, collectFeishuProductAssetFiles } from "./audit-rules.js";
@@ -413,7 +413,7 @@ async function executeTaskChain(
         simulateOnly
       });
       deepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
-        jimengImageDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
+        mainImageWorkDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
         sellingPointText: current.sellingPointArtifact.sellingPointText,
         mainImageInstructionText: current.feishuProductRecord?.mainImageInstructionText || "",
         prompts: deepseekArtifact.prompts,
@@ -486,7 +486,7 @@ async function executeTaskChain(
           simulateOnly
         });
         regeneratedDeepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
-          jimengImageDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
+          mainImageWorkDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
           sellingPointText: current.sellingPointArtifact.sellingPointText,
           mainImageInstructionText: current.feishuProductRecord?.mainImageInstructionText || "",
           prompts: regeneratedDeepseekArtifact.prompts,
@@ -814,7 +814,7 @@ async function executeTaskChain(
         shopRootDir,
         autoListingInputDir: path.dirname(path.dirname(current.sourceImagePath)),
         titleDir,
-        jimengImageDir: mainImageWorkDir,
+        mainImageWorkDir: mainImageWorkDir,
         protectedAssetFiles: protectedCleanupAssetFiles.filter((file) => !currentAssetSet.has(path.resolve(file))),
         cleanupAfterPublish: cleanupAfterPublishEnabled,
         cleanupSourceImageAfterPublish,
@@ -970,7 +970,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
 
     const preRunRemoved = prepareTestRunOutputs({
       runtimeDir: resolved.runtimeDir,
-      jimengImageDir: resolved.input.mainImageWorkDir,
+      mainImageWorkDir: resolved.input.mainImageWorkDir,
       titleDir: resolved.input.titleDir,
       shopRootDir: resolved.input.shopRootDir,
       enabled: resolved.input.clearTestOutputsBeforeRun,

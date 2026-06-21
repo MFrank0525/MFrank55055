@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { formatTimestamp, sanitizeFileName } from "../doubao/paths.js";
-import { countTitleCharacters, DOUDIAN_TITLE_MAX_CHARACTERS, normalizeDoubaoGeneratedTitleForDoudian } from "./title-rules.js";
+import { formatTimestamp, sanitizeFileName } from "../utils/path-names.js";
+import { countTitleCharacters, DOUDIAN_TITLE_MAX_CHARACTERS, normalizeTitleForDoudian } from "./title-rules.js";
 import { writeSimpleWorkbook } from "./xlsx-lite.js";
 import type { TitleSheetArtifact, TitleSheetFile } from "./types.js";
 
@@ -133,7 +133,7 @@ function buildTitleWorkbookFiles(options: {
   productPriceText: string;
 }): TitleSheetFile[] {
   return options.titles.map((title, index) => {
-    const normalized = normalizeDoubaoGeneratedTitleForDoudian(title);
+    const normalized = normalizeTitleForDoudian(title);
     const workbookFile = path.join(
       options.titleDir,
       `${sanitizeFileName(`${options.productName}标题${String(index + 1).padStart(2, "0")}${options.timestamp}`)}.xlsx`

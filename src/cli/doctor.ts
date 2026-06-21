@@ -25,9 +25,8 @@ interface AutoListingJobSummary {
   input?: {
     simulateOnly?: boolean;
     deepseekConversationUrl?: string;
-    imageGenerationProvider?: "dreamina" | "openai-compatible";
+    imageGenerationProvider?: "openai-compatible";
     imageGenerationConfigFile?: string;
-    dreaminaBin?: string;
     pauseSignalFile?: string;
     startStep?: string;
   };
@@ -257,7 +256,7 @@ function checkAutoListingJobFile(jobFile: string): CheckResult {
     if (input.deepseekConversationUrl) {
       assertNoGptPlusWebUrl(input.deepseekConversationUrl, `${jobFile} deepseekConversationUrl`);
     }
-    const provider = input.imageGenerationProvider || (input.dreaminaBin ? "dreamina" : "openai-compatible");
+    const provider = input.imageGenerationProvider || "openai-compatible";
     if (input.simulateOnly === false && provider === "openai-compatible") {
       const configFile = input.imageGenerationConfigFile || "input/image-generation.config.json";
       const configCheck = checkOpenAiCompatibleImageGenerationConfig(configFile, true);
@@ -316,7 +315,7 @@ function autoListingChecks(options: DoctorOptions): CheckResult[] {
     ? [checkOpenAiCompatibleImageGenerationConfig(options.imageGenerationConfigFile, true)]
     : []),
   checkPath("auto-listing feishu images", "input/auto-listing/feishu-images"),
-  checkPath("auto-listing main image work dir", "input/auto-listing/jimeng-images"),
+  checkPath("auto-listing main image work dir", "input/auto-listing/main-images"),
   checkPath("auto-listing titles", "input/auto-listing/titles"),
   checkPath("auto-listing qualifications", "input/auto-listing/qualifications"),
   checkAutoListingShopFolders(),

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { seedCurrentProductMainImageReuse } from "../dist/src/autolist/jimeng-assets.js";
+import { seedCurrentProductMainImageReuse } from "../dist/src/autolist/main-image-assets.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "main-image-reuse-"));
 const sourceImagePath = path.join(tmp, "input", "row-7.png");

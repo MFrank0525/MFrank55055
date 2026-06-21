@@ -1,7 +1,7 @@
 {
   "input": {
     "feishuImageDir": "./input/auto-listing/feishu-images",
-    "mainImageWorkDir": "./input/auto-listing/jimeng-images",
+    "mainImageWorkDir": "./input/auto-listing/main-images",
     "titleDir": "./input/auto-listing/titles",
     "qualificationDir": "./input/auto-listing/qualifications",
     "feishuProductDataFile": "./data/feishu/products.json",

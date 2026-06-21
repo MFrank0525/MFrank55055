@@ -25,7 +25,7 @@ function truncateTitleToCharacterLimit(title: string, maxLength: number): string
   return kept.join("");
 }
 
-export function normalizeDoubaoGeneratedTitleForDoudian(
+export function normalizeTitleForDoudian(
   title: string,
   maxLength = DOUDIAN_TITLE_MAX_CHARACTERS
 ): TitleNormalizationResult {
