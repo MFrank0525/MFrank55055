@@ -1,5 +1,6 @@
 import type { FeishuProductRecord } from "../feishu/types.js";
 import type { PublishTargetIdentity } from "./publish-identity.js";
+import type { PublishFailureCircuitState } from "./failure-circuit-breaker.js";
 
 export const AUTO_LISTING_STEPS = [
   "source_images_discovered",
@@ -166,6 +167,7 @@ export interface PublishArtifact {
     finalVerifyStatus?: string;
     errorClass?: string;
   }>;
+  circuitBreaker?: PublishFailureCircuitState;
   simulated: boolean;
 }
 

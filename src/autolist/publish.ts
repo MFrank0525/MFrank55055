@@ -4,11 +4,11 @@ import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
 import { clearCheckpoint, isStageCompleted, loadCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
 import {
   evaluatePublishResult,
-  shouldRetryPublishFailure,
-  shouldStopPublishBatchAfterFailure
+  shouldRetryPublishFailure
 } from "../business/publish-from-spu/publish-rules.js";
 import { logInfo } from "../utils/logger.js";
 import { shopCodeFromFolder } from "./product-category.js";
+import { recordPublishFailure, type PublishFailureCircuitState } from "./failure-circuit-breaker.js";
 import { buildPublishTargetIdentity, publishTargetKey } from "./publish-identity.js";
 import {
   extractWatermarkNo,
@@ -396,6 +396,8 @@ export async function publishDistributedProducts(options: {
   }
 
   const results: PublishArtifact["results"] = [...alreadyPublishedResults];
+  let failureCircuit: PublishFailureCircuitState = { signature: "", consecutive: 0, open: false };
+  let openedCircuit: PublishFailureCircuitState | undefined;
   for (const productFolder of pendingFolders) {
     options.assertNotPaused?.();
     const shopFolder = path.dirname(productFolder);
@@ -556,20 +558,20 @@ export async function publishDistributedProducts(options: {
         `Publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`
       );
       clearCheckpoint(checkpointFile);
-      if (
-        shouldStopPublishBatchAfterFailure(
-          results.map((item) => ({
-            safelyPublished: item.ok === true,
-            errorClass: item.errorClass || ""
-          }))
-        )
-      ) {
-        logInfo(`publish batch stopped after consecutive systemic failure: ${decision.errorClass}`);
-        options.onProgress?.(`Publish batch stopped after consecutive systemic failure: ${decision.errorClass}`);
+      failureCircuit = recordPublishFailure(failureCircuit, {
+        stage: "publish",
+        errorClass: decision.errorClass,
+        threshold: 2
+      });
+      if (failureCircuit.open) {
+        openedCircuit = failureCircuit;
+        logInfo(`publish batch circuit opened: ${failureCircuit.signature}; consecutive=${failureCircuit.consecutive}`);
+        options.onProgress?.(`Publish batch circuit opened: ${failureCircuit.signature}; consecutive=${failureCircuit.consecutive}`);
         break;
       }
       continue;
     }
+    failureCircuit = { signature: "", consecutive: 0, open: false };
     logInfo(
       `publish completed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.finalVerifyStatus}`
     );
@@ -582,6 +584,7 @@ export async function publishDistributedProducts(options: {
   return {
     preflightErrors: [],
     results,
+    circuitBreaker: openedCircuit,
     simulated: false
   };
 }
