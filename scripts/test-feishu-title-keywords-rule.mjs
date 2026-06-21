@@ -61,6 +61,34 @@ for (const title of shortTitles) {
   assert.ok(title.endsWith("蓝莓叶黄素酯片"));
 }
 
+const realLipCareKeywordText =
+  "医用凡士林唇部膏，医用凡士林润唇部膏保湿滋润，医用唇部膏保湿滋润补水，唇部膏男士，唇部夏天炎热专用，润唇部膏保湿滋润补水，医用女士润唇部膏男士唇部膏，医用保湿唇部膏，医用润唇保湿敷料，医用润唇部凝胶，医用润唇部霜，医用唇部护理凝胶，胶原蛋白唇部膏，医用凡士林唇部膏，医用凡士林唇部膏无色滋润补水，医用唇部凝胶，医用唇部滋润凝胶，医用唇部敷料，唇部护理软膏男士女士专用，唇部保湿补水凝胶，医用凡士林唇部软膏";
+const realLipCareSuffix = "医用重组胶原蛋白护理软膏延草纲目";
+const realLipCareKeywords = parseFeishuTitleKeywords(realLipCareKeywordText);
+const isComposedOnlyFromKeywords = (body) => {
+  const reachable = new Set([0]);
+  for (let offset = 0; offset < body.length; offset += 1) {
+    if (!reachable.has(offset)) continue;
+    for (const keyword of realLipCareKeywords) {
+      if (body.startsWith(keyword, offset)) reachable.add(offset + keyword.length);
+    }
+  }
+  return reachable.has(body.length);
+};
+const realLipCareTitles = buildTitlesFromFeishuKeywords({
+  keywordText: realLipCareKeywordText,
+  fixedSuffixText: realLipCareSuffix,
+  productCategory: "医疗器械",
+  titleCount: 20
+});
+assert.equal(realLipCareTitles.length, 20);
+assert.equal(new Set(realLipCareTitles).size, 20);
+for (const title of realLipCareTitles) {
+  assert.ok(countTitleCharacters(title) <= 120);
+  assert.ok(title.endsWith(realLipCareSuffix));
+  assert.ok(isComposedOnlyFromKeywords(title.slice(0, -realLipCareSuffix.length)));
+}
+
 assert.throws(
   () =>
     buildTitlesFromFeishuKeywords({

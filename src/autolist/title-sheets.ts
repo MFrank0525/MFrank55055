@@ -27,42 +27,41 @@ function rotate<T>(items: T[], offset: number): T[] {
   return [...items.slice(normalized), ...items.slice(0, normalized)];
 }
 
-function totalTitleLength(tokens: string[]): number {
-  return tokens.reduce((sum, token) => sum + countTitleCharacters(token), 0);
-}
-
 function findBestKeywordCombination(keywords: string[], targetLength: number, seed: number): string[] {
-  if (targetLength <= 0) {
+  if (targetLength <= 0 || keywords.length === 0) {
     return [];
   }
 
-  let best: string[] = [];
-  for (let offset = 0; offset < keywords.length; offset += 1) {
-    const ordered = rotate(seed % 2 === 0 ? keywords : [...keywords].reverse(), offset + seed);
-    const selected: string[] = [];
-    let currentLength = 0;
-    let changed = false;
-    do {
-      changed = false;
-      for (let index = 0; index < ordered.length; index += 1) {
-        const keyword = ordered[index];
-        const length = countTitleCharacters(keyword);
-        if (currentLength + length > targetLength) {
-          continue;
-        }
-        selected.push(keyword);
-        currentLength += length;
-        changed = true;
-        if (currentLength === targetLength) {
-          return selected;
-        }
-      }
-    } while (changed);
-    if (currentLength > totalTitleLength(best)) {
-      best = selected;
+  const gcd = (left: number, right: number): number => {
+    let a = left;
+    let b = right;
+    while (b !== 0) {
+      [a, b] = [b, a % b];
+    }
+    return a;
+  };
+  const steps = Array.from({ length: keywords.length }, (_, index) => index + 1).filter(
+    (step) => gcd(step, keywords.length) === 1
+  );
+  const start = seed % keywords.length;
+  const family = Math.floor(seed / keywords.length);
+  const step = steps[family % steps.length] || 1;
+  const direction = Math.floor(family / steps.length) % 2 === 0 ? 1 : -1;
+  const minKeywordLength = Math.min(...keywords.map(countTitleCharacters));
+  const maxIterations = keywords.length * (Math.ceil(targetLength / Math.max(1, minKeywordLength)) + 1);
+  const selected: string[] = [];
+  let currentLength = 0;
+
+  for (let index = 0; index < maxIterations && targetLength - currentLength >= minKeywordLength; index += 1) {
+    const keywordIndex = (start + direction * step * index + keywords.length * maxIterations) % keywords.length;
+    const keyword = keywords[keywordIndex];
+    const length = countTitleCharacters(keyword);
+    if (currentLength + length <= targetLength) {
+      selected.push(keyword);
+      currentLength += length;
     }
   }
-  return best;
+  return selected;
 }
 
 export function buildTitlesFromFeishuKeywords(options: {
@@ -87,8 +86,7 @@ export function buildTitlesFromFeishuKeywords(options: {
     throw new Error("Feishu 标题固定后缀 is too long; full title cannot exceed 120 characters.");
   }
   for (let index = 0; titles.length < options.titleCount && index < options.titleCount * Math.max(16, keywords.length * 2); index += 1) {
-    const ordered = rotate(index % 2 === 0 ? keywords : [...keywords].reverse(), index);
-    const bodyTokens = findBestKeywordCombination(ordered, bodyLength, index);
+    const bodyTokens = findBestKeywordCombination(keywords, bodyLength, index);
     if (!bodyTokens.length && bodyLength > 0) {
       continue;
     }
