@@ -120,16 +120,22 @@ function isDeterministicDetailQualificationFailure(message: string): boolean {
 }
 
 function isRetryablePublishPageFailure(message: string): boolean {
+  if (/Doudian login (?:is )?required|抖店登录/i.test(message)) {
+    return false;
+  }
   return (
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
-    (/基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required|page context was lost|Execution context was destroyed|Target closed/i.test(
+    (/基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|page context was lost|Execution context was destroyed|Target closed/i.test(
       message
     ) || isDeterministicDetailQualificationFailure(message))
   );
 }
 
 function isRetryablePrePaidDoudianReadinessFailure(message: string): boolean {
-  return /Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required before publishing can continue|publish create page did not become ready|page context was lost|Execution context was destroyed|Target closed/i.test(
+  if (/Doudian login (?:is )?required|抖店登录/i.test(message)) {
+    return false;
+  }
+  return /Platform SPU query page was not ready|Platform SPU query controls are incomplete|publish create page did not become ready|page context was lost|Execution context was destroyed|Target closed/i.test(
     message
   );
 }
@@ -145,7 +151,7 @@ function isSafeResumeTransitionFailure(message: string): boolean {
 function isSafeManifestBackedPublishResumeFailure(message: string): boolean {
   return (
     isRetryablePublishPageFailure(message) &&
-    (/基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Doudian login is required/i.test(
+    (/基础信息模块未完成|价格库存模块未完成|Price\/inventory verification failed|Basic info gate failed|input not found on publish page|Spec template selection did not match|required keyword|Manual spec template entry mode was not visible|Spec template entry control was not visible|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete/i.test(
       message
     ) || isDeterministicDetailQualificationFailure(message))
   );
@@ -1196,6 +1202,9 @@ function compactAutoListingControllerReason(summary?: string): string {
   }
   if (/Platform SPU query page was not ready|Platform SPU query controls are incomplete|标品检索页.*控件/i.test(text)) {
     return "标品检索页控件未加载完整，已停止，可续跑。";
+  }
+  if (/Doudian login (?:is )?required|抖店登录/i.test(text)) {
+    return "抖店登录已失效，已停止；请在自动化浏览器完成登录后从断点续跑。";
   }
   if (/Spec template left .*blank required spec value input|Spectemplateleft.*blankspecvalueinput/i.test(text)) {
     return "规格模板存在空白占位值；按模板内容为准，续跑时不补写也不删除该空白项。";

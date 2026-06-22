@@ -2471,6 +2471,59 @@ assert.equal(
   "Sequential publish flow stopped: 价格库存模块未完成。No visible spec template dropdown option matched controlled aliases: 买二送一/买2送1/2送1",
   "Terminal feedback must remove long local paths before truncation so Hermes receives the real failure reason"
 );
+const doudianLoginFailureMessage =
+  "Publish failed for /Users/mfrank/MFrank55055/input/auto-listing/shops/09延草纲目中医保健专营店/延草纲目李时珍牙科护理剂-recvnbT8RrH0nU-水印18: Doudian login required: open the automation browser and complete Doudian login before publishing can continue.";
+assert.equal(
+  compactAutoListingTerminalFailureMessage(doudianLoginFailureMessage),
+  "Doudian login required: open the automation browser and complete Doudian login before publishing can continue.",
+  "Terminal feedback must strip the long product path before compacting login failures"
+);
+assert.deepEqual(
+  formatAutoListingControllerCompactStatusText({
+    status: "failed",
+    summary: compactAutoListingTerminalFailureMessage(doudianLoginFailureMessage),
+    productName: "延草纲目李时珍牙科护理剂",
+    publishProductIndex: 18,
+    publishProductTotal: 20,
+    publishShopIndex: 9,
+    publishShopTotal: 10,
+    publishFailed: 1,
+    publishFailedWatermarkNo: 18,
+    feishuCompleted: 3,
+    feishuTotal: 3
+  }).split("\n"),
+  [
+    "状态：失败｜产品 18/20｜店铺 9/10｜失败项 水印18｜飞书产品 3/3",
+    "商品：延草纲目李时珍牙科护理剂",
+    "原因：抖店登录已失效，已停止；请在自动化浏览器完成登录后从断点续跑。"
+  ],
+  "Hermes compact status must report Doudian login loss as an actionable manual blocker, not a truncated path"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: doudianLoginFailureMessage,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  false,
+  "Doudian login loss is an external manual blocker and must not be treated as project self-recoverable"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: doudianLoginFailureMessage,
+    activeStep: "published",
+    activeMessage: "Publish failed: doudian_login_required",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  false,
+  "Supervisor must stop on Doudian login loss so Hermes can notify the user instead of looping"
+);
 
 assert.equal(
   evaluatePublishResult({
