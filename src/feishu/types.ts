@@ -37,6 +37,7 @@ export interface FeishuBitableField {
 
 export interface FeishuBitableAttachment {
   fileToken: string;
+  identityDigest?: string;
   name: string;
   size?: number;
   mimeType?: string;

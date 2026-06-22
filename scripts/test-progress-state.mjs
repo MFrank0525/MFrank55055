@@ -29,9 +29,11 @@ import {
   resolveAutoListingControllerFeishuProgressDisplayMode,
   resolveAutoListingControllerFeishuBatchDisplayCounts,
   resolveAutoListingControllerStartAfterFeishuRefresh,
+  resolveAutoListingControllerLaunchPolicy,
   selectAutoListingControllerActiveRunIdFromLogLines,
   selectAutoListingControllerStatusRuntimeDir,
   shouldSuppressHistoricalResultInAutoListingControllerStatus,
+  shouldExposeHistoricalRuntimeForCurrentFeishuBatch,
   shouldSuppressStateCurrentTaskInAutoListingControllerStatus,
   shouldExposePublishProgressInAutoListingControllerStatus,
   shouldUseExpectedResultFileInRunningStatus,
@@ -296,7 +298,7 @@ assert.match(
 );
 assert.match(
   auditAutoListingSource,
-  /preflight\.json[\s\S]*simulateOnly[\s\S]*latestRunState\(resolved\.runtimeRootDir, resolved\.simulateOnly\)/,
+  /preflight\.json[\s\S]*simulateOnly[\s\S]*latestRunState\(resolved\.runtimeRootDir, resolved\.simulateOnly, batchFingerprint\)/,
   "Real auto-listing audits must ignore simulated verification runs when selecting the latest run state"
 );
 assert.match(
@@ -461,8 +463,18 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /const beforeRefreshProgress = summarizeFeishuProgress\(\)[\s\S]*const selected = selectCommand\(forceFullFlow\)/,
-  "AutoListingController start must refresh a completed cached Feishu batch before selecting a stale resume job"
+  /launchPolicy\.refreshBeforeSelection[\s\S]*runFeishuAssetsRefreshForStart\(\)[\s\S]*const selected = selectCommand\(forceFullFlow\)/,
+  "AutoListingController new-batch start must refresh Feishu before selecting any execution command"
+);
+assert.match(
+  hermesRunnerSource,
+  /batchFingerprint: selectedBatchFingerprint/,
+  "Controller jobs must persist the exact selected Feishu batch fingerprint"
+);
+assert.match(
+  hermesRunnerSource,
+  /runtimeBatchFingerprint[\s\S]*shouldExposeHistoricalRuntimeForCurrentFeishuBatch/,
+  "Active and terminal controller status must fail closed when runtime evidence belongs to another batch"
 );
 assert.match(
   hermesRunnerSource,
@@ -1823,6 +1835,28 @@ assert.deepEqual(
   "AutoListingController text status must show publish progress during publish stage instead of stale image generation progress"
 );
 assert.equal(/Main images ready/.test(compactPublishStageStatus), false);
+const compactManualRecoveryPublishStatus = formatAutoListingControllerCompactStatusText({
+  status: "running",
+  summary: "当前商品：延草纲目医用透明质酸钠修护贴，产品 20/20，店铺 10/10",
+  productName: "延草纲目医用透明质酸钠修护贴",
+  activeItemName: "延草纲目医用透明质酸钠修护贴-recvnhdPKe0cNN-水印20",
+  latestProgress: "延草纲目医用透明质酸钠修护贴-recvnhdPKe0cNN-水印20: basic_info_fill: basic_info_fill_attempt: 1",
+  publishProductIndex: 20,
+  publishProductTotal: 20,
+  publishShopIndex: 10,
+  publishShopTotal: 10,
+  feishuCompleted: 0,
+  feishuTotal: 0
+});
+assert.deepEqual(
+  compactManualRecoveryPublishStatus.split("\n"),
+  [
+    "状态：运行中｜产品 20/20｜店铺 10/10｜飞书产品 0/0",
+    "当前：延草纲目医用透明质酸钠修护贴",
+    "进度：延草纲目医用透明质酸钠修护贴-recvnhdPKe0cNN-水印20: basic_info_fill: basic_info_fill_attempt: 1"
+  ],
+  "Manual republish recovery status must show the product name instead of the Feishu record id."
+);
 const compactPlatformFailedStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",
   summary:
@@ -2427,6 +2461,51 @@ assert.equal(
   }),
   "require_rerun_confirmation",
   "Read-only start must not advertise a stale historical resume when the current batch is complete"
+);
+assert.deepEqual(
+  resolveAutoListingControllerLaunchPolicy("start_new_batch"),
+  {
+    refreshBeforeSelection: true,
+    allowHistoricalResume: false,
+    forceFullFlow: true
+  },
+  "开始上架 must refresh Feishu first and must not select a historical resume job"
+);
+assert.deepEqual(
+  resolveAutoListingControllerLaunchPolicy("continue_current_batch"),
+  {
+    refreshBeforeSelection: false,
+    allowHistoricalResume: true,
+    forceFullFlow: false
+  },
+  "继续上架 must preserve the locked cached batch and select its safe resume point"
+);
+assert.equal(
+  shouldExposeHistoricalRuntimeForCurrentFeishuBatch({
+    currentBatchFingerprint: "batch-new",
+    historicalBatchFingerprint: "batch-old"
+  }),
+  false,
+  "A refreshed Feishu batch must not display product or publish progress from a historical runtime"
+);
+assert.deepEqual(
+  formatAutoListingControllerCompactStatusText({
+    status: "pending_products",
+    summary: "当前飞书批次仍有待处理产品。",
+    showPublishProgress: false,
+    feishuCompleted: 0,
+    feishuTotal: 7
+  }).split("\n"),
+  ["状态：待继续｜飞书产品 0/7", "进度：当前飞书批次仍有待处理产品。"],
+  "A refreshed pending batch without a matching runtime must not invent product/shop progress or an unknown current product"
+);
+assert.equal(
+  shouldExposeHistoricalRuntimeForCurrentFeishuBatch({
+    currentBatchFingerprint: "batch-current",
+    historicalBatchFingerprint: "batch-current"
+  }),
+  true,
+  "A locked batch may display historical runtime evidence only when the batch fingerprint matches exactly"
 );
 assert.equal(
   resolveAutoListingControllerDryRunStartDecision({

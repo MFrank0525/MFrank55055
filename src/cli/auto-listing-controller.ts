@@ -14,6 +14,8 @@ import {
   resolveAutoListingControllerIdleStatus,
   resolveAutoListingControllerDryRunStartDecision,
   resolveAutoListingControllerStartAfterFeishuRefresh,
+  resolveAutoListingControllerLaunchPolicy,
+  type AutoListingControllerLaunchIntent,
   selectAutoListingControllerActiveRunIdFromLogLines,
   selectAutoListingControllerLatestResultFileForJobStatus,
   selectAutoListingControllerStatusResultFile,
@@ -25,6 +27,7 @@ import {
   resolveAutoListingControllerHermesStatusPayload,
   shouldClearPauseSignalOnAutoListingControllerStart,
   shouldExposePublishProgressInAutoListingControllerStatus,
+  shouldExposeHistoricalRuntimeForCurrentFeishuBatch,
   shouldPreferActiveTaskStateSummary,
   shouldResumeHistoricalFailureForCurrentFeishuBatch,
   shouldResumeInterruptedTaskInPlace,
@@ -69,6 +72,7 @@ interface RunnerJob {
   expectedResultFile?: string;
   mode: "full-real-flow" | "resume-real-job";
   status: ControllerJobStatus;
+  batchFingerprint?: string;
   finishedAt?: string;
 }
 
@@ -559,6 +563,7 @@ function summarizeResult(resultFile: string | undefined): Record<string, unknown
     status: result.status || (result.ok === true ? "success" : "failed"),
     runId: result.runId,
     runtimeDir: result.runtimeDir,
+    feishuBatchFingerprint: result.feishuBatchFingerprint,
     products: tasks.map((task) => ({
       sourceImageName: task.sourceImageName,
       status: task.status,
@@ -576,6 +581,7 @@ function summarizeState(runtimeDir: string | undefined): Record<string, unknown>
   const stateFile = path.join(runtimeDir, "state.json");
   const state = readJsonFile<{
     runId?: string;
+    feishuBatchFingerprint?: string;
     status?: string;
     tasks?: Array<{
       taskId?: string;
@@ -593,6 +599,7 @@ function summarizeState(runtimeDir: string | undefined): Record<string, unknown>
   return {
     stateFile,
     runId: state.runId || path.basename(runtimeDir),
+    feishuBatchFingerprint: state.feishuBatchFingerprint,
     status: state.status,
     currentTask: compactTaskForStatus(currentTask),
     latestProgress: latestProgress
@@ -755,6 +762,37 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
   };
 }
 
+function findLatestRuntimeDirWithPublishManifest(): string | undefined {
+  const runsDir = path.join(rootDir, "data", "auto-listing", "runs");
+  if (!fs.existsSync(runsDir)) {
+    return undefined;
+  }
+  return fs
+    .readdirSync(runsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const runtimeDir = path.join(runsDir, entry.name);
+      const manifestFile = path.join(runtimeDir, "publish-manifest.json");
+      return {
+        runtimeDir,
+        mtimeMs: fs.existsSync(manifestFile) ? fs.statSync(manifestFile).mtimeMs : 0
+      };
+    })
+    .filter((item) => item.mtimeMs > 0)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.runtimeDir;
+}
+
+function isActiveManualRecoveryPublishProgress(publishProgress: Record<string, unknown> | undefined): boolean {
+  const active = publishProgress?.active as Record<string, unknown> | undefined;
+  const runtimeKey = String(active?.runtimeKey || "");
+  return /__manual-republish-\d+__/i.test(runtimeKey) && Number(publishProgress?.pending || 0) > 0;
+}
+
+function isActivePublishProgress(publishProgress: Record<string, unknown> | undefined): boolean {
+  const active = publishProgress?.active as Record<string, unknown> | undefined;
+  return Boolean(active?.runtimeKey) && Number(publishProgress?.pending || 0) > 0;
+}
+
 function summarizeFeishuProgress(): Record<string, unknown> | undefined {
   const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   const feishuProductDataFile = job?.input ? path.resolve(rootDir, job.input.feishuProductDataFile || "data/feishu/products.json") : "";
@@ -775,6 +813,14 @@ function summarizeFeishuProgress(): Record<string, unknown> | undefined {
     };
   } catch {
     return undefined;
+  }
+}
+
+function safeLoadFeishuProductRecords(productDataFile: string): ReturnType<typeof loadFeishuProductRecords> {
+  try {
+    return loadFeishuProductRecords(productDataFile);
+  } catch {
+    return [];
   }
 }
 
@@ -851,7 +897,11 @@ function migrateLegacyProcessedManifestForCurrentCache(): void {
   if (!fs.existsSync(feishuProductDataFile)) {
     return;
   }
-  const fingerprint = buildFeishuBatchFingerprint(loadFeishuProductRecords(feishuProductDataFile));
+  const records = safeLoadFeishuProductRecords(feishuProductDataFile);
+  if (!records.length) {
+    return;
+  }
+  const fingerprint = buildFeishuBatchFingerprint(records);
   migrateLegacyProcessedImagesToBatch(processedManifestFile, fingerprint);
 }
 
@@ -984,21 +1034,37 @@ function existingStatus(): Record<string, unknown> {
   const job = readJsonFile<RunnerJob>(jobFile);
   if (!job) {
     const latestResultFile = findLatestResultFile();
-    const latestResult = summarizeResult(latestResultFile);
-    const latestRuntimeDir = typeof latestResult?.runtimeDir === "string" ? latestResult.runtimeDir : latestResultFile ? path.dirname(latestResultFile) : undefined;
+    const historicalResult = summarizeResult(latestResultFile);
     const feishuProgress = summarizeFeishuProgress();
-    const publishProgress = summarizePublishProgress(latestRuntimeDir);
-    const status = resolveAutoListingControllerIdleStatus({
+    const exposeHistoricalRuntime = shouldExposeHistoricalRuntimeForCurrentFeishuBatch({
+      currentBatchFingerprint:
+        typeof feishuProgress?.batchFingerprint === "string" ? String(feishuProgress.batchFingerprint) : undefined,
+      historicalBatchFingerprint:
+        typeof historicalResult?.feishuBatchFingerprint === "string" ? String(historicalResult.feishuBatchFingerprint) : undefined
+    });
+    const latestResult = exposeHistoricalRuntime ? historicalResult : undefined;
+    const latestRuntimeDir = typeof latestResult?.runtimeDir === "string" ? latestResult.runtimeDir : latestResultFile ? path.dirname(latestResultFile) : undefined;
+    const publishRuntimeDir =
+      exposeHistoricalRuntime && latestRuntimeDir && fs.existsSync(path.join(latestRuntimeDir, "publish-manifest.json"))
+        ? latestRuntimeDir
+        : undefined;
+    const publishProgress = summarizePublishProgress(publishRuntimeDir);
+    const activePublishRunning = isActivePublishProgress(publishProgress);
+    const idleStatus = resolveAutoListingControllerIdleStatus({
       pauseSignalExists: fs.existsSync(pauseFile),
       batchComplete: typeof feishuProgress?.batchComplete === "boolean" ? feishuProgress.batchComplete : undefined,
       latestResultOk: typeof latestResult?.ok === "boolean" ? latestResult.ok : undefined,
       latestResultStatus: typeof latestResult?.status === "string" ? latestResult.status : undefined
     });
+    const status = activePublishRunning ? "running" : idleStatus;
     return {
       ok: true,
       status,
       jobFile,
       latestResult,
+      activeRuntimeDir: publishRuntimeDir,
+      statusSource: activePublishRunning ? "publish-manifest" : "idle",
+      historicalRuntimeSuppressed: !exposeHistoricalRuntime && Boolean(historicalResult),
       publishProgress,
       feishuProgress,
       feishuBatchDisplayCounts: feishuProgress
@@ -1011,7 +1077,9 @@ function existingStatus(): Record<string, unknown> {
           })
         : undefined,
       summary:
-        status === "pause_requested"
+        activePublishRunning
+          ? publishProgress?.progressText || "手动恢复发布正在运行。"
+          : status === "pause_requested"
           ? "项目已收到暂停请求；继续上架会清除暂停信号并从安全断点续跑。"
           : status === "completed"
           ? "当前飞书批次已全部处理完成。"
@@ -1061,13 +1129,41 @@ function existingStatus(): Record<string, unknown> {
   const publishProgress = summarizePublishProgress(runtimeDir);
   const feishuProgress = summarizeFeishuProgress();
   const state = summarizeState(runtimeDir);
+  const runtimeBatchFingerprint =
+    (typeof state?.feishuBatchFingerprint === "string" ? String(state.feishuBatchFingerprint) : undefined) ||
+    (typeof result?.feishuBatchFingerprint === "string" ? String(result.feishuBatchFingerprint) : undefined) ||
+    job.batchFingerprint;
+  const runtimeMatchesCurrentBatch = shouldExposeHistoricalRuntimeForCurrentFeishuBatch({
+    currentBatchFingerprint:
+      typeof feishuProgress?.batchFingerprint === "string" ? String(feishuProgress.batchFingerprint) : undefined,
+    historicalBatchFingerprint: runtimeBatchFingerprint
+  });
+  if (!runtimeMatchesCurrentBatch) {
+    if (!running) {
+      fs.rmSync(jobFile, { force: true });
+      return existingStatus();
+    }
+    fs.writeFileSync(pauseFile, `${new Date().toISOString()}\n`, "utf8");
+    return {
+      ok: true,
+      status: "failed",
+      pid: job.pid,
+      mode: job.mode,
+      startedAt: job.startedAt,
+      jobFile,
+      historicalRuntimeSuppressed: true,
+      feishuProgress,
+      summary: "运行中的控制器批次指纹与当前飞书缓存不一致；已请求在安全边界暂停，并停止展示和复用该运行证据。"
+    };
+  }
   const publishLogProgress = summarizePublishLogProgress(job.logFile);
   const currentTask = state?.currentTask as Record<string, unknown> | undefined;
   const fullJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   const feishuProductDataFile = path.resolve(rootDir, fullJob?.input?.feishuProductDataFile || "data/feishu/products.json");
-  const feishuCurrentProduct = fs.existsSync(feishuProductDataFile)
+  const feishuProductRecordsForStatus = fs.existsSync(feishuProductDataFile) ? safeLoadFeishuProductRecords(feishuProductDataFile) : [];
+  const feishuCurrentProduct = feishuProductRecordsForStatus.length
     ? summarizeFeishuCurrentProduct({
-        records: loadFeishuProductRecords(feishuProductDataFile),
+        records: feishuProductRecordsForStatus,
         currentTask,
         publishProgress
       })
@@ -1132,6 +1228,12 @@ function existingStatus(): Record<string, unknown> {
     Boolean(latestArtifactUpdatedAt) &&
     (!latestStateProgressAt || Date.parse(String(latestArtifactUpdatedAt)) > Date.parse(String(latestStateProgressAt)));
   const shouldUsePublishRealtime = publishProgressHasNewerActive || publishProgressHasNewerArtifact || !preferStateSummary;
+  const activePublishRuntimeKey = String((publishProgress?.active as Record<string, unknown> | undefined)?.runtimeKey || "");
+  const manualRecoveryPublishRunning =
+    /__manual-republish-\d+__/i.test(activePublishRuntimeKey) &&
+    Number(publishProgress?.pending || 0) > 0 &&
+    Boolean(publishProgressTimestamp) &&
+    (!latestStateProgressAt || Date.parse(String(publishProgressTimestamp)) > Date.parse(String(latestStateProgressAt)));
   const batchComplete = feishuProgress ? feishuProgress.batchComplete === true : true;
   const feishuProgressDisplayMode = resolveAutoListingControllerFeishuProgressDisplayMode({
     running,
@@ -1166,7 +1268,7 @@ function existingStatus(): Record<string, unknown> {
       : childFailureMessage
         ? compactStatusValue(childFailureMessage)
         : undefined;
-  const resolvedStatus = resolveAutoListingControllerRuntimeStatus({
+  const baseResolvedStatus = resolveAutoListingControllerRuntimeStatus({
     running,
     activeWaitState: Boolean(activeWaitState),
     pauseSignalExists: fs.existsSync(pauseFile),
@@ -1177,6 +1279,10 @@ function existingStatus(): Record<string, unknown> {
     resultStatus: typeof result?.status === "string" ? result.status : undefined,
     terminalFailureMessage
   });
+  const resolvedStatus =
+    manualRecoveryPublishRunning && baseResolvedStatus !== "completed" && baseResolvedStatus !== "failed"
+      ? "running"
+      : baseResolvedStatus;
   const terminalResult = resolvedStatus === "completed" ? "completed" : resolvedStatus === "failed" ? "failed" : undefined;
   const closure = resolveControllerJobClosure({
     declaredStatus: job.status,
@@ -1353,17 +1459,28 @@ function formatStatusText(status: Record<string, unknown>): string {
   const latestProgress = state?.latestProgress as Record<string, unknown> | undefined;
   const publishLogProgress = status.publishLogProgress as Record<string, unknown> | undefined;
   const paidImageProgress = status.paidImageProgress as Record<string, unknown> | undefined;
+  const active = progress?.active as Record<string, unknown> | undefined;
+  const publishGroupProgress = progress?.publishGroupProgress as Record<string, unknown> | undefined;
+  const latestArtifact = progress?.latestArtifact as Record<string, unknown> | undefined;
+  const artifactIsNewerThanActive =
+    typeof latestArtifact?.updatedAt === "string" &&
+    (!active?.updatedAt || Date.parse(String(latestArtifact.updatedAt)) > Date.parse(String(active.updatedAt)));
+  const publishArtifactMessage =
+    artifactIsNewerThanActive && typeof latestArtifact?.name === "string"
+      ? `最近产物：${String(latestArtifact.name)}`
+      : undefined;
+  const publishActiveMessage = publishArtifactMessage || (typeof active?.message === "string" ? compactStatusValue(String(active.message)) : undefined);
   const latestProgressText =
-    typeof publishLogProgress?.message === "string"
+    publishActiveMessage ||
+    (typeof publishLogProgress?.message === "string"
       ? String(publishLogProgress.message)
       : latestProgress?.message
         ? compactStatusValue(String(latestProgress.message))
-        : undefined;
-  const active = progress?.active as Record<string, unknown> | undefined;
-  const publishGroupProgress = progress?.publishGroupProgress as Record<string, unknown> | undefined;
+        : undefined);
   const shouldExposeImageGenerationProgress = !progress;
   return formatAutoListingControllerCompactStatusText({
     status: String(status.status || "unknown"),
+    showPublishProgress: Boolean(progress || currentTask || publishLogProgress),
     summary: String(status.summary || ""),
     productName:
       typeof publishGroupProgress?.productName === "string"
@@ -1987,7 +2104,12 @@ function selectCommand(forceFullFlow = false): {
   };
 }
 
-async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boolean): Promise<void> {
+async function start(
+  intent: AutoListingControllerLaunchIntent,
+  dryRun: boolean,
+  text: boolean,
+  forceRerunCurrentBatch: boolean
+): Promise<void> {
   fs.mkdirSync(controlDir, { recursive: true });
   const current = readJsonFile<RunnerJob>(jobFile);
   const runnerJobRunning = Boolean(current && isRunnerJobRunning(current));
@@ -2019,10 +2141,20 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     await cleanupRecordedAutoListingControllerChild();
   }
 
-  const beforeRefreshProgress = summarizeFeishuProgress();
+  const launchPolicy = resolveAutoListingControllerLaunchPolicy(intent);
+  const beforeRefreshProgress = launchPolicy.refreshBeforeSelection ? undefined : summarizeFeishuProgress();
+  if (!dryRun && launchPolicy.refreshBeforeSelection) {
+    runFeishuAssetsRefreshForStart();
+  }
+  const currentProgress = launchPolicy.refreshBeforeSelection ? summarizeFeishuProgress() : beforeRefreshProgress;
+  const selectedBatchFingerprint =
+    typeof currentProgress?.batchFingerprint === "string" ? String(currentProgress.batchFingerprint) : "";
+  if (!dryRun && !selectedBatchFingerprint) {
+    throw new Error("Cannot start auto-listing without a validated Feishu batch fingerprint.");
+  }
   const dryRunDecision = dryRun
     ? resolveAutoListingControllerDryRunStartDecision({
-        batchComplete: typeof beforeRefreshProgress?.batchComplete === "boolean" ? beforeRefreshProgress.batchComplete : undefined,
+        batchComplete: typeof currentProgress?.batchComplete === "boolean" ? currentProgress.batchComplete : undefined,
         forceRerunCurrentBatch
       })
     : undefined;
@@ -2037,21 +2169,19 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
     return;
   }
-  let forceFullFlow = dryRunDecision === "rerun_current_batch";
-  if (!dryRun && beforeRefreshProgress?.batchComplete === true) {
-    runFeishuAssetsRefreshForStart();
-    const afterRefreshProgress = summarizeFeishuProgress();
+  let forceFullFlow = !launchPolicy.allowHistoricalResume || launchPolicy.forceFullFlow || dryRunDecision === "rerun_current_batch";
+  if (!dryRun && launchPolicy.refreshBeforeSelection && currentProgress?.batchComplete === true) {
     const decision = resolveAutoListingControllerStartAfterFeishuRefresh({
-      currentBatchComplete: beforeRefreshProgress.batchComplete === true,
-      refreshedBatchChanged: beforeRefreshProgress.batchFingerprint !== afterRefreshProgress?.batchFingerprint,
-      refreshedBatchComplete: afterRefreshProgress?.batchComplete === true,
+      currentBatchComplete: true,
+      refreshedBatchChanged: false,
+      refreshedBatchComplete: true,
       forceRerunCurrentBatch
     });
     if (decision === "require_rerun_confirmation") {
       const result = {
         ok: true,
         status: "rerun_confirmation_required",
-        feishuProgress: afterRefreshProgress,
+        feishuProgress: currentProgress,
         message: "当前飞书批次产品已全部上架完成；刷新后没有发现新的产品批次。确认要重新跑原批次后，再使用重跑当前批次入口。"
       };
       console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
@@ -2104,7 +2234,8 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
     logFile,
     expectedResultFile: selected.expectedResultFile,
     mode: selected.mode,
-    status: "running"
+    status: "running",
+    batchFingerprint: selectedBatchFingerprint
   };
   atomicWriteJson(jobFile, job);
   const result = {
@@ -2123,8 +2254,12 @@ async function start(dryRun: boolean, text: boolean, forceRerunCurrentBatch: boo
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   const text = rest.includes("--text");
-  if (command === "start") {
-    await start(rest.includes("--dry-run"), text, rest.includes("--rerun-current-batch"));
+  if (command === "start-new" || command === "start") {
+    await start("start_new_batch", rest.includes("--dry-run"), text, rest.includes("--rerun-current-batch"));
+    return;
+  }
+  if (command === "continue") {
+    await start("continue_current_batch", rest.includes("--dry-run"), text, false);
     return;
   }
   if (command === "status") {

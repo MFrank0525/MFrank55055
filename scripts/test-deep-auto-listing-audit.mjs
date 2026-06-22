@@ -20,6 +20,21 @@ assert.deepEqual(
 const auditCliSource = fs.readFileSync("src/cli/audit-auto-listing.ts", "utf8");
 assert.match(auditCliSource, /auditRuntimeControllerConsistency/);
 assert.match(auditCliSource, /controllerRuntimeAudit\.evidence/);
+assert.match(
+  auditCliSource,
+  /latestRunState\(resolved\.runtimeRootDir, resolved\.simulateOnly, batchFingerprint\)/,
+  "Deep audit must select runtime evidence only from the exact current Feishu batch"
+);
+assert.match(
+  auditCliSource,
+  /state\.feishuBatchFingerprint === currentBatchFingerprint/,
+  "Historical run state from another Feishu batch must be isolated from the current batch audit"
+);
+assert.match(
+  auditCliSource,
+  /controller_process_batch_fingerprint_mismatch/,
+  "Deep audit must fail when an active controller process belongs to another Feishu batch"
+);
 
 const dimensions = runDeepAuditRules({
   rules: { errors: [], warnings: [], evidence: ["rule source loaded"] },

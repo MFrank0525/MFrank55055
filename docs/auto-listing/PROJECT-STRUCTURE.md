@@ -88,7 +88,7 @@ npm run rules:check
 
 ### 外部触发边界
 
-Hermes/飞书只允许调用 `auto-listing:hermes-start` 和 `auto-listing:hermes-status` 兼容命令。这些命令薄转发到项目控制器；恢复、飞书刷新、流程脚本和发布动作全部由项目自身完成。
+Hermes/飞书只允许调用 `auto-listing:hermes-start`、`auto-listing:hermes-continue` 和 `auto-listing:hermes-status` 兼容命令。start 表示先刷新飞书再开始刷新后的批次；continue 表示不刷新、只恢复锁定批次。命令只薄转发到项目控制器；恢复、飞书刷新、流程脚本和发布动作全部由项目自身完成。
 
 状态汇报同样由项目控制器负责生成，Hermes 只转发。发布进度必须按当前商品的 20 个待上架产品为一组展示，突出当前上架商品、组内第几个产品、当前第几个店铺和飞书批次进度；禁止把多个商品或多个续跑清单的发布条目累加成 `60/60` 这类跨商品累计数字。店铺总数必须来自完整发布计划或类目固定计划，不能用当前 `publish-manifest.json` 已触达的店铺数量当分母，否则续跑中途会误报 `店铺 4/4`、`店铺 5/5`。状态文本必须按当前业务阶段选择单一进度源：生图阶段展示生图进度；进入发布/上架阶段后只展示发布心跳或发布清单进度，禁止继续夹带 `Main images ready` 等已完成生图信息。JSON 状态面向 Hermes 的唯一自动反馈入口是 `hermesProgress`；发布阶段不得在顶层暴露 `imageProgress`，避免外层自动反馈器误抓旧生图进度。`hermesProgress.key` 必须使用当前商品组和当前店铺组进度，不能再写入原始 `publishProgress.safelyPublished/total` 累计值；`hermesProgress.message` 必须同时携带当前商品组进度和最新发布模块，保证自动提醒看到的是实时上架动作。Hermes gateway 的自动 watcher 必须记录完整 `hermesProgress.key` 作为心跳，但对外通知只按 `hermesProgress.message` 级别的稳定 key 去重并播报 `hermesProgress.message`，禁止因为时间戳/产物心跳重复刷屏，也禁止用 `last_safely_published`、历史商品名或跨 run 本地状态压制当前商品的新进度。控制器进入 `failed/completed/stopped` 终态时，终态原因必须覆盖旧发布心跳；gateway 必须先投递终态再判断普通进度，禁止因 `hermesProgress` 仍存在或发布累计字段被隐藏而吞掉失败通知。
 

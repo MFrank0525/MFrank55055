@@ -2,9 +2,19 @@ import crypto from "node:crypto";
 import path from "node:path";
 import type { FeishuProductRecord } from "../feishu/types.js";
 
-function attachmentIdentity(item: { fileToken?: string; name?: string; size?: number; localFile?: string }): Record<string, unknown> {
+export function buildFeishuAttachmentIdentityDigest(fileToken: string): string {
+  return fileToken ? crypto.createHash("sha256").update(fileToken).digest("hex").slice(0, 16) : "";
+}
+
+function attachmentIdentity(item: {
+  fileToken?: string;
+  identityDigest?: string;
+  name?: string;
+  size?: number;
+  localFile?: string;
+}): Record<string, unknown> {
   return {
-    fileToken: item.fileToken || "",
+    identityDigest: item.identityDigest || buildFeishuAttachmentIdentityDigest(item.fileToken || ""),
     name: item.name || "",
     size: item.size || 0
   };

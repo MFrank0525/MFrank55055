@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { auditAutoListingContinuity, auditCompletedBatchResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
-import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
+import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
@@ -23,6 +23,7 @@ interface ControllerJobFile {
   mode?: "full-real-flow" | "resume-real-job";
   status?: "running" | "completed" | "failed";
   pid?: number;
+  batchFingerprint?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -124,7 +125,11 @@ function runMatchesAuditMode(stateFile: string, simulateOnly: boolean): boolean 
   }
 }
 
-function latestRunState(runtimeRootDir: string, simulateOnly: boolean): AutoListingRunState | undefined {
+function latestRunState(
+  runtimeRootDir: string,
+  simulateOnly: boolean,
+  currentBatchFingerprint: string
+): AutoListingRunState | undefined {
   const root = path.resolve(runtimeRootDir);
   if (!fs.existsSync(root)) {
     return undefined;
@@ -149,7 +154,10 @@ function latestRunState(runtimeRootDir: string, simulateOnly: boolean): AutoList
       continue;
     }
     try {
-      return readJson<AutoListingRunState>(stateFile.filePath);
+      const state = readJson<AutoListingRunState>(stateFile.filePath);
+      if (state.feishuBatchFingerprint === currentBatchFingerprint) {
+        return state;
+      }
     } catch {
       continue;
     }
@@ -261,10 +269,15 @@ async function main(): Promise<void> {
     ...listFilesRecursive(resolved.shopRootDir),
     ...listFilesRecursive(resolved.runtimeRootDir)
   ];
-  const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly);
+  const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly, batchFingerprint);
   const discoveredRunImageCount = state?.status === "running" ? state.tasks.length : undefined;
   const controllerJob = readOptionalJson<ControllerJobFile>("data/auto-listing/control/auto-listing-controller-job.json");
-  const activeControllerRunning = controllerJob?.status === "running" && isProcessAlive(controllerJob.pid);
+  const controllerProcessAlive = controllerJob?.status === "running" && isProcessAlive(controllerJob.pid);
+  const controllerMatchesCurrentBatch = canResumeFeishuBatchArtifacts({
+    currentBatchFingerprint: batchFingerprint,
+    resumeBatchFingerprint: controllerJob?.batchFingerprint
+  });
+  const activeControllerRunning = controllerProcessAlive && controllerMatchesCurrentBatch;
   const expectedDiscoveredRunImageCount =
     discoveredRunImageCount !== undefined && activeControllerRunning && controllerJob.mode === "resume-real-job"
       ? 1
@@ -272,6 +285,12 @@ async function main(): Promise<void> {
   const latestRuntimeDir = state?.runId ? path.join(resolved.runtimeRootDir, state.runId) : resolved.runtimeRootDir;
   let manifest = { generatedAt: new Date().toISOString(), entries: [] as ReturnType<typeof loadPublishManifest>["entries"] };
   const runtimeErrors: DeepAuditIssue[] = [];
+  if (controllerProcessAlive && !controllerMatchesCurrentBatch) {
+    runtimeErrors.push({
+      code: "controller_process_batch_fingerprint_mismatch",
+      message: "Active controller process batch fingerprint does not match the current Feishu cache."
+    });
+  }
   try {
     manifest = loadPublishManifest(latestRuntimeDir);
   } catch (error) {
@@ -308,7 +327,7 @@ async function main(): Promise<void> {
     paidLedgerBatchExists: fs.existsSync(paidImageBatchLedgerDir(resolved.paidImageSubmissionLedgerDir, batchFingerprint))
   });
   const controllerRuntimeAudit = auditRuntimeControllerConsistency({
-    controllerStatus: controllerJob?.status,
+    controllerStatus: controllerMatchesCurrentBatch ? controllerJob?.status : undefined,
     controllerActive: activeControllerRunning,
     runStatus: state?.status
   });

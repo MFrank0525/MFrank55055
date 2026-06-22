@@ -6,6 +6,7 @@ const cliFiles = fs.readdirSync("src/cli");
 
 for (const command of [
   "auto-listing:hermes-start",
+  "auto-listing:hermes-continue",
   "auto-listing:hermes-rerun-current-batch",
   "auto-listing:hermes-start:dry",
   "auto-listing:hermes-status",
@@ -22,6 +23,16 @@ assert.match(
   packageSource,
   /"auto-listing:hermes-pause":\s*"npm run auto-listing:pause"/,
   "Hermes pause command must be a thin alias to the project-owned pause entry"
+);
+assert.match(
+  packageSource,
+  /"auto-listing:hermes-start":\s*"[^"]*auto-listing-controller\.js start-new"/,
+  "Hermes 开始上架 must use the refresh-first new-batch controller command"
+);
+assert.match(
+  packageSource,
+  /"auto-listing:hermes-continue":\s*"[^"]*auto-listing-controller\.js continue"/,
+  "Hermes 继续上架 must use the cached-batch resume controller command"
 );
 
 assert.equal(

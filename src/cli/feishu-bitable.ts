@@ -185,9 +185,11 @@ async function main(): Promise<void> {
     });
     const outFile = path.resolve(args.outFile);
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
+    const assetRecords = downloadResult.records.map((record) => sanitizeFeishuProductRecord(record));
     const assetPayload = {
       ...payload,
-      records: downloadResult.records.map((record) => sanitizeFeishuProductRecord(record)),
+      batchFingerprint: buildFeishuBatchFingerprint(assetRecords),
+      records: assetRecords,
       downloadedFiles: downloadResult.downloadedFiles,
       removedStaleFiles: downloadResult.removedStaleFiles
     };

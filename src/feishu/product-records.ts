@@ -1,6 +1,7 @@
 import type { FeishuBitableAttachment, FeishuBitableConfig, FeishuProductRecord } from "./types.js";
 import type { FeishuBitableRecord } from "./client.js";
 import { normalizeProductCategory } from "../autolist/product-category.js";
+import { buildFeishuAttachmentIdentityDigest } from "../autolist/feishu-batch-rules.js";
 
 function extractText(value: unknown): string {
   if (value === null || value === undefined) {
@@ -89,6 +90,7 @@ function sanitizeFeishuFieldValue(value: unknown): unknown {
 function sanitizeAttachment(attachment: FeishuBitableAttachment): FeishuBitableAttachment {
   return {
     fileToken: attachment.fileToken ? "[redacted]" : "",
+    identityDigest: attachment.identityDigest || buildFeishuAttachmentIdentityDigest(attachment.fileToken || ""),
     name: attachment.name,
     size: attachment.size,
     mimeType: attachment.mimeType,

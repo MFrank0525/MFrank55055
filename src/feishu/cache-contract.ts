@@ -1,4 +1,5 @@
 import { validateFeishuProductRecord } from "./product-records.js";
+import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import type { FeishuProductPayload, FeishuProductRecord } from "./types.js";
 
 export const FEISHU_CACHE_SCHEMA_VERSION = 2;
@@ -38,12 +39,18 @@ export function validateFeishuProductPayload(input: unknown): FeishuProductPaylo
   if (invalid.length > 0) {
     throw new Error(`Feishu cache record validation failed: ${invalid.join(", ")}`);
   }
+  const expectedBatchFingerprint = buildFeishuBatchFingerprint(records);
+  if (payload.batchFingerprint.trim() !== expectedBatchFingerprint) {
+    throw new Error(
+      `Feishu cache batchFingerprint mismatch: expected ${expectedBatchFingerprint}, got ${payload.batchFingerprint.trim()}.`
+    );
+  }
 
   return {
     ...(payload as unknown as FeishuProductPayload),
     schemaVersion: FEISHU_CACHE_SCHEMA_VERSION,
     fieldMapVersion: FEISHU_FIELD_MAP_VERSION,
-    batchFingerprint: payload.batchFingerprint.trim(),
+    batchFingerprint: expectedBatchFingerprint,
     records
   };
 }

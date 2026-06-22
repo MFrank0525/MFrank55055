@@ -524,6 +524,38 @@ export type AutoListingControllerStartAfterFeishuRefreshDecision =
   | "require_rerun_confirmation"
   | "rerun_current_batch";
 
+export type AutoListingControllerLaunchIntent = "start_new_batch" | "continue_current_batch";
+
+export function resolveAutoListingControllerLaunchPolicy(intent: AutoListingControllerLaunchIntent): {
+  refreshBeforeSelection: boolean;
+  allowHistoricalResume: boolean;
+  forceFullFlow: boolean;
+} {
+  if (intent === "start_new_batch") {
+    return {
+      refreshBeforeSelection: true,
+      allowHistoricalResume: false,
+      forceFullFlow: true
+    };
+  }
+  return {
+    refreshBeforeSelection: false,
+    allowHistoricalResume: true,
+    forceFullFlow: false
+  };
+}
+
+export function shouldExposeHistoricalRuntimeForCurrentFeishuBatch(input: {
+  currentBatchFingerprint?: string;
+  historicalBatchFingerprint?: string;
+}): boolean {
+  return Boolean(
+    input.currentBatchFingerprint &&
+      input.historicalBatchFingerprint &&
+      input.currentBatchFingerprint === input.historicalBatchFingerprint
+  );
+}
+
 export function resolveAutoListingControllerStartAfterFeishuRefresh(
   input: AutoListingControllerStartAfterFeishuRefreshInput
 ): AutoListingControllerStartAfterFeishuRefreshDecision {
@@ -801,6 +833,7 @@ export type AutoListingControllerCompactStatusTextInput = {
   feishuProductIndex?: number;
   feishuCompleted?: number;
   feishuTotal?: number;
+  showPublishProgress?: boolean;
 };
 
 export function resolveAutoListingControllerPaidImageRecordId(input: {
@@ -1055,7 +1088,12 @@ function normalizeAutoListingControllerStatusLabel(status?: string): string {
 
 function cleanAutoListingControllerProductName(name?: string): string {
   const base = (name || "").split(/[\\/]/).pop() || "";
-  return base
+  const withoutExtension = base.replace(/\.(png|jpe?g|webp)$/i, "");
+  const productFolderMatch = withoutExtension.match(/^(.+?)-rec[a-zA-Z0-9]+-水印\d+$/i);
+  if (productFolderMatch?.[1]) {
+    return productFolderMatch[1].trim();
+  }
+  return withoutExtension
     .replace(/\.(png|jpe?g|webp)$/i, "")
     .replace(/^[^-]+-/, "")
     .replace(/-白底图-\d+$/i, "")
@@ -1280,6 +1318,13 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const feishuCompleted = input.feishuProductIndex ?? input.feishuCompleted ?? "?";
   const feishuTotal = input.feishuTotal ?? "?";
   const feishuLabel = `飞书产品 ${feishuCompleted}/${feishuTotal}`;
+  if (input.showPublishProgress === false && !input.imageGenerationProgress) {
+    const lines = [`状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${feishuLabel}`];
+    if (input.summary) {
+      lines.push(`进度：${compactAutoListingControllerReason(input.summary)}`);
+    }
+    return lines.join("\n");
+  }
   const preferPublishProgress = shouldPreferAutoListingControllerPublishProgress(input);
   const mainImageProgressIndex =
     input.mainImageCompleted === undefined

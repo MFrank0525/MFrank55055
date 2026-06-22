@@ -7,6 +7,7 @@ import {
   FEISHU_CACHE_SCHEMA_VERSION,
   FEISHU_FIELD_MAP_VERSION
 } from "../dist/src/feishu/cache-contract.js";
+import { buildFeishuBatchFingerprint } from "../dist/src/autolist/feishu-batch-rules.js";
 
 const BUSINESS_STEPS = [
   "selling_points_loaded",
@@ -53,7 +54,7 @@ export async function runRepresentativeSimulation() {
   fs.writeFileSync(feishuProductDataFile, JSON.stringify({
     schemaVersion: FEISHU_CACHE_SCHEMA_VERSION,
     fieldMapVersion: FEISHU_FIELD_MAP_VERSION,
-    batchFingerprint: "representative-fixture",
+    batchFingerprint: buildFeishuBatchFingerprint([record]),
     ok: true,
     count: 1,
     records: [record]
