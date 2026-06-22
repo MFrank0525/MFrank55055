@@ -4,8 +4,7 @@ import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
 import { clearCheckpoint, isStageCompleted, loadCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
 import {
   evaluatePublishResult,
-  shouldRetryPublishFailure,
-  shouldQuarantineShopAfterPublishFailure
+  shouldRetryPublishFailure
 } from "../business/publish-from-spu/publish-rules.js";
 import { logInfo } from "../utils/logger.js";
 import { shopCodeFromFolder } from "./product-category.js";
@@ -401,7 +400,6 @@ export async function publishDistributedProducts(options: {
   }
 
   const results: PublishArtifact["results"] = [...alreadyPublishedResults];
-  const quarantinedShopFailures = new Map<string, { message: string; errorClass: string }>();
   let failureCircuit: PublishFailureCircuitState = { signature: "", consecutive: 0, open: false };
   let openedCircuit: PublishFailureCircuitState | undefined;
   for (const productFolder of pendingFolders) {
@@ -409,37 +407,6 @@ export async function publishDistributedProducts(options: {
     const shopFolder = path.dirname(productFolder);
     const fields = readProductWorkbookFields(findWorkbookFile(productFolder));
     const { targetIdentity, targetKey, runtimeKey } = targetContextForFolder(productFolder);
-    const quarantinedFailure = quarantinedShopFailures.get(shopFolder);
-    if (quarantinedFailure) {
-      const message = `Skipped unsafe publish attempt because this shop is quarantined: ${quarantinedFailure.message}`;
-      results.push({
-        targetIdentity,
-        targetKey,
-        productFolder,
-        ok: false,
-        status: "failed",
-        message,
-        finalVerifyStatus: "not_checked",
-        errorClass: quarantinedFailure.errorClass
-      });
-      upsertPublishManifestEntry(options.runtimeDir, {
-        targetIdentity,
-        targetKey,
-        productFolder,
-        runtimeKey,
-        shopFolder,
-        watermarkNo: extractWatermarkNo(productFolder),
-        status: "failed",
-        finalVerifyStatus: "not_checked",
-        resultFile: path.join(options.runtimeDir, "publish", runtimeKey, "result.json"),
-        message,
-        errorClass: quarantinedFailure.errorClass,
-        ...productIdentityFields
-      });
-      logInfo(`publish skipped for quarantined shop: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${quarantinedFailure.message}`);
-      options.onProgress?.(`Publish skipped for quarantined shop: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
-      continue;
-    }
     const startMessage = `Publishing product folder: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
     logInfo(startMessage.replace(/^Publishing/, "publishing"));
     options.onProgress?.(startMessage);
@@ -595,12 +562,6 @@ export async function publishDistributedProducts(options: {
         `Publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`
       );
       clearCheckpoint(checkpointFile);
-      if (shouldQuarantineShopAfterPublishFailure(decision.errorClass)) {
-        quarantinedShopFailures.set(shopFolder, {
-          message: decision.issue,
-          errorClass: decision.errorClass
-        });
-      }
       failureCircuit = recordPublishFailure(failureCircuit, {
         stage: "publish",
         errorClass: decision.errorClass,

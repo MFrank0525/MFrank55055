@@ -102,7 +102,6 @@ import {
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
   shouldRetryPublishFailure,
-  shouldQuarantineShopAfterPublishFailure,
   shouldStopPublishBatchAfterFailure,
   evaluatePublishResult
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
@@ -795,7 +794,18 @@ const missingShopSpecTemplateClass = classifyPublishFailure(
 );
 assert.equal(missingShopSpecTemplateClass, "spec_template_configuration_missing");
 assert.equal(shouldRetryPublishFailure(missingShopSpecTemplateClass, 0), false);
-assert.equal(shouldQuarantineShopAfterPublishFailure(missingShopSpecTemplateClass), true);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([
+    {
+      safelyPublished: false,
+      finalVerifyStatus: "not_checked",
+      errorClass: missingShopSpecTemplateClass,
+      issue: "店铺规格模板未配置"
+    }
+  ]),
+  true,
+  "A shop missing its configured spec template must stop the listing batch for user remediation, not skip the shop"
+);
 assert.equal(
   shouldRetryPublishFailure(specTemplateMissingClass, 0),
   true,

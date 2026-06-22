@@ -6,15 +6,15 @@ export interface PublishFailureCircuitState {
 
 const EXCLUDED_FAILURE_CLASSES = new Set([
   "external_service_unavailable",
-  "final_publish_state_uncertain",
-  "spec_template_configuration_missing"
+  "final_publish_state_uncertain"
 ]);
 
 const IMMEDIATE_FAILURE_CLASSES = new Set([
   "price_inventory_not_ready",
   "detail_qualification_not_ready",
   "doudian_login_required",
-  "shop_context_mismatch"
+  "shop_context_mismatch",
+  "spec_template_configuration_missing"
 ]);
 
 export function recordPublishFailure(

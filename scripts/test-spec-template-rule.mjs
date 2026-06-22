@@ -270,10 +270,10 @@ assert.match(
   "Missing shop template configuration must be diagnosed from the real 商品规格 DOM surface"
 );
 const autoListPublishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
-assert.match(
+assert.doesNotMatch(
   autoListPublishSource,
-  /quarantinedShopFailures[\s\S]*shouldQuarantineShopAfterPublishFailure/,
-  "A shop with no configured template must be quarantined without blocking independent later shops"
+  /quarantinedShopFailures|shouldQuarantineShopAfterPublishFailure/,
+  "A missing shop template must stop and report the batch instead of silently skipping later targets in that shop"
 );
 assert.match(
   publishSource,

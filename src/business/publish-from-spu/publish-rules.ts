@@ -400,9 +400,6 @@ export function classifyPublishFailure(message: string): string {
   ) {
     return "basic_info_field_not_ready";
   }
-  if (text.includes("Spectemplateisnotconfiguredforcurrentshop") || text.includes("规格模板未配置")) {
-    return "spec_template_configuration_missing";
-  }
   if (
     text.includes("Spectemplateselectiondidnotmatchrequiredkeyword") ||
     text.includes("Spectemplatesearchinputwasnotfound") ||
@@ -466,6 +463,9 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("主图") || text.includes("白底图") || text.includes("3:4") || text.includes("详情")) {
     return "image_section_blocked";
   }
+  if (text.includes("Spectemplateisnotconfiguredforcurrentshop") || text.includes("规格模板未配置")) {
+    return "spec_template_configuration_missing";
+  }
   if (text.includes("店铺") || text.includes("shop")) {
     return "shop_context_mismatch";
   }
@@ -499,10 +499,6 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   ].includes(errorClass);
 }
 
-export function shouldQuarantineShopAfterPublishFailure(errorClass: string): boolean {
-  return errorClass === "spec_template_configuration_missing";
-}
-
 export function shouldStopPublishBatchAfterFailure(
   decisions: PublishBatchFailureDecision[],
   consecutiveFailureThreshold = 2
@@ -511,7 +507,8 @@ export function shouldStopPublishBatchAfterFailure(
     "price_inventory_not_ready",
     "detail_qualification_not_ready",
     "doudian_login_required",
-    "shop_context_mismatch"
+    "shop_context_mismatch",
+    "spec_template_configuration_missing"
   ]);
   const systemicClasses = new Set(["spec_template_not_ready", "service_section_not_ready", "basic_info_field_not_ready"]);
   let lastClass = "";

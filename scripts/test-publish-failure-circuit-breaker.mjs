@@ -26,8 +26,8 @@ const shopConfiguration = recordPublishFailure(state, {
 });
 assert.deepEqual(
   shopConfiguration,
-  { signature: "", consecutive: 0, open: false },
-  "One shop missing a configured spec template must not open the cross-shop publish circuit"
+  { signature: "publish:spec_template_configuration_missing", consecutive: 1, open: true },
+  "A missing shop spec template must stop the publish batch immediately so Hermes can report the configuration blocker"
 );
 
 console.log("publish failure circuit breaker passed");
