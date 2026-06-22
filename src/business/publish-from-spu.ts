@@ -48,7 +48,6 @@ import {
   evaluateSpecTemplateCompletion,
   isDoudianLoginPageText,
   isMatchingSpecTemplateValue,
-  isSpecTemplateSmartFillUploadModeText,
   isUploadPlaceholderGraphicContext,
   resolveBasicFieldIdAliases,
   resolvePriceInventoryRowInputRoles,
@@ -4379,9 +4378,9 @@ async function isManualSpecTemplateEntryModeVisible(page: Page): Promise<boolean
 }
 
 async function isSpecTemplateSmartFillUploadModeVisible(page: Page): Promise<boolean> {
-  const visibleText = await page.evaluate(() => {
+  return page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    return Array.from(document.querySelectorAll("body *"))
+    const visibleText = Array.from(document.querySelectorAll("body *"))
       .map((el) => el as HTMLElement)
       .filter((el) => {
         const rect = el.getBoundingClientRect();
@@ -4390,8 +4389,13 @@ async function isSpecTemplateSmartFillUploadModeVisible(page: Page): Promise<boo
       })
       .map((el) => normalize(el.innerText || el.textContent || ""))
       .join(" ");
+
+    return (
+      visibleText.includes("智能填写助手") &&
+      visibleText.includes("切换手动填写") &&
+      visibleText.includes("点击 或 拖动 文件到虚线框内上传")
+    );
   });
-  return isSpecTemplateSmartFillUploadModeText(visibleText);
 }
 
 async function isSpecTemplateEntryControlVisible(page: Page): Promise<boolean> {
@@ -4400,6 +4404,28 @@ async function isSpecTemplateEntryControlVisible(page: Page): Promise<boolean> {
   }
   await findSpecTemplateInputInFieldRootOnPage(page);
   return true;
+}
+
+async function describeSpecTemplateEntrySurfaceOnPage(page: Page): Promise<{
+  templateConfigured: boolean;
+  manualSurfaceVisible: boolean;
+}> {
+  return page.evaluate(() => {
+    const visibleTexts = Array.from(document.querySelectorAll("body *"))
+      .map((element) => element as HTMLElement)
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      })
+      .map((element) => (element.innerText || element.textContent || "").replace(/\s+/g, "").trim());
+    const visibleText = visibleTexts.join(" ");
+    return {
+      templateConfigured: visibleText.includes("规格模板"),
+      manualSurfaceVisible:
+        visibleText.includes("商品规格") && visibleText.includes("添加规格类型") && visibleText.includes("规格预览")
+    };
+  });
 }
 
 async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {
@@ -4417,11 +4443,10 @@ async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {
           return false;
         }
         const text = normalize(el.innerText || el.textContent || "");
-        const compactText = text.replace(/\s+/g, "");
         return (
-          compactText.includes("智能填写助手") &&
-          compactText.includes("切换手动填写") &&
-          compactText.includes("点击或拖动文件到虚线框内上传")
+          text.includes("智能填写助手") &&
+          text.includes("切换手动填写") &&
+          text.includes("点击 或 拖动 文件到虚线框内上传")
         );
       })
       .sort((a, b) => {
@@ -4469,6 +4494,15 @@ async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void
     if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
       return;
     }
+  }
+  const surface = await describeSpecTemplateEntrySurfaceOnPage(page).catch(() => ({
+    templateConfigured: false,
+    manualSurfaceVisible: false
+  }));
+  if (surface.manualSurfaceVisible && !surface.templateConfigured) {
+    throw new Error(
+      "Spec template is not configured for current shop: 商品规格 surface only exposes 添加规格类型（0/3） and 规格预览."
+    );
   }
   throw new Error("Spec template entry control was not visible after opening manual goods-spec mode.");
 }

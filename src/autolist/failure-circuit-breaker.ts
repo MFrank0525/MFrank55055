@@ -6,7 +6,8 @@ export interface PublishFailureCircuitState {
 
 const EXCLUDED_FAILURE_CLASSES = new Set([
   "external_service_unavailable",
-  "final_publish_state_uncertain"
+  "final_publish_state_uncertain",
+  "spec_template_configuration_missing"
 ]);
 
 const IMMEDIATE_FAILURE_CLASSES = new Set([

@@ -189,11 +189,6 @@ export function isMatchingSpecTemplateValue(selectedTemplate: string, expectedKe
   return resolveSpecTemplateKeywordCandidates(expectedKeyword).some((candidate) => selected.includes(candidate));
 }
 
-export function isSpecTemplateSmartFillUploadModeText(value: string): boolean {
-  const text = normalizeVisibleText(value);
-  return text.includes("智能填写助手") && text.includes("切换手动填写") && text.includes("点击或拖动文件到虚线框内上传");
-}
-
 export function isDoudianLoginPageText(value: string): boolean {
   const text = normalizeVisibleText(value);
   return (
@@ -405,6 +400,9 @@ export function classifyPublishFailure(message: string): string {
   ) {
     return "basic_info_field_not_ready";
   }
+  if (text.includes("Spectemplateisnotconfiguredforcurrentshop") || text.includes("规格模板未配置")) {
+    return "spec_template_configuration_missing";
+  }
   if (
     text.includes("Spectemplateselectiondidnotmatchrequiredkeyword") ||
     text.includes("Spectemplatesearchinputwasnotfound") ||
@@ -499,6 +497,10 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "shop_switch_entry_unavailable",
     "browser_remote_debugging_unavailable"
   ].includes(errorClass);
+}
+
+export function shouldQuarantineShopAfterPublishFailure(errorClass: string): boolean {
+  return errorClass === "spec_template_configuration_missing";
 }
 
 export function shouldStopPublishBatchAfterFailure(

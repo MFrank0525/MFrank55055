@@ -102,6 +102,7 @@ import {
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
   shouldRetryPublishFailure,
+  shouldQuarantineShopAfterPublishFailure,
   shouldStopPublishBatchAfterFailure,
   evaluatePublishResult
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
@@ -789,6 +790,12 @@ assert.equal(
   "spec_template_not_ready",
   "Exhausting controlled semantic aliases must remain a bounded pre-submit template readiness failure"
 );
+const missingShopSpecTemplateClass = classifyPublishFailure(
+  "Spec template is not configured for current shop: 商品规格 surface only exposes 添加规格类型（0/3） and 规格预览."
+);
+assert.equal(missingShopSpecTemplateClass, "spec_template_configuration_missing");
+assert.equal(shouldRetryPublishFailure(missingShopSpecTemplateClass, 0), false);
+assert.equal(shouldQuarantineShopAfterPublishFailure(missingShopSpecTemplateClass), true);
 assert.equal(
   shouldRetryPublishFailure(specTemplateMissingClass, 0),
   true,

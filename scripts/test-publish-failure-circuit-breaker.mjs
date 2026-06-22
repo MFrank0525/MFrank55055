@@ -19,4 +19,15 @@ const reset = recordPublishFailure(state, { stage: "service", errorClass: "servi
 assert.equal(reset.signature, "service:service_section_not_ready");
 assert.equal(reset.consecutive, 1);
 
+const shopConfiguration = recordPublishFailure(state, {
+  stage: "publish",
+  errorClass: "spec_template_configuration_missing",
+  threshold: 2
+});
+assert.deepEqual(
+  shopConfiguration,
+  { signature: "", consecutive: 0, open: false },
+  "One shop missing a configured spec template must not open the cross-shop publish circuit"
+);
+
 console.log("publish failure circuit breaker passed");
