@@ -1332,7 +1332,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
       : Math.max(0, Math.min(productTotal, input.mainImageCompleted));
   const lines = [
     !preferPublishProgress && input.imageGenerationProgress
-      ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜主图 ${mainImageProgressIndex}/${productTotal}｜${feishuLabel}`
+      ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${input.mainImageCompleted === undefined ? "提交槽位" : "主图"} ${mainImageProgressIndex}/${productTotal}｜${feishuLabel}`
       : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}${input.publishReviewWatermarkNo ? `｜待复核 水印${input.publishReviewWatermarkNo}` : ""}｜${feishuLabel}`
   ];
 

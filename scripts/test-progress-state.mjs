@@ -1794,6 +1794,16 @@ const compactImageGenerationStatus = formatAutoListingControllerCompactStatusTex
   feishuCompleted: 0,
   feishuTotal: 4
 });
+assert.equal(
+  formatAutoListingControllerCompactStatusText({
+    status: "running",
+    imageGenerationProgress: "Prompt 5/5: Image 4: submitting videos-base64 request.",
+    feishuCompleted: 1,
+    feishuTotal: 7
+  }).split("\n")[0],
+  "状态：运行中｜提交槽位 20/20｜飞书产品 1/7",
+  "A submission slot index must not be reported as a completed main-image count before ledger completion is available"
+);
 assert.deepEqual(
   compactImageGenerationStatus.split("\n"),
   [
