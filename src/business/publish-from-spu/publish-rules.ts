@@ -189,6 +189,11 @@ export function isMatchingSpecTemplateValue(selectedTemplate: string, expectedKe
   return resolveSpecTemplateKeywordCandidates(expectedKeyword).some((candidate) => selected.includes(candidate));
 }
 
+export function isSpecTemplateSmartFillUploadModeText(value: string): boolean {
+  const text = normalizeVisibleText(value);
+  return text.includes("智能填写助手") && text.includes("切换手动填写") && text.includes("点击或拖动文件到虚线框内上传");
+}
+
 export function isDoudianLoginPageText(value: string): boolean {
   const text = normalizeVisibleText(value);
   return (

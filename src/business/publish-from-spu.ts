@@ -48,6 +48,7 @@ import {
   evaluateSpecTemplateCompletion,
   isDoudianLoginPageText,
   isMatchingSpecTemplateValue,
+  isSpecTemplateSmartFillUploadModeText,
   isUploadPlaceholderGraphicContext,
   resolveBasicFieldIdAliases,
   resolvePriceInventoryRowInputRoles,
@@ -4378,9 +4379,9 @@ async function isManualSpecTemplateEntryModeVisible(page: Page): Promise<boolean
 }
 
 async function isSpecTemplateSmartFillUploadModeVisible(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
+  const visibleText = await page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const visibleText = Array.from(document.querySelectorAll("body *"))
+    return Array.from(document.querySelectorAll("body *"))
       .map((el) => el as HTMLElement)
       .filter((el) => {
         const rect = el.getBoundingClientRect();
@@ -4389,13 +4390,8 @@ async function isSpecTemplateSmartFillUploadModeVisible(page: Page): Promise<boo
       })
       .map((el) => normalize(el.innerText || el.textContent || ""))
       .join(" ");
-
-    return (
-      visibleText.includes("智能填写助手") &&
-      visibleText.includes("切换手动填写") &&
-      visibleText.includes("点击 或 拖动 文件到虚线框内上传")
-    );
   });
+  return isSpecTemplateSmartFillUploadModeText(visibleText);
 }
 
 async function isSpecTemplateEntryControlVisible(page: Page): Promise<boolean> {
@@ -4421,10 +4417,11 @@ async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {
           return false;
         }
         const text = normalize(el.innerText || el.textContent || "");
+        const compactText = text.replace(/\s+/g, "");
         return (
-          text.includes("智能填写助手") &&
-          text.includes("切换手动填写") &&
-          text.includes("点击 或 拖动 文件到虚线框内上传")
+          compactText.includes("智能填写助手") &&
+          compactText.includes("切换手动填写") &&
+          compactText.includes("点击或拖动文件到虚线框内上传")
         );
       })
       .sort((a, b) => {
