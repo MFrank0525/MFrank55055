@@ -22,7 +22,7 @@ import { cleanupAfterPublish, cleanupStaleRunHistory } from "./cleanup.js";
 import { buildAutoListingPreflightSummary } from "./preflight.js";
 import { readOperationManual } from "./operation-manual.js";
 import { prepareTestRunOutputs } from "./prepare-test-run.js";
-import { publishDistributedProducts, publishRuntimeKey } from "./publish.js";
+import { publishDistributedProducts, publishRuntimeKey, selectLatestFailedPublishResult } from "./publish.js";
 import { attachQualificationFiles } from "./qualifications.js";
 import { recoverArtifactsFromWordFiles, recoverDistributedFoldersFromShopRoot } from "./resume.js";
 import { distributeProductFoldersToShops } from "./shop-distribution.js";
@@ -770,7 +770,7 @@ async function executeTaskChain(
         createEvent("info", step, `Publish results ready: ${publishArtifact.results.length}`, current.taskId)
       );
       markProgress();
-      const failedPublishResult = publishArtifact.results.find((item) => !item.ok);
+      const failedPublishResult = selectLatestFailedPublishResult(publishArtifact.results);
       if (failedPublishResult) {
         throw new Error(`Publish failed for ${failedPublishResult.productFolder}: ${failedPublishResult.message}`);
       }

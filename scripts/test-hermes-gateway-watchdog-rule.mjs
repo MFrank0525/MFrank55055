@@ -67,3 +67,15 @@ assert.match(
   /realtimeMessage/,
   "Hermes gateway progress notices must report the project-owned hermesProgress.message"
 );
+const terminalBranchIndex = source.indexOf('if summary["status"] == "failed":');
+const progressBranchIndex = source.indexOf('elif hermes_progress_key and state.get("last_hermes_progress_notice_key")');
+assert.ok(terminalBranchIndex >= 0, "Hermes gateway watchdog must have an explicit terminal failure branch");
+assert.ok(
+  terminalBranchIndex < progressBranchIndex,
+  "Hermes gateway watchdog must deliver terminal failure before considering stale realtime progress"
+);
+assert.match(
+  source,
+  /terminal_key.*summary\["status"\].*summary\["summary"\]/s,
+  "Hermes terminal notices must dedupe by terminal status and project failure summary"
+);

@@ -339,10 +339,12 @@ async function main(): Promise<void> {
       }
     }
   }
+  const expectedTargetKeySet = new Set(expectedTargetKeys);
   const identityAudit = auditCanonicalPublishEvidence({
     expectedTargetKeys,
-    manifestTargetKeys: manifest.entries.map((entry) => entry.targetKey).filter(Boolean),
-    artifactTargetKeys: (state?.tasks || []).flatMap((task) => task.publishArtifact?.results.map((result) => result.targetKey).filter(Boolean) || [])
+    manifestTargetKeys: manifest.entries.map((entry) => entry.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey) && expectedTargetKeySet.has(targetKey)),
+    artifactTargetKeys: (state?.tasks || []).flatMap((task) => task.publishArtifact?.results.map((result) => result.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey) && expectedTargetKeySet.has(targetKey)) || []),
+    requireComplete: state?.status === "completed"
   });
   identityAudit.errors.unshift(...identityBuildErrors);
   const categories: ProductCategory[] = ["医疗器械", "非处方药", "保健食品"];

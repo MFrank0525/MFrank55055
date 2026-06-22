@@ -234,6 +234,10 @@ function readPublishResultSummary(resultFile: string): {
   };
 }
 
+export function selectLatestFailedPublishResult<T extends { ok: boolean }>(results: T[]): T | undefined {
+  return [...results].reverse().find((item) => !item.ok);
+}
+
 export async function publishDistributedProducts(options: {
   runtimeDir: string;
   distributedFolders: string[];

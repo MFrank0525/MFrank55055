@@ -176,6 +176,19 @@ export function normalizeVisibleText(value: string): string {
   return value.replace(/\s+/g, "").trim();
 }
 
+export function resolveSpecTemplateKeywordCandidates(expectedKeyword: string): string[] {
+  const normalized = normalizeVisibleText(expectedKeyword);
+  if (normalized === "买二送一" || normalized === "买2送1" || normalized === "2送1") {
+    return ["买二送一", "买2送1", "2送1"];
+  }
+  return normalized ? [normalized] : [];
+}
+
+export function isMatchingSpecTemplateValue(selectedTemplate: string, expectedKeyword: string): boolean {
+  const selected = normalizeVisibleText(selectedTemplate);
+  return resolveSpecTemplateKeywordCandidates(expectedKeyword).some((candidate) => selected.includes(candidate));
+}
+
 export function isDoudianLoginPageText(value: string): boolean {
   const text = normalizeVisibleText(value);
   return (
@@ -391,6 +404,7 @@ export function classifyPublishFailure(message: string): string {
     text.includes("Spectemplateselectiondidnotmatchrequiredkeyword") ||
     text.includes("Spectemplatesearchinputwasnotfound") ||
     text.includes("Novisiblespectemplatematchedkeyword") ||
+    text.includes("Novisiblespectemplatedropdownoptionmatchedcontrolledaliases") ||
     text.includes("Manualspectemplateentrymodewasnotvisible") ||
     text.includes("Spectemplateentrycontrolwasnotvisible") ||
     text.includes("Spectemplateselectedbutmanualspecvaluesorprice/inventoryrowswerenotvisibleafterswitchingfromsmart-fillmode") ||
@@ -546,7 +560,7 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
   }
   return {
     safelyPublished: false,
-    finalVerifyStatus: "needs_manual_review",
+    finalVerifyStatus: "not_checked",
     errorClass,
     issue: message || "Publish result did not include a safe success signal."
   };
@@ -657,7 +671,7 @@ export function evaluatePriceInventoryCompletion(input: {
 export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRuleInput): PublishRuleCheck {
   const expectedTemplateKeyword = (input.expectedTemplateKeyword || "").trim();
   const selectedTemplate = (input.selectedTemplate || "").trim();
-  if (expectedTemplateKeyword && !selectedTemplate.includes(expectedTemplateKeyword)) {
+  if (expectedTemplateKeyword && !isMatchingSpecTemplateValue(selectedTemplate, expectedTemplateKeyword)) {
     return {
       passed: false,
       issue: `Spec template selection did not match required keyword. expectedKeyword=${expectedTemplateKeyword}; selectedTemplate=${
@@ -665,7 +679,7 @@ export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRule
       }`
     };
   }
-  if (expectedTemplateKeyword && selectedTemplate.includes(expectedTemplateKeyword)) {
+  if (expectedTemplateKeyword && isMatchingSpecTemplateValue(selectedTemplate, expectedTemplateKeyword)) {
     return { passed: true, issue: "" };
   }
   if (input.priceRows >= input.expectedSpecValues) {

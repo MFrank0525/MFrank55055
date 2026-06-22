@@ -21,6 +21,7 @@ import {
   resolveAutoListingControllerRealtimeProgressSignal,
   resolveAutoListingControllerPublishGroupProgress,
   resolveAutoListingControllerPaidImageRecordId,
+  compactAutoListingTerminalFailureMessage,
   resolveAutoListingControllerHermesStatusPayload,
   shouldClearPauseSignalOnAutoListingControllerStart,
   shouldExposePublishProgressInAutoListingControllerStatus,
@@ -1229,16 +1230,19 @@ function existingStatus(): Record<string, unknown> {
     : terminalFailureMessage;
   const terminalFailureMtimeMs = fileMtimeMs(resultFile);
   const externalWaitReason = activeWaitState?.reason || terminalFailureMessage;
+  const terminalRealtimeMessage =
+    resolvedStatus === "failed"
+      ? compactAutoListingTerminalFailureMessage(failureSummary || "自动上架失败，请查看项目终态结果。")
+      : resolvedStatus === "external_service_wait" && terminalFailureMessage
+        ? `图片服务暂时不可用：${terminalFailureMessage}`
+        : undefined;
   const publishGroupProgress = publishProgress?.publishGroupProgress as Record<string, unknown> | undefined;
   const realtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
     jobStartedAt: job.startedAt,
     activeRunId: activeRuntimeDir ? path.basename(activeRuntimeDir) : typeof result?.runId === "string" ? result.runId : undefined,
     status: resolvedStatus,
-    preferStatusMessage: Boolean(terminalFailureMessage && resolvedStatus === "external_service_wait"),
-    statusMessage:
-      terminalFailureMessage && resolvedStatus === "external_service_wait"
-        ? `图片服务暂时不可用：${terminalFailureMessage}`
-        : undefined,
+    preferStatusMessage: Boolean(terminalRealtimeMessage),
+    statusMessage: terminalRealtimeMessage,
     statusTimestamp: terminalFailureMtimeMs ? new Date(terminalFailureMtimeMs).toISOString() : undefined,
     statusSource:
       shouldUsePublishRealtime

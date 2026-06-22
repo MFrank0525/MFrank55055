@@ -3,12 +3,19 @@ import fs from "node:fs";
 import {
   evaluatePriceInventoryEntryRule,
   evaluateSpecTemplateCompletion,
+  isMatchingSpecTemplateValue,
+  resolveSpecTemplateKeywordCandidates,
   resolvePriceInventoryRowInputRoles
 } from "../src/business/publish-from-spu/publish-rules.ts";
 
+assert.deepEqual(resolveSpecTemplateKeywordCandidates("买二送一"), ["买二送一", "买2送1", "2送1"]);
+assert.equal(isMatchingSpecTemplateValue("2送1", "买二送一"), true);
+assert.equal(isMatchingSpecTemplateValue("买2送1四规格", "买二送一"), true);
+assert.equal(isMatchingSpecTemplateValue("粉丝专享----买三送二", "买二送一"), false);
+
 assert.deepEqual(
   evaluateSpecTemplateCompletion({
-    selectedTemplate: "买二送一-四规格",
+    selectedTemplate: "2送1",
     expectedTemplateKeyword: "买二送一",
     filledSpecValues: 4,
     expectedSpecValues: 4,

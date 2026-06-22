@@ -47,9 +47,11 @@ import {
   evaluateServiceFulfillmentCompletion,
   evaluateSpecTemplateCompletion,
   isDoudianLoginPageText,
+  isMatchingSpecTemplateValue,
   isUploadPlaceholderGraphicContext,
   resolveBasicFieldIdAliases,
-  resolvePriceInventoryRowInputRoles
+  resolvePriceInventoryRowInputRoles,
+  resolveSpecTemplateKeywordCandidates
 } from "./publish-from-spu/publish-rules.js";
 import type { ServiceFulfillmentState } from "./publish-from-spu/publish-rules.js";
 import { makePublishActionResult } from "./publish-from-spu/publish-actions.js";
@@ -3618,25 +3620,29 @@ async function clickSpecTemplateOptionByDomStructure(page: Page, keyword: string
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
   await dismissTransientOverlays(page);
   const input = await findSpecTemplateInputInFieldRootOnPage(page);
-  await input.click({ timeout: 3000 });
-  await page.waitForTimeout(500);
-  await input.fill(keyword).catch(async () => {
-    await page.keyboard.press(getSelectAllShortcut());
-    await page.keyboard.type(keyword, { delay: 20 });
-  });
-  await page.waitForTimeout(600);
+  const candidates = resolveSpecTemplateKeywordCandidates(keyword);
+  for (const candidate of candidates) {
+    await input.click({ timeout: 3000 });
+    await page.waitForTimeout(300);
+    await input.fill(candidate).catch(async () => {
+      await page.keyboard.press(getSelectAllShortcut());
+      await page.keyboard.type(candidate, { delay: 20 });
+    });
+    await page.waitForTimeout(600);
 
-  const clickedText = await clickSpecTemplateOptionByDomStructure(page, keyword);
-  if (!clickedText.includes(keyword)) {
-    throw new Error(`No visible spec template dropdown option matched keyword: ${keyword}`);
-  }
-  await page.waitForTimeout(800);
+    const clickedText = await clickSpecTemplateOptionByDomStructure(page, candidate);
+    if (!isMatchingSpecTemplateValue(clickedText, keyword)) {
+      continue;
+    }
+    await page.waitForTimeout(800);
 
-  const selectedValue = await readSpecTemplateSelectedValue(page, keyword);
-  if (!selectedValue.includes(keyword)) {
-    throw new Error(`Spec template readback did not match keyword after selection: keyword=${keyword}; selected=${selectedValue || "<empty>"}`);
+    const selectedValue = await readSpecTemplateSelectedValue(page, candidate);
+    if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
+      throw new Error(`Spec template readback did not match keyword after selection: keyword=${keyword}; selected=${selectedValue || "<empty>"}`);
+    }
+    return selectedValue;
   }
-  return selectedValue;
+  throw new Error(`No visible spec template dropdown option matched controlled aliases: ${candidates.join("/")}; keyword=${keyword}`);
 }
 
 async function scrollMainFormContainerToBottom(page: Page): Promise<boolean> {
@@ -4327,21 +4333,21 @@ async function chooseDynamicSpecTemplateOnPage(page: Page, title?: string): Prom
   await dismissTransientOverlays(page);
   await scrollLabelIntoView(page, "规格模板").catch(() => false);
   let selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
-  if (selectedValue.includes(keyword)) {
+  if (isMatchingSpecTemplateValue(selectedValue, keyword)) {
     return selectedValue;
   }
   selectedValue = await chooseSpecTemplateKeywordFromDropdown(page, keyword);
   const readbackValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
-  if (readbackValue.includes(keyword)) {
+  if (isMatchingSpecTemplateValue(readbackValue, keyword)) {
     return readbackValue;
   }
-  if (!selectedValue.includes(keyword)) {
+  if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
     selectedValue = await readDropdownValueByLabel(page, "\u89c4\u683c\u6a21\u677f").catch(() => "");
   }
-  if (!selectedValue.includes(keyword)) {
+  if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
     selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
   }
-  if (!selectedValue.includes(keyword)) {
+  if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
     throw new Error(`No visible spec template matched keyword: ${keyword}`);
   }
   return selectedValue;

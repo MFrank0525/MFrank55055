@@ -862,6 +862,13 @@ export type AutoListingControllerRealtimeProgressSignal = {
   message: string;
 };
 
+export function compactAutoListingTerminalFailureMessage(message: string): string {
+  return message
+    .replace(/^published:\s*/i, "")
+    .replace(/^Publish failed for [^:]+:\s*/i, "")
+    .trim();
+}
+
 function compactRealtimeProgressPart(value: string | undefined): string {
   return String(value || "")
     .replace(/\s+/g, " ")

@@ -58,7 +58,8 @@ import {
   resolveAutoListingControllerIdleStatus,
   resolveAutoListingControllerDryRunStartDecision,
   resolveAutoListingControllerPublishGroupProgress,
-  resolveAutoListingControllerPaidImageRecordId
+  resolveAutoListingControllerPaidImageRecordId,
+  compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { hasSharedFeishuWhiteBackgroundLocalFile, resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
@@ -104,7 +105,7 @@ import {
   shouldStopPublishBatchAfterFailure,
   evaluatePublishResult
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
-import { publishDistributedProducts } from "../dist/src/autolist/publish.js";
+import { publishDistributedProducts, selectLatestFailedPublishResult } from "../dist/src/autolist/publish.js";
 
 const hermesRunnerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
 const hermesSupervisorSource = fs.readFileSync("src/cli/auto-listing-supervisor.ts", "utf8");
@@ -781,6 +782,13 @@ const specTemplateMissingClass = classifyPublishFailure(
   "Sequential publish flow stopped: 价格库存模块未完成。Spec template selection did not match required keyword. expectedKeyword=买二送一; selectedTemplate=<empty>; keyword=买二送一"
 );
 assert.equal(specTemplateMissingClass, "spec_template_not_ready");
+assert.equal(
+  classifyPublishFailure(
+    "Sequential publish flow stopped: 价格库存模块未完成。No visible spec template dropdown option matched controlled aliases: 买二送一/买2送1/2送1; keyword=买二送一"
+  ),
+  "spec_template_not_ready",
+  "Exhausting controlled semantic aliases must remain a bounded pre-submit template readiness failure"
+);
 assert.equal(
   shouldRetryPublishFailure(specTemplateMissingClass, 0),
   true,
@@ -2426,6 +2434,47 @@ assert.match(
   terminalFailureRealtimeProgress?.message || "",
   /fetch failed/,
   "Terminal failure status must override later async image-generation progress in AutoListingController realtime feedback"
+);
+const terminalPublishFailureRealtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
+  jobStartedAt: "2026-06-21T14:39:30.324Z",
+  activeRunId: "20260622-011631",
+  status: "failed",
+  preferStatusMessage: true,
+  statusMessage: "规格模板未找到等价项：买二送一/买2送1/2送1",
+  statusTimestamp: "2026-06-21T22:22:12.400Z",
+  publishLogTimestamp: "2026-06-21T22:18:39.022Z",
+  publishLogMessage: "发布模块：图文信息（07延草纲目健康护理专营店）"
+});
+assert.equal(terminalPublishFailureRealtimeProgress?.source, "status");
+assert.match(terminalPublishFailureRealtimeProgress?.message || "", /规格模板未找到等价项/);
+assert.equal(
+  compactAutoListingTerminalFailureMessage(
+    "Publish failed for /shops/07店/延草纲目商品-水印14: Sequential publish flow stopped: 价格库存模块未完成。No visible spec template dropdown option matched controlled aliases: 买二送一/买2送1/2送1"
+  ),
+  "Sequential publish flow stopped: 价格库存模块未完成。No visible spec template dropdown option matched controlled aliases: 买二送一/买2送1/2送1",
+  "Terminal feedback must remove long local paths before truncation so Hermes receives the real failure reason"
+);
+
+assert.equal(
+  evaluatePublishResult({
+    ok: false,
+    status: "failed",
+    publishClicked: false,
+    publishClickAttempted: false,
+    message: "No visible spec template dropdown option matched keyword: 买二送一"
+  }).finalVerifyStatus,
+  "not_checked",
+  "A failure before clicking publish is safe to retry and must not be mislabeled as needs_manual_review"
+);
+
+assert.deepEqual(
+  selectLatestFailedPublishResult([
+    { productFolder: "/shops/04/水印07", ok: false, message: "旧的标品页未就绪" },
+    { productFolder: "/shops/05/水印09", ok: true, message: "published" },
+    { productFolder: "/shops/07/水印14", ok: false, message: "当前规格模板未找到" }
+  ]),
+  { productFolder: "/shops/07/水印14", ok: false, message: "当前规格模板未找到" },
+  "Task failure and Hermes summary must report the latest actionable blocker, not the first historical failure"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({

@@ -94,8 +94,10 @@ export function auditCanonicalPublishEvidence(input: {
   expectedTargetKeys: string[];
   manifestTargetKeys: string[];
   artifactTargetKeys: string[];
+  requireComplete?: boolean;
 }): { ok: boolean; errors: DeepAuditIssue[]; warnings: DeepAuditIssue[]; evidence: string[] } {
   const errors: DeepAuditIssue[] = [];
+  const warnings: DeepAuditIssue[] = [];
   const expected = new Set(input.expectedTargetKeys);
   const manifest = new Set(input.manifestTargetKeys);
   const artifacts = new Set(input.artifactTargetKeys);
@@ -118,10 +120,18 @@ export function auditCanonicalPublishEvidence(input: {
   const unexpectedManifest = [...manifest].filter((key) => !expected.has(key));
   const unexpectedArtifact = [...artifacts].filter((key) => !expected.has(key));
   if (missingManifest.length > 0) {
-    errors.push({ code: "publish_manifest_identity_missing", message: "Publish manifest is missing canonical target identities.", count: missingManifest.length });
+    (input.requireComplete === false ? warnings : errors).push({
+      code: input.requireComplete === false ? "publish_manifest_identity_pending" : "publish_manifest_identity_missing",
+      message: input.requireComplete === false ? "Publish manifest identities are pending for unexecuted targets." : "Publish manifest is missing canonical target identities.",
+      count: missingManifest.length
+    });
   }
   if (missingArtifact.length > 0) {
-    errors.push({ code: "publish_artifact_identity_missing", message: "Task publish artifacts are missing canonical target identities.", count: missingArtifact.length });
+    (input.requireComplete === false ? warnings : errors).push({
+      code: input.requireComplete === false ? "publish_artifact_identity_pending" : "publish_artifact_identity_missing",
+      message: input.requireComplete === false ? "Publish artifact identities are pending for unexecuted targets." : "Task publish artifacts are missing canonical target identities.",
+      count: missingArtifact.length
+    });
   }
   if (unexpectedManifest.length > 0) {
     errors.push({ code: "publish_manifest_identity_unexpected", message: "Publish manifest contains identities outside the task plan.", count: unexpectedManifest.length });
@@ -133,7 +143,7 @@ export function auditCanonicalPublishEvidence(input: {
   return {
     ok: errors.length === 0,
     errors,
-    warnings: [],
+    warnings,
     evidence: [
       `expected=${input.expectedTargetKeys.length}`,
       `manifest=${input.manifestTargetKeys.length}`,

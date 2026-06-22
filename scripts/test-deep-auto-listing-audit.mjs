@@ -53,6 +53,23 @@ const completeIdentityAudit = auditCanonicalPublishEvidence({
 });
 assert.equal(completeIdentityAudit.ok, true);
 
+const resumableIdentityAudit = auditCanonicalPublishEvidence({
+  expectedTargetKeys: ["current-1", "current-2", "current-3"],
+  manifestTargetKeys: ["current-1"],
+  artifactTargetKeys: ["current-1"],
+  requireComplete: false
+});
+assert.equal(resumableIdentityAudit.ok, true);
+assert.deepEqual(resumableIdentityAudit.warnings.map((item) => item.code), [
+  "publish_manifest_identity_pending",
+  "publish_artifact_identity_pending"
+]);
+assert.match(
+  auditCliSource,
+  /expectedTargetKeySet[\s\S]*filter\(.*expectedTargetKeySet\.has/s,
+  "Deep audit must scope a shared runtime manifest to the current task plan instead of flagging prior same-batch tasks as unexpected"
+);
+
 const contradictionAudit = auditRuleContradictions({
   categoryPlans: [{ category: "医疗器械", titleCount: 20, shopCount: 10, promptCount: 5 }],
   titleRuleText: "医疗器械：12 条标题",
