@@ -24,18 +24,6 @@ assert.match(
   "basic-info readback must reopen the SPU-prefilled page when all expected fields disappear together"
 );
 
-const finalGraphicVerifierSource = sliceFunction("verifyForbiddenGraphicSectionsEmptyOnPage");
-assert.equal(
-  finalGraphicVerifierSource.includes("ensurePublishSectionTab"),
-  false,
-  "final forbidden graphic verification must not switch back to the graphic module"
-);
-assert.equal(
-  finalGraphicVerifierSource.includes("purgeForbiddenGraphicSectionsStrict"),
-  false,
-  "final forbidden graphic verification must not repair a previous module after the flow has moved on"
-);
-
 assert.equal(
   publishSource.includes("clickSmartCropForMain34Section"),
   false,
@@ -200,15 +188,30 @@ assert.match(
   /previewRoot\.contains\(node\)[\s\S]*nearPreview/,
   "thumbnail delete controls must be selected from the preview DOM/container range instead of viewport coordinates"
 );
+assert.doesNotMatch(
+  fs.readFileSync("src/business/publish-from-spu/constants.ts", "utf8"),
+  /FORBIDDEN_GRAPHIC_SECTION_LABELS/,
+  "the obsolete forbidden-section constant must be deleted instead of retained as an empty compatibility marker"
+);
 assert.match(
-  publishSource,
-  /async function countDeletableGraphicSectionPreviewsStrict[\s\S]*aria-label[\s\S]*xlink:href[\s\S]*shanchu/,
-  "forbidden graphic verification must distinguish deletable user previews from platform-locked auto-generated white-background images"
+  fs.readFileSync("src/business/publish-from-spu/publish-rules.ts", "utf8"),
+  /OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW\s*=\s*true/,
+  "the rule layer must explicitly declare that white-background and 3:4 slots are outside the publish flow"
 );
 assert.match(
   publishSource,
-  /async function listRemainingForbiddenGraphicSections[\s\S]*countDeletableGraphicSectionPreviewsStrict/,
-  "forbidden graphic final blocking must only report sections that still have deletable previews"
+  /OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW/,
+  "the publisher action layer must consume the optional-graphic-section policy from the rule layer"
+);
+assert.doesNotMatch(
+  publishSource,
+  /publish-page-forbidden-graphic-sections-before-main-upload/,
+  "graphic upload must not inspect or clear stale white-background/3:4 slots before uploading main images"
+);
+assert.doesNotMatch(
+  publishSource,
+  /Forbidden optional graphic sections still contain images/,
+  "white-background/3:4 auto-fill must never become a project-blocking publish error"
 );
 
 const afterMedicalStart = publishSource.indexOf('stages.push({ step: "apply_medical_device_certificate", status: "completed" });');
@@ -216,25 +219,20 @@ const publishClickStart = publishSource.indexOf("const publishResult = await cli
 assert.notEqual(afterMedicalStart, -1, "medical certificate stage not found");
 assert.notEqual(publishClickStart, -1, "publish click stage not found");
 const afterMedicalBeforeSubmit = publishSource.slice(afterMedicalStart, publishClickStart);
-assert.match(
+assert.doesNotMatch(
   afterMedicalBeforeSubmit,
   /verifyForbiddenGraphicSectionsEmptyOnPage/,
-  "after leaving the graphic module, final graphic checks must be read-only verification"
+  "after leaving the graphic module, publish flow must not check white-background/3:4 slots"
 );
-assert.match(
+assert.doesNotMatch(
   afterMedicalBeforeSubmit,
   /repairForbiddenGraphicSectionsBeforePublish/,
-  "publish-blocking white-background or 3:4 auto-fill must trigger a controlled final repair before submitting"
+  "publish flow must not repair white-background/3:4 slots before submitting"
 );
-assert.match(
-  afterMedicalBeforeSubmit,
-  /pre_publish_forbidden_graphic_repair/,
-  "pre-publish forbidden graphic repair must be tracked as its own stage"
-);
-assert.match(
-  afterMedicalBeforeSubmit,
-  /final_forbidden_graphic_repair/,
-  "final forbidden graphic repair must be tracked separately from ordinary module sequencing"
+assert.doesNotMatch(
+  publishSource,
+  /async function (?:enforceForbiddenGraphicSectionsEmpty|verifyForbiddenGraphicSectionsEmptyOnPage|repairForbiddenGraphicSectionsBeforePublish|clearWhiteBackgroundPreviewsStrict)/,
+  "publisher must not retain white-background/3:4 cleanup helpers"
 );
 
 assert.match(

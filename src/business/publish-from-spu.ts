@@ -10,7 +10,6 @@ import { prepareQualificationImagesForUpload } from "./publish-from-spu/qualific
 import {
   FIXED_FREIGHT_TEMPLATE_KEYWORD,
   FIXED_SPEC_VALUES,
-  FORBIDDEN_GRAPHIC_SECTION_LABELS,
   GRAPHIC_SECTION_LABELS,
   PLATFORM_SPU_URL,
   SPEC_TEMPLATE_KEYWORD_DEFAULT,
@@ -30,12 +29,12 @@ import type {
 } from "./publish-from-spu/types.js";
 import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
 import {
+  OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW,
   evaluateBasicInfoGateRecovery,
   evaluateBasicPrefillReadiness,
   evaluateShopSwitchMenuState,
   evaluateDetailImageCompletion,
   evaluateDetailUploadOutcome,
-  evaluateForbiddenGraphicSections,
   evaluateMedicalDeviceCertificateUploadRule,
   evaluatePriceInventoryEntryRule,
   evaluatePriceInventoryCompletion,
@@ -6289,52 +6288,6 @@ async function scrollGraphicSectionIntoView(page: Page, sectionName: string): Pr
   return scrolled;
 }
 
-async function purgeForbiddenGraphicSectionsStrict(page: Page): Promise<string[]> {
-  const removedSections: string[] = [];
-
-  for (const sectionName of FORBIDDEN_GRAPHIC_SECTION_LABELS) {
-    await scrollGraphicSectionIntoView(page, sectionName).catch(() => false);
-    if (sectionName === "\u767d\u5e95\u56fe") {
-      const beforeCount = await countWhiteBackgroundPreviews(page).catch(() => 0);
-      const removedCount = await clearWhiteBackgroundPreviewsStrict(page).catch(() => 0);
-      if (removedCount > 0 || (beforeCount > 0 && (await countWhiteBackgroundPreviews(page).catch(() => beforeCount)) === 0)) {
-        removedSections.push(sectionName);
-      }
-      continue;
-    }
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const beforeCount = await countGraphicSectionPreviewsStrict(page, sectionName);
-      if (!beforeCount) {
-        break;
-      }
-
-      const previews = await getGraphicSectionPreviewRectsStrict(page, sectionName);
-      if (!previews.length) {
-        break;
-      }
-
-      const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, sectionName).catch(() => false);
-      if (!clicked) {
-        break;
-      }
-
-      await page.waitForTimeout(500);
-      await clickConfirmIfVisibleStrict(page);
-      await dismissTransientOverlays(page);
-
-      const afterCount = await countGraphicSectionPreviewsStrict(page, sectionName);
-      if (afterCount < beforeCount && !removedSections.includes(sectionName)) {
-        removedSections.push(sectionName);
-      }
-      if (afterCount >= beforeCount) {
-        break;
-      }
-    }
-  }
-
-  return removedSections;
-}
-
 async function clearGraphicSectionPreviewsStrict(page: Page, sectionName: string, maxAttempts = 10): Promise<number> {
   let removedCount = 0;
   await scrollGraphicSectionIntoView(page, sectionName).catch(() => false);
@@ -6368,213 +6321,6 @@ async function clearGraphicSectionPreviewsStrict(page: Page, sectionName: string
   }
 
   return removedCount;
-}
-
-async function clearWhiteBackgroundPreviewsStrict(page: Page, maxAttempts = 10): Promise<number> {
-  let removedCount = 0;
-  await scrollGraphicSectionIntoView(page, "\u767d\u5e95\u56fe").catch(() => false);
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const beforeCount = await countWhiteBackgroundPreviews(page).catch(() => 0);
-    if (!beforeCount) {
-      break;
-    }
-
-    const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, "\u767d\u5e95\u56fe").catch(() => false);
-    if (!clicked) {
-      break;
-    }
-    await page.waitForTimeout(1000);
-    await clickConfirmIfVisibleStrict(page);
-    await dismissTransientOverlays(page);
-    await page.waitForTimeout(800);
-
-    const afterCount = await countWhiteBackgroundPreviews(page).catch(() => beforeCount);
-    if (afterCount < beforeCount) {
-      removedCount += beforeCount - afterCount;
-      continue;
-    }
-    break;
-  }
-
-  return removedCount;
-}
-
-async function countDeletableGraphicSectionPreviewsStrict(page: Page, sectionName: string): Promise<number> {
-  return page.evaluate(
-    ({ targetSection, sectionLabels, uploadPlaceholderPattern }) => {
-      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-      const normalizeLabel = (value: string): string => normalize(value).replace(/^\*/, "").trim();
-      const labels = Array.from(document.querySelectorAll("body *"))
-        .map((el) => {
-          const node = el as HTMLElement;
-          const rect = node.getBoundingClientRect();
-          const text = normalizeLabel(node.textContent || "");
-          if (!text || rect.width <= 0 || rect.height <= 0 || rect.left <= 250) {
-            return null;
-          }
-          return { text, top: rect.top, bottom: rect.bottom, left: rect.left };
-        })
-        .filter(Boolean) as Array<{ text: string; top: number; bottom: number; left: number }>;
-      const current = labels
-        .filter((item) => item.text === targetSection)
-        .sort((a, b) => a.top - b.top || a.left - b.left)[0];
-      if (!current) {
-        return 0;
-      }
-      const nextTop =
-        labels
-          .filter((item) => sectionLabels.includes(item.text) && item.top > current.top)
-          .sort((a, b) => a.top - b.top || a.left - b.left)[0]?.top || current.bottom + 500;
-
-      const isUploadPlaceholderContext = (el: HTMLElement): boolean => {
-        const context = [el.textContent || "", el.parentElement?.textContent || "", el.closest("div")?.textContent || ""]
-          .join(" ")
-          .replace(/\s+/g, "");
-        return !context.includes("\u5220\u9664") && new RegExp(uploadPlaceholderPattern).test(context);
-      };
-      const markerText = (el: HTMLElement): string =>
-        [
-          el.textContent || "",
-          el.getAttribute("aria-label") || "",
-          el.getAttribute("title") || "",
-          el.getAttribute("href") || "",
-          el.getAttribute("xlink:href") || "",
-          String(el.className || "")
-        ]
-          .join(" ")
-          .replace(/\s+/g, "")
-          .toLowerCase();
-      const isDeleteControl = (el: HTMLElement): boolean => {
-        const marker = markerText(el);
-        return marker.includes("\u5220\u9664") || /(delete|remove|trash|shanchu|icon-delete|icon-trash|semi-icon-close|close)/.test(marker);
-      };
-      const visibleDeleteControls = Array.from(document.querySelectorAll("button, [role='button'], a, div, span, i, svg, use, path"))
-        .map((el) => el as HTMLElement)
-        .filter((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && isDeleteControl(el);
-        })
-        .map((el) => ({ el, rect: el.getBoundingClientRect() }));
-
-      const previews = Array.from(document.querySelectorAll("img, [style*='background-image']"))
-        .map((el) => {
-          const node = el as HTMLElement;
-          const rect = node.getBoundingClientRect();
-          const style = window.getComputedStyle(node);
-          if (
-            rect.width < 40 ||
-            rect.height < 40 ||
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            style.position === "fixed" ||
-            style.position === "sticky" ||
-            rect.top < current.top - 20 ||
-            rect.top > nextTop - 10 ||
-            rect.left <= current.left ||
-            isUploadPlaceholderContext(node)
-          ) {
-            return null;
-          }
-          let previewRoot: HTMLElement = node;
-          for (let depth = 0; previewRoot.parentElement && depth < 5; depth += 1) {
-            const parent = previewRoot.parentElement as HTMLElement;
-            const parentRect = parent.getBoundingClientRect();
-            if (parentRect.width >= rect.width && parentRect.height >= rect.height) {
-              previewRoot = parent;
-            }
-          }
-          const hasDeleteControl = visibleDeleteControls.some((control) => {
-            if (previewRoot.contains(control.el)) {
-              return true;
-            }
-            return (
-              control.rect.left >= rect.left - 50 &&
-              control.rect.left <= rect.right + 180 &&
-              control.rect.top >= rect.top - 180 &&
-              control.rect.top <= rect.bottom + 150
-            );
-          });
-          return hasDeleteControl ? `${Math.round(rect.left)}-${Math.round(rect.top)}-${Math.round(rect.width)}-${Math.round(rect.height)}` : null;
-        })
-        .filter(Boolean) as string[];
-      return Array.from(new Set(previews)).length;
-    },
-    { targetSection: sectionName, sectionLabels: GRAPHIC_SECTION_LABELS, uploadPlaceholderPattern: "\u4e0a\u4f20(?:\u767d\u5e95\u56fe|\u4e3b\u56fe|\u8f85\u52a9\u56fe)" }
-  );
-}
-
-async function listRemainingForbiddenGraphicSections(page: Page): Promise<string[]> {
-  const remaining: string[] = [];
-  for (const sectionName of FORBIDDEN_GRAPHIC_SECTION_LABELS) {
-    const count = await countDeletableGraphicSectionPreviewsStrict(page, sectionName);
-    if (count > 0) {
-      remaining.push(sectionName);
-    }
-  }
-  return remaining;
-}
-
-async function enforceForbiddenGraphicSectionsEmpty(
-  page: Page,
-  runtimeDir: string,
-  screenshotFileName: string
-): Promise<{ removedSections: string[]; remainingSections: string[]; screenshotFile: string }> {
-  const removedSections = new Set<string>();
-
-  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
-  await page.mouse.wheel(0, -4000).catch(() => {});
-  await page.waitForTimeout(1000);
-  await dismissTransientOverlays(page);
-
-  for (let round = 0; round < 3; round += 1) {
-    const removed = await purgeForbiddenGraphicSectionsStrict(page);
-    removed.forEach((sectionName) => removedSections.add(sectionName));
-    await dismissTransientOverlays(page);
-    await page.waitForTimeout(1200);
-
-    const remaining = await listRemainingForbiddenGraphicSections(page);
-    if (!remaining.length) {
-      const screenshotFile = await savePageScreenshot(page, runtimeDir, screenshotFileName);
-      return {
-        removedSections: Array.from(removedSections),
-        remainingSections: [],
-        screenshotFile
-      };
-    }
-  }
-
-  const screenshotFile = await savePageScreenshot(page, runtimeDir, screenshotFileName);
-  return {
-    removedSections: Array.from(removedSections),
-    remainingSections: await listRemainingForbiddenGraphicSections(page),
-    screenshotFile
-  };
-}
-
-async function verifyForbiddenGraphicSectionsEmptyOnPage(
-  page: Page,
-  runtimeDir: string,
-  screenshotFileName: string
-): Promise<{ remainingSections: string[]; screenshotFile: string }> {
-  const remainingSections = await listRemainingForbiddenGraphicSections(page);
-  const screenshotFile = await savePageScreenshot(page, runtimeDir, screenshotFileName);
-  return { remainingSections, screenshotFile };
-}
-
-async function repairForbiddenGraphicSectionsBeforePublish(
-  page: Page,
-  runtimeDir: string,
-  screenshotFileName: string
-): Promise<{ removedSections: string[]; remainingSections: string[]; screenshotFile: string }> {
-  const repairResult = await enforceForbiddenGraphicSectionsEmpty(page, runtimeDir, screenshotFileName);
-  const remainingSections = await listRemainingForbiddenGraphicSections(page);
-  return {
-    removedSections: repairResult.removedSections,
-    remainingSections,
-    screenshotFile: repairResult.screenshotFile
-  };
 }
 
 async function clickFillFromMainForDetailSection(page: Page): Promise<boolean> {
@@ -6868,7 +6614,21 @@ function graphicUploadGroupsComplete(uploadedGroups: string[]): boolean {
       item === "detailImages:fillFromMainThenUpload" ||
       item === "detailImages:existingWithQualifications"
   );
-  return uploadedGroups.includes("mainImages") && uploadedGroups.includes("optionalGraphicSectionsCleared") && detailDone;
+  return (
+    OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW &&
+    uploadedGroups.includes("mainImages") &&
+    uploadedGroups.includes("optionalGraphicSectionsIgnored") &&
+    detailDone
+  );
+}
+
+function markOptionalGraphicSectionsIgnored(uploadedGroups: string[]): void {
+  if (
+    OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW &&
+    !uploadedGroups.includes("optionalGraphicSectionsIgnored")
+  ) {
+    uploadedGroups.push("optionalGraphicSectionsIgnored");
+  }
 }
 
 async function resetGraphicModuleOnPage(page: Page, runtimeDir: string, screenshotFileName: string): Promise<string> {
@@ -6880,12 +6640,6 @@ async function resetGraphicModuleOnPage(page: Page, runtimeDir: string, screensh
     await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, mainCount + 3)).catch(() => 0);
     await page.waitForTimeout(800);
   }
-
-  await enforceForbiddenGraphicSectionsEmpty(page, runtimeDir, screenshotFileName.replace(/\.png$/, "-forbidden.png")).catch(() => ({
-    removedSections: [],
-    remainingSections: [],
-    screenshotFile: ""
-  }));
 
   const detailCount = await countDetailImagePreviews(page).catch(() => 0);
   if (detailCount > 0) {
@@ -6941,30 +6695,12 @@ async function uploadProductImages(
       }
     }
     if (!uploadIssue && uploadedGroups.includes("mainImages")) {
-      const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
-        page,
-        runtimeDir,
-        "publish-page-forbidden-graphic-sections-cleared.png"
-      );
-      if (forbiddenResult.remainingSections.length) {
-        uploadIssue = `Forbidden optional graphic sections still contain images: ${forbiddenResult.remainingSections.join(", ")}`;
-      } else {
-        uploadedGroups.push("optionalGraphicSectionsCleared");
-      }
+      markOptionalGraphicSectionsIgnored(uploadedGroups);
     } else if (!uploadIssue && !mainInput) {
     const existingMainPreviewCount = await countMainImagePreviews(page);
     if (existingMainPreviewCount >= assets.mainImages.length) {
       uploadedGroups.push("mainImages");
-      const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
-        page,
-        runtimeDir,
-        "publish-page-forbidden-graphic-sections-cleared-existing-main.png"
-      );
-      if (forbiddenResult.remainingSections.length) {
-        uploadIssue = `Forbidden optional graphic sections still contain images: ${forbiddenResult.remainingSections.join(", ")}`;
-      } else {
-        uploadedGroups.push("optionalGraphicSectionsCleared");
-      }
+      markOptionalGraphicSectionsIgnored(uploadedGroups);
       } else {
         logWarn("Main image upload input was not found; checking existing main/white-background previews before failing.");
       }
@@ -6987,16 +6723,7 @@ async function uploadProductImages(
     }
 
   if (!uploadIssue) {
-    const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
-      page,
-      runtimeDir,
-      "publish-page-forbidden-graphic-sections-final-check.png"
-    );
-    if (forbiddenResult.remainingSections.length) {
-      uploadIssue = `Forbidden optional graphic sections still contain images after detail upload: ${forbiddenResult.remainingSections.join(", ")}`;
-    } else if (!uploadedGroups.includes("optionalGraphicSectionsCleared")) {
-      uploadedGroups.push("optionalGraphicSectionsCleared");
-    }
+    markOptionalGraphicSectionsIgnored(uploadedGroups);
   }
 
   const finalMainPreviewCount = await countMainImagePreviews(page).catch(() => 0);
@@ -7005,9 +6732,6 @@ async function uploadProductImages(
   }
   if (!uploadIssue && !uploadedGroups.includes("mainImages")) {
     uploadIssue = "Main image upload input was not found and no existing main/white-background preview was detected.";
-  }
-  if (!uploadIssue && !uploadedGroups.includes("optionalGraphicSectionsCleared")) {
-    uploadIssue = "Optional graphic sections were not confirmed as cleared.";
   }
   const finalDetailPreviewCount = await countDetailImagePreviews(page).catch(() => 0);
   if (
@@ -7077,30 +6801,12 @@ async function uploadProductImagesOnPage(
     }
   }
   if (!uploadIssue && uploadedGroups.includes("mainImages")) {
-    const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
-      page,
-      runtimeDir,
-      "publish-page-forbidden-graphic-sections-cleared.png"
-    );
-    if (forbiddenResult.remainingSections.length) {
-      uploadIssue = `Forbidden optional graphic sections still contain images: ${forbiddenResult.remainingSections.join(", ")}`;
-    } else {
-      uploadedGroups.push("optionalGraphicSectionsCleared");
-    }
+    markOptionalGraphicSectionsIgnored(uploadedGroups);
   } else if (!uploadIssue && !mainInput) {
     const existingMainPreviewCount = await countMainImagePreviews(page);
     if (existingMainPreviewCount >= assets.mainImages.length) {
       uploadedGroups.push("mainImages");
-      const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
-        page,
-        runtimeDir,
-        "publish-page-forbidden-graphic-sections-cleared-existing-main.png"
-      );
-      if (forbiddenResult.remainingSections.length) {
-        uploadIssue = `Forbidden optional graphic sections still contain images: ${forbiddenResult.remainingSections.join(", ")}`;
-      } else {
-        uploadedGroups.push("optionalGraphicSectionsCleared");
-      }
+      markOptionalGraphicSectionsIgnored(uploadedGroups);
     } else {
       logWarn("Main image upload input was not found; checking existing main/white-background previews before failing.");
     }
@@ -7125,16 +6831,7 @@ async function uploadProductImagesOnPage(
   await dismissTransientOverlays(page);
 
   if (!uploadIssue) {
-    const forbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
-      page,
-      runtimeDir,
-      "publish-page-forbidden-graphic-sections-final-check.png"
-    );
-    if (forbiddenResult.remainingSections.length) {
-      uploadIssue = `Forbidden optional graphic sections still contain images after detail upload: ${forbiddenResult.remainingSections.join(", ")}`;
-    } else if (!uploadedGroups.includes("optionalGraphicSectionsCleared")) {
-      uploadedGroups.push("optionalGraphicSectionsCleared");
-    }
+    markOptionalGraphicSectionsIgnored(uploadedGroups);
   }
 
   const finalMainPreviewCount = await countMainImagePreviews(page).catch(() => 0);
@@ -7143,9 +6840,6 @@ async function uploadProductImagesOnPage(
   }
   if (!uploadIssue && !uploadedGroups.includes("mainImages")) {
     uploadIssue = "Main image upload input was not found and no existing main/white-background preview was detected.";
-  }
-  if (!uploadIssue && !uploadedGroups.includes("optionalGraphicSectionsCleared")) {
-    uploadIssue = "Optional graphic sections were not confirmed as cleared.";
   }
   const finalDetailPreviewCount = await countDetailImagePreviews(page).catch(() => 0);
   if (
@@ -8531,21 +8225,6 @@ async function runPublishFlow(
         stages.push({ step: "upload_product_images", status: "completed" });
       }
 
-      const graphicForbiddenResult = await enforceForbiddenGraphicSectionsEmpty(
-        page,
-        runtimeDir,
-        "publish-page-forbidden-graphic-sections-after-images.png"
-      );
-      screenshotFiles.push(graphicForbiddenResult.screenshotFile);
-      const graphicForbiddenRule = evaluateForbiddenGraphicSections(graphicForbiddenResult.remainingSections);
-      if (!graphicForbiddenRule.passed) {
-        stages.push({ step: "graphic_forbidden_sections", status: "failed" });
-        throw new Error(`Sequential publish flow stopped: 图文信息模块未完成。${graphicForbiddenRule.issue}`);
-      }
-      if (specAttempt === 0) {
-        stages.push({ step: "graphic_forbidden_sections", status: "completed" });
-      }
-
       const specResult = await applyFixedSpecsOnPage(page, runtimeDir, "publish-page-spec-editor.png", metadata.title);
       screenshotFiles.push(specResult.screenshotFile);
       configuredFields.push(...specResult.configuredFields);
@@ -8681,31 +8360,6 @@ async function runPublishFlow(
     }
     stages.push({ step: "apply_medical_device_certificate", status: "completed" });
 
-    const preCheckForbiddenResult = await verifyForbiddenGraphicSectionsEmptyOnPage(
-      page,
-      runtimeDir,
-      "publish-page-forbidden-graphic-sections-before-check.png"
-    );
-    screenshotFiles.push(preCheckForbiddenResult.screenshotFile);
-    const preForbiddenRule = evaluateForbiddenGraphicSections(preCheckForbiddenResult.remainingSections);
-    if (!preForbiddenRule.passed) {
-      stages.push({ step: "pre_publish_forbidden_graphic_check", status: "failed" });
-      const repairResult = await repairForbiddenGraphicSectionsBeforePublish(
-        page,
-        runtimeDir,
-        "publish-page-forbidden-graphic-sections-repaired-before-check.png"
-      );
-      screenshotFiles.push(repairResult.screenshotFile);
-      const repairedRule = evaluateForbiddenGraphicSections(repairResult.remainingSections);
-      if (!repairedRule.passed) {
-        stages.push({ step: "pre_publish_forbidden_graphic_repair", status: "failed" });
-        throw new Error(`Sequential publish flow stopped: 发布前白底图/3:4主图仍未清空。${repairedRule.issue}`);
-      }
-      stages.push({ step: "pre_publish_forbidden_graphic_repair", status: "completed" });
-    } else {
-      stages.push({ step: "pre_publish_forbidden_graphic_check", status: "completed" });
-    }
-
     const checkResult = await runPublishCheckOnPage(page, runtimeDir, "publish-page-fill-check.png");
     screenshotFiles.push(checkResult.screenshotFile);
     checkPassed = checkResult.checkPassed;
@@ -8755,31 +8409,6 @@ async function runPublishFlow(
 
     if (!stopBeforePublish) {
       logInfo(`publish module started: final_submit (${path.basename(shopFolder)})`);
-      const finalForbiddenResult = await verifyForbiddenGraphicSectionsEmptyOnPage(
-        page,
-        runtimeDir,
-        "publish-page-forbidden-graphic-sections-before-submit.png"
-      );
-      screenshotFiles.push(finalForbiddenResult.screenshotFile);
-      const finalForbiddenRule = evaluateForbiddenGraphicSections(finalForbiddenResult.remainingSections);
-      if (!finalForbiddenRule.passed) {
-        stages.push({ step: "final_forbidden_graphic_check", status: "failed" });
-        const repairResult = await repairForbiddenGraphicSectionsBeforePublish(
-          page,
-          runtimeDir,
-          "publish-page-forbidden-graphic-sections-repaired-before-submit.png"
-        );
-        screenshotFiles.push(repairResult.screenshotFile);
-        const repairedRule = evaluateForbiddenGraphicSections(repairResult.remainingSections);
-        if (!repairedRule.passed) {
-          stages.push({ step: "final_forbidden_graphic_repair", status: "failed" });
-          throw new Error(`Sequential publish flow stopped: 提交前白底图/3:4主图仍未清空。${repairedRule.issue}`);
-        }
-        stages.push({ step: "final_forbidden_graphic_repair", status: "completed" });
-      } else {
-        stages.push({ step: "final_forbidden_graphic_check", status: "completed" });
-      }
-
       const publishResult = await clickPublishProductOnPage(page, runtimeDir, "publish-page-published.png");
       if (publishResult.screenshotFile) {
         screenshotFiles.push(publishResult.screenshotFile);

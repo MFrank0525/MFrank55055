@@ -35,6 +35,8 @@ export interface PublishRuleCheck {
   issue: string;
 }
 
+export const OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW = true;
+
 export interface SpecTemplateCompletionRuleInput {
   selectedTemplate?: string;
   expectedTemplateKeyword?: string;
@@ -568,15 +570,6 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
     errorClass,
     issue: message || "Publish result did not include a safe success signal."
   };
-}
-
-export function evaluateForbiddenGraphicSections(remainingSections: string[]): PublishRuleCheck {
-  return remainingSections.length
-    ? {
-        passed: false,
-        issue: `Forbidden graphic sections were not empty: ${remainingSections.join(", ")}`
-      }
-    : { passed: true, issue: "" };
 }
 
 export function isUploadPlaceholderGraphicContext(value: string): boolean {

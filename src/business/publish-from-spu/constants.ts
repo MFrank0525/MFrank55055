@@ -20,6 +20,5 @@ export const FIXED_MAIN_AUXILIARY_FILES = [
 export const REQUIRED_MAIN_IMAGE_RATIO = 1;
 export const REQUIRED_MAIN_IMAGE_RATIO_TOLERANCE = 0.02;
 export const GRAPHIC_SECTION_LABELS = ["\u4e3b\u56fe", "\u4e3b\u56fe3:4", "\u767d\u5e95\u56fe", "\u5546\u54c1\u8be6\u60c5", "\u8be6\u60c5\u9875"];
-export const FORBIDDEN_GRAPHIC_SECTION_LABELS = ["\u4e3b\u56fe3:4", "\u767d\u5e95\u56fe"];
 export const PLATFORM_SPU_URL =
   "https://fxg.jinritemai.com/ffa/g/spu-record?type=create&btm_ppre=a2427.b76571.c902327.d871297&btm_pre=a2427.b39372.c67909.d0&btm_show_id=1f4fb4cd-7a30-4c1d-8d9c-6250a9e7a466";

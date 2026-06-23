@@ -785,6 +785,19 @@ assert.equal(
   true,
   "a deterministic detail qualification failure must stop the remaining product folders after the first failure"
 );
+const forbiddenOptionalGraphicClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 图文信息模块未完成。Forbidden optional graphic sections still contain images: 白底图"
+);
+assert.notEqual(
+  forbiddenOptionalGraphicClass,
+  "forbidden_optional_graphic_not_cleared",
+  "white-background auto-fill is outside the project publish flow and must not have a dedicated blocking class"
+);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([{ safelyPublished: false, errorClass: forbiddenOptionalGraphicClass }]),
+  false,
+  "legacy white-background residue messages must not become a single-failure batch stop"
+);
 const disappearedBasicFieldsClass = classifyPublishFailure(
   "All expected basic-info fields disappeared from the publish page."
 );
@@ -2284,7 +2297,7 @@ const newerArtifactWithCurrentPublishLog = resolveAutoListingControllerRealtimeP
   publishActiveUpdatedAt: "2026-06-16T07:03:04.727Z",
   publishActiveMessage: "延草纲目医用退热贴水印17: basic_info_fill: basic_info_fill_attempt: 1",
   latestArtifactUpdatedAt: "2026-06-16T07:03:33.481Z",
-  latestArtifactName: "publish-page-forbidden-graphic-sections-cleared.png",
+  latestArtifactName: "publish-page-images-uploaded.png",
   publishLogTimestamp: "2026-06-16T07:03:04.727Z",
   publishLogMessage: "发布模块：基础信息（09延草纲目中医保健专营店）"
 });

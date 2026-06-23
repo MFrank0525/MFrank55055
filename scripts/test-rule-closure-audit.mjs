@@ -11,6 +11,7 @@ const docs = [
 ].join("\n");
 const publishSource = read("src/business/publish-from-spu.ts");
 const publishRulesSource = read("src/business/publish-from-spu/publish-rules.ts");
+const publishConstantsSource = read("src/business/publish-from-spu/constants.ts");
 const orchestratorSource = read("src/autolist/orchestrator.ts");
 const feishuProductsSource = read("src/autolist/feishu-products.ts");
 const progressTestSource = read("scripts/test-progress-state.mjs");
@@ -19,11 +20,11 @@ const moduleTestSource = read("scripts/test-publish-module-sequence-rule.mjs");
 
 const closures = [
   {
-    name: "3:4 and white-background slots are forbidden optional graphic sections",
-    docs: ["3:4 主图", "白底图", "清空"],
-    rules: ["evaluateForbiddenGraphicSections", "FORBIDDEN_GRAPHIC_SECTION_LABELS"],
-    actions: ["enforceForbiddenGraphicSectionsEmpty", "repairForbiddenGraphicSectionsBeforePublish"],
-    tests: ["clickSmartCropForMain34Section", "uploadMissingMain34ImagesToSection", "shanchu"]
+    name: "3:4 and white-background slots are outside the project publish flow",
+    docs: ["主图3:4", "白底图", "不上传", "不清空", "不阻塞"],
+    rules: ["OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW = true"],
+    actions: ["optionalGraphicSectionsIgnored"],
+    tests: ["the obsolete forbidden-section constant must be deleted"]
   },
   {
     name: "spec template follows template and does not edit blank spec-value placeholders",
@@ -68,7 +69,7 @@ for (const closure of closures) {
   }
   for (const marker of closure.rules) {
     assert.match(
-      publishRulesSource + publishSource + orchestratorSource + feishuProductsSource,
+      publishRulesSource + publishConstantsSource + publishSource + orchestratorSource + feishuProductsSource,
       new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
       `${closure.name}: missing rule marker ${marker}`
     );
