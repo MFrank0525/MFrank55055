@@ -22,11 +22,14 @@ for (const marker of [
 for (const marker of [
   "### 标品检索规则",
   "### 发布模块顺序规则",
+  "### 保健食品发布模块顺序规则",
   "### 类目属性填写规则",
+  "### 保健食品类目属性规则",
   "### 图文信息规则",
   "### 运费模板规则",
   "### 规格模板规则",
-  "### 商品规格模块规则"
+  "### 商品规格模块规则",
+  "### 保健食品包装标签规则"
 ]) {
   assert.match(publishManual, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `publish manual missing block: ${marker}`);
 }
@@ -38,7 +41,10 @@ for (const forbidden of [
   "海报文字只展示：主标题",
   "PLATFORM_SPU_QUERY_RULE =",
   "publishFlowRule:",
+  "healthFoodPublishFlowRule:",
   "categoryAttributeRule:",
+  "healthFoodCategoryAttributeRule:",
+  "healthFoodPackagingLabelRule:",
   "mainImageRule:",
   "freightTemplateRule:",
   "specTemplateRule:",
@@ -49,6 +55,15 @@ for (const forbidden of [
     false,
     `rule text or rule summary must not be hard-coded in action source: ${forbidden}`
   );
+}
+
+const publishRuleTextSource = read("src/business/publish-from-spu/publish-rule-text.ts");
+for (const field of [
+  "healthFoodPublishFlowRule",
+  "healthFoodCategoryAttributeRule",
+  "healthFoodPackagingLabelRule"
+]) {
+  assert.match(publishRuleTextSource, new RegExp(`${field}:\\s*readManualTextBlock`), `publish rule summary must expose ${field}`);
 }
 
 console.log("markdown rule source separation passed");

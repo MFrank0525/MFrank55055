@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { buildTitlesFromFeishuKeywords, parseFeishuTitleKeywords } from "../dist/src/autolist/title-sheets.js";
 import { countTitleCharacters } from "../dist/src/autolist/title-rules.js";
 
@@ -99,3 +100,11 @@ assert.throws(
     }),
   /标题固定后缀/
 );
+
+const titleManual = fs.readFileSync("docs/auto-listing/steps/05-title-generation.md", "utf8");
+const feishuSetupManual = fs.readFileSync("docs/FEISHU_BITABLE_SETUP.md", "utf8");
+for (const manual of [titleManual, feishuSetupManual]) {
+  assert.match(manual, /医疗器械[\s\S]*非处方药[\s\S]*标题固定后缀/, "medical and OTC title suffix rule must stay documented");
+  assert.match(manual, /保健食品[\s\S]*不追加[\s\S]*标题固定后缀/, "health-food title suffix exception must stay documented");
+  assert.match(manual, /保健食品[\s\S]*60\s*个?平台字符/, "health-food 60 platform-character limit must stay documented");
+}

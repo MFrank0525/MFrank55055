@@ -58,13 +58,24 @@ Do not add temporary patches that only bypass the current failed run. Every publ
 
 If a change cannot be explained as a root-cause fix, do not keep it.
 
-## Expansion Plan
+## Current Rule Ownership
+
+These rule decisions are owned by `src/business/publish-from-spu/publish-rules.ts`:
+
+1. Forbidden image slot rules for `主图3:4` and `白底图`.
+2. Detail image upload completion rules for `从主图填入` plus Feishu qualification images.
+3. Price and inventory completion rules.
+4. Freight template and service fulfillment state rules.
+5. Shop context and SPU match readiness rules.
+6. Retryable browser/system failure classification.
+
+Health-food business decisions are owned by `src/business/publish-from-spu/health-food-rules.ts`. Health-food browser operations are owned by `src/business/publish-from-spu/health-food-actions.ts`.
+
+## Remaining Refactor Backlog
 
 Move these next, in order:
 
-1. Forbidden image slot rules for `主图3:4` and `白底图`.
-2. Detail image completion rules for `从主图填入` plus Feishu qualification images.
-3. Price and inventory verification rules.
-4. Freight template and service fulfillment rules.
-5. Shop context and SPU match rules.
-6. Product-list verification rules when the 商品管理 list page is stable enough to query by title/SPU.
+1. Extract generic Doudian browser action groups out of `src/business/publish-from-spu.ts` by module: shop/SPU page, basic info, graphic info, spec/price, service commitment, and final submit.
+2. Keep rule classifications in `publish-rules.ts` and `health-food-rules.ts`; extracted action modules may return readback structures but must not decide business pass/fail meaning.
+3. Add product-list verification rules when the 商品管理 list page is stable enough to query by title/SPU.
+4. Replace regex-based source-structure tests with exported pure rule contracts where possible.
