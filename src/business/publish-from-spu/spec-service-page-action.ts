@@ -342,13 +342,10 @@ async function markVisibleSpecTemplateOption(page: Page, keywords: string[]): Pr
 }
 
 async function clickSpecTemplateOptionByDomStructure(page: Page, keywords: string[]): Promise<string> {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const text = await markVisibleSpecTemplateOption(page, keywords);
-    if (text) {
-      await page.locator(`[${specTemplateOptionMarker}="true"]`).first().click({ timeout: 1000 });
-      return text;
-    }
-    await page.waitForTimeout(100);
+  const text = await markVisibleSpecTemplateOption(page, keywords);
+  if (text) {
+    await page.locator(`[${specTemplateOptionMarker}="true"]`).first().click({ timeout: 1000 });
+    return text;
   }
   return "";
 }
@@ -1178,7 +1175,9 @@ async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void
   await scrollLabelIntoView(page, "规格模板").catch(() => false);
   if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
     await clickSwitchManualSpecEntryMode(page);
-    await page.waitForTimeout(3000);
+    if (await waitForManualSpecTemplateEntryReadiness(page)) {
+      return;
+    }
   }
   if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
     return;
@@ -1187,11 +1186,7 @@ async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void
     return;
   }
   await clickSwitchManualSpecEntryMode(page);
-  await page.waitForTimeout(3000);
-  if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
-    return;
-  }
-  if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
+  if (await waitForManualSpecTemplateEntryReadiness(page)) {
     return;
   }
   const surface = await describeSpecTemplateEntrySurfaceOnPage(page).catch(() => ({
@@ -1206,6 +1201,19 @@ async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void
   throw new Error("Spec template entry control was not visible after opening manual goods-spec mode.");
 }
 
+async function waitForManualSpecTemplateEntryReadiness(page: Page): Promise<boolean> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
+      return true;
+    }
+    if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
+      return true;
+    }
+    await page.waitForTimeout(250);
+  }
+  return false;
+}
+
 async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page: Page): Promise<void> {
   await dismissTransientOverlays(page).catch(() => {});
   await scrollLabelIntoView(page, "商品规格").catch(() => false);
@@ -1213,10 +1221,13 @@ async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page: Page)
   if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
     await clickSwitchManualSpecEntryMode(page).catch(() => false);
   }
-  const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
-  const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-  if (filledValues.length > 0 || visiblePriceRows > 0) {
-    return;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
+    const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
+    if (filledValues.length > 0 || visiblePriceRows > 0) {
+      return;
+    }
+    await page.waitForTimeout(250);
   }
   throw new Error("Spec template selected but manual spec values or price/inventory rows were not visible after switching from smart-fill mode.");
 }

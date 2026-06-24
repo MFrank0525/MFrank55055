@@ -531,7 +531,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   const effectiveMaxRetryAttempts =
     errorClass === "platform_page_not_ready"
       ? Math.max(maxRetryAttempts, 4)
-      : errorClass === "price_inventory_not_ready" || errorClass === "spec_template_not_ready"
+      : errorClass === "price_inventory_not_ready"
         ? Math.max(maxRetryAttempts, 3)
       : maxRetryAttempts;
   if (retryAttempt >= effectiveMaxRetryAttempts) {
@@ -543,7 +543,6 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "final_publish_submit_transient",
     "service_section_not_ready",
     "basic_info_field_not_ready",
-    "spec_template_not_ready",
     "price_inventory_not_ready",
     "page_context_lost",
     "shop_switch_entry_unavailable",

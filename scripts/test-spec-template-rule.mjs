@@ -317,6 +317,19 @@ assert.match(
 );
 assert.match(
   publishSource,
+  /async function clickSpecTemplateOptionByDomStructure[\s\S]*const text = await markVisibleSpecTemplateOption\(page, keywords\)[\s\S]*if \(text\) \{[\s\S]*click\(\{ timeout: 1000 \}\)[\s\S]*return text;[\s\S]*return "";/,
+  "spec template option clicking must immediately click a visible matching option without pre-click polling hesitation"
+);
+assert.doesNotMatch(
+  publishSource.slice(
+    publishSource.indexOf("async function clickSpecTemplateOptionByDomStructure"),
+    publishSource.indexOf("async function waitForSpecTemplateApplyEvidence")
+  ),
+  /for \(let attempt|waitForTimeout/,
+  "visible spec template option clicking must not poll or sleep before clicking"
+);
+assert.match(
+  publishSource,
   /const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*if \(isMatchingSpecTemplateValue\(visibleClickedText, keyword\)\)[\s\S]*waitForSpecTemplateApplyEvidence\(page, keyword\)[\s\S]*await input\.click/,
   "spec template selection must click an already visible matching template option before typing into the search input and then wait on apply evidence"
 );
@@ -426,8 +439,8 @@ assert.doesNotMatch(
 );
 assert.match(
   ensureManualSpecTemplateEntrySource,
-  /clickSwitchManualSpecEntryMode\(page\)[\s\S]*await page\.waitForTimeout\(3000\)[\s\S]*isManualSpecTemplateEntryModeVisible\(page\)[\s\S]*isSpecTemplateEntryControlVisible\(page\)/,
-  "manual spec-template entry preparation may switch once, then wait exactly 3 seconds before one readback"
+  /clickSwitchManualSpecEntryMode\(page\)[\s\S]*waitForManualSpecTemplateEntryReadiness\(page\)/,
+  "manual spec-template entry preparation must use short readiness polling instead of a fixed 3 second delay"
 );
 
 assert.match(
@@ -442,8 +455,8 @@ assert.match(
 );
 assert.match(
   ensureManualSpecTemplateEntrySource,
-  /if \(await isSpecTemplateSmartFillUploadModeVisible\(page\)\.catch\(\(\) => false\)\) \{[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*await page\.waitForTimeout\(3000\)/,
-  "manual spec setup must switch out of smart-fill upload mode before accepting manual-mode visibility"
+  /if \(await isSpecTemplateSmartFillUploadModeVisible\(page\)\.catch\(\(\) => false\)\) \{[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*waitForManualSpecTemplateEntryReadiness\(page\)/,
+  "manual spec setup must switch out of smart-fill upload mode and poll readiness without a fixed 3 second pause"
 );
 assert.match(
   publishSource,
@@ -459,6 +472,11 @@ assert.match(
   publishSource,
   /async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*countVisiblePriceInventoryRows\(page\)/,
   "after selecting the spec template, the action must immediately switch smart-fill to manual mode and wait for price/inventory rows"
+);
+assert.match(
+  publishSource,
+  /async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage[\s\S]*for \(let attempt = 0; attempt < 20; attempt \+= 1\)[\s\S]*countVisiblePriceInventoryRows\(page\)[\s\S]*await page\.waitForTimeout\(250\)/,
+  "after selecting the spec template, the action must wait in-place for Doudian to expand template price/inventory rows instead of failing into whole-flow retry"
 );
 assert.match(
   applySpecTemplateSource,

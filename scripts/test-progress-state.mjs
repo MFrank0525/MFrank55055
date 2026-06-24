@@ -935,8 +935,8 @@ assert.equal(
 );
 assert.equal(
   shouldRetryPublishFailure(specTemplateMissingClass, 0),
-  true,
-  "spec-template readback failures are transient publish-page failures and must receive bounded whole-flow retries"
+  false,
+  "spec-template readiness failures must stay on the current publish page and must not trigger a whole-flow page reload"
 );
 const specTemplateSearchInputMissingClass = classifyPublishFailure(
   "Sequential publish flow stopped: 价格库存模块未完成。Spec template search input was not found in 商品规格/规格模板 section.; keyword=久光小泽"
@@ -956,8 +956,8 @@ assert.equal(
 );
 assert.equal(
   shouldRetryPublishFailure(specTemplateBlankValueClass, 2),
-  true,
-  "spec-template readiness failures must receive three whole-flow retries before stopping"
+  false,
+  "spec-template readiness failures must not replay basic info after the template module has been reached"
 );
 const specTemplateManualRowsMissingClass = classifyPublishFailure(
   "Sequential publish flow stopped: 价格库存模块未完成。Spec template selected but manual spec values or price/inventory rows were not visible after switching from smart-fill mode.; keyword=买二送一"
@@ -970,7 +970,7 @@ assert.equal(
 assert.equal(
   shouldRetryPublishFailure(specTemplateBlankValueClass, 3),
   false,
-  "spec-template readiness failures must stop after three retries"
+  "spec-template readiness failures must remain non-retryable at the publish-flow level"
 );
 assert.equal(
   shouldStopPublishBatchAfterFailure([
