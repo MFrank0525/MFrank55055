@@ -54,26 +54,11 @@ export async function runSubmitAction(
     checkMessage = checkResult.checkMessage;
     checkHints = checkResult.checkHints;
     blockingFields = checkResult.blockingFields;
-    const completedFieldSet = new Set<string>([
-      ...input.filledFields,
-      ...input.configuredFields,
-      ...(input.filledPriceRows > 0 ? ["价格", "现货库存"] : []),
-      ...(input.freightTemplateName ? ["运费模板"] : [])
-    ]);
-    blockingFields = blockingFields.filter((field) => {
-      if (field === "型号规格" && completedFieldSet.has("modelSpec")) {
-        return false;
-      }
-      if ((field === "价格" || field === "现货库存") && input.filledPriceRows > 0) {
-        return false;
-      }
-      if (field === "运费模板" && input.freightTemplateName) {
-        return false;
-      }
-      if (field === "医疗器械注册证" && completedFieldSet.has("medicalDeviceCertificate")) {
-        return false;
-      }
-      return true;
+    blockingFields = deps.resolvePublishCheckBlockingFields({
+      blockingFields,
+      completedFields: [...input.filledFields, ...input.configuredFields],
+      filledPriceRows: input.filledPriceRows,
+      freightTemplateName: input.freightTemplateName
     });
     if (!blockingFields.length && !input.uploadIssue && !input.specIssue && !input.priceIssue) {
       checkPassed = true;

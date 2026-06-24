@@ -113,6 +113,7 @@ import {
   isMatchingSpecTemplateValue,
   isUploadPlaceholderGraphicContext,
   resolveBasicFieldIdAliases,
+  resolvePublishCheckBlockingFields,
   resolvePriceInventoryRowInputRoles,
   resolveSpecTemplateKeywordCandidates
 } from "./publish-rules.js";
@@ -427,6 +428,7 @@ export async function runPublishFlow(
       {
         runPublishCheckOnPage,
         evaluatePublishCheckResult,
+        resolvePublishCheckBlockingFields,
         clickPublishProductOnPage,
         inspectPublishPageOnPage,
         savePageScreenshot

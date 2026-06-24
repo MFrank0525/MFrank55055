@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  evaluateServiceFulfillmentCompletion
+  evaluateServiceFulfillmentCompletion,
+  resolvePublishCheckBlockingFields
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 
 const publishSource = [
@@ -55,6 +56,28 @@ assert.deepEqual(
     passed: false,
     issue: "Freight template was not selected. Missing configured fields: freightTemplate"
   }
+);
+
+assert.deepEqual(
+  resolvePublishCheckBlockingFields({
+    blockingFields: ["白底图", "主图3:4", "型号规格"],
+    completedFields: ["modelSpec"],
+    filledPriceRows: 4,
+    freightTemplateName: "延草运费模板"
+  }),
+  [],
+  "Doudian fill-check must not block on white-background or 3:4 slots because they are outside the project publish flow"
+);
+
+assert.deepEqual(
+  resolvePublishCheckBlockingFields({
+    blockingFields: ["白底图", "商品标题"],
+    completedFields: [],
+    filledPriceRows: 0,
+    freightTemplateName: ""
+  }),
+  ["商品标题"],
+  "optional graphic slot filtering must not hide real publish blocking fields"
 );
 
 console.log("service fulfillment rule passed");

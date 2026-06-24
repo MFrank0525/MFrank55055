@@ -191,6 +191,12 @@ export type SubmitActionDeps = {
     specIssue: string;
     priceIssue: string;
   }) => { passed: boolean; issue: string };
+  resolvePublishCheckBlockingFields: (input: {
+    blockingFields: string[];
+    completedFields: string[];
+    filledPriceRows: number;
+    freightTemplateName: string;
+  }) => string[];
   clickPublishProductOnPage: (
     page: Page,
     runtimeDir: string,
