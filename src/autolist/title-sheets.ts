@@ -71,19 +71,21 @@ export function buildTitlesFromFeishuKeywords(options: {
   titleCount: number;
 }): string[] {
   const keywords = parseFeishuTitleKeywords(options.keywordText);
-  const suffix = cleanTitleToken(options.fixedSuffixText);
+  const isHealthFood = options.productCategory === "保健食品";
+  const suffix = isHealthFood ? "" : cleanTitleToken(options.fixedSuffixText);
+  const maxCharacters = isHealthFood ? 60 : DOUDIAN_TITLE_MAX_CHARACTERS;
   if (!keywords.length) {
     throw new Error("Feishu 标题关键词 is required.");
   }
-  if (!suffix) {
+  if (!isHealthFood && !suffix) {
     throw new Error("Feishu 标题固定后缀 is required.");
   }
 
   const titles: string[] = [];
   const seen = new Set<string>();
-  const bodyLength = DOUDIAN_TITLE_MAX_CHARACTERS - countTitleCharacters(suffix);
+  const bodyLength = maxCharacters - countTitleCharacters(suffix);
   if (bodyLength <= 0) {
-    throw new Error("Feishu 标题固定后缀 is too long; full title cannot exceed 120 characters.");
+    throw new Error(`Feishu 标题固定后缀 is too long; full title cannot exceed ${maxCharacters} characters.`);
   }
   for (let index = 0; titles.length < options.titleCount && index < options.titleCount * Math.max(16, keywords.length * 2); index += 1) {
     const bodyTokens = findBestKeywordCombination(keywords, bodyLength, index);
@@ -92,7 +94,7 @@ export function buildTitlesFromFeishuKeywords(options: {
     }
     const variedBodyTokens = index % 3 === 2 ? [...bodyTokens].reverse() : rotate(bodyTokens, index % bodyTokens.length);
     const title = `${variedBodyTokens.join("")}${suffix}`;
-    if (countTitleCharacters(title) > DOUDIAN_TITLE_MAX_CHARACTERS || seen.has(title)) {
+    if (countTitleCharacters(title) > maxCharacters || seen.has(title)) {
       continue;
     }
     seen.add(title);
@@ -101,7 +103,7 @@ export function buildTitlesFromFeishuKeywords(options: {
 
   if (titles.length < options.titleCount) {
     throw new Error(
-      `Feishu 标题关键词 could only compose ${titles.length}/${options.titleCount} unique title(s) without exceeding 120 characters. Add more varied keywords.`
+      `Feishu 标题关键词 could only compose ${titles.length}/${options.titleCount} unique title(s) without exceeding ${maxCharacters} characters. Add more varied keywords.`
     );
   }
   return titles;

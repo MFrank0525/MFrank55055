@@ -775,19 +775,30 @@ export function resolveAutoListingControllerHermesStatusPayload(
       typeof realtimeProgress.message === "string"
         ? compactImageProviderQueueWaitProgress(String(realtimeProgress.message)) || String(realtimeProgress.message)
         : undefined;
-    const message =
-      publishProgressText && realtimeMessage && realtimeMessage !== publishProgressText && !publishProgressText.includes(realtimeMessage)
-        ? `${publishProgressText}；${realtimeMessage}`
-        : publishProgressText || realtimeMessage;
+    const message = publishProgressText || realtimeMessage;
     const feishuPrefixedMessage =
       feishuProductProgress && message && !message.includes(feishuProductProgress)
         ? `${feishuProductProgress}；${message}`
         : message || feishuProductProgress;
+    const publishGroupProgress = publishProgress?.publishGroupProgress as Record<string, unknown> | undefined;
+    const stablePublishKey = publishProgressText
+      ? [
+          "publish_progress",
+          publishGroupProgress?.productName,
+          publishGroupProgress?.productIndex,
+          publishGroupProgress?.productTotal,
+          publishGroupProgress?.shopIndex,
+          publishGroupProgress?.shopTotal,
+          publishGroupProgress?.failed
+        ]
+          .filter((value) => value !== undefined && value !== "")
+          .join("|")
+      : undefined;
     const hermesProgress = {
       source: realtimeProgress.source,
       message: feishuPrefixedMessage,
       timestamp: realtimeProgress.timestamp,
-      key: realtimeProgress.key
+      key: stablePublishKey || realtimeProgress.key
     };
     payload.hermesProgress = Object.fromEntries(Object.entries(hermesProgress).filter(([, value]) => value !== undefined));
   }
@@ -1249,6 +1260,12 @@ function compactAutoListingControllerReason(summary?: string): string {
   }
   if (/Price\/inventory verification failed|价格库存模块未完成/i.test(text)) {
     return "价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。";
+  }
+  if (/批次保护暂停：运行批次 .* 与当前飞书缓存 .* 不一致/i.test(text)) {
+    const match = /批次保护暂停：运行批次\s+(\S+)\s+与当前飞书缓存\s+(\S+)\s+不一致/i.exec(text);
+    return match
+      ? `批次保护暂停：旧批次 ${match[1]}，当前批次 ${match[2]}；继续会按当前飞书缓存重选断点。`
+      : "批次保护暂停：旧运行与当前飞书缓存不一致；继续会按当前飞书缓存重选断点。";
   }
   if (/fetch failed|network|socket|timeout|UND_ERR|ECONNRESET|ETIMEDOUT/i.test(text)) {
     return "网络/中转站瞬断，已保留断点，可续跑。";

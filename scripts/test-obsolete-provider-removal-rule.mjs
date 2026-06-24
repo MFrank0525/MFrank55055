@@ -20,7 +20,9 @@ function listOperationalPaths(dir = ".", relativeDir = "") {
     const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
     paths.push(relativePath);
     if (entry.isDirectory()) {
-      paths.push(...listOperationalPaths(`${dir}/${entry.name}`, relativePath));
+      for (const childPath of listOperationalPaths(`${dir}/${entry.name}`, relativePath)) {
+        paths.push(childPath);
+      }
     }
   }
   return paths;

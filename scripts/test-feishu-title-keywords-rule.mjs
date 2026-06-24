@@ -38,27 +38,27 @@ for (const title of otcTitles) {
 
 const healthTitles = buildTitlesFromFeishuKeywords({
   keywordText: "蓝莓叶黄素,成人护眼,叶黄素酯,维生素营养,每日营养,清晰视界,护眼营养片,便携装,营养补充,蓝莓精华",
-  fixedSuffixText: "蓝莓叶黄素酯片",
+  fixedSuffixText: "",
   productCategory: "保健食品",
   titleCount: 20
 });
 assert.equal(healthTitles.length, 20);
 for (const title of healthTitles) {
-  assert.ok(countTitleCharacters(title) <= 120);
+  assert.ok(countTitleCharacters(title) <= 60);
   assert.doesNotMatch(title, /^(医用级|官方正品)/);
-  assert.ok(title.endsWith("蓝莓叶黄素酯片"));
+  assert.ok(!title.endsWith("蓝莓叶黄素酯片"));
 }
 
 const shortTitles = buildTitlesFromFeishuKeywords({
   keywordText: "蓝莓叶黄素,成人护眼,叶黄素酯",
-  fixedSuffixText: "蓝莓叶黄素酯片",
+  fixedSuffixText: "",
   productCategory: "保健食品",
   titleCount: 3
 });
 assert.equal(shortTitles.length, 3);
 for (const title of shortTitles) {
-  assert.ok(countTitleCharacters(title) <= 120);
-  assert.ok(title.endsWith("蓝莓叶黄素酯片"));
+  assert.ok(countTitleCharacters(title) <= 60);
+  assert.ok(!title.endsWith("蓝莓叶黄素酯片"));
 }
 
 const realLipCareKeywordText =
@@ -94,7 +94,7 @@ assert.throws(
     buildTitlesFromFeishuKeywords({
       keywordText: "蓝莓叶黄素,成人护眼",
       fixedSuffixText: "",
-      productCategory: "保健食品",
+      productCategory: "医疗器械",
       titleCount: 1
     }),
   /标题固定后缀/

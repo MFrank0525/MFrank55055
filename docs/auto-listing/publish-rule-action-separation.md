@@ -11,10 +11,17 @@ The rule layer decides whether the observed state satisfies publish requirements
 ## Current Split
 
 - Action implementation: `src/business/publish-from-spu.ts`
+- Health-food action implementation: `src/business/publish-from-spu/health-food-actions.ts`
 - Shared action result structure: `src/business/publish-from-spu/publish-actions.ts`
 - Rule implementation: `src/business/publish-from-spu/publish-rules.ts`
 - Rule constants that are configuration-like: `src/business/publish-from-spu/constants.ts`
 - Watermark-level run manifest: `src/autolist/publish-manifest.ts`
+
+## Category-Specific Orchestration
+
+`runPublishFlow` resolves the normalized product category once at the beginning of the flow, then orchestrates category-specific modules from that decision.
+
+健康食品动作由 `src/business/publish-from-spu/health-food-actions.ts` 提供，`runPublishFlow` 只负责编排这些动作的顺序、读取 readback 结果并在失败时停止。医疗器械注册证动作只允许在医疗器械分支运行；健康食品的食品安全、类目属性、规格替换、外包装图和包装标签图动作只允许在保健食品分支运行。
 
 ## Runtime Records
 

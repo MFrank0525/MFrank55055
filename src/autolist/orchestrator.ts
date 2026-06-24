@@ -151,7 +151,8 @@ function buildPublishProductIdentity(task: ImageTaskState, batchFingerprint: str
     sourceImagePath: task.sourceImagePath,
     recordId: task.feishuProductRecord?.recordId,
     userCognitionName: task.feishuProductRecord?.userCognitionName || task.sellingPointArtifact?.userCognitionName,
-    genericName: task.feishuProductRecord?.genericName || task.sellingPointArtifact?.brandedGenericName
+    genericName: task.feishuProductRecord?.genericName || task.sellingPointArtifact?.brandedGenericName,
+    productCategory: task.feishuProductRecord?.productCategory
   };
 }
 
@@ -750,6 +751,7 @@ async function executeTaskChain(
         runtimeDir,
         distributedFolders: current.shopDistributionArtifact.distributedFolders,
         productIdentity: buildPublishProductIdentity(current, feishuBatchFingerprint),
+        feishuProductRecord: current.feishuProductRecord,
         simulateOnly,
         assertNotPaused: () => assertNotPaused(pauseSignalFile, current.taskId, step),
         onProgress: (message) => {

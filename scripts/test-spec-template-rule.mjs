@@ -6,7 +6,7 @@ import {
   isMatchingSpecTemplateValue,
   resolveSpecTemplateKeywordCandidates,
   resolvePriceInventoryRowInputRoles
-} from "../src/business/publish-from-spu/publish-rules.ts";
+} from "../dist/src/business/publish-from-spu/publish-rules.js";
 
 assert.deepEqual(resolveSpecTemplateKeywordCandidates("买二送一"), ["买二送一", "买2送1", "2送1"]);
 assert.equal(isMatchingSpecTemplateValue("2送1", "买二送一"), true);

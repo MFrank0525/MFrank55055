@@ -1,3 +1,5 @@
+import type { ProductCategory } from "../autolist/product-category.js";
+
 export interface FeishuBitableFieldMap {
   userCognitionName: string;
   genericName: string;
@@ -15,6 +17,13 @@ export interface FeishuBitableFieldMap {
   productCategory: string;
   qualificationImages: string;
   whiteBackgroundImages: string;
+  manufacturerName: string;
+  manufacturerAddress: string;
+  netContent: string;
+  productStandardCode: string;
+  ingredients: string;
+  healthFunction: string;
+  specification: string;
 }
 
 export interface FeishuBitableConfig {
@@ -63,9 +72,16 @@ export interface FeishuProductRecord {
   titleSuffixText: string;
   productPriceText: string;
   shortTitle: string;
-  productCategory?: string;
+  productCategory?: ProductCategory;
   qualificationImages: FeishuBitableAttachment[];
   whiteBackgroundImages: FeishuBitableAttachment[];
+  manufacturerName: string;
+  manufacturerAddress: string;
+  netContent: string;
+  productStandardCode: string;
+  ingredients: string;
+  healthFunction: string;
+  specification: string;
   rawFields: Record<string, unknown>;
 }
 

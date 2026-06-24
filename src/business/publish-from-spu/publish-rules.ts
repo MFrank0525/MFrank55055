@@ -1,3 +1,9 @@
+import {
+  evaluateHealthFoodPublishRules,
+  type HealthFoodPublishRuleInput,
+  type HealthFoodRuleDecision
+} from "./health-food-rules.js";
+
 export interface PublishPageSnapshot {
   url: string;
   bodyText: string;
@@ -79,6 +85,7 @@ export interface DetailUploadOutcomeRuleInput {
 }
 
 export interface MedicalDeviceCertificateUploadRuleInput {
+  productCategory?: string;
   categoryText: string;
   selectedCertificateCount: number;
   qualificationImageCount: number;
@@ -355,6 +362,46 @@ export function evaluatePublishSubmissionAfterAction(
 export function classifyPublishFailure(message: string): string {
   const text = normalizeVisibleText(message);
   if (!text) return "";
+  if (text.includes("Missingrequiredhealth-foodmetadatafields")) {
+    return "health_food_field_missing";
+  }
+  if (text.includes("食品安全模块未完成") || text.includes("Health-foodfixedfieldmismatch")) {
+    return "health_food_food_safety_not_ready";
+  }
+  if (
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:产地与包装") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:保质期") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:贮存条件") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:生产企业名称") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:生产企业地址") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:净含量") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:产品标准代码") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:配料表") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:上传外包装图") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:商品外包装图")
+  ) {
+    return "health_food_food_safety_not_ready";
+  }
+  if (
+    text.includes("保健食品类目属性模块未完成") ||
+    text.includes("Health-foodfunctionoptionmustexactmatchFeishuvalue") ||
+    text.includes("Health-foodfieldrootnotfoundforvisiblelabel:保健功能")
+  ) {
+    return "health_food_category_attributes_not_ready";
+  }
+  if (
+    text.includes("发货与规格前置模块未完成") ||
+    text.includes("Health-foodspecificationreplacementdidnotpassreadback") ||
+    text.includes("Health-food商品规格mustexposeexactlyonepopulatedvalueinputingroup规格") ||
+    text.includes("Health-foodfullspecificationinputmustbelongtoexactgroup规格") ||
+    text.includes("Health-foodfullspecificationreadbackmustexactlymatchFeishuspecification") ||
+    text.includes("Health-foodfullspecificationreadbackmismatch")
+  ) {
+    return "health_food_specification_not_ready";
+  }
+  if (text.includes("保健食品包装标签模块未完成") || text.includes("Health-foodqualificationimageslotsmissingimages:包装标签图")) {
+    return "health_food_packaging_label_not_ready";
+  }
   if (
     text.includes("Doudianloginrequired") ||
     text.includes("Doudianloginisrequiredbeforepublishingcancontinue") ||
@@ -426,6 +473,9 @@ export function classifyPublishFailure(message: string): string {
       text.includes("Detailimagecountdidnotreachexpectedcount"))
   ) {
     return "detail_qualification_not_ready";
+  }
+  if (text.includes("营养成分表错误") || text.includes("nutritiontable")) {
+    return "health_food_nutrition_table_invalid";
   }
   if (
     text.includes("最终发布动作未完成") ||
@@ -508,6 +558,11 @@ export function shouldStopPublishBatchAfterFailure(
   const singleFailureStopClasses = new Set([
     "price_inventory_not_ready",
     "detail_qualification_not_ready",
+    "health_food_field_missing",
+    "health_food_food_safety_not_ready",
+    "health_food_category_attributes_not_ready",
+    "health_food_specification_not_ready",
+    "health_food_packaging_label_not_ready",
     "doudian_login_required",
     "shop_context_mismatch",
     "spec_template_configuration_missing"
@@ -538,7 +593,10 @@ export function shouldStopPublishBatchAfterFailure(
 }
 
 export function evaluatePublishResult(input: PublishResultRuleInput): PublishResultRuleDecision {
-  const message = input.message || input.publishIssue || "";
+  const message = input.message || "";
+  const publishIssue = input.publishIssue || "";
+  const issueText = publishIssue || message;
+  const errorClass = classifyPublishFailure(issueText);
   if (input.ok === true && input.status === "published" && input.publishClicked === true) {
     return {
       safelyPublished: true,
@@ -547,28 +605,35 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
       issue: ""
     };
   }
-  if (input.status === "published" && input.publishClickAttempted === true) {
+  if (input.publishClickAttempted === true && !publishIssue && input.status === "published") {
     return {
       safelyPublished: false,
       finalVerifyStatus: "submit_accepted_unconfirmed",
       errorClass: "final_publish_state_uncertain",
-      issue: input.publishIssue || message || "Publish button click was accepted, but no submission success signal was observed."
+      issue: message || "Publish button click was accepted, but no submission success signal was observed."
     };
   }
-  const errorClass = classifyPublishFailure(message);
   if (input.publishClickAttempted === true && errorClass === "final_publish_state_uncertain") {
     return {
       safelyPublished: false,
       finalVerifyStatus: "submit_accepted_unconfirmed",
       errorClass,
-      issue: message || "Publish button click was accepted, but no submission success signal was observed."
+      issue: publishIssue || message || "Publish button click was accepted, but no submission success signal was observed."
+    };
+  }
+  if (input.publishClickAttempted === true && publishIssue) {
+    return {
+      safelyPublished: false,
+      finalVerifyStatus: "needs_manual_review",
+      errorClass,
+      issue: publishIssue || message || "Publish result did not include a safe success signal."
     };
   }
   return {
     safelyPublished: false,
     finalVerifyStatus: "not_checked",
     errorClass,
-    issue: message || "Publish result did not include a safe success signal."
+    issue: publishIssue || message || "Publish result did not include a safe success signal."
   };
 }
 
@@ -628,8 +693,12 @@ export function evaluateDetailUploadOutcome(input: DetailUploadOutcomeRuleInput)
 export function evaluateMedicalDeviceCertificateUploadRule(
   input: MedicalDeviceCertificateUploadRuleInput
 ): MedicalDeviceCertificateUploadRuleDecision {
+  const productCategory = normalizeVisibleText(input.productCategory || "");
+  if (productCategory && !productCategory.includes("医疗器械")) {
+    return { action: "not_required", issue: "" };
+  }
   const categoryText = normalizeVisibleText(input.categoryText);
-  if (!categoryText.includes("医疗器械")) {
+  if (!productCategory && !categoryText.includes("医疗器械")) {
     return { action: "not_required", issue: "" };
   }
   if (input.selectedCertificateCount > 0) {
@@ -766,4 +835,8 @@ export function evaluatePublishCheckResult(input: {
     return { passed: false, issue: issue || "Publish check still reports blocking issues on the page." };
   }
   return { passed: true, issue: "" };
+}
+
+export function resolveHealthFoodPublishRules(input: HealthFoodPublishRuleInput): HealthFoodRuleDecision {
+  return evaluateHealthFoodPublishRules(input);
 }

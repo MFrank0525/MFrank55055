@@ -3,7 +3,7 @@ import fs from "node:fs";
 import {
   evaluateDetailImageCompletion,
   evaluateDetailUploadOutcome
-} from "../src/business/publish-from-spu/publish-rules.ts";
+} from "../dist/src/business/publish-from-spu/publish-rules.js";
 
 const satisfiedFinalCount = evaluateDetailImageCompletion({
   filledFromMain: true,

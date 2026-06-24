@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   evaluateServiceFulfillmentCompletion
-} from "../src/business/publish-from-spu/publish-rules.ts";
+} from "../dist/src/business/publish-from-spu/publish-rules.js";
 
 const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
 

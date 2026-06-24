@@ -1,3 +1,34 @@
+import type { ProductCategory } from "../../autolist/product-category.js";
+import type { PublishTargetIdentity } from "../../autolist/publish-identity.js";
+
+export interface PublishFromSpuMetadata {
+  brand?: string;
+  spu?: string;
+  title?: string;
+  shortTitle?: string;
+  modelSpec?: string;
+  productPriceText?: string;
+  feishuRecordId?: string;
+  productCategory?: ProductCategory;
+  manufacturerName?: string;
+  manufacturerAddress?: string;
+  netContent?: string;
+  productStandardCode?: string;
+  ingredients?: string;
+  healthFunction?: string;
+  specification?: string;
+  canonicalIdentity?: PublishTargetIdentity;
+}
+
+export interface ResolvedPublishFromSpuMetadata extends PublishFromSpuMetadata {
+  brand: string;
+  spu: string;
+  title: string;
+  shortTitle: string;
+  modelSpec: string;
+  productPriceText: string;
+}
+
 export interface PublishFromSpuJobInput {
   shopFolder: string;
   productFolder: string;
@@ -10,15 +41,7 @@ export interface PublishFromSpuJobInput {
     | "run_graphic_flow"
     | "run_pre_publish_flow"
     | "run_service_flow";
-  metadata?: {
-    brand?: string;
-    spu?: string;
-    title?: string;
-    shortTitle?: string;
-    modelSpec?: string;
-    productPriceText?: string;
-    feishuRecordId?: string;
-  };
+  metadata?: PublishFromSpuMetadata;
   publishPageUrl?: string;
   headless?: boolean;
   retryOnSystemError?: boolean;

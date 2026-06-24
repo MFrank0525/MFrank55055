@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { evaluateMedicalDeviceCertificateUploadRule } from "../src/business/publish-from-spu/publish-rules.ts";
+import { evaluateMedicalDeviceCertificateUploadRule } from "../dist/src/business/publish-from-spu/publish-rules.js";
 
 assert.deepEqual(
   evaluateMedicalDeviceCertificateUploadRule({
+    productCategory: "医疗器械",
     categoryText: "医疗器械及保健用品 > 医用敷料 > 液体敷料",
     selectedCertificateCount: 0,
     qualificationImageCount: 1
@@ -12,11 +13,23 @@ assert.deepEqual(
 
 assert.deepEqual(
   evaluateMedicalDeviceCertificateUploadRule({
+    productCategory: "医疗器械",
     categoryText: "医疗器械及保健用品 > 医用敷料 > 液体敷料",
     selectedCertificateCount: 1,
     qualificationImageCount: 1
   }),
   { action: "leave_existing_certificate", issue: "" }
+);
+
+assert.deepEqual(
+  evaluateMedicalDeviceCertificateUploadRule({
+    productCategory: "保健食品",
+    categoryText: "医疗器械及保健用品 > 保健食品 > 维生素",
+    selectedCertificateCount: 0,
+    qualificationImageCount: 1
+  }),
+  { action: "not_required", issue: "" },
+  "Feishu productCategory=保健食品 must not be forced through the medical-device certificate gate even if the platform category path contains 医疗器械及保健用品"
 );
 
 assert.deepEqual(
@@ -30,6 +43,7 @@ assert.deepEqual(
 
 assert.deepEqual(
   evaluateMedicalDeviceCertificateUploadRule({
+    productCategory: "医疗器械",
     categoryText: "医疗器械",
     selectedCertificateCount: 0,
     qualificationImageCount: 0

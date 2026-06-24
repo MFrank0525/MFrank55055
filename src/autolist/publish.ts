@@ -20,6 +20,9 @@ import {
   upsertPublishManifestEntry
 } from "./publish-manifest.js";
 import { readWorkbookRows } from "./xlsx-lite.js";
+import type { PublishFromSpuMetadata } from "../business/publish-from-spu/types.js";
+import type { FeishuProductRecord } from "../feishu/types.js";
+import type { PublishTargetIdentity } from "./publish-identity.js";
 import type { PublishProductIdentity } from "./publish-manifest.js";
 import type { PublishArtifact } from "./types.js";
 
@@ -36,6 +39,37 @@ type PublishPreflightError = {
   productFolder: string;
   message: string;
 };
+
+export function buildPublishJobMetadata(input: {
+  workbookFields: ProductWorkbookFields;
+  feishuProductRecord: FeishuProductRecord;
+  targetIdentity: PublishTargetIdentity;
+}): PublishFromSpuMetadata {
+  const { workbookFields, feishuProductRecord, targetIdentity } = input;
+  if (feishuProductRecord.recordId !== targetIdentity.recordId) {
+    throw new Error(
+      `Feishu product recordId ${feishuProductRecord.recordId} does not match canonical identity recordId ${targetIdentity.recordId}.`
+    );
+  }
+  return {
+    brand: workbookFields.brand,
+    spu: workbookFields.spu,
+    title: workbookFields.title,
+    shortTitle: workbookFields.shortTitle,
+    modelSpec: workbookFields.modelSpec || "盒装",
+    productPriceText: workbookFields.productPriceText,
+    feishuRecordId: targetIdentity.recordId,
+    productCategory: feishuProductRecord.productCategory,
+    manufacturerName: feishuProductRecord.manufacturerName,
+    manufacturerAddress: feishuProductRecord.manufacturerAddress,
+    netContent: feishuProductRecord.netContent,
+    productStandardCode: feishuProductRecord.productStandardCode,
+    ingredients: feishuProductRecord.ingredients,
+    healthFunction: feishuProductRecord.healthFunction,
+    specification: feishuProductRecord.specification,
+    canonicalIdentity: { ...targetIdentity }
+  };
+}
 
 function normalizeShopName(value: string): string {
   return value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
@@ -242,6 +276,7 @@ export async function publishDistributedProducts(options: {
   runtimeDir: string;
   distributedFolders: string[];
   productIdentity?: PublishProductIdentity;
+  feishuProductRecord?: FeishuProductRecord;
   simulateOnly: boolean;
   assertNotPaused?: () => void;
   onProgress?: (message: string) => void;
@@ -250,6 +285,14 @@ export async function publishDistributedProducts(options: {
   const productIdentityFields = productIdentity || {};
   if (!productIdentity?.batchFingerprint || !productIdentity.recordId || !productIdentity.taskId) {
     throw new Error("Publish requires batchFingerprint, recordId, and taskId canonical identity.");
+  }
+  if (!options.feishuProductRecord) {
+    throw new Error("Publish requires the current normalized FeishuProductRecord.");
+  }
+  if (options.feishuProductRecord.recordId !== productIdentity.recordId) {
+    throw new Error(
+      `Feishu product recordId ${options.feishuProductRecord.recordId} does not match canonical identity recordId ${productIdentity.recordId}.`
+    );
   }
   const targetContextForFolder = (productFolder: string) => {
     const watermarkNo = extractWatermarkNo(productFolder);
@@ -368,6 +411,35 @@ export async function publishDistributedProducts(options: {
   });
 
   const preflightErrors = pendingFolders.flatMap((productFolder) => runPreflightForProductFolder(productFolder));
+  const metadataByTargetKey = new Map(
+    pendingFolders.map((productFolder) => {
+      const { targetIdentity, targetKey } = targetContextForFolder(productFolder);
+      let workbookFields: ProductWorkbookFields;
+      try {
+        workbookFields = readProductWorkbookFields(findWorkbookFile(productFolder));
+      } catch (error) {
+        if (!options.simulateOnly) {
+          throw error;
+        }
+        workbookFields = {
+          title: "",
+          shortTitle: "",
+          brand: "",
+          spu: "",
+          modelSpec: "",
+          productPriceText: ""
+        };
+      }
+      return [
+        targetKey,
+        buildPublishJobMetadata({
+          workbookFields,
+          feishuProductRecord: options.feishuProductRecord as FeishuProductRecord,
+          targetIdentity
+        })
+      ] as const;
+    })
+  );
   if (options.simulateOnly) {
     return {
       preflightErrors,
@@ -405,8 +477,11 @@ export async function publishDistributedProducts(options: {
   for (const productFolder of pendingFolders) {
     options.assertNotPaused?.();
     const shopFolder = path.dirname(productFolder);
-    const fields = readProductWorkbookFields(findWorkbookFile(productFolder));
     const { targetIdentity, targetKey, runtimeKey } = targetContextForFolder(productFolder);
+    const metadata = metadataByTargetKey.get(targetKey);
+    if (!metadata) {
+      throw new Error(`Publish metadata was not built for canonical target: ${targetKey}`);
+    }
     const startMessage = `Publishing product folder: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
     logInfo(startMessage.replace(/^Publishing/, "publishing"));
     options.onProgress?.(startMessage);
@@ -429,15 +504,7 @@ export async function publishDistributedProducts(options: {
         shopFolder,
         productFolder,
         mode: "run_publish_flow",
-        metadata: {
-          brand: fields.brand,
-          spu: fields.spu,
-          title: fields.title,
-          shortTitle: fields.shortTitle,
-          modelSpec: fields.modelSpec || "盒装",
-          productPriceText: fields.productPriceText,
-          feishuRecordId: productIdentity?.recordId
-        },
+        metadata,
         headless: false,
         retryOnSystemError: true
       },
@@ -491,15 +558,7 @@ export async function publishDistributedProducts(options: {
           shopFolder,
           productFolder,
           mode: "run_publish_flow",
-          metadata: {
-            brand: fields.brand,
-            spu: fields.spu,
-            title: fields.title,
-            shortTitle: fields.shortTitle,
-            modelSpec: fields.modelSpec || "盒装",
-            productPriceText: fields.productPriceText,
-            feishuRecordId: productIdentity?.recordId
-          },
+          metadata,
           headless: false,
           retryOnSystemError: true
         },
@@ -562,6 +621,16 @@ export async function publishDistributedProducts(options: {
         `Publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`
       );
       clearCheckpoint(checkpointFile);
+      if (decision.finalVerifyStatus === "not_checked") {
+        openedCircuit = {
+          signature: `publish:${decision.errorClass || "not_checked"}`,
+          consecutive: 1,
+          open: true
+        };
+        logInfo(`publish batch stopped after unsafe pre-submit failure: ${openedCircuit.signature}`);
+        options.onProgress?.(`Publish batch stopped after unsafe pre-submit failure: ${openedCircuit.signature}`);
+        break;
+      }
       failureCircuit = recordPublishFailure(failureCircuit, {
         stage: "publish",
         errorClass: decision.errorClass,

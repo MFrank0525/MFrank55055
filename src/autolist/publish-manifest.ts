@@ -33,6 +33,7 @@ export interface PublishManifestEntry {
   recordId?: string;
   userCognitionName?: string;
   genericName?: string;
+  productCategory?: string;
   status: "pending" | "published" | "failed" | "skipped";
   finalVerifyStatus: PublishFinalVerifyStatus;
   resultFile?: string;
@@ -64,6 +65,7 @@ export interface PublishProductIdentity {
   recordId?: string;
   userCognitionName?: string;
   genericName?: string;
+  productCategory?: string;
 }
 
 const MANIFEST_FILE = "publish-manifest.json";
@@ -87,7 +89,8 @@ export function normalizePublishProductIdentity(identity: PublishProductIdentity
     sourceImagePath: normalizeIdentityPath(identity.sourceImagePath),
     recordId: normalizeIdentityText(identity.recordId),
     userCognitionName: normalizeIdentityText(identity.userCognitionName),
-    genericName: normalizeIdentityText(identity.genericName)
+    genericName: normalizeIdentityText(identity.genericName),
+    productCategory: normalizeIdentityText(identity.productCategory)
   };
   return Object.values(normalized).some(Boolean) ? normalized : undefined;
 }
@@ -173,7 +176,8 @@ export function isManifestEntryAcceptedForBatchCompletionForIdentity(
     sourceImagePath: entry?.sourceImagePath,
     recordId: entry?.recordId,
     userCognitionName: entry?.userCognitionName,
-    genericName: entry?.genericName
+    genericName: entry?.genericName,
+    productCategory: entry?.productCategory
   });
   if (!actual) {
     return false;

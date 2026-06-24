@@ -6,7 +6,7 @@ import {
   evaluateBasicPrefillReadiness,
   evaluatePublishCreatePageReadiness,
   resolveBasicFieldIdAliases
-} from "../src/business/publish-from-spu/publish-rules.ts";
+} from "../dist/src/business/publish-from-spu/publish-rules.js";
 
 assert.deepEqual(
   evaluatePublishCreatePageReadiness({

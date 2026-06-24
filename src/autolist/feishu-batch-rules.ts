@@ -28,6 +28,14 @@ export function buildFeishuBatchIdentityFingerprint(records: FeishuProductRecord
     genericName: record.genericName || "",
     brand: record.brand || "",
     spu: record.spu || "",
+    productCategory: record.productCategory || "",
+    manufacturerName: record.manufacturerName || "",
+    manufacturerAddress: record.manufacturerAddress || "",
+    netContent: record.netContent || "",
+    productStandardCode: record.productStandardCode || "",
+    ingredients: record.ingredients || "",
+    healthFunction: record.healthFunction || "",
+    specification: record.specification || "",
     whiteBackgroundImages: (record.whiteBackgroundImages || []).map(attachmentIdentity),
     qualificationImages: (record.qualificationImages || []).map(attachmentIdentity)
   }));

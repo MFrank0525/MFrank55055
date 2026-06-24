@@ -102,3 +102,46 @@ assert.deepEqual(validateFeishuProductRecord(missing).filter((item) => item.incl
   "titleSuffixText",
   "productPriceText"
 ]);
+
+const dynamicHealthFoodRecord = normalizeFeishuProductRecord(
+  {
+    recordId: "rec-health-food",
+    fields: {
+      消费者认知名称: "蓝帽蛋白粉",
+      商品类目: "保健食品",
+      商品通用名: "蛋白粉",
+      商品品牌: "当前品牌",
+      SPU编码: "SPU-HEALTH-001",
+      卖点: "补充蛋白质。",
+      生图提示词: "蛋白粉罐装产品主图",
+      主图要求: "白底主体清晰",
+      正向词: "明亮，电商主图",
+      反向词: "不出现治疗暗示",
+      标题词: "蛋白粉,营养补充",
+      产品售价: "199,169,139,109",
+      短标题: "蛋白粉",
+      资质附件: [{ file_token: "health-cert-token", name: "health-cert.png" }],
+      白底附件: [{ file_token: "health-white-token", name: "health-white.png" }],
+      生产企业: "当前生产企业",
+      生产地址: "当前生产地址",
+      净含量规格: "60粒",
+      标准号: "Q/CURRENT 001",
+      配料: "乳清蛋白",
+      功效: "增强免疫力",
+      商品规格: "0.5g×60粒"
+    }
+  },
+  config
+);
+
+assert.equal(dynamicHealthFoodRecord.productCategory, "保健食品");
+assert.equal(dynamicHealthFoodRecord.userCognitionName, "蓝帽蛋白粉");
+assert.equal(dynamicHealthFoodRecord.spu, "SPU-HEALTH-001");
+assert.equal(dynamicHealthFoodRecord.manufacturerName, "当前生产企业");
+assert.equal(dynamicHealthFoodRecord.manufacturerAddress, "当前生产地址");
+assert.equal(dynamicHealthFoodRecord.netContent, "60粒");
+assert.equal(dynamicHealthFoodRecord.productStandardCode, "Q/CURRENT 001");
+assert.equal(dynamicHealthFoodRecord.ingredients, "乳清蛋白");
+assert.equal(dynamicHealthFoodRecord.healthFunction, "增强免疫力");
+assert.equal(dynamicHealthFoodRecord.specification, "0.5g×60粒");
+assert.deepEqual(validateFeishuProductRecord(dynamicHealthFoodRecord), []);

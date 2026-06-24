@@ -84,6 +84,17 @@ interface ExternalServiceWait {
   retryAt?: string;
 }
 
+interface PauseSignalFile {
+  requestedAt: string;
+  reason: "operator" | "batch_mismatch";
+  source: "auto-listing-controller";
+  message: string;
+  currentBatchFingerprint?: string;
+  runtimeBatchFingerprint?: string;
+  runId?: string;
+  pid?: number;
+}
+
 interface AutoListingJobFile {
   input?: {
     startStep?: string;
@@ -203,6 +214,17 @@ interface PublishPlanFile {
   }>;
 }
 
+interface DeferredMainImageRoundFile {
+  batchFingerprint?: string;
+  recordId?: string;
+  createdAt?: string;
+  round?: number;
+  movedProductFolders?: Array<{
+    from?: string;
+    to?: string;
+  }>;
+}
+
 interface LocalFeishuConfig {
   auth?: {
     appId?: string;
@@ -219,6 +241,7 @@ const externalServiceWaitFile = path.join(controlDir, "auto-listing-wait.json");
 const pauseFile = path.join(controlDir, "pause.requested");
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu-real.json");
+const deferredMainImageRoot = path.resolve(rootDir, "data/auto-listing/deferred-main-images");
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
 
 function readJsonFile<T>(file: string): T | undefined {
@@ -226,6 +249,108 @@ function readJsonFile<T>(file: string): T | undefined {
     return undefined;
   }
   return JSON.parse(fs.readFileSync(file, "utf8")) as T;
+}
+
+function readPauseSignalFile(): PauseSignalFile | undefined {
+  if (!fs.existsSync(pauseFile)) {
+    return undefined;
+  }
+  const raw = fs.readFileSync(pauseFile, "utf8").trim();
+  if (!raw) {
+    return {
+      requestedAt: new Date(fileMtimeMs(pauseFile) || Date.now()).toISOString(),
+      reason: "operator",
+      source: "auto-listing-controller",
+      message: "项目已收到暂停请求；继续上架会清除暂停信号并从安全断点续跑。"
+    };
+  }
+  if (raw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw) as Partial<PauseSignalFile>;
+      return {
+        requestedAt: typeof parsed.requestedAt === "string" ? parsed.requestedAt : new Date(fileMtimeMs(pauseFile) || Date.now()).toISOString(),
+        reason: parsed.reason === "batch_mismatch" ? "batch_mismatch" : "operator",
+        source: "auto-listing-controller",
+        message:
+          typeof parsed.message === "string" && parsed.message.trim()
+            ? parsed.message.trim()
+            : "项目已收到暂停请求；继续上架会清除暂停信号并从安全断点续跑。",
+        currentBatchFingerprint:
+          typeof parsed.currentBatchFingerprint === "string" ? parsed.currentBatchFingerprint : undefined,
+        runtimeBatchFingerprint:
+          typeof parsed.runtimeBatchFingerprint === "string" ? parsed.runtimeBatchFingerprint : undefined,
+        runId: typeof parsed.runId === "string" ? parsed.runId : undefined,
+        pid: typeof parsed.pid === "number" ? parsed.pid : undefined
+      };
+    } catch {
+      // Fall through to legacy timestamp handling.
+    }
+  }
+  return {
+    requestedAt: raw,
+    reason: "operator",
+    source: "auto-listing-controller",
+    message: "项目已收到暂停请求；继续上架会清除暂停信号并从安全断点续跑。"
+  };
+}
+
+function writePauseSignalFile(signal: Omit<PauseSignalFile, "requestedAt" | "source"> & { requestedAt?: string }): PauseSignalFile {
+  fs.mkdirSync(controlDir, { recursive: true });
+  const payload: PauseSignalFile = {
+    requestedAt: signal.requestedAt || new Date().toISOString(),
+    reason: signal.reason,
+    source: "auto-listing-controller",
+    message: signal.message,
+    currentBatchFingerprint: signal.currentBatchFingerprint,
+    runtimeBatchFingerprint: signal.runtimeBatchFingerprint,
+    runId: signal.runId,
+    pid: signal.pid
+  };
+  atomicWriteJson(pauseFile, payload);
+  return payload;
+}
+
+function formatPauseSignalSummary(signal: PauseSignalFile | undefined): string {
+  if (signal?.reason === "batch_mismatch") {
+    const runtime = signal.runtimeBatchFingerprint ? signal.runtimeBatchFingerprint.slice(0, 12) : "未知";
+    const current = signal.currentBatchFingerprint ? signal.currentBatchFingerprint.slice(0, 12) : "未知";
+    return `批次保护暂停：运行批次 ${runtime} 与当前飞书缓存 ${current} 不一致；已停止复用旧运行证据。继续上架会清除暂停信号并按当前飞书缓存安全续跑。`;
+  }
+  return signal?.message || "项目已收到暂停请求；继续上架会清除暂停信号并从安全断点续跑。";
+}
+
+function maybeUpgradeLegacyPauseSignalForBatchMismatch(input: {
+  pauseSignal?: PauseSignalFile;
+  currentBatchFingerprint?: string;
+  runtimeBatchFingerprint?: string;
+  latestResult?: AutoListingResultFile;
+  runId?: string;
+}): PauseSignalFile | undefined {
+  if (!input.pauseSignal || input.pauseSignal.reason === "batch_mismatch") {
+    return input.pauseSignal;
+  }
+  if (
+    !input.currentBatchFingerprint ||
+    !input.runtimeBatchFingerprint ||
+    input.currentBatchFingerprint === input.runtimeBatchFingerprint
+  ) {
+    return input.pauseSignal;
+  }
+  const errorMessage = String((input.latestResult?.error as Record<string, unknown> | undefined)?.message || "");
+  if (
+    input.latestResult?.ok !== false ||
+    !/pause requested|pause\.requested|Auto-listing pause requested/i.test(errorMessage)
+  ) {
+    return input.pauseSignal;
+  }
+  return writePauseSignalFile({
+    requestedAt: input.pauseSignal.requestedAt,
+    reason: "batch_mismatch",
+    message: "旧暂停信号已根据运行结果升级：运行批次与当前飞书缓存不一致，继续前必须按当前缓存重新选择断点。",
+    currentBatchFingerprint: input.currentBatchFingerprint,
+    runtimeBatchFingerprint: input.runtimeBatchFingerprint,
+    runId: input.runId
+  });
 }
 
 function readProcessCommand(pid: number | undefined): string | undefined {
@@ -953,6 +1078,95 @@ function clearCurrentBatchPaidImageLedger(): boolean {
   return removePaidImageBatchLedger(ledgerRoot, fingerprint);
 }
 
+function readRuntimeBatchFingerprint(runtimeDir: string): string | undefined {
+  for (const file of [path.join(runtimeDir, "result.json"), path.join(runtimeDir, "state.json")]) {
+    const parsed = readJsonFile<AutoListingResultFile & AutoListingStateFile>(file);
+    const fingerprint =
+      typeof parsed?.feishuBatchFingerprint === "string"
+        ? parsed.feishuBatchFingerprint
+        : typeof (parsed as { batchFingerprint?: string } | undefined)?.batchFingerprint === "string"
+          ? (parsed as { batchFingerprint?: string }).batchFingerprint
+          : undefined;
+    if (fingerprint) {
+      return fingerprint;
+    }
+  }
+  return undefined;
+}
+
+function cleanupNonCurrentBatchResidue(currentBatchFingerprint: string): string[] {
+  const removed: string[] = [];
+  if (!currentBatchFingerprint) {
+    return removed;
+  }
+  const pauseSignal = readPauseSignalFile();
+  if (
+    pauseSignal &&
+    pauseSignal.reason === "batch_mismatch" &&
+    pauseSignal.currentBatchFingerprint === currentBatchFingerprint &&
+    pauseSignal.runtimeBatchFingerprint !== currentBatchFingerprint
+  ) {
+    fs.rmSync(pauseFile, { force: true });
+    removed.push(pauseFile);
+  }
+
+  const resumeJob = readJsonFile<AutoListingJobFile>(resumeJobFile);
+  if (resumeJob?.input?.feishuBatchFingerprint && resumeJob.input.feishuBatchFingerprint !== currentBatchFingerprint) {
+    fs.rmSync(resumeJobFile, { force: true });
+    removed.push(resumeJobFile);
+  }
+
+  const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
+  if (fs.existsSync(runsDir)) {
+    for (const entry of fs.readdirSync(runsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const runtimeDir = path.join(runsDir, entry.name);
+      const runtimeBatchFingerprint = readRuntimeBatchFingerprint(runtimeDir);
+      if (runtimeBatchFingerprint && runtimeBatchFingerprint !== currentBatchFingerprint) {
+        fs.rmSync(runtimeDir, { recursive: true, force: true });
+        removed.push(runtimeDir);
+      }
+    }
+  }
+
+  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  const ledgerRoot = path.resolve(
+    rootDir,
+    job?.input?.paidImageSubmissionLedgerDir || "data/auto-listing/paid-image-submissions"
+  );
+  if (fs.existsSync(ledgerRoot)) {
+    for (const entry of fs.readdirSync(ledgerRoot, { withFileTypes: true })) {
+      if (entry.isDirectory() && !entry.name.startsWith(`${currentBatchFingerprint}-`)) {
+        const ledgerDir = path.join(ledgerRoot, entry.name);
+        fs.rmSync(ledgerDir, { recursive: true, force: true });
+        removed.push(ledgerDir);
+      }
+    }
+  }
+
+  const processedManifestFile = path.resolve(rootDir, job?.input?.processedImageManifest || "data/auto-listing/processed-images.json");
+  const manifest = readJsonFile<{ version?: number; currentBatchFingerprint?: string; batches?: Record<string, unknown> }>(processedManifestFile);
+  if (manifest?.batches) {
+    const nextBatches = Object.fromEntries(
+      Object.entries(manifest.batches).filter(([fingerprint]) => fingerprint === currentBatchFingerprint)
+    );
+    if (
+      manifest.currentBatchFingerprint !== currentBatchFingerprint ||
+      Object.keys(nextBatches).length !== Object.keys(manifest.batches).length
+    ) {
+      atomicWriteJson(processedManifestFile, {
+        ...manifest,
+        currentBatchFingerprint,
+        batches: nextBatches
+      });
+      removed.push(processedManifestFile);
+    }
+  }
+  return removed;
+}
+
 function summarizeCurrentPaidImageProgress(input: {
   job?: AutoListingJobFile;
   batchFingerprint?: string;
@@ -1050,6 +1264,15 @@ function existingStatus(): Record<string, unknown> {
         : undefined;
     const publishProgress = summarizePublishProgress(publishRuntimeDir);
     const activePublishRunning = isActivePublishProgress(publishProgress);
+    const pauseSignal = maybeUpgradeLegacyPauseSignalForBatchMismatch({
+      pauseSignal: readPauseSignalFile(),
+      currentBatchFingerprint:
+        typeof feishuProgress?.batchFingerprint === "string" ? String(feishuProgress.batchFingerprint) : undefined,
+      runtimeBatchFingerprint:
+        typeof historicalResult?.feishuBatchFingerprint === "string" ? String(historicalResult.feishuBatchFingerprint) : undefined,
+      latestResult: historicalResult,
+      runId: typeof historicalResult?.runId === "string" ? String(historicalResult.runId) : undefined
+    });
     const idleStatus = resolveAutoListingControllerIdleStatus({
       pauseSignalExists: fs.existsSync(pauseFile),
       batchComplete: typeof feishuProgress?.batchComplete === "boolean" ? feishuProgress.batchComplete : undefined,
@@ -1065,6 +1288,7 @@ function existingStatus(): Record<string, unknown> {
       activeRuntimeDir: publishRuntimeDir,
       statusSource: activePublishRunning ? "publish-manifest" : "idle",
       historicalRuntimeSuppressed: !exposeHistoricalRuntime && Boolean(historicalResult),
+      pauseSignal,
       publishProgress,
       feishuProgress,
       feishuBatchDisplayCounts: feishuProgress
@@ -1080,7 +1304,7 @@ function existingStatus(): Record<string, unknown> {
         activePublishRunning
           ? publishProgress?.progressText || "手动恢复发布正在运行。"
           : status === "pause_requested"
-          ? "项目已收到暂停请求；继续上架会清除暂停信号并从安全断点续跑。"
+          ? formatPauseSignalSummary(pauseSignal)
           : status === "completed"
           ? "当前飞书批次已全部处理完成。"
           : status === "pending_products"
@@ -1143,7 +1367,15 @@ function existingStatus(): Record<string, unknown> {
       fs.rmSync(jobFile, { force: true });
       return existingStatus();
     }
-    fs.writeFileSync(pauseFile, `${new Date().toISOString()}\n`, "utf8");
+    const pauseSignal = writePauseSignalFile({
+      reason: "batch_mismatch",
+      message: "运行中的控制器批次指纹与当前飞书缓存不一致；已请求在安全边界暂停，并停止展示和复用该运行证据。",
+      currentBatchFingerprint:
+        typeof feishuProgress?.batchFingerprint === "string" ? String(feishuProgress.batchFingerprint) : undefined,
+      runtimeBatchFingerprint,
+      runId: activeRuntimeDir ? path.basename(activeRuntimeDir) : undefined,
+      pid: job.pid
+    });
     return {
       ok: true,
       status: "failed",
@@ -1152,8 +1384,9 @@ function existingStatus(): Record<string, unknown> {
       startedAt: job.startedAt,
       jobFile,
       historicalRuntimeSuppressed: true,
+      pauseSignal,
       feishuProgress,
-      summary: "运行中的控制器批次指纹与当前飞书缓存不一致；已请求在安全边界暂停，并停止展示和复用该运行证据。"
+      summary: formatPauseSignalSummary(pauseSignal)
     };
   }
   const publishLogProgress = summarizePublishLogProgress(job.logFile);
@@ -1283,6 +1516,7 @@ function existingStatus(): Record<string, unknown> {
     manualRecoveryPublishRunning && baseResolvedStatus !== "completed" && baseResolvedStatus !== "failed"
       ? "running"
       : baseResolvedStatus;
+  const pauseSignal = readPauseSignalFile();
   const terminalResult = resolvedStatus === "completed" ? "completed" : resolvedStatus === "failed" ? "failed" : undefined;
   const closure = resolveControllerJobClosure({
     declaredStatus: job.status,
@@ -1403,7 +1637,9 @@ function existingStatus(): Record<string, unknown> {
     activeRuntimeDir,
     statusSource: shouldUsePublishRealtime ? (publishProgress ? "publish-manifest" : state ? "state" : "result-log") : "state",
     summary:
-      (resolvedStatus === "external_service_wait"
+      (resolvedStatus === "pause_requested"
+        ? formatPauseSignalSummary(pauseSignal)
+        : resolvedStatus === "external_service_wait"
         ? formatAutoListingControllerExternalServiceWaitSummary({
             retryAt: activeWaitState?.retryAt,
             nowMs: Date.now(),
@@ -1423,6 +1659,7 @@ function existingStatus(): Record<string, unknown> {
         : undefined,
     result: suppressHistoricalResult ? undefined : result,
     externalServiceWait: activeWaitState,
+    pauseSignal,
     state: statusState,
     progressHeartbeat,
     realtimeProgress,
@@ -1523,13 +1760,16 @@ function formatStatusText(status: Record<string, unknown>): string {
 }
 
 function writePauseSignal(): Record<string, unknown> {
-  fs.mkdirSync(controlDir, { recursive: true });
-  fs.writeFileSync(pauseFile, new Date().toISOString() + "\n", "utf8");
+  const pauseSignal = writePauseSignalFile({
+    reason: "operator",
+    message: "项目已收到手动暂停请求；任务会在安全边界停止并保留当前产物。继续上架会清除暂停信号并从安全断点续跑。"
+  });
   return {
     ok: true,
     status: "pause_requested",
     pauseFile,
-    message: "已请求暂停；任务会在安全边界停止并保留当前产物。"
+    pauseSignal,
+    message: pauseSignal.message
   };
 }
 
@@ -1596,6 +1836,23 @@ function shouldResumeCurrentFailure(): boolean {
     fs.rmSync(resumeJobFile, { force: true });
     return false;
   }
+  const state = readJsonFile<AutoListingStateFile>(path.join(resumeRuntimeDir, "state.json"));
+  const stateTask = (state?.tasks || []).find((task) =>
+    (resumeJob.input?.resumeTaskId && task.taskId === resumeJob.input.resumeTaskId) ||
+    (task.sourceImagePath && path.resolve(rootDir, task.sourceImagePath) === path.resolve(rootDir, resumeSourceImagePath))
+  );
+  if (stateTask && resumeJob.input?.resumeProductFolderNames?.length) {
+    const resolvedShopRootDir = resolveResumeShopRootDir({
+      sourceJob: resumeJob,
+      task: stateTask,
+      batchFingerprint: resumeJob.input.feishuBatchFingerprint || state?.feishuBatchFingerprint,
+      productFolderNames: resumeJob.input.resumeProductFolderNames
+    });
+    if (resolvedShopRootDir && resolvedShopRootDir !== resumeJob.input.shopRootDir) {
+      resumeJob.input.shopRootDir = resolvedShopRootDir;
+      atomicWriteJson(resumeJobFile, resumeJob);
+    }
+  }
   const resumeProductFolderCount = countResumeProductFolders(resumeJob);
   const declaredProductFolderCount = countDeclaredResumeProductFolders(resumeJob);
   if (
@@ -1624,11 +1881,6 @@ function shouldResumeCurrentFailure(): boolean {
     return false;
   }
 
-  const state = readJsonFile<AutoListingStateFile>(path.join(resumeRuntimeDir, "state.json"));
-  const stateTask = (state?.tasks || []).find((task) =>
-    (resumeJob.input?.resumeTaskId && task.taskId === resumeJob.input.resumeTaskId) ||
-    (task.sourceImagePath && path.resolve(rootDir, task.sourceImagePath) === path.resolve(rootDir, resumeSourceImagePath))
-  );
   if (stateTask) {
     const inferredStateStartStep = inferResumeStartStepForTask(stateTask);
     if (
@@ -1709,6 +1961,10 @@ function listStateFilesNewestFirst(): string[] {
 function countResumeProductFolders(job: AutoListingJobFile | undefined): number {
   const names = new Set((job?.input?.resumeProductFolderNames || []).map((item) => String(item || "")).filter(Boolean));
   const shopRootDir = path.resolve(rootDir, job?.input?.shopRootDir || "input/auto-listing/shops");
+  return countMatchingProductFoldersInShopRoot(shopRootDir, names, false);
+}
+
+function countMatchingProductFoldersInShopRoot(shopRootDir: string, names: Set<string>, requireWorkbook: boolean): number {
   if (names.size === 0 || !fs.existsSync(shopRootDir)) {
     return 0;
   }
@@ -1720,11 +1976,75 @@ function countResumeProductFolders(job: AutoListingJobFile | undefined): number 
     const shopFolder = path.join(shopRootDir, shopEntry.name);
     for (const productEntry of fs.readdirSync(shopFolder, { withFileTypes: true })) {
       if (productEntry.isDirectory() && names.has(productEntry.name)) {
-        count += 1;
+        if (!requireWorkbook) {
+          count += 1;
+          continue;
+        }
+        const productFolder = path.join(shopFolder, productEntry.name);
+        if (fs.readdirSync(productFolder).some((name) => name.toLowerCase().endsWith(".xlsx"))) {
+          count += 1;
+        }
       }
     }
   }
   return count;
+}
+
+function findDeferredMainImageShopRootForResume(options: {
+  batchFingerprint?: string;
+  recordId?: string;
+  productFolderNames: string[];
+}): string | undefined {
+  const names = new Set(options.productFolderNames.filter(Boolean));
+  if (!options.batchFingerprint || !options.recordId || names.size === 0 || !fs.existsSync(deferredMainImageRoot)) {
+    return undefined;
+  }
+
+  const candidates = fs
+    .readdirSync(deferredMainImageRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const roundDir = path.join(deferredMainImageRoot, entry.name);
+      const manifestFile = path.join(roundDir, "deferred-round.json");
+      const manifest = readJsonFile<DeferredMainImageRoundFile>(manifestFile);
+      const shopsDir = path.join(roundDir, "shops");
+      if (!manifest || manifest.batchFingerprint !== options.batchFingerprint || manifest.recordId !== options.recordId || !fs.existsSync(shopsDir)) {
+        return undefined;
+      }
+      const matchedCount = countMatchingProductFoldersInShopRoot(shopsDir, names, true);
+      if (matchedCount < names.size) {
+        return undefined;
+      }
+      return {
+        shopsDir,
+        createdAtMs: manifest.createdAt ? Date.parse(manifest.createdAt) || 0 : 0,
+        round: Number(manifest.round || 0),
+        mtimeMs: fs.statSync(manifestFile).mtimeMs
+      };
+    })
+    .filter((item): item is { shopsDir: string; createdAtMs: number; round: number; mtimeMs: number } => Boolean(item))
+    .sort((a, b) => b.createdAtMs - a.createdAtMs || b.round - a.round || b.mtimeMs - a.mtimeMs);
+
+  return candidates[0]?.shopsDir;
+}
+
+function resolveResumeShopRootDir(options: {
+  sourceJob: AutoListingJobFile;
+  task: NonNullable<AutoListingResultFile["tasks"]>[number] | NonNullable<AutoListingStateFile["tasks"]>[number];
+  batchFingerprint?: string;
+  productFolderNames: string[];
+}): string | undefined {
+  const configuredShopRoot = path.resolve(rootDir, options.sourceJob.input?.shopRootDir || "input/auto-listing/shops");
+  const names = new Set(options.productFolderNames.filter(Boolean));
+  if (countMatchingProductFoldersInShopRoot(configuredShopRoot, names, true) >= names.size) {
+    return options.sourceJob.input?.shopRootDir;
+  }
+  const deferredShopRoot = findDeferredMainImageShopRootForResume({
+    batchFingerprint: options.batchFingerprint,
+    recordId: options.task.feishuProductRecord?.recordId,
+    productFolderNames: options.productFolderNames
+  });
+  return deferredShopRoot ? path.relative(rootDir, deferredShopRoot) : options.sourceJob.input?.shopRootDir;
 }
 
 function countDeclaredResumeProductFolders(job: AutoListingJobFile | undefined): number {
@@ -1944,6 +2264,13 @@ function writeResumeJobFromInterruptedState(
     interrupted.runtimeDir,
     inferResumeStartStepForTask(interrupted.task)
   );
+  const resumeProductFolderNames = collectResumeProductFolderNames(interrupted.task);
+  const shopRootDir = resolveResumeShopRootDir({
+    sourceJob,
+    task: interrupted.task,
+    batchFingerprint: interrupted.state.feishuBatchFingerprint,
+    productFolderNames: resumeProductFolderNames
+  });
   const resumeJob: AutoListingJobFile = {
     ...sourceJob,
     runtimeDir: interrupted.runtimeDir,
@@ -1951,11 +2278,12 @@ function writeResumeJobFromInterruptedState(
     runId: interrupted.state.runId || path.basename(interrupted.runtimeDir),
     input: {
       ...sourceJob.input,
+      ...(shopRootDir ? { shopRootDir } : {}),
       startStep,
       endStep: "done",
       resumeSourceImagePath: interrupted.task.sourceImagePath,
       resumeTaskId: interrupted.task.taskId,
-      resumeProductFolderNames: collectResumeProductFolderNames(interrupted.task),
+      resumeProductFolderNames,
       feishuBatchFingerprint: interrupted.state.feishuBatchFingerprint,
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
@@ -1996,6 +2324,13 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
     failedRuntimeDir,
     inferResumeStartStepForTask(failedTask)
   );
+  const resumeProductFolderNames = collectResumeProductFolderNames(failedTask);
+  const shopRootDir = resolveResumeShopRootDir({
+    sourceJob,
+    task: failedTask,
+    batchFingerprint: latest.result.feishuBatchFingerprint,
+    productFolderNames: resumeProductFolderNames
+  });
   const resumeJob: AutoListingJobFile = {
     ...sourceJob,
     runtimeDir: failedRuntimeDir,
@@ -2003,11 +2338,12 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
     runId: latest.result.runId || path.basename(path.dirname(latest.resultFile)),
     input: {
       ...sourceJob.input,
+      ...(shopRootDir ? { shopRootDir } : {}),
       startStep: failedStep,
       endStep: "done",
       resumeSourceImagePath: failedTask.sourceImagePath,
       resumeTaskId: failedTask.taskId,
-      resumeProductFolderNames: collectResumeProductFolderNames(failedTask),
+      resumeProductFolderNames,
       feishuBatchFingerprint: latest.result.feishuBatchFingerprint,
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
@@ -2152,6 +2488,7 @@ async function start(
   if (!dryRun && !selectedBatchFingerprint) {
     throw new Error("Cannot start auto-listing without a validated Feishu batch fingerprint.");
   }
+  const nonCurrentBatchCleanup = !dryRun ? cleanupNonCurrentBatchResidue(selectedBatchFingerprint) : [];
   const dryRunDecision = dryRun
     ? resolveAutoListingControllerDryRunStartDecision({
         batchComplete: typeof currentProgress?.batchComplete === "boolean" ? currentProgress.batchComplete : undefined,
@@ -2246,7 +2583,8 @@ async function start(
     command: [job.command, ...job.args].join(" "),
     logFile: job.logFile,
     jobFile,
-    message: "后台任务已启动；后续发送状态查询时读取项目发布清单进度，不需要外部触发器持续等待进程结束。"
+    message: "后台任务已启动；后续发送状态查询时读取项目发布清单进度，不需要外部触发器持续等待进程结束。",
+    nonCurrentBatchCleanup
   };
   console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
 }

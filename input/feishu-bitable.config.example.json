@@ -26,7 +26,14 @@
     "shortTitle": "导购短标题",
     "productCategory": "产品类目",
     "qualificationImages": "资质图片",
-    "whiteBackgroundImages": "白底图"
+    "whiteBackgroundImages": "白底图",
+    "manufacturerName": "生产企业名称",
+    "manufacturerAddress": "生产企业地址",
+    "netContent": "净含量",
+    "productStandardCode": "产品标准代码",
+    "ingredients": "配料表",
+    "healthFunction": "保健功能",
+    "specification": "规格"
   },
   "requiredFields": [
     "userCognitionName",
@@ -44,6 +51,13 @@
     "shortTitle",
     "productCategory",
     "qualificationImages",
-    "whiteBackgroundImages"
+    "whiteBackgroundImages",
+    "manufacturerName",
+    "manufacturerAddress",
+    "netContent",
+    "productStandardCode",
+    "ingredients",
+    "healthFunction",
+    "specification"
   ]
 }

@@ -113,6 +113,16 @@ assert.match(
   /runPublishFromSpuJob\([\s\S]*onProgress[\s\S]*upsertPublishManifestEntry[\s\S]*options\.onProgress/,
   "publish-from-spu internal heartbeats must update publish manifest and outer task progress"
 );
+assert.match(
+  autolistPublishSource,
+  /buildPublishJobMetadata[\s\S]*feishuRecordId:\s*targetIdentity\.recordId[\s\S]*productCategory:\s*feishuProductRecord\.productCategory/,
+  "auto-listing publish must build Doudian metadata from canonical target identity plus the current Feishu productCategory"
+);
+assert.match(
+  autolistPublishSource,
+  /const metadata = metadataByTargetKey\.get\(targetKey\)[\s\S]*runPublishFromSpuJob\([\s\S]*metadata,/,
+  "auto-listing publish must pass the fully built Feishu metadata into Doudian publish jobs"
+);
 const publishBasicCatchWindow = publishFlowSource.slice(
   publishFlowSource.indexOf("} catch (error) {", publishBasicLoop),
   publishFlowSource.indexOf("if (!basicInfoCompleted)", publishBasicLoop)

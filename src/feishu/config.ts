@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { FeishuBitableConfig, FeishuBitableFieldMap } from "./types.js";
 
-const REQUIRED_FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
+const FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
   "userCognitionName",
   "genericName",
   "brand",
@@ -18,7 +18,14 @@ const REQUIRED_FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
   "shortTitle",
   "productCategory",
   "qualificationImages",
-  "whiteBackgroundImages"
+  "whiteBackgroundImages",
+  "manufacturerName",
+  "manufacturerAddress",
+  "netContent",
+  "productStandardCode",
+  "ingredients",
+  "healthFunction",
+  "specification"
 ];
 
 function readJsonFile(filePath: string): unknown {
@@ -34,6 +41,10 @@ function readString(value: unknown, label: string): string {
     throw new Error(`Feishu config missing required field: ${label}`);
   }
   return value.trim();
+}
+
+function readOptionalString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function parseBitableUrl(url: string): { appToken?: string; tableId?: string; viewId?: string; wikiNodeToken?: string } {
@@ -70,9 +81,11 @@ export function loadFeishuBitableConfig(configFile: string): FeishuBitableConfig
     throw new Error("Feishu config missing required field: fieldMap");
   }
 
-  for (const key of REQUIRED_FIELD_MAP_KEYS) {
-    readString(fieldMap[key], `fieldMap.${key}`);
-  }
+  const normalizedFieldMap = FIELD_MAP_KEYS.reduce((output, key) => {
+    output[key] = readOptionalString(fieldMap[key]);
+    return output;
+  }, {} as FeishuBitableFieldMap);
+  const configuredFieldKeys = FIELD_MAP_KEYS.filter((key) => normalizedFieldMap[key]);
 
   return {
     bitableUrl: input.bitableUrl || process.env.FEISHU_BITABLE_URL || undefined,
@@ -81,25 +94,8 @@ export function loadFeishuBitableConfig(configFile: string): FeishuBitableConfig
     tableId: (input.tableId || envTableId || parsedUrl.tableId || "").trim(),
     viewId: (input.viewId || envViewId || parsedUrl.viewId || "").trim() || undefined,
     pageSize: input.pageSize || 100,
-    fieldMap: {
-      userCognitionName: readString(fieldMap.userCognitionName, "fieldMap.userCognitionName"),
-      genericName: readString(fieldMap.genericName, "fieldMap.genericName"),
-      brand: readString(fieldMap.brand, "fieldMap.brand"),
-      spu: readString(fieldMap.spu, "fieldMap.spu"),
-      sellingPointText: readString(fieldMap.sellingPointText, "fieldMap.sellingPointText"),
-      deepseekPromptText: readString(fieldMap.deepseekPromptText, "fieldMap.deepseekPromptText"),
-      mainImageInstructionText: readString(fieldMap.mainImageInstructionText, "fieldMap.mainImageInstructionText"),
-      positivePromptText: readString(fieldMap.positivePromptText, "fieldMap.positivePromptText"),
-      negativePromptText: readString(fieldMap.negativePromptText, "fieldMap.negativePromptText"),
-      titleKeywordText: readString(fieldMap.titleKeywordText, "fieldMap.titleKeywordText"),
-      titleSuffixText: readString(fieldMap.titleSuffixText, "fieldMap.titleSuffixText"),
-      productPriceText: readString(fieldMap.productPriceText, "fieldMap.productPriceText"),
-      shortTitle: readString(fieldMap.shortTitle, "fieldMap.shortTitle"),
-      productCategory: readString(fieldMap.productCategory, "fieldMap.productCategory"),
-      qualificationImages: readString(fieldMap.qualificationImages, "fieldMap.qualificationImages"),
-      whiteBackgroundImages: readString(fieldMap.whiteBackgroundImages, "fieldMap.whiteBackgroundImages")
-    },
-    requiredFields: input.requiredFields?.length ? input.requiredFields : REQUIRED_FIELD_MAP_KEYS
+    fieldMap: normalizedFieldMap,
+    requiredFields: input.requiredFields?.length ? input.requiredFields : configuredFieldKeys
   };
 }
 
