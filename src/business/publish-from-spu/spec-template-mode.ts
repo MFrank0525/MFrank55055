@@ -72,5 +72,11 @@ export async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolea
     return false;
   }
   await page.locator(`[${switchManualSpecEntryMarker}="true"]`).first().click({ timeout: 3000 });
-  return true;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (!(await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => true))) {
+      return true;
+    }
+    await page.waitForTimeout(250);
+  }
+  return !(await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => true));
 }

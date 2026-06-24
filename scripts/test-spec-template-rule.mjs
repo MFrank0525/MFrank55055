@@ -458,6 +458,17 @@ assert.match(
   /if \(await isSpecTemplateSmartFillUploadModeVisible\(page\)\.catch\(\(\) => false\)\) \{[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*waitForManualSpecTemplateEntryReadiness\(page\)/,
   "manual spec setup must switch out of smart-fill upload mode and poll readiness without a fixed 3 second pause"
 );
+const switchManualSpecEntrySource = fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8");
+assert.match(
+  switchManualSpecEntrySource,
+  /clickSwitchManualSpecEntryMode[\s\S]*page\.locator\(`\[\$\{switchManualSpecEntryMarker\}="true"\]`\)\.first\(\)\.click[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)/,
+  "manual spec switch action must verify the smart-fill upload surface disappears after clicking"
+);
+assert.match(
+  switchManualSpecEntrySource,
+  /return !\(await isSpecTemplateSmartFillUploadModeVisible\(page\)\.catch\(\(\) => true\)\)/,
+  "manual spec switch action must return false when click does not leave smart-fill upload mode"
+);
 assert.match(
   publishSource,
   /isSpecTemplateEntryControlVisible\(page\)[\s\S]*return;/,

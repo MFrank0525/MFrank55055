@@ -2927,8 +2927,8 @@ assert.equal(
     recoveryAttempts: 0,
     maxRecoveryAttempts: 3
   }),
-  true,
-  "AutoListingController resume children must automatically recover transient spec-template page failures"
+  false,
+  "AutoListingController must not auto-resume spec-template readiness failures by replaying the publish flow"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
@@ -2939,8 +2939,8 @@ assert.equal(
     recoveryAttempts: 0,
     maxRecoveryAttempts: 3
   }),
-  true,
-  "AutoListingController must classify missing manual spec-template entry controls as a retryable publish-page drift"
+  false,
+  "AutoListingController must stop on manual spec-template entry failures instead of replaying the publish flow"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -2952,8 +2952,8 @@ assert.equal(
     recoveryAttempts: 0,
     maxRecoveryAttempts: 3
   }),
-  true,
-  "AutoListingController resume children must continue after retryable spec-template entry drift"
+  false,
+  "AutoListingController resume children must not continue after spec-template entry drift"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
