@@ -43,6 +43,19 @@ assert.deepEqual(
 
 assert.deepEqual(
   evaluateSpecTemplateCompletion({
+    selectedTemplate: "",
+    expectedTemplateKeyword: "买二送一",
+    filledSpecValues: 0,
+    expectedSpecValues: 4,
+    priceRows: 4,
+    blankSpecValueInputs: 1
+  }),
+  { passed: true, issue: "" },
+  "empty selected-template readback must not block when template-generated price rows prove completion"
+);
+
+assert.deepEqual(
+  evaluateSpecTemplateCompletion({
     filledSpecValues: 4,
     expectedSpecValues: 4,
     priceRows: 4,
@@ -299,13 +312,36 @@ assert.match(
 );
 assert.match(
   publishSource,
+  /const specTemplateOptionMarker[\s\S]*setAttribute\(markerName, "true"\)[\s\S]*page\.locator\(`\[\$\{specTemplateOptionMarker\}="true"\]`\)\.first\(\)\.click/,
+  "spec template option clicking must mark the currently visible dropdown option before Playwright clicks it"
+);
+assert.match(
+  publishSource,
+  /const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*if \(isMatchingSpecTemplateValue\(visibleClickedText, keyword\)\)[\s\S]*waitForSpecTemplateApplyEvidence\(page, keyword\)[\s\S]*await input\.click/,
+  "spec template selection must click an already visible matching template option before typing into the search input and then wait on apply evidence"
+);
+assert.doesNotMatch(
+  publishSource,
+  /innerText\(\{ timeout: 3000 \}\)[\s\S]*click\(\{ timeout: 3000 \}\)/,
+  "spec template option clicking must not wait on broad hidden locator candidates before clicking a visible option"
+);
+assert.match(
+  publishSource,
   /const selectedValue = await readSpecTemplateSelectedValue\(page, keyword\)[\s\S]*if \(isMatchingSpecTemplateValue\(selectedValue, keyword\)\)[\s\S]*return selectedValue[\s\S]*return clickedText/,
   "spec template selection must prefer selected readback but fall back to the clicked matching option text"
 );
 assert.match(
   publishSource,
-  /async function chooseSpecTemplateKeywordFromDropdown[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidate\)[\s\S]*await page\.waitForTimeout\(3000\)[\s\S]*readSpecTemplateSelectedValue\(page, keyword\)/,
-  "spec template selection must be one atomic choose action with a single 3 second settle wait before readback"
+  /async function waitForSpecTemplateApplyEvidence[\s\S]*readSpecTemplateSelectedValue\(page, keyword\)[\s\S]*countVisiblePriceInventoryRows\(page\)[\s\S]*readCurrentSpecValuesStrict\(page\)/,
+  "spec template selection must wait on concrete template-apply evidence instead of a fixed settle delay"
+);
+assert.doesNotMatch(
+  publishSource.slice(
+    publishSource.indexOf("async function chooseSpecTemplateKeywordFromDropdown"),
+    publishSource.indexOf("async function scrollMainFormContainerToBottom")
+  ),
+  /waitForTimeout\(3000\)/,
+  "spec template dropdown selection must not impose a fixed 3 second delay after clicking a matching option"
 );
 assert.doesNotMatch(
   publishSource,

@@ -1362,7 +1362,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const active = cleanAutoListingControllerProductName(input.activeItemName || input.productName);
   lines.push(`当前：${active}`);
   const latestProgress =
-    input.status === "external_service_wait"
+    input.status === "external_service_wait" || input.status === "pause_requested" || input.status === "paused"
       ? input.summary
       : preferPublishProgress
         ? input.latestProgress

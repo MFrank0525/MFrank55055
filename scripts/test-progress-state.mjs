@@ -234,8 +234,8 @@ assert.doesNotMatch(
 );
 assert.match(
   specTemplateSelectionSource,
-  /await input\.click\(\{ timeout: 3000 \}\);\s*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(120\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidate\)[\s\S]*await page\.waitForTimeout\(3000\);[\s\S]*readSpecTemplateSelectedValue\(page, keyword\)/,
-  "spec-template selection must use one atomic option choice with a single 3 second settle wait"
+  /const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*waitForSpecTemplateApplyEvidence\(page, keyword\)[\s\S]*await input\.click\(\{ timeout: 3000 \}\);[\s\S]*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(120\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*waitForSpecTemplateApplyEvidence\(page, keyword\)/,
+  "spec-template selection must click an already visible option before typing, then wait on template-apply evidence instead of a fixed settle delay"
 );
 assert.doesNotMatch(
   specTemplateSelectionSource,
@@ -2591,6 +2591,26 @@ assert.match(
   "Hermes compact status must expose the batch-mismatch pause reason instead of presenting a generic stuck state"
 );
 assert.equal(
+  formatAutoListingControllerCompactStatusText({
+    status: "pause_requested",
+    showPublishProgress: true,
+    summary: "项目已收到手动暂停请求；任务会在安全边界停止并保留当前产物。继续上架会清除暂停信号并从安全断点续跑。",
+    productName: "延草纲目万通鉴筋骨痛膏贴",
+    activeItemName: "延草纲目万通鉴筋骨痛膏贴-recvnsNBVlVIE0-水印15",
+    latestProgress: "Waiting for publish result.",
+    publishSafelyPublished: 14,
+    publishTotal: 20,
+    publishProductIndex: 15,
+    publishProductTotal: 20,
+    publishShopIndex: 8,
+    publishShopTotal: 10,
+    feishuCompleted: 0,
+    feishuTotal: 1
+  }),
+  "状态：正在安全暂停｜产品 15/20｜店铺 8/10｜飞书产品 0/1\n当前：延草纲目万通鉴筋骨痛膏贴\n进度：项目已收到手动暂停请求；任务会在安全边界停止并保留当前产物。继续上架会清除暂停信号并从安全断点续跑。",
+  "Paused publish status must show the pause reason instead of the next-target Waiting for publish result placeholder"
+);
+assert.equal(
   resolveAutoListingControllerIdleStatus({
     batchComplete: true,
     latestResultOk: true,
@@ -2813,6 +2833,11 @@ assert.equal(
   ),
   "resume",
   "Title-workbook collisions are safe resume-stage transitions and must not restart the full flow"
+);
+assert.match(
+  autoListingCliSource,
+  /const explicitStartStep =[\s\S]*options\.sourceJob\.input\?\.startStep[\s\S]*options\.sourceJob[\s\S]*startStep[\s\S]*const startStep = explicitStartStep\s*\?\s*normalizeAutoListingStep\(explicitStartStep as any\)\s*:\s*inferResumeStartStepFromDisk/,
+  "CLI resume job generation must preserve an explicit startStep=published instead of inferring an earlier step from disk"
 );
 assert.equal(
   resolveSupervisorRecoveryChildMode("failed at main_images_generated: fetch failed"),

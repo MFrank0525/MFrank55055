@@ -289,23 +289,97 @@ async function findSpecTemplateInputInFieldRootOnPage(page: Page): Promise<Locat
   throw new Error("Spec template input was not found inside 商品规格/规格模板 field root.");
 }
 
-async function clickSpecTemplateOptionByDomStructure(page: Page, keyword: string): Promise<string> {
-  const option = page
-    .locator("[role='listbox'] [role='option'], [role='option'], [class*='dropdown'] [class*='item'], [class*='Dropdown'] [class*='Item'], [class*='menu'] [class*='item'], [class*='Menu'] [class*='Item']")
-    .filter({ hasText: keyword })
-    .first();
-  if ((await option.count()) <= 0) {
-    return "";
+const specTemplateOptionMarker = "data-auto-spec-template-option";
+
+async function markVisibleSpecTemplateOption(page: Page, keywords: string[]): Promise<string> {
+  return page.evaluate(
+    ({ markerName, targetKeywords }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const visible = (element: HTMLElement): boolean => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      document.querySelectorAll(`[${markerName}]`).forEach((node) => node.removeAttribute(markerName));
+      const optionSelector = [
+        "[role='listbox'] [role='option']",
+        "[role='option']",
+        "[class*='dropdown'] [class*='item']",
+        "[class*='Dropdown'] [class*='Item']",
+        "[class*='menu'] [class*='item']",
+        "[class*='Menu'] [class*='Item']"
+      ].join(", ");
+      const candidates = Array.from(document.querySelectorAll(optionSelector))
+        .map((node) => {
+          const el = node as HTMLElement;
+          const clickable = (
+            el.closest(
+              "[role='option'], [class*='dropdown'] [class*='item'], [class*='Dropdown'] [class*='Item'], [class*='menu'] [class*='item'], [class*='Menu'] [class*='Item']"
+            ) || el
+          ) as HTMLElement;
+          if (!visible(el) || !visible(clickable)) {
+            return null;
+          }
+          const text = normalize(el.innerText || el.textContent || "");
+          if (!targetKeywords.some((keyword) => text.includes(keyword))) {
+            return null;
+          }
+          return {
+            el: clickable,
+            text
+          };
+        })
+        .filter(Boolean);
+      const target = candidates.find((item) => targetKeywords.some((keyword) => item?.text === keyword)) || candidates[0];
+      if (!target) {
+        return "";
+      }
+      target.el.setAttribute(markerName, "true");
+      return target.text;
+    },
+    { markerName: specTemplateOptionMarker, targetKeywords: keywords }
+  );
+}
+
+async function clickSpecTemplateOptionByDomStructure(page: Page, keywords: string[]): Promise<string> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const text = await markVisibleSpecTemplateOption(page, keywords);
+    if (text) {
+      await page.locator(`[${specTemplateOptionMarker}="true"]`).first().click({ timeout: 1000 });
+      return text;
+    }
+    await page.waitForTimeout(100);
   }
-  const text = (await option.innerText({ timeout: 3000 }).catch(() => "")) || "";
-  await option.click({ timeout: 3000 });
-  return text;
+  return "";
+}
+
+async function waitForSpecTemplateApplyEvidence(page: Page, keyword: string): Promise<string> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
+    if (isMatchingSpecTemplateValue(selectedValue, keyword)) {
+      return selectedValue;
+    }
+    const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
+    if (visiblePriceRows >= FIXED_SPEC_VALUES.length) {
+      return keyword;
+    }
+    const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
+    if (filledValues.length >= FIXED_SPEC_VALUES.length) {
+      return keyword;
+    }
+    await page.waitForTimeout(150);
+  }
+  return "";
 }
 
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
   await dismissTransientOverlays(page);
   const input = await findSpecTemplateInputInFieldRootOnPage(page);
   const candidates = resolveSpecTemplateKeywordCandidates(keyword);
+  const visibleClickedText = await clickSpecTemplateOptionByDomStructure(page, candidates);
+  if (isMatchingSpecTemplateValue(visibleClickedText, keyword)) {
+    return (await waitForSpecTemplateApplyEvidence(page, keyword)) || visibleClickedText;
+  }
   for (const candidate of candidates) {
     await input.click({ timeout: 3000 });
     await input.fill(candidate).catch(async () => {
@@ -313,12 +387,11 @@ async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string
       await page.keyboard.type(candidate, { delay: 20 });
     });
     await page.waitForTimeout(120);
-    const clickedText = await clickSpecTemplateOptionByDomStructure(page, candidate);
+    const clickedText = await clickSpecTemplateOptionByDomStructure(page, candidates);
     if (!isMatchingSpecTemplateValue(clickedText, keyword)) {
       continue;
     }
-    await page.waitForTimeout(3000);
-    const selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
+    const selectedValue = await waitForSpecTemplateApplyEvidence(page, keyword);
     if (isMatchingSpecTemplateValue(selectedValue, keyword)) {
       return selectedValue;
     }
@@ -350,16 +423,17 @@ async function scrollMainFormContainerToTop(page: Page): Promise<boolean> {
 }
 
 async function revealFreightTemplateControl(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    await ensurePublishSectionTab(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => {});
-    await scrollMainFormContainerToTop(page).catch(() => false);
-    await scrollPublishSectionContentIntoView(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => false);
-    await page.waitForTimeout(400);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (attempt === 0 || attempt % 4 === 0) {
+      await ensurePublishSectionTab(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => {});
+      await scrollMainFormContainerToTop(page).catch(() => false);
+      await scrollPublishSectionContentIntoView(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => false);
+    }
     await scrollLabelIntoView(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false);
-    await page.waitForTimeout(500);
     if (await isDropdownControlByLabelAvailable(page, "运费模板").catch(() => false)) {
       return;
     }
+    await page.waitForTimeout(100);
   }
 }
 
@@ -652,58 +726,74 @@ async function readServiceFreightTemplateValue(page: Page): Promise<string> {
   });
 }
 
-async function clickFreightTemplateDropdownOption(page: Page, keyword: string): Promise<string> {
-  const picked = await page.evaluate((targetKeyword) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const candidates = Array.from(
-      document.querySelectorAll(
-        "[role='option'], .ecom-g-select-item-option, .ant-select-item-option, .semi-select-option, .semi-select-option-content, .semi-tree-option, .semi-tree-option-list li, .ecom-g-select-option"
+const freightTemplateOptionMarker = "data-auto-freight-template-option";
+
+async function markVisibleFreightTemplateOption(page: Page, keyword: string): Promise<string> {
+  return page.evaluate(
+    ({ markerName, targetKeyword }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const visible = (element: HTMLElement): boolean => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      document.querySelectorAll(`[${markerName}]`).forEach((node) => node.removeAttribute(markerName));
+      const candidates = Array.from(
+        document.querySelectorAll(
+          "[role='option'], .ecom-g-select-item-option, .ant-select-item-option, .semi-select-option, .semi-select-option-content, .semi-tree-option, .semi-tree-option-list li, .ecom-g-select-option"
+        )
       )
-    )
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = normalize(el.textContent || "");
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (
-          !text ||
-          !text.includes(targetKeyword) ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden"
-        ) {
-          return null;
-        }
-        const marker = [String(el.className || ""), el.getAttribute("role") || "", el.tagName].join(" ").toLowerCase();
-        const score =
-          (text === targetKeyword ? 300 : 0) +
-          (text.includes("\u6a21\u677f") ? 120 : 0) +
-          (marker.includes("option") ? 100 : 0) +
-          (marker.includes("select") ? 80 : 0) +
-          (marker.includes("dropdown") ? 80 : 0) +
-          (marker.includes("item") ? 50 : 0) +
-          (rect.top > 120 ? 40 : 0) -
-          text.length;
-        return { el, text, score };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+        .map((node) => {
+          const el = node as HTMLElement;
+          const clickable = (
+            el.closest("[role='option'], .ecom-g-select-item-option, .ant-select-item-option, .semi-select-option, li, .ecom-g-select-option") ||
+            el
+          ) as HTMLElement;
+          if (!visible(el) || !visible(clickable)) {
+            return null;
+          }
+          const text = normalize(el.textContent || "");
+          if (!text.includes(targetKeyword)) {
+            return null;
+          }
+          return { el: clickable, text };
+        })
+        .filter(Boolean);
+      const target = candidates.find((item) => item?.text === targetKeyword) || candidates[0];
+      if (!target) {
+        return "";
+      }
+      target.el.setAttribute(markerName, "true");
+      return target.text;
+    },
+    { markerName: freightTemplateOptionMarker, targetKeyword: keyword }
+  );
+}
 
-    const target = candidates[0];
-    if (!target) {
-      return null;
+async function clickFreightTemplateDropdownOption(page: Page, keyword: string): Promise<string> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const text = await markVisibleFreightTemplateOption(page, keyword);
+    if (text) {
+      await page.locator(`[${freightTemplateOptionMarker}="true"]`).first().click({ timeout: 1000 });
+      return text;
     }
-    const clickable = (
-      target.el.closest("[role='option'], .ecom-g-select-item-option, .ant-select-item-option, .semi-select-option, li, .ecom-g-select-option") ||
-      target.el
-    ) as HTMLElement | null;
-    clickable?.click();
-    return target.text;
-  }, keyword);
+    await page.waitForTimeout(100);
+  }
+  return "";
+}
 
-  await page.waitForTimeout(800);
-  return picked || "";
+async function waitForFreightTemplateReadback(page: Page, keyword: string): Promise<string> {
+  for (let readbackAttempt = 0; readbackAttempt < 10; readbackAttempt += 1) {
+    let selectedValue = await readLabeledSelectValue(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => "");
+    if (!selectedValue.includes(keyword)) {
+      selectedValue = await readServiceFreightTemplateValue(page).catch(() => "");
+    }
+    if (selectedValue.includes(keyword)) {
+      return selectedValue;
+    }
+    await page.waitForTimeout(100);
+  }
+  return "";
 }
 
 async function clickDropdownControlByLabelDirect(page: Page, labelText: string): Promise<boolean> {
@@ -981,19 +1071,12 @@ export async function chooseKeywordFreightTemplate(page: Page, keyword: string):
     if (!clickedDirect) {
       throw new Error(`No visible freight template combobox matched keyword: ${keyword}`);
     }
-    await page.waitForTimeout(600);
-
     await clickFreightTemplateDropdownOption(page, keyword).catch(() => "");
-    await page.waitForTimeout(800);
-    await page.keyboard.press("Escape").catch(() => {});
-    await page.waitForTimeout(400);
-    selectedValue = await readLabeledSelectValue(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => "");
-    if (!selectedValue.includes(keyword)) {
-      selectedValue = await readServiceFreightTemplateValue(page).catch(() => "");
-    }
+    selectedValue = await waitForFreightTemplateReadback(page, keyword);
     if (selectedValue.includes(keyword)) {
       return selectedValue;
     }
+    await page.keyboard.press("Escape").catch(() => {});
   }
 
   const visibleOptions = await readVisibleFreightTemplateOptionTexts(page).catch(() => []);

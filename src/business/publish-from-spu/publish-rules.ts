@@ -737,7 +737,7 @@ export function evaluatePriceInventoryCompletion(input: {
 export function evaluateSpecTemplateCompletion(input: SpecTemplateCompletionRuleInput): PublishRuleCheck {
   const expectedTemplateKeyword = (input.expectedTemplateKeyword || "").trim();
   const selectedTemplate = (input.selectedTemplate || "").trim();
-  if (expectedTemplateKeyword && !isMatchingSpecTemplateValue(selectedTemplate, expectedTemplateKeyword)) {
+  if (expectedTemplateKeyword && selectedTemplate && !isMatchingSpecTemplateValue(selectedTemplate, expectedTemplateKeyword)) {
     return {
       passed: false,
       issue: `Spec template selection did not match required keyword. expectedKeyword=${expectedTemplateKeyword}; selectedTemplate=${

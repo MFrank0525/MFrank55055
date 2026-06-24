@@ -3,7 +3,7 @@ import path from "node:path";
 import { disconnectAutomationBrowserConnections } from "../browser/launch.js";
 import { runAutoListingJob } from "../autolist/orchestrator.js";
 import { inferResumeStartStepForTask } from "../autolist/resume-rules.js";
-import { AUTO_LISTING_STEPS } from "../autolist/types.js";
+import { AUTO_LISTING_STEPS, normalizeAutoListingStep } from "../autolist/types.js";
 import type { AutoListingJobFile, AutoListingRunState, AutoListingStep, ImageTaskState } from "../autolist/types.js";
 
 interface AutoListingCliArgs {
@@ -177,7 +177,11 @@ function writeResumeJob(options: {
 }): AutoListingJobFile {
   const task = selectResumeTask(options.state);
   const runtimeDir = path.dirname(path.resolve(options.stateFile));
-  const startStep = inferResumeStartStepFromDisk(task, runtimeDir, inferResumeStartStepForTask(task));
+  const explicitStartStep =
+    options.sourceJob.input?.startStep || (options.sourceJob as AutoListingJobFile & { startStep?: AutoListingStep }).startStep;
+  const startStep = explicitStartStep
+    ? normalizeAutoListingStep(explicitStartStep as any)
+    : inferResumeStartStepFromDisk(task, runtimeDir, inferResumeStartStepForTask(task));
   const resumeJob: AutoListingJobFile = {
     ...options.sourceJob,
     runtimeDir,

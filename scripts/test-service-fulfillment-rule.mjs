@@ -10,6 +10,10 @@ const publishSource = [
   fs.readFileSync("src/business/publish-from-spu/service-fulfillment-page-action.ts", "utf8")
 ].join("\n");
 const serviceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8");
+const freightTemplateOptionClickSource = publishSource.slice(
+  publishSource.indexOf("async function clickFreightTemplateDropdownOption"),
+  publishSource.indexOf("async function clickDropdownControlByLabelDirect")
+);
 
 assert.match(
   serviceActionSource,
@@ -20,6 +24,34 @@ assert.match(
   publishSource,
   /readVisibleFreightTemplateOptionTexts[\s\S]*slice\(0, 6\)/,
   "freight-template failure feedback must show a short option summary, not the whole page text"
+);
+assert.match(
+  publishSource,
+  /const freightTemplateOptionMarker[\s\S]*setAttribute\(markerName, "true"\)[\s\S]*page\.locator\(`\[\$\{freightTemplateOptionMarker\}="true"\]`\)\.first\(\)\.click/,
+  "freight-template option clicking must mark a visible option and click it through Playwright"
+);
+assert.match(
+  publishSource,
+  /async function waitForFreightTemplateReadback[\s\S]*readLabeledSelectValue\(page, "\\u8fd0\\u8d39\\u6a21\\u677f"\)[\s\S]*readServiceFreightTemplateValue\(page\)/,
+  "freight-template selection must wait on concrete selected-value readback instead of stacked fixed delays"
+);
+assert.doesNotMatch(
+  publishSource.slice(
+    publishSource.indexOf("async function revealFreightTemplateControl"),
+    publishSource.indexOf("async function readFreightTemplateValue")
+  ),
+  /waitForTimeout\((?:400|500)\)/,
+  "freight-template reveal must not add fixed 400/500ms waits on every attempt"
+);
+assert.doesNotMatch(
+  freightTemplateOptionClickSource,
+  /clickable\?*\.click\(\)/,
+  "freight-template selection must not use synthetic DOM click for the critical option choice"
+);
+assert.doesNotMatch(
+  publishSource,
+  /await page\.waitForTimeout\(600\);[\s\S]*clickFreightTemplateDropdownOption\(page, keyword\)[\s\S]*await page\.waitForTimeout\(800\)[\s\S]*await page\.waitForTimeout\(400\)/,
+  "freight-template selection must not keep the old stacked waits after opening the dropdown"
 );
 
 assert.deepEqual(
