@@ -38,13 +38,20 @@ for (const module of requiredActionModules) {
 }
 
 const aggregateSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const flowSource = fs.readFileSync("src/business/publish-from-spu/publish-flow.ts", "utf8");
 for (const exportName of requiredActionModules.flatMap((module) => module.exports)) {
   assert.match(
-    aggregateSource,
+    flowSource,
     new RegExp(`${exportName}\\(`),
-    `legacy aggregate publish flow must delegate to ${exportName}`
+    `publish flow module must delegate to ${exportName}`
   );
 }
+
+assert.doesNotMatch(
+  aggregateSource,
+  /\b(?:async function|function)\b|page\.evaluate|querySelector|runShopSpuAction\(/,
+  "publish-from-spu.ts must remain a thin export-only entrypoint"
+);
 
 assert.doesNotMatch(
   aggregateSource,
@@ -57,10 +64,10 @@ assert.doesNotMatch(
   "service action sequencing must live in the service action module, not the legacy aggregate file"
 );
 
-const graphicFlowStart = aggregateSource.indexOf("async function runGraphicFlow");
-assert.notEqual(graphicFlowStart, -1, "legacy aggregate graphic flow must still expose runGraphicFlow");
-const graphicFlowEnd = aggregateSource.indexOf("\nexport async function runPublishFromSpuJob", graphicFlowStart);
-const graphicFlowSource = aggregateSource.slice(graphicFlowStart, graphicFlowEnd === -1 ? aggregateSource.length : graphicFlowEnd);
+const graphicFlowStart = flowSource.indexOf("export async function runGraphicFlow");
+assert.notEqual(graphicFlowStart, -1, "publish flow module must expose runGraphicFlow");
+const graphicFlowEnd = flowSource.indexOf("\nexport async function", graphicFlowStart + 1);
+const graphicFlowSource = flowSource.slice(graphicFlowStart, graphicFlowEnd === -1 ? flowSource.length : graphicFlowEnd);
 for (const action of ["runShopSpuAction", "runBasicInfoAction", "runGraphicInfoAction"]) {
   assert.match(graphicFlowSource, new RegExp(`${action}\\(`), `graphic-only flow must delegate to ${action}`);
 }
@@ -70,9 +77,9 @@ assert.doesNotMatch(
   "graphic-only flow must not keep a second copy of the basic-info retry loop"
 );
 assert.doesNotMatch(
-  aggregateSource,
+  flowSource,
   /runShopSpuAction\(\s*\{\s*queryPlatformSpu,/,
-  "legacy aggregate publish flows must not inline shop/SPU dependency wiring; use the shop-spu action default deps"
+  "publish flows must not inline shop/SPU dependency wiring; use the shop-spu action default deps"
 );
 assert.match(
   fs.readFileSync("src/business/publish-from-spu/actions/shop-spu-action.ts", "utf8"),

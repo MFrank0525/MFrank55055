@@ -9,7 +9,18 @@ const docs = [
   read("docs/PUBLISH_FLOW_SOP.md"),
   read("docs/auto-listing/stability-checklist.md")
 ].join("\n");
-const publishSource = read("src/business/publish-from-spu.ts");
+const publishSource = [
+  "src/business/publish-from-spu.ts",
+  "src/business/publish-from-spu/basic-info-page-action.ts",
+  "src/business/publish-from-spu/spec-service-page-action.ts",
+  "src/business/publish-from-spu/service-fulfillment-page-action.ts",
+  "src/business/publish-from-spu/graphic-file-input-action.ts",
+  "src/business/publish-from-spu/graphic-section-preview-action.ts",
+  "src/business/publish-from-spu/graphic-upload-page-action.ts",
+  "src/business/publish-from-spu/publish-submit-page-action.ts",
+  "src/business/publish-from-spu/publish-flow.ts",
+  "src/business/publish-from-spu/job.ts"
+].map(read).join("\n");
 const publishRulesSource = read("src/business/publish-from-spu/publish-rules.ts");
 const publishConstantsSource = read("src/business/publish-from-spu/constants.ts");
 const orchestratorSource = read("src/autolist/orchestrator.ts");

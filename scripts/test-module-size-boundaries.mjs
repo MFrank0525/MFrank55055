@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const maxLinesByFile = new Map([
-  ["src/business/publish-from-spu.ts", 7600],
+  ["src/business/publish-from-spu.ts", 120],
   ["src/cli/auto-listing-controller.ts", 3000],
   ["src/autolist/main-image-assets.ts", 2600]
 ]);

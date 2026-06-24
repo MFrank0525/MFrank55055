@@ -65,7 +65,7 @@ const fullyAcknowledged = evaluateDetailImageCompletion({
 });
 assert.deepEqual(fullyAcknowledged, { passed: true, issue: "" });
 
-const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishSource = fs.readFileSync("src/business/publish-from-spu/graphic-file-input-action.ts", "utf8");
 const uploadStart = publishSource.indexOf("async function uploadDetailImagesByInputCapability");
 const uploadEnd = publishSource.indexOf("async function uploadFilesToSectionSlots", uploadStart);
 const uploadSource = publishSource.slice(uploadStart, uploadEnd);

@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishEntrySource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishImplementationFiles = [
+  "src/business/publish-from-spu/basic-info-page-action.ts",
+  "src/business/publish-from-spu/spec-service-page-action.ts",
+  "src/business/publish-from-spu/service-fulfillment-page-action.ts",
+  "src/business/publish-from-spu/graphic-file-input-action.ts",
+  "src/business/publish-from-spu/graphic-section-preview-action.ts",
+  "src/business/publish-from-spu/graphic-upload-page-action.ts",
+  "src/business/publish-from-spu/publish-submit-page-action.ts",
+  "src/business/publish-from-spu/publish-flow.ts",
+  "src/business/publish-from-spu/job.ts"
+];
+const publishSource = [publishEntrySource, ...publishImplementationFiles.map((file) => fs.readFileSync(file, "utf8"))].join("\n");
 const actionSources = [
   "src/business/publish-from-spu/actions/shop-spu-action.ts",
   "src/business/publish-from-spu/actions/basic-info-action.ts",
@@ -15,9 +27,12 @@ const autolistPublishSource = fs.readFileSync("src/autolist/publish.ts", "utf8")
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 
 function sliceFunction(name, source = publishSource) {
-  const start = source.indexOf(`async function ${name}`);
+  const start = Math.max(source.indexOf(`async function ${name}`), source.indexOf(`export async function ${name}`));
   assert.notEqual(start, -1, `function not found: ${name}`);
-  const next = source.indexOf("\nasync function ", start + 1);
+  const nextAsync = source.indexOf("\nasync function ", start + 1);
+  const nextExportAsync = source.indexOf("\nexport async function ", start + 1);
+  const nextCandidates = [nextAsync, nextExportAsync].filter((index) => index !== -1);
+  const next = nextCandidates.length ? Math.min(...nextCandidates) : -1;
   return source.slice(start, next === -1 ? source.length : next);
 }
 

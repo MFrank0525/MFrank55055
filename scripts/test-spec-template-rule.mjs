@@ -123,6 +123,9 @@ assert.deepEqual(
 
 const publishSource = [
   fs.readFileSync("src/business/publish-from-spu.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/basic-info-page-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/spec-service-page-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/service-fulfillment-page-action.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/price-inventory-action.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/publish-section-navigation.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8")

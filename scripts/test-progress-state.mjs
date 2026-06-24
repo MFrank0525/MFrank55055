@@ -116,6 +116,15 @@ const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-c
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const publishFromSpuSource = [
   fs.readFileSync("src/business/publish-from-spu.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/basic-info-page-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/spec-service-page-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/service-fulfillment-page-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/graphic-file-input-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/graphic-section-preview-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/graphic-upload-page-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/publish-submit-page-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/publish-flow.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/job.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/price-inventory-action.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/publish-section-navigation.ts", "utf8")
 ].join("\n");

@@ -4,7 +4,10 @@ import {
   evaluateServiceFulfillmentCompletion
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 
-const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishSource = [
+  fs.readFileSync("src/business/publish-from-spu/spec-service-page-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/service-fulfillment-page-action.ts", "utf8")
+].join("\n");
 const serviceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8");
 
 assert.match(

@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishEntrySource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishImplementationFiles = [
+  "src/business/publish-from-spu/basic-info-page-action.ts",
+  "src/business/publish-from-spu/spec-service-page-action.ts",
+  "src/business/publish-from-spu/service-fulfillment-page-action.ts",
+  "src/business/publish-from-spu/graphic-file-input-action.ts",
+  "src/business/publish-from-spu/graphic-section-preview-action.ts",
+  "src/business/publish-from-spu/graphic-upload-page-action.ts",
+  "src/business/publish-from-spu/publish-submit-page-action.ts",
+  "src/business/publish-from-spu/publish-flow.ts",
+  "src/business/publish-from-spu/job.ts"
+];
+const publishSource = [publishEntrySource, ...publishImplementationFiles.map((file) => fs.readFileSync(file, "utf8"))].join("\n");
 const basicActionSource = fs.readFileSync("src/business/publish-from-spu/actions/basic-info-action.ts", "utf8");
 const graphicActionSource = fs.readFileSync("src/business/publish-from-spu/actions/graphic-info-action.ts", "utf8");
 const specPriceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/spec-price-action.ts", "utf8");
@@ -20,9 +32,12 @@ const publishManual = fs.readFileSync("docs/auto-listing/steps/10-publish.md", "
 const separationManual = fs.readFileSync("docs/auto-listing/publish-rule-action-separation.md", "utf8");
 
 function sliceFunction(name) {
-  const start = publishSource.indexOf(`async function ${name}`);
+  const start = Math.max(publishSource.indexOf(`async function ${name}`), publishSource.indexOf(`export async function ${name}`));
   assert.notEqual(start, -1, `function not found: ${name}`);
-  const next = publishSource.indexOf("\nasync function ", start + 1);
+  const nextAsync = publishSource.indexOf("\nasync function ", start + 1);
+  const nextExportAsync = publishSource.indexOf("\nexport async function ", start + 1);
+  const nextCandidates = [nextAsync, nextExportAsync].filter((index) => index !== -1);
+  const next = nextCandidates.length ? Math.min(...nextCandidates) : -1;
   return publishSource.slice(start, next === -1 ? publishSource.length : next);
 }
 
@@ -48,7 +63,7 @@ const runPublishFlowSource = sliceFunction("runPublishFlow");
 
 assert.match(
   publishSource,
-  /import\s+\{\s*normalizeProductCategory[\s\S]*\}\s+from\s+"\.\.\/autolist\/product-category\.js"/,
+  /import\s+\{\s*normalizeProductCategory[\s\S]*\}\s+from\s+"\.\.\/\.\.\/autolist\/product-category\.js"/,
   "publish flow must import the canonical category normalizer"
 );
 assert.match(
@@ -65,7 +80,7 @@ assertBefore(
 
 assert.match(
   publishSource,
-  /import\s+\{[\s\S]*applyHealthFoodSpecificationOnPage[\s\S]*fillHealthFoodCategoryAttributesOnPage[\s\S]*fillHealthFoodSafetyAttributesOnPage[\s\S]*uploadHealthFoodOuterPackagingOnPage[\s\S]*uploadHealthFoodPackagingLabelOnPage[\s\S]*\}\s+from\s+"\.\/publish-from-spu\/health-food-actions\.js"/,
+  /import\s+\{[\s\S]*applyHealthFoodSpecificationOnPage[\s\S]*fillHealthFoodCategoryAttributesOnPage[\s\S]*fillHealthFoodSafetyAttributesOnPage[\s\S]*uploadHealthFoodOuterPackagingOnPage[\s\S]*uploadHealthFoodPackagingLabelOnPage[\s\S]*\}\s+from\s+"\.\/health-food-actions\.js"/,
   "publish orchestration must reuse the existing health-food action module"
 );
 

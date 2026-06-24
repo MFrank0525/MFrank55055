@@ -5,7 +5,11 @@ import { resolvePublishFromSpuMetadata } from "../dist/src/business/publish-from
 
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
-const publishFromSpuSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishFromSpuSource = [
+  "src/business/publish-from-spu.ts",
+  "src/business/publish-from-spu/publish-flow.ts",
+  "src/business/publish-from-spu/job.ts"
+].map((file) => fs.readFileSync(file, "utf8")).join("\n");
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 assert.match(
   publishSource,
