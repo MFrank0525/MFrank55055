@@ -65,13 +65,20 @@ assert.ok(config.requiredFields?.includes("negativePromptText"));
 assert.ok(config.requiredFields?.includes("titleKeywordText"));
 assert.ok(config.requiredFields?.includes("titleSuffixText"));
 assert.ok(config.requiredFields?.includes("productPriceText"));
-assert.ok(config.requiredFields?.includes("manufacturerName"));
-assert.ok(config.requiredFields?.includes("manufacturerAddress"));
-assert.ok(config.requiredFields?.includes("netContent"));
-assert.ok(config.requiredFields?.includes("productStandardCode"));
-assert.ok(config.requiredFields?.includes("ingredients"));
-assert.ok(config.requiredFields?.includes("healthFunction"));
-assert.ok(config.requiredFields?.includes("specification"));
+for (const categoryOnlyField of [
+  "manufacturerName",
+  "manufacturerAddress",
+  "netContent",
+  "productStandardCode",
+  "ingredients",
+  "healthFunction",
+  "specification"
+]) {
+  assert.ok(
+    !config.requiredFields?.includes(categoryOnlyField),
+    `category-only field ${categoryOnlyField} must not become a global required field`
+  );
+}
 
 const medicalOnlyConfigFile = path.join(tempDir, "feishu-bitable.medical-only.config.json");
 fs.writeFileSync(

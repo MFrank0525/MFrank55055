@@ -28,6 +28,16 @@ const FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
   "specification"
 ];
 
+const CATEGORY_ONLY_FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
+  "manufacturerName",
+  "manufacturerAddress",
+  "netContent",
+  "productStandardCode",
+  "ingredients",
+  "healthFunction",
+  "specification"
+];
+
 function readJsonFile(filePath: string): unknown {
   const resolved = path.resolve(filePath);
   if (!fs.existsSync(resolved)) {
@@ -85,7 +95,8 @@ export function loadFeishuBitableConfig(configFile: string): FeishuBitableConfig
     output[key] = readOptionalString(fieldMap[key]);
     return output;
   }, {} as FeishuBitableFieldMap);
-  const configuredFieldKeys = FIELD_MAP_KEYS.filter((key) => normalizedFieldMap[key]);
+  const categoryOnlyFieldKeys = new Set<keyof FeishuBitableFieldMap>(CATEGORY_ONLY_FIELD_MAP_KEYS);
+  const configuredFieldKeys = FIELD_MAP_KEYS.filter((key) => normalizedFieldMap[key] && !categoryOnlyFieldKeys.has(key));
 
   return {
     bitableUrl: input.bitableUrl || process.env.FEISHU_BITABLE_URL || undefined,

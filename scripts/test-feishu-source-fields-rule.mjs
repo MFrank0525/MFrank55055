@@ -56,6 +56,44 @@ assert.equal(normalized.titleSuffixText, "医用聚乙二醇润护敷料");
 assert.equal(normalized.productPriceText, "129,99,79,59");
 assert.deepEqual(validateFeishuProductRecord(normalized), []);
 
+const medicalDeviceWithEmptyHealthFoodColumns = normalizeFeishuProductRecord(
+  {
+    ...baseRecord,
+    recordId: "rec-medical-with-empty-health-food-columns",
+    fields: {
+      ...baseRecord.fields,
+      生产企业名称: "",
+      生产企业地址: "",
+      净含量: "",
+      产品标准代码: "",
+      配料表: "",
+      保健功能: "",
+      规格: ""
+    }
+  },
+  {
+    ...config,
+    fieldMap: {
+      ...config.fieldMap,
+      manufacturerName: "生产企业名称",
+      manufacturerAddress: "生产企业地址",
+      netContent: "净含量",
+      productStandardCode: "产品标准代码",
+      ingredients: "配料表",
+      healthFunction: "保健功能",
+      specification: "规格"
+    }
+  }
+);
+assert.equal(medicalDeviceWithEmptyHealthFoodColumns.productCategory, "医疗器械");
+assert.equal(medicalDeviceWithEmptyHealthFoodColumns.manufacturerName, "");
+assert.equal(medicalDeviceWithEmptyHealthFoodColumns.specification, "");
+assert.deepEqual(
+  validateFeishuProductRecord(medicalDeviceWithEmptyHealthFoodColumns),
+  [],
+  "医疗器械记录不应因为同表保健食品专用列为空而失败"
+);
+
 const richTextRecord = normalizeFeishuProductRecord(
   {
     ...baseRecord,

@@ -51,13 +51,6 @@
     "shortTitle",
     "productCategory",
     "qualificationImages",
-    "whiteBackgroundImages",
-    "manufacturerName",
-    "manufacturerAddress",
-    "netContent",
-    "productStandardCode",
-    "ingredients",
-    "healthFunction",
-    "specification"
+    "whiteBackgroundImages"
   ]
 }
