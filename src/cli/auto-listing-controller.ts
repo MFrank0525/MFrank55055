@@ -540,6 +540,42 @@ function compactStatusValue(value: string | undefined): string | undefined {
   return value ? compactStatusLine(value) : value;
 }
 
+function formatFeishuCacheValidationFailureForOperator(productDataFile: string): string | undefined {
+  if (!fs.existsSync(productDataFile)) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(productDataFile, "utf8")) as {
+      ok?: boolean;
+      count?: number;
+      invalidRecords?: Array<{ recordId?: string; missing?: string[] }>;
+      missingMappedFields?: string[];
+    };
+    const invalidRecords = Array.isArray(parsed.invalidRecords) ? parsed.invalidRecords : [];
+    const missingMappedFields = Array.isArray(parsed.missingMappedFields) ? parsed.missingMappedFields.filter(Boolean) : [];
+    if (parsed.ok !== false && invalidRecords.length === 0 && missingMappedFields.length === 0) {
+      return undefined;
+    }
+    const invalidSummary = invalidRecords
+      .slice(0, 3)
+      .map((record) => {
+        const missing = Array.isArray(record.missing) ? record.missing.filter(Boolean) : [];
+        const shown = missing.slice(0, 8).join(",");
+        return `${record.recordId || "unknown"}缺字段:${shown}${missing.length > 8 ? `等${missing.length}项` : ""}`;
+      })
+      .join("；");
+    const mappedSummary = missingMappedFields.length ? `字段映射缺失:${missingMappedFields.join(",")}` : "";
+    return [
+      "飞书刷新后缓存校验失败",
+      `记录数=${Number(parsed.count ?? 0)}`,
+      invalidSummary,
+      mappedSummary
+    ].filter(Boolean).join("；");
+  } catch {
+    return undefined;
+  }
+}
+
 function publishModuleLabel(moduleName: string): string {
   if (moduleName === "basic_info") return "基础信息";
   if (moduleName === "graphic_info") return "图文信息";
@@ -920,9 +956,9 @@ function isActivePublishProgress(publishProgress: Record<string, unknown> | unde
 
 function summarizeFeishuProgress(): Record<string, unknown> | undefined {
   const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
-  const feishuProductDataFile = job?.input ? path.resolve(rootDir, job.input.feishuProductDataFile || "data/feishu/products.json") : "";
-  const processedManifestFile = job?.input ? path.resolve(rootDir, job.input.processedImageManifest || "data/auto-listing/processed-images.json") : "";
-  if (!feishuProductDataFile || !fs.existsSync(feishuProductDataFile)) {
+  const feishuProductDataFile = path.resolve(rootDir, job?.input?.feishuProductDataFile || "data/feishu/products.json");
+  const processedManifestFile = path.resolve(rootDir, job?.input?.processedImageManifest || "data/auto-listing/processed-images.json");
+  if (!fs.existsSync(feishuProductDataFile)) {
     return undefined;
   }
   try {
@@ -936,8 +972,17 @@ function summarizeFeishuProgress(): Record<string, unknown> | undefined {
       ...progress,
       batchFingerprint
     };
-  } catch {
-    return undefined;
+  } catch (error) {
+    const validationIssue = formatFeishuCacheValidationFailureForOperator(feishuProductDataFile) || compactStatusValue(error instanceof Error ? error.message : String(error));
+    return {
+      cacheValid: false,
+      validationIssue,
+      recordCount: 0,
+      processedRecordCount: 0,
+      pendingRecordCount: 0,
+      pendingSourceImages: [],
+      batchComplete: false
+    };
   }
 }
 
@@ -1051,7 +1096,9 @@ function runFeishuAssetsRefreshForStart(): number | null {
   }
   if (result.status !== 0) {
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`Feishu assets refresh failed before project controller start: ${output || result.status || "unknown"}`);
+    const messagePrefix = "Feishu assets refresh failed before project controller start";
+    const cacheValidationFailure = formatFeishuCacheValidationFailureForOperator(path.resolve(rootDir, "data/feishu/products.json"));
+    throw new Error(`${messagePrefix}: ${cacheValidationFailure || compactStatusValue(output) || result.status || "unknown"}`);
   }
   return result.status;
 }
@@ -1279,7 +1326,8 @@ function existingStatus(): Record<string, unknown> {
       latestResultOk: typeof latestResult?.ok === "boolean" ? latestResult.ok : undefined,
       latestResultStatus: typeof latestResult?.status === "string" ? latestResult.status : undefined
     });
-    const status = activePublishRunning ? "running" : idleStatus;
+    const feishuCacheInvalid = feishuProgress?.cacheValid === false;
+    const status = feishuCacheInvalid ? "failed" : activePublishRunning ? "running" : idleStatus;
     return {
       ok: true,
       status,
@@ -1303,6 +1351,8 @@ function existingStatus(): Record<string, unknown> {
       summary:
         activePublishRunning
           ? publishProgress?.progressText || "手动恢复发布正在运行。"
+          : feishuCacheInvalid
+          ? String(feishuProgress.validationIssue || "飞书缓存校验失败，开始上架前必须修复当前批次数据。")
           : status === "pause_requested"
           ? formatPauseSignalSummary(pauseSignal)
           : status === "completed"
@@ -2486,7 +2536,11 @@ async function start(
   const selectedBatchFingerprint =
     typeof currentProgress?.batchFingerprint === "string" ? String(currentProgress.batchFingerprint) : "";
   if (!dryRun && !selectedBatchFingerprint) {
-    throw new Error("Cannot start auto-listing without a validated Feishu batch fingerprint.");
+    throw new Error(
+      typeof currentProgress?.validationIssue === "string"
+        ? String(currentProgress.validationIssue)
+        : "Cannot start auto-listing without a validated Feishu batch fingerprint."
+    );
   }
   const nonCurrentBatchCleanup = !dryRun ? cleanupNonCurrentBatchResidue(selectedBatchFingerprint) : [];
   const dryRunDecision = dryRun

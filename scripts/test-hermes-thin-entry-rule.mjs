@@ -26,13 +26,18 @@ assert.match(
 );
 assert.match(
   packageSource,
-  /"auto-listing:hermes-start":\s*"[^"]*auto-listing-controller\.js start-new"/,
-  "Hermes 开始上架 must use the refresh-first new-batch controller command"
+  /"auto-listing:hermes-start":\s*"[^"]*auto-listing-controller\.js start-new --text"/,
+  "Hermes 开始上架 must use the refresh-first new-batch controller command with concise text output"
 );
 assert.match(
   packageSource,
-  /"auto-listing:hermes-continue":\s*"[^"]*auto-listing-controller\.js continue"/,
-  "Hermes 继续上架 must use the cached-batch resume controller command"
+  /"auto-listing:hermes-continue":\s*"[^"]*auto-listing-controller\.js continue --text"/,
+  "Hermes 继续上架 must use the cached-batch resume controller command with concise text output"
+);
+assert.match(
+  packageSource,
+  /"auto-listing:hermes-rerun-current-batch":\s*"[^"]*auto-listing-controller\.js start-new --rerun-current-batch --text"/,
+  "Hermes 重跑当前批次 must use the project controller with concise text output"
 );
 
 assert.equal(
@@ -58,6 +63,16 @@ assert.doesNotMatch(
   controllerSource,
   /hermes-auto-listing-supervisor\.js/,
   "the project-owned controller must not launch a Hermes-owned supervisor"
+);
+assert.match(
+  controllerSource,
+  /formatFeishuCacheValidationFailureForOperator[\s\S]*invalidRecords[\s\S]*missingMappedFields/,
+  "the project-owned controller must summarize invalid refreshed Feishu cache records for operators"
+);
+assert.match(
+  controllerSource,
+  /Feishu assets refresh failed before project controller start[\s\S]*formatFeishuCacheValidationFailureForOperator/,
+  "refresh-first start failures must prefer compact Feishu cache validation details instead of raw command output"
 );
 
 console.log("hermes thin entry rule passed");

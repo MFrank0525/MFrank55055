@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { normalizeFeishuProductRecord, validateFeishuProductRecord } from "../dist/src/feishu/product-records.js";
+import {
+  isEmptyFeishuProductRecord,
+  normalizeFeishuProductRecord,
+  validateFeishuProductRecord
+} from "../dist/src/feishu/product-records.js";
 
 const baseRecord = {
   recordId: "rec-1",
@@ -138,6 +142,19 @@ assert.deepEqual(
   validateFeishuProductRecord(shuffledMedicalDeviceRecord),
   [],
   "表头顺序变化和新增无关表头不应阻塞医疗器械记录"
+);
+
+const emptyReturnedFeishuRecord = normalizeFeishuProductRecord(
+  {
+    recordId: "rec-empty-returned-by-view",
+    fields: {}
+  },
+  config
+);
+assert.equal(
+  isEmptyFeishuProductRecord(emptyReturnedFeishuRecord),
+  true,
+  "飞书视图/API 返回的完全空白记录不应默认成医疗器械并进入产品批次"
 );
 
 const richTextRecord = normalizeFeishuProductRecord(

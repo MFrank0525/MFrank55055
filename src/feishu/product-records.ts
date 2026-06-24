@@ -282,7 +282,7 @@ export function validateFeishuProductRecord(record: FeishuProductRecord): string
   return missing;
 }
 
-export function isEmptyFeishuProductRecord(record: FeishuProductRecord): boolean {
+function hasEmptyFeishuProductContent(record: FeishuProductRecord, includeCategory: boolean): boolean {
   return (
     !record.userCognitionName &&
     !record.genericName &&
@@ -297,7 +297,7 @@ export function isEmptyFeishuProductRecord(record: FeishuProductRecord): boolean
     !record.titleSuffixText &&
     !record.productPriceText &&
     !record.shortTitle &&
-    !record.productCategory &&
+    (!includeCategory || !record.productCategory) &&
     record.qualificationImages.length === 0 &&
     record.whiteBackgroundImages.length === 0 &&
     !record.manufacturerName &&
@@ -308,4 +308,12 @@ export function isEmptyFeishuProductRecord(record: FeishuProductRecord): boolean
     !record.healthFunction &&
     !record.specification
   );
+}
+
+export function isEmptyFeishuProductRecord(record: FeishuProductRecord): boolean {
+  const rawFields = record.rawFields && typeof record.rawFields === "object" ? Object.values(record.rawFields) : [];
+  if (rawFields.length === 0) {
+    return hasEmptyFeishuProductContent(record, false);
+  }
+  return hasEmptyFeishuProductContent(record, true);
 }

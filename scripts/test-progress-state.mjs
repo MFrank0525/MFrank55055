@@ -338,6 +338,16 @@ assert.match(
   "AutoListingController status script must default to concise human-readable text for Feishu/AutoListingController replies"
 );
 assert.match(
+  packageSource,
+  /"auto-listing:hermes-start":\s*"[^"]*start-new --text"/,
+  "Hermes start script must default to concise human-readable text for Feishu/AutoListingController replies"
+);
+assert.match(
+  packageSource,
+  /"auto-listing:hermes-continue":\s*"[^"]*continue --text"/,
+  "Hermes continue script must default to concise human-readable text for Feishu/AutoListingController replies"
+);
+assert.match(
   hermesSupervisorSource,
   /latestTerminalResultAfter/,
   "AutoListingController watchdog must detect a terminal result file and preserve the real child outcome instead of reporting no-progress timeout"
