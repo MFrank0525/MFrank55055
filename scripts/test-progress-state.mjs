@@ -186,6 +186,10 @@ const priceInventoryDomSlice = publishFromSpuSource.slice(
   publishFromSpuSource.indexOf("function findPriceInventoryTableDomRows"),
   publishFromSpuSource.indexOf("async function detectPriceInventoryValuesInsideSpecInputs")
 );
+const specTemplateSelectionSource = publishFromSpuSource.slice(
+  publishFromSpuSource.indexOf("async function chooseSpecTemplateKeywordFromDropdown"),
+  publishFromSpuSource.indexOf("async function scrollMainFormContainerToBottom")
+);
 const uploadMainImagesSource = publishFromSpuSource.slice(
   publishFromSpuSource.indexOf("async function uploadMainImagesToSection"),
   publishFromSpuSource.indexOf("async function countGraphicSectionPreviews")
@@ -214,6 +218,16 @@ assert.doesNotMatch(
   priceInventoryDomSlice,
   /score|centerX|distanceToPrice|distanceToStock|getBoundingClientRect\(\)\.x/,
   "price/inventory row targeting must not use coordinate distance or scoring heuristics"
+);
+assert.match(
+  specTemplateSelectionSource,
+  /await input\.click\(\{ timeout: 3000 \}\);\s*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(120\);[\s\S]*const selectedValue = await waitForSpecTemplateSelectionConfirmation\(page, keyword, 2500\);/,
+  "spec-template selection must use short settle timing and bounded confirmation polling"
+);
+assert.doesNotMatch(
+  specTemplateSelectionSource,
+  /waitForTimeout\(300\)|waitForTimeout\(600\)|waitForTimeout\(800\)/,
+  "spec-template selection must not use the old long fixed waits"
 );
 assert.match(
   hermesSupervisorSource,

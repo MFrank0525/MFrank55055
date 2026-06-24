@@ -3672,26 +3672,35 @@ async function clickSpecTemplateOptionByDomStructure(page: Page, keyword: string
   return text;
 }
 
+async function waitForSpecTemplateSelectionConfirmation(page: Page, keyword: string, timeoutMs = 2500): Promise<string> {
+  const startedAt = Date.now();
+  let lastValue = "";
+  while (Date.now() - startedAt < timeoutMs) {
+    lastValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
+    if (isMatchingSpecTemplateValue(lastValue, keyword)) {
+      return lastValue;
+    }
+    await page.waitForTimeout(150);
+  }
+  return lastValue;
+}
+
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
   await dismissTransientOverlays(page);
   const input = await findSpecTemplateInputInFieldRootOnPage(page);
   const candidates = resolveSpecTemplateKeywordCandidates(keyword);
   for (const candidate of candidates) {
     await input.click({ timeout: 3000 });
-    await page.waitForTimeout(300);
     await input.fill(candidate).catch(async () => {
       await page.keyboard.press(getSelectAllShortcut());
       await page.keyboard.type(candidate, { delay: 20 });
     });
-    await page.waitForTimeout(600);
-
+    await page.waitForTimeout(120);
     const clickedText = await clickSpecTemplateOptionByDomStructure(page, candidate);
     if (!isMatchingSpecTemplateValue(clickedText, keyword)) {
       continue;
     }
-    await page.waitForTimeout(800);
-
-    const selectedValue = await readSpecTemplateSelectedValue(page, candidate);
+    const selectedValue = await waitForSpecTemplateSelectionConfirmation(page, keyword, 2500);
     if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
       throw new Error(`Spec template readback did not match keyword after selection: keyword=${keyword}; selected=${selectedValue || "<empty>"}`);
     }
