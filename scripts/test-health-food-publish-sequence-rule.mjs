@@ -2,6 +2,19 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const basicActionSource = fs.readFileSync("src/business/publish-from-spu/actions/basic-info-action.ts", "utf8");
+const graphicActionSource = fs.readFileSync("src/business/publish-from-spu/actions/graphic-info-action.ts", "utf8");
+const specPriceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/spec-price-action.ts", "utf8");
+const serviceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8");
+const submitActionSource = fs.readFileSync("src/business/publish-from-spu/actions/submit-action.ts", "utf8");
+const publishActionSource = [
+  publishSource,
+  basicActionSource,
+  graphicActionSource,
+  specPriceActionSource,
+  serviceActionSource,
+  submitActionSource
+].join("\n");
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const publishManual = fs.readFileSync("docs/auto-listing/steps/10-publish.md", "utf8");
 const separationManual = fs.readFileSync("docs/auto-listing/publish-rule-action-separation.md", "utf8");
@@ -46,7 +59,7 @@ assert.match(
 assertBefore(
   runPublishFlowSource,
   "const productCategory = normalizeProductCategory(metadata.productCategory)",
-  "if (!createPageUrl)",
+  "runShopSpuAction(",
   "normalized category resolution"
 );
 
@@ -67,7 +80,7 @@ assert.match(
   "health-food basic info must not use the medical-device category-attribute mutation guard"
 );
 assert.match(
-  runPublishFlowSource,
+  publishActionSource,
   /fillBasicPublishPageOnPage\([\s\S]*basicInfoGuardUnexpectedFieldChanges[\s\S]*\)/,
   "health-food basic-info calls must pass the category-aware mutation guard policy"
 );
@@ -80,66 +93,83 @@ assert.match(
 assertOrdered(
   runPublishFlowSource,
   [
-    "queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder)",
-    'publish module started: basic_info',
-    "fillBasicPublishPageOnPage(",
-    'publish module started: food_safety',
-    "fillHealthFoodSafetyAttributesOnPage(page, metadata)",
-    "if (!foodSafetyResult.ok)",
-    "uploadHealthFoodOuterPackagingOnPage(page, assets.detailImages)",
-    'publish module started: category_attributes',
-    "fillHealthFoodCategoryAttributesOnPage(page, metadata)",
-    'publish module started: graphic_info',
-    "uploadProductImagesOnPage(",
-    'publish module started: shipping_and_spec',
-    "applyHealthFoodShippingBeforeSpecOnPage(page)",
-    "applyFixedSpecsOnPage(",
-    "applyHealthFoodSpecificationOnPage(page, metadata)",
-    'publish module started: price_inventory',
-    "applyPriceInventoryOnPage(",
-    'publish module started: service_fulfillment',
-    "applyFixedPublishSettingsOnPage(",
-    'publish module started: packaging_label',
-    "uploadHealthFoodPackagingLabelOnPage(page, assets.detailImages",
+    "runShopSpuAction(",
+    "runBasicInfoAction(",
+    "runGraphicInfoAction(",
+    "runSpecPriceAction(",
+    "runServiceAction(",
     'publish module started: final_submit',
-    "clickPublishProductOnPage("
+    "runSubmitAction("
   ],
   "health-food publish sequence"
 );
+assertOrdered(
+  basicActionSource,
+  [
+    "assertBasicPublishCompletionOnPage(",
+    'publish module started: food_safety',
+    "fillHealthFoodSafetyAttributesOnPage(page, input.metadata)",
+    "if (!foodSafetyResult.ok)",
+    "uploadHealthFoodOuterPackagingOnPage(page, input.assets.detailImages)",
+    'publish module started: category_attributes',
+    "fillHealthFoodCategoryAttributesOnPage(page, input.metadata)"
+  ],
+  "health-food basic extension sequence"
+);
 assert.doesNotMatch(
   runPublishFlowSource,
+  /fillHealthFoodSafetyAttributesOnPage\(page, metadata\)|fillHealthFoodCategoryAttributesOnPage\(page, metadata\)|uploadHealthFoodOuterPackagingOnPage\(page, assets\.detailImages\)/,
+  "health-food safety and category attributes must live in the basic-info action module"
+);
+assertOrdered(
+  specPriceActionSource,
+  [
+    "applyHealthFoodShippingBeforeSpecOnPage(page)",
+    "applyFixedSpecsOnPage(page",
+    "applyHealthFoodSpecificationOnPage(page, input.metadata)",
+    "applyPriceInventoryOnPage("
+  ],
+  "health-food spec and price action sequence"
+);
+assertOrdered(
+  serviceActionSource,
+  [
+    "applyFixedPublishSettingsOnPage(",
+    "uploadHealthFoodPackagingLabelOnPage(input.page, input.assets.detailImages"
+  ],
+  "health-food service and packaging action sequence"
+);
+assert.doesNotMatch(
+  publishActionSource,
   /waitForHealthFoodRecognitionDiffAndCancelOnPage|dismissHealthFoodRecognitionDiffOnPage/,
   "health-food publish flow must ignore recognition difference popups instead of dismissing or blocking on them"
 );
 assertBefore(
-  runPublishFlowSource,
-  "uploadHealthFoodPackagingLabelOnPage(page, assets.detailImages",
-  'publish module started: final_submit',
+  serviceActionSource + "\n" + runPublishFlowSource,
+  "uploadHealthFoodPackagingLabelOnPage(input.page, input.assets.detailImages",
+  "runSubmitAction(",
   "health-food packaging label upload must lead directly to final submit"
 );
 assert.doesNotMatch(
-  runPublishFlowSource.slice(
-    runPublishFlowSource.indexOf('publish module started: packaging_label'),
-    runPublishFlowSource.indexOf('if (productCategory === "医疗器械")', runPublishFlowSource.indexOf('publish module started: packaging_label'))
-  ),
+  serviceActionSource,
   /runPublishCheckOnPage/,
   "health-food packaging label completion must not be followed by fill-check gating before final submit"
 );
 assert.match(
-  runPublishFlowSource,
-  /if \(productCategory === "保健食品"\) \{[\s\S]*checkPassed = true[\s\S]*submit without fill-check gating[\s\S]*\} else \{[\s\S]*runPublishCheckOnPage/,
+  submitActionSource,
+  /if \(input\.categoryContext\.productCategory === "保健食品"\) \{[\s\S]*checkPassed = true[\s\S]*submit without fill-check gating[\s\S]*\} else \{[\s\S]*runPublishCheckOnPage/,
   "health-food flow must bypass fill-check gating while non-health-food flow still uses it"
 );
 
-const healthFoodBlockStart = runPublishFlowSource.indexOf('if (productCategory === "保健食品")');
-const medicalBlockStart = runPublishFlowSource.indexOf('if (productCategory === "医疗器械")');
+const healthFoodBlockStart = serviceActionSource.indexOf('if (input.categoryContext.productCategory === "保健食品")');
+const medicalBlockStart = serviceActionSource.indexOf('if (input.categoryContext.productCategory === "医疗器械")');
 assert.notEqual(healthFoodBlockStart, -1, "health-food branch not found");
 assert.notEqual(medicalBlockStart, -1, "medical-device branch not found");
-const healthFoodBlock = runPublishFlowSource.slice(
+const healthFoodBlock = serviceActionSource.slice(
   healthFoodBlockStart,
-  medicalBlockStart > healthFoodBlockStart ? medicalBlockStart : runPublishFlowSource.indexOf("const checkResult", healthFoodBlockStart)
+  medicalBlockStart > healthFoodBlockStart ? medicalBlockStart : serviceActionSource.length
 );
-const medicalBlock = runPublishFlowSource.slice(medicalBlockStart, runPublishFlowSource.indexOf("const checkResult", medicalBlockStart));
+const medicalBlock = serviceActionSource.slice(medicalBlockStart);
 
 assert.doesNotMatch(
   healthFoodBlock,

@@ -5,7 +5,59 @@ import { normalizeProductCategory } from "../autolist/product-category.js";
 import { launchPersistentBrowser } from "../browser/launch.js";
 import { getSelectAllShortcut } from "../utils/platform.js";
 import { logInfo, logWarn } from "../utils/logger.js";
-import { atomicWriteJson } from "../utils/atomic-file.js";
+import {
+  PublishCreatePageReopenRequiredError,
+  attachSafeDialogHandler,
+  closeCreatePagesExcept,
+  closeExtraPages,
+  gotoWithTolerance,
+  isNavigationContextDestroyedError,
+  normalizeMatchText,
+  normalizeSpuMatchText,
+  reuseOrOpenCreatePage,
+  savePageScreenshot
+} from "./publish-from-spu/browser-session.js";
+import {
+  clickRadioByLabel,
+  clickVisibleText,
+  dismissTransientOverlays,
+  isRadioSelectedByLabel
+} from "./publish-from-spu/dom-actions.js";
+import { writePublishJobResult } from "./publish-from-spu/job-result.js";
+import {
+  assertProductAssetsForShop,
+  assertResolvedMetadata,
+  resolvePublishFromSpuMetadata
+} from "./publish-from-spu/metadata-resolution.js";
+import { inspectPublishPage, inspectPublishPageOnPage } from "./publish-from-spu/publish-page-inspection.js";
+import {
+  assertDoudianPublishSessionReady,
+  clickVisibleDropdownOption,
+  ensurePlatformSpuPage,
+  queryPlatformSpu
+} from "./publish-from-spu/platform-spu-query-action.js";
+import {
+  recoverUsablePageFromContext,
+  recoverUsablePublishPage,
+  waitForPublishCreatePageReady
+} from "./publish-from-spu/publish-page-readiness.js";
+import {
+  clickSwitchManualSpecEntryMode,
+  isSpecTemplateSmartFillUploadModeVisible
+} from "./publish-from-spu/spec-template-mode.js";
+import {
+  ensurePublishSectionTab,
+  ensureServiceSectionReady,
+  findLabelAbsoluteTop,
+  scrollLabelIntoView,
+  scrollPublishSectionContentIntoView
+} from "./publish-from-spu/publish-section-navigation.js";
+import { runBasicInfoAction } from "./publish-from-spu/actions/basic-info-action.js";
+import { runGraphicInfoAction } from "./publish-from-spu/actions/graphic-info-action.js";
+import { runServiceAction } from "./publish-from-spu/actions/service-action.js";
+import { createDefaultShopSpuActionDeps, runShopSpuAction } from "./publish-from-spu/actions/shop-spu-action.js";
+import { runSpecPriceAction } from "./publish-from-spu/actions/spec-price-action.js";
+import { runSubmitAction } from "./publish-from-spu/actions/submit-action.js";
 import { classifyAssets, validateMainImageAspectRatio } from "./publish-from-spu/assets.js";
 import { prepareQualificationImagesForUpload } from "./publish-from-spu/qualification-image-normalizer.js";
 import {
@@ -17,6 +69,7 @@ import {
   SPEC_TEMPLATE_KEYWORD_JIUGUANG
 } from "./publish-from-spu/constants.js";
 import { resolveFeishuPriceInventoryRows, type PriceInventoryRowValue } from "./publish-from-spu/price-inventory-rules.js";
+import { applyPriceInventoryOnPage, countVisiblePriceInventoryRows } from "./publish-from-spu/price-inventory-action.js";
 import { readPublishRuleSummary } from "./publish-from-spu/publish-rule-text.js";
 import type {
   PublishActionResult,
@@ -88,2207 +141,8 @@ export type {
   HealthFoodSpecificationReadbackResult,
   HealthFoodTextReadbackResult
 } from "./publish-from-spu/health-food-actions.js";
-
-const maxPlatformSpuQueryRetries = 4;
-
-class PublishCreatePageReopenRequiredError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PublishCreatePageReopenRequiredError";
-  }
-}
-
-function normalizeMatchText(value: string): string {
-  return value.replace(/\s+/g, "").trim().toLowerCase();
-}
-
-function normalizeSpuMatchText(value: string): string {
-  return normalizeMatchText(value).replace(/械[住注]准/g, "械注准");
-}
-
-function isNavigationContextDestroyedError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /Execution context was destroyed|Cannot find context|Most likely because of a navigation/i.test(message);
-}
-
-function attachSafeDialogHandler(page: Page): void {
-  page.on("dialog", (dialog) => {
-    dialog.dismiss().catch(() => {});
-  });
-}
-
-async function gotoWithTolerance(page: Page, url: string, waitMs = 3500): Promise<void> {
-  try {
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/ERR_ABORTED/i.test(message)) {
-      throw error;
-    }
-  }
-  await page.waitForTimeout(waitMs);
-}
-
-async function savePageScreenshot(page: Page, runtimeDir: string, fileName: string): Promise<string> {
-  if (page.isClosed()) {
-    return "";
-  }
-  const screenshotDir = path.join(runtimeDir, "screenshots");
-  fs.mkdirSync(screenshotDir, { recursive: true });
-  const screenshotFile = path.join(screenshotDir, fileName);
-  try {
-    await page.screenshot({ path: screenshotFile, fullPage: false, timeout: 5000 });
-    return screenshotFile;
-  } catch {
-    return "";
-  }
-}
-
-function writePublishJobResult(result: PublishFromSpuJobResult): PublishFromSpuJobResult {
-  const resultFile = result.artifacts.resultFile || path.join(result.runtimeDir, "result.json");
-  atomicWriteJson(resultFile, result);
-  return result;
-}
-
-async function closeExtraPages(
-  context: Awaited<ReturnType<typeof launchPersistentBrowser>>,
-  keepPages: Page[]
-): Promise<void> {
-  const keep = new Set(keepPages.filter((page) => !page.isClosed()));
-  for (const page of context.pages()) {
-    if (keep.has(page) || page.isClosed()) {
-      continue;
-    }
-    await page.close().catch(() => {});
-  }
-}
-
-async function closeCreatePagesExcept(
-  context: Awaited<ReturnType<typeof launchPersistentBrowser>>,
-  keepPages: Page[] = []
-): Promise<void> {
-  const keep = new Set(keepPages.filter((page) => !page.isClosed()));
-  for (const page of context.pages()) {
-    if (keep.has(page) || page.isClosed()) {
-      continue;
-    }
-    if (page.url().includes("/ffa/g/create")) {
-      await page.close().catch(() => {});
-    }
-  }
-}
-
-function findOpenCreatePage(
-  context: Awaited<ReturnType<typeof launchPersistentBrowser>>,
-  createPageUrl: string
-): Page | null {
-  return (
-    context.pages().find((page) => !page.isClosed() && page.url() === createPageUrl) ||
-    null
-  );
-}
-
-async function reuseOrOpenCreatePage(
-  context: Awaited<ReturnType<typeof launchPersistentBrowser>>,
-  createPageUrl: string,
-  currentPage?: Page
-): Promise<Page> {
-  const existingPage = findOpenCreatePage(context, createPageUrl);
-  const page =
-    existingPage ||
-    (currentPage && !currentPage.isClosed() ? currentPage : await context.newPage());
-  attachSafeDialogHandler(page);
-  await closeCreatePagesExcept(context, [page]);
-  await closeExtraPages(context, [page]);
-  await page.bringToFront();
-  if (page.url() !== createPageUrl) {
-    await gotoWithTolerance(page, createPageUrl, 3500);
-  }
-  return page;
-}
-
-function assertResolvedMetadata(
-  metadata: {
-    brand: string;
-    spu: string;
-    title: string;
-    shortTitle: string;
-    modelSpec: string;
-    productPriceText: string;
-    productCategory?: string;
-  },
-  mode: string
-): void {
-  const productCategory = normalizeProductCategory(metadata.productCategory);
-  const missingFields: string[] = [];
-  if (!metadata.brand.trim()) {
-    missingFields.push("brand");
-  }
-  if (!metadata.spu.trim()) {
-    missingFields.push("spu");
-  }
-  if (!metadata.title.trim()) {
-    missingFields.push("title");
-  }
-  if (!metadata.shortTitle.trim()) {
-    missingFields.push("shortTitle");
-  }
-  if (productCategory !== "保健食品" && !metadata.modelSpec.trim()) {
-    missingFields.push("modelSpec");
-  }
-  if (!metadata.productPriceText.trim()) {
-    missingFields.push("productPriceText");
-  }
-  if (missingFields.length > 0) {
-    throw new Error(`Publish workbook metadata was incomplete for mode=${mode}: ${missingFields.join(", ")}`);
-  }
-}
-
-export function resolvePublishFromSpuMetadata(input: {
-  metadataOverride?: PublishFromSpuMetadata;
-  workbook: ProductSheetSummary;
-}): ResolvedPublishFromSpuMetadata {
-  const metadataOverride = input.metadataOverride || {};
-  const productCategory = normalizeProductCategory(metadataOverride.productCategory);
-  return {
-    ...metadataOverride,
-    productCategory,
-    brand: metadataOverride.brand || input.workbook.brand || "",
-    spu: metadataOverride.spu || input.workbook.spu || "",
-    title: metadataOverride.title || input.workbook.title || "",
-    shortTitle: metadataOverride.shortTitle || input.workbook.shortTitle || "",
-    modelSpec: metadataOverride.modelSpec || input.workbook.modelSpec || (productCategory === "保健食品" ? "" : "盒装"),
-    productPriceText: metadataOverride.productPriceText || input.workbook.productPriceText || ""
-  };
-}
-
-function assertProductAssetsForShop(
-  assets: ProductAssets,
-  shopFolder: string,
-  productFolder: string
-): void {
-  const expectedShopName = normalizeShopName(path.basename(shopFolder));
-  const expectedShopVariants = new Set<string>([expectedShopName]);
-  if (expectedShopName.includes("延草纲目健康护理专营店")) {
-    expectedShopVariants.add("延草纲目健康护理旗舰店");
-  }
-  if (expectedShopName.includes("延草纲目健康护理旗舰店")) {
-    expectedShopVariants.add("延草纲目健康护理专营店");
-  }
-  const primaryMainImage = assets.mainImages[0] || "";
-  if (!primaryMainImage) {
-    throw new Error(`Primary main image was missing for product folder: ${productFolder}`);
-  }
-
-  const mainImageName = normalizeShopName(path.basename(primaryMainImage));
-  if (![...expectedShopVariants].some((variant) => mainImageName.includes(variant))) {
-    throw new Error(
-      `Primary main image watermark shop did not match current shop folder. shop=${[...expectedShopVariants].join(" / ")}, image=${path.basename(primaryMainImage)}`
-    );
-  }
-
-  for (const detailImage of assets.detailImages) {
-    const detailImageName = path.basename(detailImage);
-    if (!/资质|医疗器械注册证|医疗器械备案|白装展开图|包装展开图/i.test(detailImageName)) {
-      throw new Error(`Detail image did not look like a qualification/detail asset: ${detailImageName}`);
-    }
-  }
-}
-
-async function ensurePlatformSpuPage(runtimeDir: string, shopFolder?: string): Promise<{
-  pageUrl: string;
-  pageTitle: string;
-  screenshotFile: string;
-}> {
-  const context = await launchPersistentBrowser();
-  try {
-    const page = context.pages().find((item) => !item.isClosed()) || (await context.newPage());
-    attachSafeDialogHandler(page);
-    await page.bringToFront();
-    await ensurePlatformSpuQueryPageActive(page, runtimeDir, "platform-spu-entry", 30000);
-    if (shopFolder) {
-      await ensureShopContext(page, runtimeDir, shopFolder);
-      await ensurePlatformSpuQueryPageActive(page, runtimeDir, "platform-spu-entry-after-shop-switch", 45000);
-    }
-
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-entry.png");
-
-    return {
-      pageUrl: page.url(),
-      pageTitle: await page.title(),
-      screenshotFile
-    };
-  } finally {
-    // Keep the shared persistent browser alive. Sequential publish flow may call
-    // this helper while another publish page is active in the same profile.
-  }
-}
-
-function normalizeShopName(value: string): string {
-  return value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
-}
-
-function resolveExpectedShopName(shopFolder: string): string {
-  return normalizeShopName(path.basename(shopFolder));
-}
-
-async function detectCurrentShopName(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
-    const candidates = Array.from(document.querySelectorAll("body *"))
-      .map((node) => node as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (
-          !text ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          rect.top > 180 ||
-          rect.left < window.innerWidth * 0.68 ||
-          !/(旗舰店|专营店|专卖店|店铺)/.test(text)
-        ) {
-          return null;
-        }
-        const marker = [String(el.className || ""), el.getAttribute("role") || "", el.tagName].join(" ").toLowerCase();
-        const score =
-          (marker.includes("header") ? 30 : 0) +
-          (marker.includes("dropdown") ? 25 : 0) +
-          (marker.includes("avatar") ? 20 : 0) +
-          (marker.includes("user") ? 20 : 0) +
-          (rect.top < 100 ? 15 : 0) -
-          text.length / 4;
-        return { text, score };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-
-    return candidates[0]?.text || "";
-  });
-}
-
-async function readCurrentShopNameFromMenu(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
-    const menus = Array.from(document.querySelectorAll("body *"))
-      .map((node) => node as HTMLElement)
-      .filter((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        return (
-          text.includes("切换组织/店铺") &&
-          text.includes("退出") &&
-          rect.width > 180 &&
-          rect.height > 200 &&
-          rect.top < 180 &&
-          rect.left > window.innerWidth * 0.72 &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
-        );
-      })
-      .sort((a, b) => {
-        const aRect = a.getBoundingClientRect();
-        const bRect = b.getBoundingClientRect();
-        return aRect.left - bRect.left || aRect.top - bRect.top;
-      });
-
-    const menu = menus[0];
-    if (!menu) {
-      return "";
-    }
-
-    const candidates = Array.from(menu.querySelectorAll("*"))
-      .map((node) => node as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (
-          !text ||
-          !/(旗舰店|专营店|专卖店|店铺)/.test(text) ||
-          (!text.includes("延草纲目") && text.length < 8) ||
-          text.includes("切换组织/店铺") ||
-          text.includes("店铺信息") ||
-          text.includes("登录账号") ||
-          text.includes("子账号") ||
-          text.includes("退出") ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden"
-        ) {
-          return null;
-        }
-        const score = (rect.top < menu.getBoundingClientRect().top + 80 ? 60 : 0) - text.length / 4 - rect.top / 100;
-        return { text, score };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-
-    return candidates[0]?.text || "";
-  });
-}
-
-async function isDoudianLoginRequired(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    return document.body.innerText || "";
-  }).then((text) => isDoudianLoginPageText(text));
-}
-
-async function clickTopRightShopMenu(page: Page): Promise<boolean> {
-  const menuVisible = async (): Promise<boolean> =>
-    page.evaluate(() => {
-      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-      const bodyText = normalize(document.body.innerText || "");
-      if (bodyText.includes("切换组织/店铺") || bodyText.includes("退出")) {
-        return true;
-      }
-      return Array.from(document.querySelectorAll("body *"))
-        .map((node) => node as HTMLElement)
-        .some((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const text = normalize(el.innerText || el.textContent || "");
-          return (
-            Boolean(text) &&
-            (text.includes("切换组织/店铺") || text.includes("退出")) &&
-            rect.width > 0 &&
-            rect.height > 0 &&
-            style.display !== "none" &&
-            style.visibility !== "hidden"
-          );
-        });
-    });
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const headerShopMenu = page
-      .locator(".headerShopName, [class*='headerShopName'], [class*='userName']")
-      .filter({ hasText: /店/ })
-      .first();
-    const locatorClicked = await headerShopMenu.click({ timeout: 3000 }).then(() => true).catch(() => false);
-    await page.waitForTimeout(700 + attempt * 250);
-    if (locatorClicked && await menuVisible()) {
-      return true;
-    }
-
-    const clicked = await page.evaluate(() => {
-      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-      const candidates = Array.from(document.querySelectorAll("body *"))
-        .map((node) => node as HTMLElement)
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const text = normalize(el.innerText || el.textContent || "");
-          if (
-            !text ||
-            rect.width <= 0 ||
-            rect.height <= 0 ||
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            rect.top > 180 ||
-            rect.left < window.innerWidth * 0.68 ||
-            !/(旗舰店|专营店|专卖店|店铺)/.test(text)
-          ) {
-            return null;
-          }
-          const marker = [String(el.className || ""), el.getAttribute("role") || "", el.tagName].join(" ").toLowerCase();
-          const score =
-            (marker.includes("header") ? 30 : 0) +
-            (marker.includes("dropdown") ? 25 : 0) +
-            (marker.includes("avatar") ? 20 : 0) +
-            (marker.includes("user") ? 20 : 0) +
-            (rect.top < 100 ? 15 : 0) -
-            text.length / 4;
-          return { el, score };
-        })
-        .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-      const target = candidates[0]?.el;
-      if (!target) {
-        return false;
-      }
-      target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: "mouse", isPrimary: true }));
-      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-      target.click();
-      target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-      target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: "mouse", isPrimary: true }));
-      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-      return true;
-    });
-
-    await page.waitForTimeout(700 + attempt * 250);
-    if (clicked && await menuVisible()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-async function waitForTopRightShopMenuAnchor(page: Page, timeoutMs = 12000): Promise<boolean> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    const found = await page
-      .evaluate(() => {
-        const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-        const bodyText = normalize(document.body?.innerText || "");
-        if (bodyText.includes("切换组织/店铺") || bodyText.includes("退出")) {
-          return true;
-        }
-        return Array.from(document.querySelectorAll("body *"))
-          .map((node) => node as HTMLElement)
-          .some((el) => {
-            const rect = el.getBoundingClientRect();
-            const style = window.getComputedStyle(el);
-            const text = normalize(el.innerText || el.textContent || "");
-            return (
-              Boolean(text) &&
-              rect.width > 0 &&
-              rect.height > 0 &&
-              style.display !== "none" &&
-              style.visibility !== "hidden" &&
-              rect.top <= 180 &&
-              rect.left >= window.innerWidth * 0.68 &&
-              /(旗舰店|专营店|专卖店|店铺)/.test(text)
-            );
-          });
-      })
-      .catch(() => false);
-    if (found) {
-      return true;
-    }
-    await page.waitForTimeout(600);
-  }
-  return false;
-}
-
-async function clickVisibleActionText(page: Page, text: string): Promise<boolean> {
-  const clicked = await page.evaluate((targetText) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-    const target = normalize(targetText);
-    const matches = Array.from(document.querySelectorAll("body *"))
-      .map((node) => node as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const textValue = normalize(el.innerText || el.textContent || "");
-        if (
-          !textValue ||
-          textValue !== target ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden"
-        ) {
-          return null;
-        }
-        return el;
-      })
-      .filter(Boolean);
-    const match = matches[0];
-    if (!match) {
-      return false;
-    }
-    match.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    match.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    match.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-    return true;
-  }, text);
-
-  if (!clicked) {
-    return false;
-  }
-  await page.waitForTimeout(800);
-  return true;
-}
-
-async function isShopSwitchEntryVisible(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-    const target = normalize("切换组织/店铺");
-    return Array.from(document.querySelectorAll("body *"))
-      .map((node) => node as HTMLElement)
-      .some((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        return (
-          Boolean(text) &&
-          text.includes(target) &&
-          rect.width >= 120 &&
-          rect.height >= 20 &&
-          style.display !== "none" &&
-          style.visibility !== "hidden" &&
-          rect.left >= window.innerWidth * 0.68
-        );
-      });
-  }).catch(() => false);
-}
-
-async function clickShopSwitchEntry(page: Page): Promise<boolean> {
-  const switchEntries = page.getByText("切换组织/店铺", { exact: true });
-  const switchEntryCount = await switchEntries.count().catch(() => 0);
-  for (let index = switchEntryCount - 1; index >= 0; index -= 1) {
-    const entry = switchEntries.nth(index);
-    if (!(await entry.isVisible().catch(() => false))) {
-      continue;
-    }
-    const clicked = await entry.click({ timeout: 3000 }).then(() => true).catch(() => false);
-    if (clicked) {
-      await page.waitForTimeout(900);
-      return true;
-    }
-  }
-
-  const clicked = await page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-    const target = normalize("切换组织/店铺");
-    const items = Array.from(document.querySelectorAll("body *"))
-      .map((node) => node as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (
-          !text ||
-          !text.includes(target) ||
-          rect.width < 160 ||
-          rect.height < 28 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          rect.left < window.innerWidth * 0.72
-        ) {
-          return null;
-        }
-        const score =
-          (text === target ? 120 : 0) +
-          (rect.width > 220 ? 30 : 0) +
-          (rect.top < 520 ? 10 : 0) -
-          Math.abs(rect.height - 44);
-        return { el, score };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-    const item = items[0]?.el;
-    if (!item) {
-      return false;
-    }
-    item.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    item.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-    return true;
-  });
-
-  if (!clicked) {
-    return false;
-  }
-  await page.waitForTimeout(900);
-  return true;
-}
-
-async function waitForChooseShopDialog(page: Page): Promise<boolean> {
-  const dialogByLocator = page
-    .locator("div[role='dialog'], div[aria-modal='true'], .semi-modal, .ant-modal, .ecom-g-modal, [class*='modal']")
-    .filter({ hasText: "请选择店铺" })
-    .first();
-  const dialogVisibleByLocator = await dialogByLocator.isVisible().catch((error) => {
-    if (isNavigationContextDestroyedError(error)) {
-      return false;
-    }
-    return false;
-  });
-  if (dialogVisibleByLocator) {
-    return true;
-  }
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const visible = await page.evaluate(() => {
-      const text = (document.body?.innerText || "").replace(/\s+/g, "");
-      return text.includes("请选择店铺");
-    }).catch((error) => {
-      if (isNavigationContextDestroyedError(error)) {
-        return false;
-      }
-      throw error;
-    });
-    if (visible) {
-      return true;
-    }
-    await page.waitForTimeout(400);
-  }
-  return false;
-}
-
-async function saveShopSwitchDomSnapshot(page: Page, runtimeDir: string, fileName: string): Promise<string> {
-  const html = await page.evaluate(() => {
-    const normalize = (value: string): string => String(value || "").replace(/\s+/g, " ").trim();
-    const menuCandidates = Array.from(document.querySelectorAll("body *"))
-      .map((node) => node as HTMLElement)
-      .filter((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        return (
-          text &&
-          (text.includes("切换组织/店铺") || text.includes("退出") || text.includes("请选择店铺")) &&
-          rect.width > 100 &&
-          rect.height > 24 &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
-        );
-      })
-      .slice(0, 10)
-      .map((el) => el.outerHTML);
-    return menuCandidates.join("\n\n<!-- split -->\n\n");
-  });
-  const targetFile = path.join(runtimeDir, fileName);
-  fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-  fs.writeFileSync(targetFile, html || "", "utf8");
-  return targetFile;
-}
-
-async function getChooseShopDialog(page: Page): Promise<Locator | null> {
-  const dialog = page
-    .locator("div[role='dialog'], div[aria-modal='true'], .semi-modal, .ant-modal, .ecom-g-modal, [class*='modal']")
-    .filter({ hasText: "请选择店铺" })
-    .first();
-  if (await dialog.isVisible().catch(() => false)) {
-    return dialog;
-  }
-  return null;
-}
-
-async function selectShopFromDialogExact(page: Page, expectedShopName: string): Promise<boolean> {
-  const dialog = await getChooseShopDialog(page);
-  if (!dialog) {
-    return false;
-  }
-
-  const cards = dialog.locator(".index_roleItem__1-Hwe");
-  const normalizeText = (value: string): string => value.replace(/\s+/g, "").trim();
-
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const visibleCardCount = await cards.count().catch(() => 0);
-    for (let index = 0; index < visibleCardCount; index += 1) {
-      const card = cards.nth(index);
-      if (!(await card.isVisible().catch(() => false))) {
-        continue;
-      }
-      const nameText = await card
-        .locator(".index_introName__fRtLx")
-        .first()
-        .textContent()
-        .then((value) => normalizeText(value || ""))
-        .catch(() => "");
-      if (nameText !== normalizeText(expectedShopName)) {
-        continue;
-      }
-
-      await card.scrollIntoViewIfNeeded().catch(() => {});
-      await card
-        .evaluate((cardNode) => {
-          const list = cardNode.closest(".index_roleList__2YMEN") as HTMLElement | null;
-          if (list) {
-            list.scrollTop = Math.max(0, (cardNode as HTMLElement).offsetTop - list.offsetTop - 24);
-          }
-          (cardNode as HTMLElement).scrollIntoView({ block: "center", inline: "nearest" });
-        })
-        .catch(() => {});
-      await page.waitForTimeout(350);
-      const domClicked = await card
-        .locator(".index_introName__fRtLx")
-        .first()
-        .evaluate((nameNode) => {
-          const cardNode = nameNode.closest(".index_roleItem__1-Hwe") as HTMLElement | null;
-          const target =
-            (cardNode?.querySelector(".index_rightArrowIcon__24nod") as HTMLElement | null) ||
-            (cardNode?.querySelector("svg, [role='button'], button") as HTMLElement | null) ||
-            cardNode;
-          if (!target) {
-            return false;
-          }
-          target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-          target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-          target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-          return true;
-        })
-        .catch((error) => {
-          if (isNavigationContextDestroyedError(error)) {
-            return true;
-          }
-          return false;
-        });
-      if (domClicked) {
-        await page.waitForTimeout(1800);
-        const dialogStillVisible = await waitForChooseShopDialog(page);
-        if (!dialogStillVisible) {
-          return true;
-        }
-      }
-      const arrow = card.locator(".index_rightArrowIcon__24nod").first();
-      const arrowClicked = await arrow
-        .click({ timeout: 2000 })
-        .then(() => true)
-        .catch(() => false);
-      if (!arrowClicked) {
-        continue;
-      }
-      await page.waitForTimeout(1800);
-      const dialogStillVisible = await waitForChooseShopDialog(page);
-      if (!dialogStillVisible) {
-        return true;
-      }
-    }
-
-    const scrolled = await dialog
-      .locator(".index_roleList__2YMEN, div, ul")
-      .evaluateAll((nodes) => {
-        const candidates = nodes
-          .map((node) => node as HTMLElement)
-          .filter((el) => el.scrollHeight > el.clientHeight + 40 && el.clientHeight > 180)
-          .sort((a, b) => b.clientHeight - a.clientHeight);
-        const target = candidates[0];
-        if (!target) {
-          return false;
-        }
-        target.scrollTop = Math.min(target.scrollTop + Math.max(260, Math.floor(target.clientHeight * 0.75)), target.scrollHeight);
-        return true;
-      })
-      .catch(() => false);
-    if (!scrolled) {
-      break;
-    }
-    await page.waitForTimeout(450);
-  }
-
-  return false;
-}
-
-async function selectShopFromDialogByVisibleText(page: Page, expectedShopName: string): Promise<boolean> {
-  const clicked = await page.evaluate((targetName) => {
-    const normalize = (value: string): string => String(value || "").replace(/^\d+/, "").replace(/\s+/g, "").trim();
-    const target = normalize(targetName);
-    const isVisible = (el: HTMLElement): boolean => {
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-    };
-    const modals = Array.from(document.querySelectorAll("body *"))
-      .map((node) => node as HTMLElement)
-      .filter((el) => {
-        const rect = el.getBoundingClientRect();
-        const text = normalize(el.innerText || el.textContent || "");
-        return isVisible(el) && text.includes("请选择店铺") && rect.width > 300 && rect.height > 240;
-      })
-      .sort((a, b) => {
-        const ar = a.getBoundingClientRect();
-        const br = b.getBoundingClientRect();
-        return Math.abs(ar.width - 640) - Math.abs(br.width - 640) || ar.height - br.height;
-      });
-    const modal = modals[0];
-    if (!modal) {
-      return null;
-    }
-    const modalRect = modal.getBoundingClientRect();
-    const textNodes = Array.from(modal.querySelectorAll("*"))
-      .map((node) => node as HTMLElement)
-      .filter((el) => {
-        if (!isVisible(el)) {
-          return false;
-        }
-        const text = normalize(el.innerText || el.textContent || "");
-        return text === target || (text.includes(target) && text.length <= target.length + 20);
-      })
-      .sort((a, b) => {
-        const aText = normalize(a.innerText || a.textContent || "");
-        const bText = normalize(b.innerText || b.textContent || "");
-        const exactDelta = (aText === target ? 0 : 1) - (bText === target ? 0 : 1);
-        if (exactDelta !== 0) {
-          return exactDelta;
-        }
-        return aText.length - bText.length;
-      });
-    const nameNode = textNodes[0];
-    if (!nameNode) {
-      return null;
-    }
-
-    const scrollContainer =
-      (Array.from(modal.querySelectorAll("*"))
-        .map((node) => node as HTMLElement)
-        .filter((el) => el.scrollHeight > el.clientHeight + 40 && el.clientHeight > 160)
-        .sort((a, b) => b.clientHeight - a.clientHeight)[0] as HTMLElement | undefined) || modal;
-    let card: HTMLElement = nameNode;
-    for (let depth = 0; depth < 8; depth += 1) {
-      const parent = card.parentElement as HTMLElement | null;
-      if (!parent || parent === modal || parent === scrollContainer) {
-        break;
-      }
-      const rect = parent.getBoundingClientRect();
-      const text = normalize(parent.innerText || parent.textContent || "");
-      if (text.includes(target) && rect.width >= 220 && rect.height >= 50 && rect.width <= modalRect.width + 8) {
-        card = parent;
-      }
-    }
-
-    // If the target card is near the bottom fade/edge, move it to the middle before clicking.
-    const containerRect = scrollContainer.getBoundingClientRect();
-    const cardOffsetTop = card.offsetTop;
-    scrollContainer.scrollTop = Math.max(0, cardOffsetTop - scrollContainer.clientHeight / 2 + card.clientHeight / 2);
-    card.scrollIntoView({ block: "center", inline: "nearest" });
-
-    const cardRect = card.getBoundingClientRect();
-    const clickTarget =
-      (Array.from(card.querySelectorAll("svg, [role='button'], button"))
-        .map((node) => node as HTMLElement)
-        .filter((el) => isVisible(el))
-        .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0] as HTMLElement | undefined) ||
-      card;
-    const targetRect = clickTarget.getBoundingClientRect();
-    if (targetRect.width <= 0 || targetRect.height <= 0 || cardRect.bottom < containerRect.top || cardRect.top > containerRect.bottom) {
-      return false;
-    }
-    clickTarget.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    clickTarget.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    clickTarget.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-    return true;
-  }, expectedShopName).catch((error) => {
-    if (isNavigationContextDestroyedError(error)) {
-      return true;
-    }
-    return null;
-  });
-  if (!clicked) {
-    return false;
-  }
-  await page.waitForTimeout(1800);
-  return !(await waitForChooseShopDialog(page));
-}
-
-async function selectShopFromDialog(page: Page, expectedShopName: string): Promise<boolean> {
-  const visibleTextMatched = await selectShopFromDialogByVisibleText(page, expectedShopName);
-  if (visibleTextMatched) {
-    return true;
-  }
-  const exactMatched = await selectShopFromDialogExact(page, expectedShopName);
-  if (exactMatched) {
-    return true;
-  }
-  await page
-    .evaluate(() => {
-      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-      const modal = Array.from(document.querySelectorAll("body *"))
-        .map((node) => node as HTMLElement)
-        .find((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const text = normalize(el.innerText || el.textContent || "");
-          return (
-            text.includes("\u8bf7\u9009\u62e9\u5e97\u94fa") &&
-            rect.width > 300 &&
-            rect.height > 240 &&
-            style.display !== "none" &&
-            style.visibility !== "hidden"
-          );
-        });
-      if (!modal) {
-        return false;
-      }
-      const scrollContainer =
-        (Array.from(modal.querySelectorAll("*"))
-          .map((node) => node as HTMLElement)
-          .find((el) => el.scrollHeight > el.clientHeight + 40 && el.clientHeight > 180) as HTMLElement | undefined) ||
-        modal;
-      scrollContainer.scrollTop = 0;
-      return true;
-    })
-    .catch(() => false);
-  await page.waitForTimeout(500);
-  const normalizedExpected = normalizeShopName(expectedShopName);
-  for (let attempt = 0; attempt < 16; attempt += 1) {
-    const candidate = await page.evaluate((target) => {
-      const normalize = (value: string): string => value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
-      const modal = Array.from(document.querySelectorAll("body *"))
-        .map((node) => node as HTMLElement)
-        .find((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const text = normalize(el.innerText || el.textContent || "");
-          return (
-            text.includes("请选择店铺") &&
-            rect.width > 300 &&
-            rect.height > 240 &&
-            style.display !== "none" &&
-            style.visibility !== "hidden"
-          );
-        });
-      if (!modal) {
-        return { found: false, scrollable: false };
-      }
-
-      const scrollContainer =
-        (Array.from(modal.querySelectorAll("*"))
-          .map((node) => node as HTMLElement)
-          .find((el) => el.scrollHeight > el.clientHeight + 40 && el.clientHeight > 180) as HTMLElement | undefined) ||
-        modal;
-
-      const modalRect = modal.getBoundingClientRect();
-      const nodes = Array.from(modal.querySelectorAll("*")).map((node) => node as HTMLElement);
-      const cards = nodes
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const text = normalize(el.innerText || el.textContent || "");
-          if (
-            !text ||
-            rect.width <= 30 ||
-            rect.height <= 16 ||
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            !text.includes(target) ||
-            rect.width > modalRect.width * 0.92
-          ) {
-            return null;
-          }
-
-          let card = el;
-          for (let depth = 0; depth < 6; depth += 1) {
-            const parent = card.parentElement as HTMLElement | null;
-            if (!parent) {
-              break;
-            }
-            const parentRect = parent.getBoundingClientRect();
-            const parentText = normalize(parent.innerText || parent.textContent || "");
-            const parentStyle = window.getComputedStyle(parent);
-            if (
-              parentText.includes(target) &&
-              parentRect.width >= 220 &&
-              parentRect.height >= 56 &&
-              parentRect.width < modalRect.width * 0.92 &&
-              parentStyle.display !== "none" &&
-              parentStyle.visibility !== "hidden"
-            ) {
-              card = parent;
-              continue;
-            }
-            break;
-          }
-
-          const cardRect = card.getBoundingClientRect();
-          const cardText = normalize(card.innerText || card.textContent || "");
-          if (
-            !cardText.includes(target) ||
-            cardRect.width < 220 ||
-            cardRect.height < 56 ||
-            cardRect.width > modalRect.width * 0.92
-          ) {
-            return null;
-          }
-
-          const exactText = text === target;
-          const exactCard = cardText === target;
-          const exactScore =
-            (exactText ? 400 : 0) +
-            (exactCard ? 260 : 0) +
-            (cardText.includes(target) ? 80 : 0) -
-            Math.abs(cardRect.height - 88) -
-            cardText.length / 5;
-          return {
-            card,
-            text: cardText,
-            score: exactScore
-          };
-        })
-        .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-
-      if (cards[0]) {
-        const card = cards[0].card as HTMLElement;
-        const targetNode =
-          (Array.from(card.querySelectorAll("svg, [role='button'], button"))
-            .map((node) => node as HTMLElement)
-            .filter((el) => {
-              const rect = el.getBoundingClientRect();
-              const style = window.getComputedStyle(el);
-              return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-            })
-            .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0] as HTMLElement | undefined) ||
-          card;
-        targetNode.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-        targetNode.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-        targetNode.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-        return {
-          found: true,
-          scrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight + 40
-        };
-      }
-
-      if (scrollContainer.scrollHeight > scrollContainer.clientHeight + 40) {
-        scrollContainer.scrollTop = Math.min(
-          scrollContainer.scrollTop + Math.max(260, Math.floor(scrollContainer.clientHeight * 0.75)),
-          scrollContainer.scrollHeight
-        );
-        return { found: false, scrollable: true };
-      }
-
-      return { found: false, scrollable: false };
-    }, normalizedExpected);
-
-    if (candidate.found) {
-      await page.waitForTimeout(1800);
-      const dialogStillVisible = await waitForChooseShopDialog(page);
-      if (!dialogStillVisible) {
-        return true;
-      }
-      await page.keyboard.press("Enter").catch(() => {});
-      await page.waitForTimeout(1200);
-      if (!(await waitForChooseShopDialog(page))) {
-        return true;
-      }
-    }
-    if (!candidate.scrollable) {
-      return false;
-    }
-    await page.waitForTimeout(500);
-  }
-  return false;
-}
-
-async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: string): Promise<string> {
-  const expectedShopName = resolveExpectedShopName(shopFolder);
-  if (!expectedShopName) {
-    return "";
-  }
-
-  const currentBefore = normalizeShopName(await detectCurrentShopName(page));
-  if (await isDoudianLoginRequired(page)) {
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
-    throw new Error(
-      `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
-    );
-  }
-  if (currentBefore && currentBefore.includes(expectedShopName)) {
-    return currentBefore;
-  }
-  let lastActual = currentBefore || "";
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const anchorReady = await waitForTopRightShopMenuAnchor(page, 10000 + attempt * 3000);
-    if (!anchorReady) {
-      await gotoWithTolerance(page, PLATFORM_SPU_URL, 5000 + attempt * 1500).catch(() => {});
-      await waitForTopRightShopMenuAnchor(page, 8000 + attempt * 2000).catch(() => false);
-    }
-    const menuOpened = await clickTopRightShopMenu(page);
-    if (!menuOpened) {
-      if (await isDoudianLoginRequired(page)) {
-        const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
-        throw new Error(
-          `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
-        );
-      }
-      if (attempt < 2) {
-        await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + attempt * 1500).catch(() => {});
-        await page.keyboard.press("Escape").catch(() => {});
-        await page.waitForTimeout(1000);
-        continue;
-      }
-      const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-menu-missing.png").catch(() => "");
-      throw new Error(`Shop switch failed: could not open top-right shop menu for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
-    }
-
-    const currentFromMenuBeforeSwitch = normalizeShopName(await readCurrentShopNameFromMenu(page));
-    const initialSwitchDecision = evaluateShopSwitchMenuState({
-      expectedShopName,
-      currentShopName: currentFromMenuBeforeSwitch || lastActual || currentBefore,
-      menuOpened,
-      switchEntryVisible: await isShopSwitchEntryVisible(page)
-    });
-    if (initialSwitchDecision.action === "already_in_target_shop") {
-      await page.keyboard.press("Escape").catch(() => {});
-      return currentFromMenuBeforeSwitch || expectedShopName;
-    }
-    if (initialSwitchDecision.action === "retry_menu" && attempt < 2) {
-      await page.keyboard.press("Escape").catch(() => {});
-      await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + attempt * 1500).catch(() => {});
-      await page.waitForTimeout(1000);
-      continue;
-    }
-
-    let switcherClicked = false;
-    if (initialSwitchDecision.action === "click_switch_entry") {
-      switcherClicked = await clickShopSwitchEntry(page);
-      if (!switcherClicked) {
-        switcherClicked = await clickVisibleActionText(page, "切换组织/店铺");
-      }
-    }
-    if (!switcherClicked) {
-      const currentFromMenu = normalizeShopName(await readCurrentShopNameFromMenu(page));
-      const finalSwitchDecision = evaluateShopSwitchMenuState({
-        expectedShopName,
-        currentShopName: currentFromMenu || lastActual || currentBefore,
-        menuOpened: true,
-        switchEntryVisible: false
-      });
-      if (finalSwitchDecision.action === "already_in_target_shop") {
-        await page.keyboard.press("Escape").catch(() => {});
-        return currentFromMenu || expectedShopName;
-      }
-      await saveShopSwitchDomSnapshot(page, runtimeDir, "shop-switch-entry-missing.html").catch(() => "");
-      const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-entry-missing.png").catch(() => "");
-      throw new Error(`Shop switch failed: could not find 切换组织/店铺 for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
-    }
-
-    let dialogVisible = await waitForChooseShopDialog(page);
-    if (!dialogVisible) {
-      await clickShopSwitchEntry(page).catch(() => false);
-      dialogVisible = await waitForChooseShopDialog(page);
-    }
-    if (!dialogVisible) {
-      if (await isDoudianLoginRequired(page)) {
-        const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
-        throw new Error(
-          `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
-        );
-      }
-      await saveShopSwitchDomSnapshot(page, runtimeDir, "shop-switch-dialog-missing.html").catch(() => "");
-      const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-dialog-missing.png").catch(() => "");
-      throw new Error(`Shop switch failed: 请选择店铺 dialog did not appear for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
-    }
-
-    const selected = await selectShopFromDialog(page, expectedShopName);
-    if (!selected) {
-      const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-target-missing.png").catch(() => "");
-      throw new Error(`Shop switch failed: target shop not found in selector for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
-    }
-
-    await page.waitForLoadState("domcontentloaded").catch(() => {});
-    let currentAfter = "";
-    for (let verifyAttempt = 0; verifyAttempt < 5; verifyAttempt += 1) {
-      await page.waitForTimeout(1800 + attempt * 500);
-      await clickTopRightShopMenu(page).catch(() => false);
-      await page.waitForTimeout(600);
-      const currentFromMenu = normalizeShopName(await readCurrentShopNameFromMenu(page));
-      currentAfter = currentFromMenu || normalizeShopName(await detectCurrentShopName(page));
-      if (currentAfter && currentAfter.includes(expectedShopName)) {
-        await page.keyboard.press("Escape").catch(() => {});
-        return currentAfter || expectedShopName;
-      }
-      await page.keyboard.press("Escape").catch(() => {});
-    }
-    lastActual = currentAfter || "";
-    await gotoWithTolerance(page, PLATFORM_SPU_URL, 3000).catch(() => {});
-    await page.waitForTimeout(1000);
-    await page.keyboard.press("Escape").catch(() => {});
-    await page.waitForTimeout(500);
-  }
-
-  await saveShopSwitchDomSnapshot(page, runtimeDir, "shop-switch-verify-failed.html").catch(() => "");
-  const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-verify-failed.png").catch(() => "");
-  throw new Error(`Shop switch failed: expected=${expectedShopName}; actual=${lastActual || "<empty>"}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
-}
-
-async function clickVisibleDropdownOption(
-  page: Page,
-  expected: string
-): Promise<string> {
-  const normalizedExpected = normalizeMatchText(expected);
-  return page.evaluate((target) => {
-    const elements = Array.from(document.querySelectorAll("body *"));
-    const candidates = elements
-      .map((el) => {
-        const text = (el.textContent || "").trim();
-        if (!text) {
-          return null;
-        }
-        const normalizedText = text.replace(/\s+/g, "").trim().toLowerCase();
-        if (!normalizedText.includes(target)) {
-          return null;
-        }
-        const htmlEl = el as HTMLElement;
-        const rect = htmlEl.getBoundingClientRect();
-        const style = window.getComputedStyle(htmlEl);
-        if (
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          rect.width > window.innerWidth * 0.9 ||
-          rect.height > 120 ||
-          style.visibility === "hidden" ||
-          style.display === "none"
-        ) {
-          return null;
-        }
-        const marker = [htmlEl.className, htmlEl.getAttribute("role") || "", htmlEl.tagName].join(" ").toLowerCase();
-        const score =
-          (marker.includes("option") ? 5 : 0) +
-          (marker.includes("select") ? 4 : 0) +
-          (marker.includes("dropdown") ? 4 : 0) +
-          (marker.includes("menu") ? 3 : 0) +
-          (marker.includes("item") ? 2 : 0) +
-          (normalizedText === target ? 3 : 0) -
-          text.length / 200;
-        return {
-          el: htmlEl,
-          text,
-          score
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-
-    const option = candidates[0];
-    if (!option) {
-      return "";
-    }
-    const clickable = (option.el.closest("button, [role='button'], a, [role='option'], [role='menuitem']") as HTMLElement | null) || option.el;
-    clickable.click();
-    return option.text || "";
-  }, normalizedExpected);
-}
-
-async function clickPlatformBrandDropdownOption(page: Page, expected: string): Promise<string> {
-  const normalizedExpected = normalizeMatchText(expected);
-  return page.evaluate((target) => {
-    const visible = (el: HTMLElement): boolean => {
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
-    };
-    function findPlatformBrandFieldInput(): HTMLInputElement | null {
-      const targetLabel = "品牌";
-      const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
-        .map((el) => el as HTMLElement)
-        .filter((el) => {
-          const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
-          return text === targetLabel && visible(el);
-        })
-        .sort((a, b) => {
-          const ar = a.getBoundingClientRect();
-          const br = b.getBoundingClientRect();
-          return ar.y - br.y || ar.x - br.x;
-        });
-      for (const label of labels) {
-        let root: HTMLElement | null = label;
-        for (let depth = 0; root && depth < 8; depth += 1) {
-          const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
-          if (input && visible(input)) {
-            return input;
-          }
-          root = root.parentElement;
-        }
-      }
-      return null;
-    }
-    const brandInput = findPlatformBrandFieldInput();
-    if (!brandInput) {
-      return "";
-    }
-    const brandRect = brandInput.getBoundingClientRect();
-    const candidates = Array.from(document.querySelectorAll("body *"))
-      .map((el) => {
-        const htmlEl = el as HTMLElement;
-        const text = (htmlEl.innerText || htmlEl.textContent || "").trim();
-        if (!text) {
-          return null;
-        }
-        const normalizedText = text.replace(/\s+/g, "").trim().toLowerCase();
-        if (!normalizedText.includes(target)) {
-          return null;
-        }
-        const rect = htmlEl.getBoundingClientRect();
-        if (
-          !visible(htmlEl) ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          rect.height > 120 ||
-          rect.top < brandRect.bottom - 20 ||
-          rect.left < brandRect.left - 120 ||
-          rect.left > brandRect.right + 480
-        ) {
-          return null;
-        }
-        const marker = [htmlEl.className, htmlEl.getAttribute("role") || "", htmlEl.tagName].join(" ").toLowerCase();
-        const optionLike =
-          marker.includes("option") ||
-          marker.includes("select") ||
-          marker.includes("dropdown") ||
-          marker.includes("menu") ||
-          marker.includes("item");
-        if (!optionLike) {
-          return null;
-        }
-        const exact = normalizedText === target;
-        return {
-          el: htmlEl,
-          text,
-          score:
-            (exact ? 1000 : 0) +
-            (marker.includes("option") ? 120 : 0) +
-            (marker.includes("select") ? 80 : 0) +
-            (marker.includes("dropdown") ? 80 : 0) +
-            (marker.includes("item") ? 40 : 0) -
-            Math.abs(rect.top - brandRect.bottom) -
-            Math.abs(rect.left - brandRect.left) / 5 -
-            text.length / 20
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b!.score || 0) - (a!.score || 0)) as Array<{ el: HTMLElement; text: string; score: number }>;
-
-    const option = candidates[0];
-    if (!option) {
-      return "";
-    }
-    const clickable = (option.el.closest("button, [role='button'], a, [role='option'], [role='menuitem']") as HTMLElement | null) || option.el;
-    clickable.click();
-    return option.text || "";
-  }, normalizedExpected);
-}
-
-async function isPlatformQueryInputAvailable(page: Page, kind: "brand" | "spu"): Promise<boolean> {
-  return page.evaluate((targetKind) => {
-    const visible = (el: HTMLElement): boolean => {
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
-    };
-    function findPlatformBrandFieldInput(): HTMLInputElement | null {
-      const targetLabel = "品牌";
-      const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
-        .map((el) => el as HTMLElement)
-        .filter((el) => {
-          const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
-          return text === targetLabel && visible(el);
-        });
-      for (const label of labels) {
-        let root: HTMLElement | null = label;
-        for (let depth = 0; root && depth < 8; depth += 1) {
-          const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
-          if (input && visible(input)) {
-            return input;
-          }
-          root = root.parentElement;
-        }
-      }
-      return null;
-    }
-    const inputs = Array.from(document.querySelectorAll("input, textarea"))
-      .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
-      .filter((input) => {
-        return visible(input as HTMLElement);
-      });
-    if (targetKind === "brand") {
-      return Boolean(findPlatformBrandFieldInput());
-    }
-    return inputs.some((input) => {
-      const context = [
-        input.getAttribute("placeholder") || "",
-        input.getAttribute("aria-label") || "",
-        input.parentElement?.textContent || "",
-        input.parentElement?.parentElement?.textContent || ""
-      ].join(" ");
-      return /SPU/i.test(context);
-    });
-  }, kind);
-}
-
-async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", value: string): Promise<void> {
-  await page.evaluate(
-    ({ targetKind, nextValue }) => {
-      const visible = (el: HTMLElement): boolean => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
-      };
-      function findPlatformBrandFieldInput(): HTMLInputElement | null {
-        const targetLabel = "品牌";
-        const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
-          .map((el) => el as HTMLElement)
-          .filter((el) => {
-            const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
-            return text === targetLabel && visible(el);
-          })
-          .sort((a, b) => {
-            const ar = a.getBoundingClientRect();
-            const br = b.getBoundingClientRect();
-            return ar.y - br.y || ar.x - br.x;
-          });
-        for (const label of labels) {
-          let root: HTMLElement | null = label;
-          for (let depth = 0; root && depth < 8; depth += 1) {
-            const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
-            if (input && visible(input)) {
-              return input;
-            }
-            root = root.parentElement;
-          }
-        }
-        return null;
-      }
-      const inputs = Array.from(document.querySelectorAll("input, textarea"))
-        .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
-        .map((input) => {
-          const rect = input.getBoundingClientRect();
-          if (rect.width <= 80 || rect.height <= 20) {
-            return null;
-          }
-          const context = [
-            input.getAttribute("placeholder") || "",
-            input.getAttribute("aria-label") || "",
-            input.parentElement?.textContent || "",
-            input.parentElement?.parentElement?.textContent || ""
-          ]
-            .join(" ")
-            .replace(/\s+/g, " ")
-            .trim();
-          return { input, context, y: rect.y, x: rect.x };
-        })
-        .filter(Boolean) as Array<{ input: HTMLInputElement | HTMLTextAreaElement; context: string; y: number; x: number }>;
-
-      const target =
-        targetKind === "brand"
-          ? findPlatformBrandFieldInput()
-          : inputs
-              .map((item) => {
-                const input = item.input as HTMLInputElement;
-                const score =
-                  (/SPU/i.test(item.context) ? 160 : 0) +
-                  (/\u540d\u79f0|ID|\u6761\u7801/i.test(item.context) ? 20 : 0) +
-                  ((input.getAttribute("type") || "") === "text" ? 10 : 0);
-                return { ...item, score };
-              })
-              .filter((item) => item.score > 0)
-              .sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x)[0]?.input;
-
-      if (!target) {
-        return;
-      }
-
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-      if (targetKind === "brand") {
-        const selector = (target.closest(".ecom-g-select, .ant-select, .semi-select, [class*='select'], [class*='Select']") ||
-          target.parentElement) as HTMLElement | null;
-        const trigger = (selector?.querySelector(".ecom-g-select-selector, .ant-select-selector, [class*='selector'], [class*='selection']") ||
-          selector ||
-          target) as HTMLElement;
-        trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-        trigger.click();
-      }
-      target.focus();
-      setter?.call(target, "");
-      target.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
-      setter?.call(target, nextValue);
-      target.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
-      target.dispatchEvent(new Event("change", { bubbles: true }));
-      if (targetKind === "brand") {
-        return;
-      }
-      target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
-      target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }));
-      target.blur();
-    },
-    { targetKind: kind, nextValue: value }
-  );
-}
-
-async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): Promise<string> {
-  return page.evaluate((targetKind) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const visible = (el: HTMLElement): boolean => {
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
-    };
-    function findPlatformBrandFieldInput(): HTMLInputElement | null {
-      const targetLabel = "品牌";
-      const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
-        .map((el) => el as HTMLElement)
-        .filter((el) => {
-          const text = normalize(el.innerText || el.textContent || "");
-          return text === targetLabel && visible(el);
-        });
-      for (const label of labels) {
-        let root: HTMLElement | null = label;
-        for (let depth = 0; root && depth < 8; depth += 1) {
-          const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
-          if (input && visible(input)) {
-            return input;
-          }
-          root = root.parentElement;
-        }
-      }
-      return null;
-    }
-    const readSelectDisplay = (input: HTMLInputElement | HTMLTextAreaElement): string => {
-      let container: HTMLElement | null = null;
-      let node = input.parentElement;
-      for (let depth = 0; node && depth < 8; depth += 1) {
-        const marker = [String(node.className || ""), node.getAttribute("role") || "", node.tagName].join(" ").toLowerCase();
-        if (
-          marker.includes("ecom-g-select") ||
-          marker.includes("ant-select") ||
-          marker.includes("semi-select") ||
-          marker.includes("combobox") ||
-          marker.includes("dropdown")
-        ) {
-          container = node;
-          break;
-        }
-        node = node.parentElement;
-      }
-      container = container || input.parentElement || null;
-      if (!container) {
-        return "";
-      }
-
-      const selectedNode = container.querySelector(
-        ".ecom-g-select-selection-item, .ant-select-selection-item, .semi-select-selection-text, [class*='selection-item'], [class*='selectionItem']"
-      ) as HTMLElement | null;
-      const selectedText = normalize(selectedNode?.innerText || selectedNode?.textContent || "");
-      if (selectedText) {
-        return selectedText;
-      }
-
-      const ariaValueText = normalize(
-        container.getAttribute("aria-valuetext") ||
-          input.getAttribute("aria-valuetext") ||
-          input.getAttribute("aria-label") ||
-          ""
-      );
-      if (ariaValueText) {
-        return ariaValueText;
-      }
-
-      const directValue = normalize((input as HTMLInputElement).value || "");
-      return directValue;
-    };
-
-    const inputs = Array.from(document.querySelectorAll("input, textarea"))
-      .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
-      .map((input) => {
-        const rect = input.getBoundingClientRect();
-        if (rect.width <= 80 || rect.height <= 20) {
-          return null;
-        }
-        const context = [
-          input.getAttribute("placeholder") || "",
-          input.getAttribute("aria-label") || "",
-          input.parentElement?.textContent || "",
-          input.parentElement?.parentElement?.textContent || ""
-        ]
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        return { input, context, y: rect.y, x: rect.x };
-      })
-      .filter(Boolean) as Array<{ input: HTMLInputElement | HTMLTextAreaElement; context: string; y: number; x: number }>;
-
-    const target =
-      targetKind === "brand"
-        ? findPlatformBrandFieldInput()
-        : inputs
-            .map((item) => {
-              const input = item.input as HTMLInputElement;
-              const score =
-                (/SPU/i.test(item.context) ? 160 : 0) +
-                (/\u540d\u79f0|ID|\u6761\u7801/i.test(item.context) ? 20 : 0) +
-                ((input.getAttribute("type") || "") === "text" ? 10 : 0);
-              return { ...item, score };
-            })
-            .filter((item) => item.score > 0)
-            .sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x)[0]?.input;
-
-    if (!target) {
-      return "";
-    }
-    if (targetKind === "brand") {
-      return readSelectDisplay(target);
-    }
-    return (target.value || "").trim();
-  }, kind);
-}
-
-async function readPlatformSpuQueryPageSnapshot(page: Page): Promise<{
-  url: string;
-  bodyText: string;
-  visibleInputCount: number;
-  brandInputFound: boolean;
-  spuInputFound: boolean;
-  accountMenuOpen: boolean;
-  loading: boolean;
-}> {
-  return page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
-    const visibleInputs = Array.from(document.querySelectorAll("input, textarea"))
-      .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
-      .filter((input) => {
-        const rect = input.getBoundingClientRect();
-        const style = window.getComputedStyle(input);
-        return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
-      })
-      .map((input) => {
-        const context = [
-          input.getAttribute("placeholder") || "",
-          input.getAttribute("aria-label") || "",
-          input.parentElement?.textContent || "",
-          input.parentElement?.parentElement?.textContent || ""
-        ]
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        return {
-          type: input.getAttribute("type") || "",
-          role: input.getAttribute("role") || "",
-          context
-        };
-      });
-    const brandInputFound = visibleInputs.some((input, index) => {
-      if (/品牌|brand/i.test(input.context)) {
-        return true;
-      }
-      return index <= 2 && (input.type === "search" || input.role === "combobox");
-    });
-    const spuInputFound = visibleInputs.some((input) => /SPU/i.test(input.context));
-    const accountMenuOpen =
-      bodyText.includes("切换组织/店铺") &&
-      bodyText.includes("退出") &&
-      bodyText.includes("店铺信息") &&
-      bodyText.includes("登录账号");
-    const loading = bodyText.includes("加载中") || bodyText.includes("Loading");
-    return {
-      url: window.location.href,
-      bodyText,
-      visibleInputCount: visibleInputs.length,
-      brandInputFound,
-      spuInputFound,
-      accountMenuOpen,
-      loading
-    };
-  });
-}
-
-async function waitForPlatformSpuQueryPageReady(page: Page, timeoutMs = 45000): Promise<{ ready: boolean; issue: string }> {
-  const startedAt = Date.now();
-  let lastIssue = "";
-  while (Date.now() - startedAt < timeoutMs) {
-    const decision = await readPlatformSpuQueryPageSnapshot(page)
-      .then((snapshot) => evaluatePlatformSpuQueryPageReadiness(snapshot))
-      .catch((error) => ({
-        ready: false,
-        issue: error instanceof Error ? error.message : String(error)
-      }));
-    lastIssue = decision.issue;
-    if (decision.ready) {
-      return decision;
-    }
-    await page.waitForTimeout(1000);
-  }
-  return { ready: false, issue: lastIssue || "Platform SPU query page did not become ready before timeout." };
-}
-
-async function clickNextPlatformSpuResultPageByDom(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const next = Array.from(document.querySelectorAll("li, button, a, [role='button']"))
-      .map((el) => el as HTMLElement)
-      .find((el) => {
-        const marker = normalize([el.textContent || "", el.getAttribute("title") || "", el.getAttribute("aria-label") || ""].join(" "));
-        const className = String(el.className || "");
-        const disabled =
-          el.getAttribute("aria-disabled") === "true" ||
-          el.getAttribute("disabled") === "true" ||
-          el.hasAttribute("disabled") ||
-          /disabled/i.test(className);
-        return !disabled && (marker === "\u4e0b\u4e00\u9875" || marker.includes("\u4e0b\u4e00\u9875"));
-      });
-    const clickable = (next?.closest("li, button, a, [role='button']") as HTMLElement | null) || next;
-    if (!clickable) {
-      return false;
-    }
-    clickable.scrollIntoView({ block: "center", inline: "nearest" });
-    clickable.click();
-    return true;
-  });
-}
-
-async function ensurePlatformSpuQueryPageActive(
-  page: Page,
-  runtimeDir: string,
-  label: string,
-  timeoutMs = 45000
-): Promise<void> {
-  await page.keyboard.press("Escape").catch(() => {});
-  await page.waitForTimeout(300);
-  await gotoWithTolerance(page, PLATFORM_SPU_URL, 3500).catch(() => {});
-  await page.keyboard.press("Escape").catch(() => {});
-  const decision = await waitForPlatformSpuQueryPageReady(page, timeoutMs);
-  if (!decision.ready) {
-    if (decision.issue === "Doudian login is required before publishing can continue.") {
-      const error = new Error(
-        `Doudian login required: open the automation browser and complete Doudian login before publishing can continue.`
-      ) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, `${label}-doudian-login-required.png`);
-      throw error;
-    }
-    const error = new Error(`Platform SPU query page was not ready after navigation: ${decision.issue}`) as QueryDiagnosticError;
-    error.screenshotFile = await savePageScreenshot(page, runtimeDir, `${label}-platform-spu-query-page-not-ready.png`);
-    throw error;
-  }
-}
-
-export async function assertDoudianPublishSessionReady(options: {
-  runtimeDir: string;
-  timeoutMs?: number;
-  label?: string;
-}): Promise<void> {
-  const context = await launchPersistentBrowser();
-  const page =
-    context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/spu-record")) ||
-    context.pages().find((item) => !item.isClosed() && !item.url().includes("/ffa/g/create")) ||
-    (await context.newPage());
-  attachSafeDialogHandler(page);
-  await closeCreatePagesExcept(context, [page]);
-  await page.bringToFront();
-  await ensurePlatformSpuQueryPageActive(
-    page,
-    options.runtimeDir,
-    options.label || "doudian-publish-session-preflight",
-    options.timeoutMs || 30000
-  );
-}
-
-async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, shopFolder?: string, retryNo = 0): Promise<{
-  pageUrl: string;
-  pageTitle: string;
-  screenshotFile: string;
-  createPageUrl: string;
-  matchedRowText: string;
-}> {
-  const context = await launchPersistentBrowser();
-  try {
-    const normalizedBrand = normalizeMatchText(brand);
-    const normalizedSpu = normalizeSpuMatchText(spu);
-    const page =
-      context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/spu-record")) ||
-      context.pages().find((item) => !item.isClosed() && !item.url().includes("/ffa/g/create")) ||
-      (await context.newPage());
-    attachSafeDialogHandler(page);
-    await closeCreatePagesExcept(context, [page]);
-    await closeExtraPages(context, [page]);
-    await page.bringToFront();
-    await ensurePlatformSpuQueryPageActive(page, runtimeDir, "platform-spu-query", 30000);
-    if (shopFolder) {
-      await ensureShopContext(page, runtimeDir, shopFolder);
-      await ensurePlatformSpuQueryPageActive(page, runtimeDir, "platform-spu-query-after-shop-switch", 45000);
-    }
-
-    const platformTab = page.getByText("\u5E73\u53F0\u6807\u54C1", { exact: true });
-    if (await platformTab.count()) {
-      await platformTab.click({ timeout: 5000 }).catch(() => {});
-      await page.waitForTimeout(800);
-    }
-
-    const queryPageReady = await waitForPlatformSpuQueryPageReady(page);
-    if (!queryPageReady.ready) {
-      if (retryNo < maxPlatformSpuQueryRetries) {
-        await savePageScreenshot(page, runtimeDir, `platform-spu-query-page-not-ready-retry-${retryNo + 1}.png`).catch(() => "");
-        await page.keyboard.press("Escape").catch(() => {});
-        let retryPage = page;
-        if (retryNo >= 1) {
-          const freshPage = await context.newPage();
-          attachSafeDialogHandler(freshPage);
-          await freshPage.bringToFront().catch(() => {});
-          await gotoWithTolerance(freshPage, PLATFORM_SPU_URL, 6500 + retryNo * 1500).catch(() => {});
-          await page.close().catch(() => {});
-          await closeCreatePagesExcept(context, [freshPage]).catch(() => {});
-          await closeExtraPages(context, [freshPage]).catch(() => {});
-          retryPage = freshPage;
-        } else {
-          await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + retryNo * 1500).catch(() => {});
-        }
-        await retryPage.waitForTimeout(2000 + retryNo * 1000);
-        return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
-      }
-      const error = new Error(`Platform SPU query page was not ready after navigation: ${queryPageReady.issue}`) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-page-not-ready.png");
-      throw error;
-    }
-
-    if (!(await isPlatformQueryInputAvailable(page, "brand").catch(() => false))) {
-      const error = new Error("Visible brand input not found.") as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-input-missing.png");
-      throw error;
-    }
-
-    if (!(await isPlatformQueryInputAvailable(page, "spu").catch(() => false))) {
-      const error = new Error("Visible SPU input not found.") as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-input-missing.png");
-      throw error;
-    }
-
-    logInfo(`querying platform spu with brand=${brand}, spu=${spu}`);
-
-    await setPlatformQueryInputValue(page, "brand", brand);
-    await page.waitForTimeout(1200);
-    let clickedBrandOptionText = await clickPlatformBrandDropdownOption(page, brand).catch(() => "");
-    await page.waitForTimeout(800);
-    let brandValueConfirmed = await readPlatformQueryInputValue(page, "brand");
-    if (!normalizeMatchText(brandValueConfirmed).includes(normalizedBrand)) {
-      await setPlatformQueryInputValue(page, "brand", brand);
-      await page.waitForTimeout(600);
-      clickedBrandOptionText = clickedBrandOptionText || (await clickPlatformBrandDropdownOption(page, brand).catch(() => ""));
-      await page.waitForTimeout(800);
-      brandValueConfirmed = await readPlatformQueryInputValue(page, "brand");
-    }
-    if (brandValueConfirmed && !normalizeMatchText(brandValueConfirmed).includes(normalizedBrand)) {
-      const error = new Error(
-        `Brand input value mismatch after typing. expected=${brand}; actual=${brandValueConfirmed || "<empty>"}`
-      ) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-value-mismatch.png");
-      throw error;
-    }
-    const brandOptionConfirmed = normalizeMatchText(clickedBrandOptionText).includes(normalizedBrand);
-    if (!brandValueConfirmed && !brandOptionConfirmed) {
-      const error = new Error(
-        `Brand input value mismatch after typing. expected=${brand}; actual=<empty>; selectedOption=${clickedBrandOptionText || "<none>"}`
-      ) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-value-missing.png");
-      throw error;
-    }
-
-    await setPlatformQueryInputValue(page, "spu", spu);
-    await page.waitForTimeout(300);
-    let spuValueConfirmed = await readPlatformQueryInputValue(page, "spu");
-    if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
-      await setPlatformQueryInputValue(page, "spu", spu);
-      spuValueConfirmed = await readPlatformQueryInputValue(page, "spu");
-    }
-    if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
-      await setPlatformQueryInputValue(page, "spu", spu);
-      await page.waitForTimeout(500);
-      spuValueConfirmed = await readPlatformQueryInputValue(page, "spu");
-    }
-    await page.waitForTimeout(800);
-    if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
-      spuValueConfirmed = await readPlatformQueryInputValue(page, "spu");
-    }
-    if (!normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu)) {
-      const error = new Error(
-        `SPU input value mismatch after typing. expected=${spu}; actual=${spuValueConfirmed || "<empty>"}`
-      ) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-input-value-mismatch.png");
-      throw error;
-    }
-
-    const brandSelfCheckOk = normalizeMatchText(brandValueConfirmed).includes(normalizedBrand) || brandOptionConfirmed;
-    const spuSelfCheckOk = normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu);
-    if (!brandSelfCheckOk || !spuSelfCheckOk) {
-      const error = new Error(
-        `Platform query self-check failed before clicking query. expectedBrand=${brand}; actualBrand=${brandValueConfirmed || "<empty>"}; expectedSpu=${spu}; actualSpu=${spuValueConfirmed || "<empty>"}`
-      ) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-pre-query-self-check-failed.png");
-      throw error;
-    }
-
-    const queryButton = page.getByRole("button", { name: "\u67E5\u8BE2" });
-    let queryClicked = false;
-    if (await queryButton.count()) {
-      queryClicked = await queryButton.click({ timeout: 5000 }).then(() => true).catch(() => false);
-    }
-    if (!queryClicked) {
-      queryClicked = await clickVisibleText(page, "\u67E5\u8BE2");
-    }
-    if (!queryClicked) {
-      const error = new Error("Visible query button not found or not clickable.") as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-button-missing.png");
-      throw error;
-    }
-    await page.waitForTimeout(2500);
-
-    const readCandidates = () => page.evaluate(({ targetBrand, targetSpu }: { targetBrand: string; targetSpu: string }) => {
-      const rows = Array.from(document.querySelectorAll("tr"));
-      return rows
-        .map((row) => {
-          const rowEl = row as HTMLElement;
-          const cells = Array.from(row.querySelectorAll("td"));
-          const operationCell = cells[cells.length - 1] || row;
-          const publishButton = Array.from(operationCell.querySelectorAll("button, a, [role='button']"))
-            .find((el) => ((el.textContent || "").replace(/\s+/g, "").trim() === "\u53D1\u5E03\u5546\u54C1")) as HTMLElement | undefined;
-          if (!publishButton) {
-            return null;
-          }
-          const rowRect = rowEl.getBoundingClientRect();
-          if (rowRect.width <= 0 || rowRect.height <= 0 || publishButton.getBoundingClientRect().width <= 0 || publishButton.getBoundingClientRect().height <= 0) {
-            return null;
-          }
-          const cellTexts = Array.from(row.querySelectorAll("td"))
-            .map((cell) => (cell.textContent || "").replace(/\s+/g, " ").trim())
-            .filter(Boolean);
-          const normalizeSpu = (value: string): string =>
-            value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
-          const normalizedRowText = normalizeSpu(rowEl.innerText || "");
-          const exactSpuCell = cellTexts.some((cell) => normalizeSpu(cell) === targetSpu);
-          const exactBrandCell = cellTexts.some((cell) => cell.replace(/\s+/g, "").toLowerCase() === targetBrand);
-          const rowHasSpu = normalizedRowText.includes(targetSpu);
-          const rowHasBrand = normalizedRowText.includes(targetBrand);
-          const rowId = rowEl.innerText.match(/ID[:：]\s*(\d+)/)?.[1] || "";
-          return {
-            rowText: (rowEl.innerText || "").slice(0, 800),
-            normalizedText: normalizedRowText,
-            rowId,
-            exactSpuCell,
-            exactBrandCell,
-            rowHasSpu,
-            rowHasBrand
-          };
-        })
-        .filter(Boolean);
-    }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu }) as Promise<QueryMatchCandidate[]>;
-
-    const pickMatchedCandidate = (items: QueryMatchCandidate[]): QueryMatchCandidate | null => {
-      const exactMatches = items.filter((item) => item.rowHasSpu && item.rowHasBrand);
-      return (
-        exactMatches.find((item) => item.exactSpuCell && item.exactBrandCell) ||
-        exactMatches.find((item) => item.exactSpuCell) ||
-        exactMatches[0] ||
-        null
-      );
-    };
-
-    let candidates = await readCandidates();
-    const allCandidates: QueryMatchCandidate[] = [...candidates];
-    let matched = pickMatchedCandidate(candidates);
-    for (let resultPageNo = 1; !matched && resultPageNo < 8; resultPageNo += 1) {
-      const hasSpuRows = candidates.some((item) => item.rowHasSpu);
-      if (!hasSpuRows) {
-        break;
-      }
-      const moved = await clickNextPlatformSpuResultPageByDom(page).catch(() => false);
-      if (!moved) {
-        break;
-      }
-      await page.waitForTimeout(2200);
-      candidates = await readCandidates();
-      allCandidates.push(...candidates);
-      matched = pickMatchedCandidate(candidates);
-    }
-
-    if (!allCandidates.length) {
-      const error = new Error("No visible publish rows found in result table.") as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-no-rows.png");
-      throw error;
-    }
-
-    if (!matched) {
-      const firstRowText = allCandidates[0]?.rowText || "";
-      const candidateIds = allCandidates
-        .map((item) => item.rowText.match(/ID:(\d+)/)?.[1] || "")
-        .filter(Boolean)
-        .slice(0, 5);
-      const queryLooksUnfiltered = !allCandidates.some((item) => item.normalizedText.includes(normalizedSpu));
-      if (queryLooksUnfiltered && retryNo < 2) {
-        logWarn(
-          `platform spu query returned rows unrelated to requested spu; retrying query ${retryNo + 1}/2. brand=${brand}; spu=${spu}`
-        );
-        await savePageScreenshot(page, runtimeDir, `platform-spu-query-unfiltered-retry-${retryNo + 1}.png`).catch(() => "");
-        await page.keyboard.press("Escape").catch(() => {});
-        await page.waitForTimeout(1200);
-        return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
-      }
-      const error = new Error(
-        `No queried result row matched brand/spu exactly. brand=${brand}; spu=${spu}; firstRow=${firstRowText.slice(0, 200)}; use input.publishPageUrl to bypass query when you already have a known create page URL.`
-      ) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-mismatch.png");
-      error.candidateRows = allCandidates.slice(0, 20).map((item) => item.rowText.slice(0, 300));
-      error.candidateIds = candidateIds;
-      throw error;
-    }
-
-    const existingCreatePages = new Set(context.pages().filter((item) => item.url().includes("/ffa/g/create")));
-    const popupPromise = context.waitForEvent("page", { timeout: 5000 }).catch(() => null);
-    await page.evaluate((target) => {
-      const normalizeSpu = (value: string): string =>
-        value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
-      const rows = Array.from(document.querySelectorAll("tr"));
-      const row = rows.find((item) => {
-        const rowText = normalizeSpu((item as HTMLElement).innerText || "");
-        if (!rowText.includes(target.targetBrand) || !rowText.includes(target.targetSpu)) {
-          return false;
-        }
-        if (target.rowId && !rowText.includes(target.rowId)) {
-          return false;
-        }
-        const cells = Array.from(item.querySelectorAll("td")).map((cell) => (cell.textContent || "").replace(/\s+/g, " ").trim());
-        return cells.some((cell) => normalizeSpu(cell).includes(target.targetSpu));
-      }) as HTMLElement | undefined;
-      if (!row) {
-        return;
-      }
-      row.scrollIntoView({ block: "center", inline: "nearest" });
-      const cells = Array.from(row.querySelectorAll("td"));
-      const operationCell = (cells[cells.length - 1] as HTMLElement | undefined) || row;
-      const button = Array.from(operationCell.querySelectorAll("button, a, [role='button']"))
-        .find((el) => ((el.textContent || "").replace(/\s+/g, "").trim() === "\u53D1\u5E03\u5546\u54C1")) as HTMLElement | undefined;
-      button?.click();
-    }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu, rowId: matched.rowId });
-
-    const popup = await popupPromise;
-    await page.waitForTimeout(6000).catch(() => {});
-    let activeQueryPage = page;
-    if (activeQueryPage.isClosed()) {
-      activeQueryPage = await recoverUsablePageFromContext(context, "/ffa/g/spu-record").catch(() => page);
-    }
-    const newCreatePage =
-      context
-        .pages()
-        .find((item) => item.url().includes("/ffa/g/create") && !existingCreatePages.has(item) && !item.isClosed()) || null;
-    const targetPage =
-      popup ||
-      newCreatePage ||
-      context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/create")) ||
-      (!activeQueryPage.isClosed() && activeQueryPage.url().includes("/ffa/g/create") ? activeQueryPage : null);
-    if (!targetPage) {
-      throw new Error("Publish page did not open after query click. No new create page was detected.");
-    }
-    attachSafeDialogHandler(targetPage);
-    await targetPage.waitForTimeout(4000).catch(() => {});
-    await closeExtraPages(context, [targetPage]);
-    const createPageUrl = targetPage.url();
-    if (!createPageUrl.includes("/ffa/g/create")) {
-      throw new Error(`Publish page did not open after query click. Current URL: ${createPageUrl}`);
-    }
-
-    const screenshotFile = await savePageScreenshot(targetPage, runtimeDir, "platform-spu-query-result.png");
-    const resultPage = activeQueryPage.isClosed() ? targetPage : activeQueryPage;
-
-    return {
-      pageUrl: resultPage.url(),
-      pageTitle: await resultPage.title().catch(() => targetPage.title()),
-      screenshotFile,
-      createPageUrl,
-      matchedRowText: matched.rowText
-    };
-  } finally {
-    await context.browser()?.close().catch(() => {});
-  }
-}
-
-async function inspectPublishPage(runtimeDir: string, publishPageUrl?: string): Promise<{
-  pageUrl: string;
-  pageTitle: string;
-  screenshotFile: string;
-  sections: string[];
-  topActions: string[];
-  errorHints: string[];
-}> {
-  const context = await launchPersistentBrowser();
-  try {
-    const existingCreatePage = context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/create"));
-    const page = existingCreatePage || context.pages().find((item) => !item.isClosed()) || (await context.newPage());
-    await page.bringToFront();
-
-    if (publishPageUrl) {
-      await page.goto(publishPageUrl, { waitUntil: "domcontentloaded" });
-    } else if (!page.url().includes("/ffa/g/create")) {
-      throw new Error("inspect_publish_page requires input.publishPageUrl or an already-open publish page.");
-    }
-
-    await page.waitForTimeout(3500);
-
-    const pageSummary = await page.evaluate(() => {
-      const bodyText = document.body.innerText || "";
-      const knownSections = [
-        "\u57FA\u7840\u4FE1\u606F",
-        "\u56FE\u6587\u4FE1\u606F",
-        "\u4EF7\u683C\u5E93\u5B58",
-        "\u670D\u52A1\u4E0E\u5C65\u7EA6",
-        "\u5176\u4ED6\u4FE1\u606F"
-      ].filter((text) => bodyText.includes(text));
-      const knownActions = [
-        "\u53D1\u5E03\u5546\u54C1",
-        "\u4FDD\u5B58\u8349\u7A3F",
-        "\u586B\u5199\u68C0\u67E5"
-      ].filter((text) => bodyText.includes(text));
-      const errorHints = bodyText
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .filter((line) => /(\u5F85\u5904\u7406|\u5FC5\u586B|\u8BF7\u8F93\u5165|\u9519\u8BEF|\u95EE\u9898)/.test(line))
-        .slice(0, 8);
-
-      return {
-        sections: knownSections,
-        topActions: knownActions,
-        errorHints
-      };
-    });
-
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-inspect.png");
-    return {
-      pageUrl: page.url(),
-      pageTitle: await page.title(),
-      screenshotFile,
-      sections: pageSummary.sections,
-      topActions: pageSummary.topActions,
-      errorHints: pageSummary.errorHints
-    };
-  } finally {
-    await context.browser()?.close().catch(() => {});
-  }
-}
-
-async function inspectPublishPageOnPage(
-  page: Page,
-  runtimeDir: string,
-  fileName: string
-): Promise<{
-  pageUrl: string;
-  pageTitle: string;
-  screenshotFile: string;
-  sections: string[];
-  topActions: string[];
-  errorHints: string[];
-}> {
-  await page.waitForTimeout(1500);
-
-  const pageSummary = await page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
-    const knownSections = [
-      "\u57FA\u7840\u4FE1\u606F",
-      "\u56FE\u6587\u4FE1\u606F",
-      "\u4EF7\u683C\u5E93\u5B58",
-      "\u670D\u52A1\u4E0E\u5C65\u7EA6",
-      "\u5176\u4ED6\u4FE1\u606F"
-    ].filter((text) => bodyText.includes(text));
-    const knownActions = [
-      "\u53D1\u5E03\u5546\u54C1",
-      "\u4FDD\u5B58\u8349\u7A3F",
-      "\u586B\u5199\u68C0\u67E5"
-    ].filter((text) => bodyText.includes(text));
-    const errorHints = bodyText
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .filter((line) => /(\u5F85\u5904\u7406|\u5FC5\u586B|\u8BF7\u8F93\u5165|\u9519\u8BEF|\u95EE\u9898)/.test(line))
-      .slice(0, 8);
-
-    return {
-      sections: knownSections,
-      topActions: knownActions,
-      errorHints
-    };
-  });
-
-  const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
-  return {
-    pageUrl: page.url(),
-    pageTitle: await page.title(),
-    screenshotFile,
-    sections: pageSummary.sections,
-    topActions: pageSummary.topActions,
-    errorHints: pageSummary.errorHints
-  };
-}
+export { resolvePublishFromSpuMetadata } from "./publish-from-spu/metadata-resolution.js";
+export { assertDoudianPublishSessionReady } from "./publish-from-spu/platform-spu-query-action.js";
 
 async function isBasicPublishFieldAvailable(page: Page, field: "title" | "shortTitle" | "modelSpec"): Promise<boolean> {
   const aliases = resolveBasicFieldIdAliases(field);
@@ -2841,655 +695,6 @@ async function fillBasicPublishPageOnPage(
   }
 
   throw new Error("Category attribute guard triggered after unexpected field changes; page was refreshed and basic info fill still did not stabilize.");
-}
-
-async function clickVisibleText(page: Page, text: string): Promise<boolean> {
-  const target = page.getByText(text, { exact: true }).first();
-  if (!(await target.count())) {
-    return false;
-  }
-  return target.click({ timeout: 3000 }).then(() => true).catch(() => false);
-}
-
-async function clickRadioByLabel(page: Page, labelText: string): Promise<boolean> {
-  const radio = page.getByRole("radio", { name: labelText }).first();
-  if (await radio.count()) {
-    await radio.click({ timeout: 3000 }).catch(() => {});
-    return true;
-  }
-
-  return page.evaluate((targetLabel) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
-    const label = elements
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (!text || text !== targetLabel || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        return { el, rect };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (a?.rect.top || 0) - (b?.rect.top || 0))[0];
-    if (!label) {
-      return false;
-    }
-
-    const candidates = elements
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const marker = [String(el.className || ""), el.getAttribute("role") || "", el.tagName].join(" ").toLowerCase();
-        if (
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          rect.top < label.rect.top - 24 ||
-          rect.top > label.rect.bottom + 24 ||
-          rect.left < label.rect.left - 60 ||
-          rect.left > label.rect.left + 10
-        ) {
-          return null;
-        }
-        const score =
-          (marker.includes("radio") ? 200 : 0) +
-          (el.getAttribute("aria-checked") ? 60 : 0) -
-          Math.abs(rect.left - label.rect.left) -
-          Math.abs(rect.top - label.rect.top);
-        return score > 0 ? { el, score } : null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
-
-    if (!candidates) {
-      return false;
-    }
-    candidates.el.click();
-    return true;
-  }, labelText);
-}
-
-async function isRadioSelectedByLabel(page: Page, labelText: string): Promise<boolean> {
-  return page.evaluate((targetLabel) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
-    const labels = elements
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (text !== targetLabel || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        return { el, rect };
-      })
-      .filter(Boolean) as Array<{ el: HTMLElement; rect: DOMRect }>;
-
-    for (const label of labels) {
-      const candidates = elements
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          if (
-            rect.width <= 0 ||
-            rect.height <= 0 ||
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            rect.top < label.rect.top - 24 ||
-            rect.top > label.rect.bottom + 24 ||
-            rect.left < label.rect.left - 80 ||
-            rect.left > label.rect.left + 20
-          ) {
-            return null;
-          }
-          const input = el as HTMLInputElement;
-          const marker = [String(el.className || ""), el.getAttribute("role") || "", el.tagName].join(" ").toLowerCase();
-          const checked = input.checked === true || el.getAttribute("aria-checked") === "true" || marker.includes("checked");
-          const score = (marker.includes("radio") ? 200 : 0) - Math.abs(rect.left - label.rect.left) - Math.abs(rect.top - label.rect.top);
-          return score > 0 ? { checked, score } : null;
-        })
-        .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-      if (candidates[0]?.checked) {
-        return true;
-      }
-    }
-    return false;
-  }, labelText);
-}
-
-async function dismissTransientOverlays(page: Page): Promise<void> {
-  if (page.isClosed()) {
-    return;
-  }
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (page.isClosed()) {
-      return;
-    }
-    await page.keyboard.press("Escape").catch(() => {});
-    await page.waitForTimeout(250);
-  }
-
-  const cropDialogVisible = await page.evaluate(() => {
-    const text = document.body.innerText || "";
-    return text.includes("\u667a\u80fd\u88c1\u526a\u4e3a3:4\u4e3b\u56fe") || text.includes("\u5f53\u524d\u8fd8\u67093\u5f20\u56fe\u7247\u4e0d\u662f3:4\u6bd4\u4f8b");
-  });
-  if (cropDialogVisible && (await clickVisibleText(page, "\u53d6\u6d88"))) {
-    if (page.isClosed()) {
-      return;
-    }
-    await page.waitForTimeout(1000);
-  }
-
-  const clicked = await page.evaluate(() => {
-    const modalTitles = ["\u0041\u0049\u7d20\u6750\u5de5\u5177", "\u0041\u0049\u52a9\u624b"];
-    const titleNode = Array.from(document.querySelectorAll("body *")).find((el) => {
-      const text = (el.textContent || "").trim();
-      if (!modalTitles.includes(text)) {
-        return false;
-      }
-      const rect = (el as HTMLElement).getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
-    }) as HTMLElement | undefined;
-
-    if (!titleNode) {
-      return false;
-    }
-
-    const panel = (titleNode.closest("[role='dialog']") ||
-      titleNode.closest(".semi-modal, .semi-portal, .semi-drawer, .auxo-modal")) as HTMLElement | null;
-    const root = panel || (titleNode.parentElement?.parentElement as HTMLElement | null);
-    if (!root) {
-      return false;
-    }
-
-    const rootRect = root.getBoundingClientRect();
-    const closeCandidates = Array.from(root.querySelectorAll("button, [role='button'], span, div"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const text = (el.textContent || "").trim();
-        const marker = [text, el.getAttribute("aria-label") || "", el.getAttribute("title") || "", String(el.className || "")]
-          .join(" ")
-          .toLowerCase();
-        if (rect.width <= 0 || rect.height <= 0) {
-          return null;
-        }
-        if (rect.x < rootRect.x + rootRect.width * 0.7 || rect.y > rootRect.y + rootRect.height * 0.2) {
-          return null;
-        }
-        const isCloseControl =
-          text === "\u00d7" || text === "×" || /close|icon-close|semi-icon-close|ai-content_tomini/.test(marker);
-        if (!isCloseControl) {
-          return null;
-        }
-        return {
-          el,
-          x: rect.x,
-          y: rect.y,
-          score: (text === "\u00d7" || text === "×" ? 500 : 0) + rect.x - rect.y
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-
-    const target = closeCandidates[0]?.el || null;
-    target?.click();
-    return Boolean(target);
-  });
-
-  if (clicked) {
-    if (page.isClosed()) {
-      return;
-    }
-    await page.waitForTimeout(1200);
-  }
-
-  const closedAiAssistant = await page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
-    if (!bodyText.includes("\u0041\u0049\u52a9\u624b")) {
-      return false;
-    }
-
-    const candidates = Array.from(document.querySelectorAll("button, [role='button'], span, div, svg"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const text = (el.textContent || "").trim();
-        const marker = [text, el.getAttribute("aria-label") || "", el.getAttribute("title") || "", String(el.className || "")]
-          .join(" ")
-          .toLowerCase();
-        if (
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          rect.left < window.innerWidth * 0.55 ||
-          rect.top > 220 ||
-          rect.width > 90 ||
-          rect.height > 90
-        ) {
-          return null;
-        }
-        const isCloseControl = text === "\u00d7" || text === "×" || /close|icon-close|semi-icon-close/.test(marker);
-        if (!isCloseControl) {
-          return null;
-        }
-        return {
-          el,
-          score: rect.right + (text === "\u00d7" || text === "×" ? 500 : 0) - Math.abs(rect.top - 110)
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-
-    const target = candidates[0]?.el || null;
-    if (!target) {
-      return false;
-    }
-    target.click();
-    return true;
-  });
-
-  if (closedAiAssistant) {
-    await page.waitForTimeout(1200);
-  }
-}
-
-async function readActivePublishSectionTab(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const labels = ["基础信息", "图文信息", "价格库存", "服务与履约", "其他信息"];
-    const nodes = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = normalize(el.innerText || el.textContent || "");
-        if (!labels.includes(text)) {
-          return null;
-        }
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (rect.width <= 0 || rect.height <= 0 || rect.top > 220 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        const marker = [String(el.className || ""), el.getAttribute("role") || ""].join(" ").toLowerCase();
-        const color = style.color || "";
-        const score =
-          (marker.includes("active") ? 220 : 0) +
-          (marker.includes("selected") ? 220 : 0) +
-          (marker.includes("current") ? 220 : 0) +
-          (el.getAttribute("aria-selected") === "true" ? 260 : 0) +
-          (/rgb\(22,\s*119,\s*255\)/.test(color) ? 200 : 0) +
-          (/rgb\(24,\s*144,\s*255\)/.test(color) ? 200 : 0) +
-          (Number.parseInt(style.fontWeight || "400", 10) >= 500 ? 120 : 0);
-        return { text, score, left: rect.left };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.left || 0) - (b?.left || 0));
-
-    return nodes[0]?.text || "";
-  });
-}
-
-async function findPublishSectionTabCenter(page: Page, text: string): Promise<{ x: number; y: number } | null> {
-  return page.evaluate((targetText) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const nodes = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = normalize(el.innerText || el.textContent || "");
-        if (text !== targetText) {
-          return null;
-        }
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (rect.width <= 0 || rect.height <= 0 || rect.top > 220 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, left: rect.left };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (a?.left || 0) - (b?.left || 0));
-
-    return nodes[0] || null;
-  }, text);
-}
-
-async function isPublishSectionContentVisible(page: Page, text: string): Promise<boolean> {
-  return page.evaluate((targetText) => {
-    const markersBySection: Record<string, string[]> = {
-      "\u57fa\u7840\u4fe1\u606f": [
-        "\u5546\u54c1\u6807\u9898",
-        "\u5bfc\u8d2d\u77ed\u6807\u9898",
-        "\u5546\u54c1\u7c7b\u76ee",
-        "\u7c7b\u76ee\u5c5e\u6027",
-        "\u54c1\u724c",
-        "\u533b\u7597\u5668\u68b0\u5907\u6848/\u6ce8\u518c\u53f7",
-        "\u77ed\u6807\u9898",
-        "\u578b\u53f7\u89c4\u683c"
-      ],
-      "\u56fe\u6587\u4fe1\u606f": ["\u4e3b\u56fe", "\u5546\u54c1\u8be6\u60c5"],
-      "\u4ef7\u683c\u5e93\u5b58": ["\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "\u5546\u54c1\u89c4\u683c"],
-      "\u670d\u52a1\u4e0e\u5c65\u7ea6": ["\u552e\u540e\u670d\u52a1", "\u552e\u540e\u653f\u7b56", "\u552e\u540e\u670d\u52a1\u627f\u8bfa"],
-      "\u5176\u4ed6\u4fe1\u606f": ["\u5176\u4ed6\u4fe1\u606f"]
-    };
-    const markers = markersBySection[targetText] || [targetText];
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const visibleTexts = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .filter((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        return (
-          rect.width > 0 &&
-          rect.height > 0 &&
-          rect.left >= 420 &&
-          rect.top >= 240 &&
-          rect.top <= window.innerHeight - 40 &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
-        );
-      })
-      .map((el) => normalize(el.innerText || el.textContent || ""))
-      .filter(Boolean);
-
-    return markers.some((marker) => visibleTexts.some((text) => text.includes(marker)));
-  }, text);
-}
-
-async function isPublishSectionContentPresent(page: Page, text: string): Promise<boolean> {
-  return page.evaluate((targetText) => {
-    const markersBySection: Record<string, string[]> = {
-      "\u57fa\u7840\u4fe1\u606f": [
-        "\u5546\u54c1\u6807\u9898",
-        "\u5bfc\u8d2d\u77ed\u6807\u9898",
-        "\u5546\u54c1\u7c7b\u76ee",
-        "\u7c7b\u76ee\u5c5e\u6027",
-        "\u54c1\u724c",
-        "\u533b\u7597\u5668\u68b0\u5907\u6848/\u6ce8\u518c\u53f7",
-        "\u77ed\u6807\u9898",
-        "\u578b\u53f7\u89c4\u683c"
-      ],
-      "\u56fe\u6587\u4fe1\u606f": ["\u4e3b\u56fe", "\u767d\u5e95\u56fe", "\u5546\u54c1\u8be6\u60c5"],
-      "\u4ef7\u683c\u5e93\u5b58": ["\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "\u5546\u54c1\u89c4\u683c"],
-      "\u670d\u52a1\u4e0e\u5c65\u7ea6": ["\u8fd0\u8d39\u6a21\u677f", "\u552e\u540e\u670d\u52a1", "\u552e\u540e\u653f\u7b56"],
-      "\u5176\u4ed6\u4fe1\u606f": ["\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1", "\u5176\u4ed6\u4fe1\u606f"]
-    };
-    const markers = markersBySection[targetText] || [targetText];
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    return Array.from(document.querySelectorAll("body *"))
-      .map((el) => {
-        const node = el as HTMLElement;
-        const rect = node.getBoundingClientRect();
-        const style = window.getComputedStyle(node);
-        const text = normalize(node.innerText || node.textContent || "");
-        if (
-          !text ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          rect.left < 420 ||
-          rect.top < 240 ||
-          style.display === "none" ||
-          style.visibility === "hidden"
-        ) {
-          return false;
-        }
-        return markers.some((marker) => text.includes(marker));
-      })
-      .some(Boolean);
-  }, text);
-}
-
-async function scrollPublishSectionContentIntoView(page: Page, text: string): Promise<boolean> {
-  return page.evaluate((targetText) => {
-    const markersBySection: Record<string, string[]> = {
-      "\u57fa\u7840\u4fe1\u606f": [
-        "\u5546\u54c1\u6807\u9898",
-        "\u5bfc\u8d2d\u77ed\u6807\u9898",
-        "\u5546\u54c1\u7c7b\u76ee",
-        "\u7c7b\u76ee\u5c5e\u6027",
-        "\u54c1\u724c",
-        "\u533b\u7597\u5668\u68b0\u5907\u6848/\u6ce8\u518c\u53f7",
-        "\u77ed\u6807\u9898",
-        "\u578b\u53f7\u89c4\u683c"
-      ],
-      "\u56fe\u6587\u4fe1\u606f": ["\u4e3b\u56fe", "\u5546\u54c1\u8be6\u60c5"],
-      "\u4ef7\u683c\u5e93\u5b58": ["\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "\u5546\u54c1\u89c4\u683c"],
-      "\u670d\u52a1\u4e0e\u5c65\u7ea6": ["\u552e\u540e\u670d\u52a1", "\u552e\u540e\u653f\u7b56", "\u552e\u540e\u670d\u52a1\u627f\u8bfa"],
-      "\u5176\u4ed6\u4fe1\u606f": ["\u5176\u4ed6\u4fe1\u606f"]
-    };
-    const markers = markersBySection[targetText] || [targetText];
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const target = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = normalize(el.innerText || el.textContent || "");
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (
-          !text ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          rect.left < 420 ||
-          rect.top < 240 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          !markers.some((marker) => text.includes(marker))
-        ) {
-          return null;
-        }
-        return { el, top: rect.top };
-      })
-      .filter(Boolean)
-      .sort((a, b) => Math.abs((a?.top || 0) - 180) - Math.abs((b?.top || 0) - 180))[0];
-
-    if (!target) {
-      return false;
-    }
-
-    target.el.scrollIntoView({ block: "start", behavior: "instant" });
-    return true;
-  }, text);
-}
-
-async function scrollLabelIntoView(page: Page, labelText: string): Promise<boolean> {
-  return page.evaluate((targetLabel) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const target = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (
-          !text ||
-          !text.includes(targetLabel) ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden"
-        ) {
-          return null;
-        }
-        return { el, text, score: (text === targetLabel ? 1000 : 0) - text.length };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
-
-    if (!target) {
-      return false;
-    }
-
-    target.el.scrollIntoView({ block: "center", behavior: "instant" });
-    return true;
-  }, labelText);
-}
-
-async function findLabelAbsoluteTop(page: Page, labelText: string): Promise<number | null> {
-  return page.evaluate((targetLabel) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const target = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const text = normalize(el.innerText || el.textContent || "");
-        if (
-          !text ||
-          !text.includes(targetLabel) ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden"
-        ) {
-          return null;
-        }
-        return { top: rect.top + window.scrollY, score: (text === targetLabel ? 1000 : 0) - text.length };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
-
-    return typeof target?.top === "number" ? target.top : null;
-  }, labelText);
-}
-
-async function scrollUntilPublishSectionVisible(page: Page, text: string): Promise<boolean> {
-  if (await isPublishSectionContentVisible(page, text).catch(() => false)) {
-    return true;
-  }
-
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    await page.mouse.wheel(0, 1200).catch(() => {});
-    await page.waitForTimeout(500);
-    if (await isPublishSectionContentVisible(page, text).catch(() => false)) {
-      return true;
-    }
-    await scrollPublishSectionContentIntoView(page, text).catch(() => false);
-    await page.waitForTimeout(350);
-    if (await isPublishSectionContentVisible(page, text).catch(() => false)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-async function ensurePublishSectionTab(page: Page, text: string): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await dismissTransientOverlays(page);
-    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" })).catch(() => {});
-    await page.waitForTimeout(400);
-    if (await isPublishSectionContentVisible(page, text).catch(() => false)) {
-      return;
-    }
-
-    const tab = page.getByRole("tab", { name: text }).first();
-    if (await tab.count()) {
-      await tab.click({ timeout: 3000 }).catch(() => {});
-    }
-
-    if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
-      const topTabClicked = await page
-        .evaluate((targetText) => {
-          const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-          const candidates = Array.from(document.querySelectorAll("body *"))
-            .map((node) => node as HTMLElement)
-            .map((el) => {
-              const rect = el.getBoundingClientRect();
-              const style = window.getComputedStyle(el);
-              const text = normalize(el.innerText || el.textContent || "");
-              if (
-                text !== targetText ||
-                rect.width <= 0 ||
-                rect.height <= 0 ||
-                rect.top < 60 ||
-                rect.top > 240 ||
-                rect.left < window.innerWidth * 0.18 ||
-                rect.left > window.innerWidth * 0.72 ||
-                style.display === "none" ||
-                style.visibility === "hidden"
-              ) {
-                return null;
-              }
-              return { el, score: (rect.top < 150 ? 40 : 0) - Math.abs(rect.top - 165) - text.length };
-            })
-            .filter(Boolean)
-            .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
-          if (!candidates) {
-            return false;
-          }
-          candidates.el.click();
-          return true;
-        }, text)
-        .catch(() => false);
-      if (topTabClicked) {
-        await page.waitForTimeout(700);
-      }
-    }
-
-    if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
-      await page.evaluate((targetText) => {
-        const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-        const target = Array.from(document.querySelectorAll("[role='tab'], button, [role='button'], body *"))
-          .map((el) => el as HTMLElement)
-          .find((el) => {
-            const rect = el.getBoundingClientRect();
-            const style = window.getComputedStyle(el);
-            return (
-              rect.width > 0 &&
-              rect.height > 0 &&
-              style.display !== "none" &&
-              style.visibility !== "hidden" &&
-              normalize(el.innerText || el.textContent || "") === targetText
-            );
-          });
-        ((target?.closest("[role='tab'], button, [role='button']") as HTMLElement | null) || target)?.click();
-      }, text).catch(() => false);
-    }
-
-    if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
-      await page.evaluate((targetText) => {
-        const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-        const target = Array.from(document.querySelectorAll("body *"))
-          .map((el) => el as HTMLElement)
-          .find((el) => normalize(el.innerText || el.textContent || "") === targetText);
-        target?.click();
-      }, text).catch(() => {});
-    }
-
-    if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
-      await clickVisibleText(page, text);
-    }
-
-    await scrollPublishSectionContentIntoView(page, text).catch(() => false);
-    await page.waitForTimeout(900);
-    if (await isPublishSectionContentVisible(page, text).catch(() => false)) {
-      return;
-    }
-  }
-
-  const activeTab = await readActivePublishSectionTab(page).catch(() => "");
-  if (activeTab === text) {
-    return;
-  }
-  throw new Error(`Failed to activate publish section tab: expected=${text}; actual=${activeTab || "<unknown>"}`);
-}
-
-async function ensureServiceSectionReady(page: Page): Promise<void> {
-  await ensurePublishSectionTab(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6");
-  const freightLabelTop = await findLabelAbsoluteTop(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => null);
-  if (typeof freightLabelTop === "number") {
-    await page.evaluate((top) => window.scrollTo({ top: Math.max(0, top - 180), behavior: "instant" }), freightLabelTop).catch(() => {});
-    await page.waitForTimeout(500);
-  }
-  const freightLabelVisible = await scrollLabelIntoView(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false);
-  await scrollPublishSectionContentIntoView(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => false);
-  await page.waitForTimeout(500);
-  const ready = freightLabelVisible || (await scrollLabelIntoView(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false)) || false;
-  if (!ready) {
-    throw new Error("Service section freight label is not visible after tab activation.");
-  }
 }
 
 async function findSearchInputIndexByHints(page: Page, hints: string[]): Promise<number> {
@@ -4441,27 +1646,6 @@ async function isManualSpecTemplateEntryModeVisible(page: Page): Promise<boolean
   });
 }
 
-async function isSpecTemplateSmartFillUploadModeVisible(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const visibleText = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .filter((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-      })
-      .map((el) => normalize(el.innerText || el.textContent || ""))
-      .join(" ");
-
-    return (
-      visibleText.includes("智能填写助手") &&
-      visibleText.includes("切换手动填写") &&
-      visibleText.includes("点击 或 拖动 文件到虚线框内上传")
-    );
-  });
-}
-
 async function isSpecTemplateEntryControlVisible(page: Page): Promise<boolean> {
   if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
     return false;
@@ -4489,52 +1673,6 @@ async function describeSpecTemplateEntrySurfaceOnPage(page: Page): Promise<{
       manualSurfaceVisible:
         visibleText.includes("商品规格") && visibleText.includes("添加规格类型") && visibleText.includes("规格预览")
     };
-  });
-}
-
-async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const visible = (el: HTMLElement): boolean => {
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-    };
-    const moduleRoot = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .filter((el) => {
-        if (!visible(el)) {
-          return false;
-        }
-        const text = normalize(el.innerText || el.textContent || "");
-        return (
-          text.includes("智能填写助手") &&
-          text.includes("切换手动填写") &&
-          text.includes("点击 或 拖动 文件到虚线框内上传")
-        );
-      })
-      .sort((a, b) => {
-        const aRect = a.getBoundingClientRect();
-        const bRect = b.getBoundingClientRect();
-        return aRect.width * aRect.height - bRect.width * bRect.height;
-      })[0];
-    const searchRoot = moduleRoot || document.body;
-    const target = Array.from(searchRoot.querySelectorAll("button, [role='button'], a, body *"))
-      .map((el) => el as HTMLElement)
-      .filter((el) => {
-        const text = normalize(el.innerText || el.textContent || "");
-        return text.includes("切换手动填写") && visible(el);
-      })
-      .sort((a, b) => {
-        const aRect = a.getBoundingClientRect();
-        const bRect = b.getBoundingClientRect();
-        return bRect.left - aRect.left || aRect.top - bRect.top;
-      })[0];
-    if (!target) {
-      return false;
-    }
-    ((target.closest("button, [role='button'], a") as HTMLElement | null) || target).click();
-    return true;
   });
 }
 
@@ -7015,159 +4153,6 @@ async function runPublishCheck(
   }
 }
 
-async function recoverUsablePublishPage(currentPage: Page): Promise<Page> {
-  const context = currentPage.context();
-  const candidates = [
-    currentPage,
-    ...context.pages().filter((item) => item !== currentPage)
-  ].filter((item) => !item.isClosed() && item.url().includes("/ffa/g/create"));
-
-  let recoveredPage: Page | null = null;
-  for (const candidate of candidates) {
-    attachSafeDialogHandler(candidate);
-    await candidate.bringToFront().catch(() => {});
-    await candidate.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
-    await candidate.waitForTimeout(800).catch(() => {});
-    const usable = await isUsablePublishCreatePage(candidate).catch(() => false);
-    if (usable) {
-      recoveredPage = candidate;
-      break;
-    }
-  }
-
-  if (!recoveredPage) {
-    throw new Error("Publish create page context was lost and no usable replacement page is available.");
-  }
-
-  await recoveredPage.bringToFront().catch(() => {});
-  return recoveredPage;
-}
-
-async function isUsablePublishCreatePage(page: Page): Promise<boolean> {
-  if (page.isClosed() || !page.url().includes("/ffa/g/create")) {
-    return false;
-  }
-  return page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
-    const requiredSectionCount = ["基础信息", "图文信息", "价格库存", "服务与履约"].filter((text) => bodyText.includes(text)).length;
-    const hasPublishAction = bodyText.includes("发布商品") || bodyText.includes("填写检查");
-    const loginRequired =
-      (bodyText.includes("扫码登录") && bodyText.includes("抖店App")) ||
-      bodyText.includes("打开抖店App扫码登录") ||
-      bodyText.includes("切换为手机/邮箱登录");
-    return requiredSectionCount >= 2 && hasPublishAction && !loginRequired;
-  });
-}
-
-async function getPublishCreatePageHealth(page: Page): Promise<{
-  usable: boolean;
-  bodyTextLength: number;
-  sectionCount: number;
-  loading: boolean;
-  loginRequired: boolean;
-  bodyText: string;
-}> {
-  if (page.isClosed() || !page.url().includes("/ffa/g/create")) {
-    return { usable: false, bodyTextLength: 0, sectionCount: 0, loading: false, loginRequired: false, bodyText: "" };
-  }
-  return page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
-    const normalized = bodyText.replace(/\s+/g, "");
-    const sectionCount = ["基础信息", "图文信息", "价格库存", "服务与履约"].filter((text) => normalized.includes(text)).length;
-    const hasPublishAction = normalized.includes("发布商品") || normalized.includes("填写检查");
-    const recoverablePageError =
-      normalized.includes("数据异常请刷新重试") ||
-      (normalized.includes("数据异常") && normalized.includes("刷新重试")) ||
-      normalized.includes("网络异常") ||
-      normalized.includes("系统繁忙") ||
-      normalized.includes("请稍后重试");
-    const loginRequired =
-      (normalized.includes("扫码登录") && normalized.includes("抖店App")) ||
-      normalized.includes("打开抖店App扫码登录") ||
-      normalized.includes("切换为手机/邮箱登录");
-    const loading =
-      normalized.includes("加载中") ||
-      normalized.includes("努力加载") ||
-      recoverablePageError;
-    return {
-      usable: sectionCount >= 2 && hasPublishAction && !loginRequired && !recoverablePageError,
-      bodyTextLength: normalized.length,
-      sectionCount,
-      loading,
-      loginRequired,
-      bodyText: normalized.slice(0, 300)
-    };
-  });
-}
-
-async function waitForPublishCreatePageReady(
-  page: Page,
-  runtimeDir: string,
-  publishPageUrl: string,
-  label: string,
-  maxAttempts = 3,
-  options: { allowPageNavigationRecovery?: boolean } = {}
-): Promise<void> {
-  const allowPageNavigationRecovery = options.allowPageNavigationRecovery ?? true;
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    await Promise.race([
-      page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {}),
-      page.waitForTimeout(1800 + attempt * 600).catch(() => {})
-    ]);
-    const health = await getPublishCreatePageHealth(page).catch(() => ({
-      usable: false,
-      bodyTextLength: 0,
-      sectionCount: 0,
-      loading: false,
-      loginRequired: false,
-      bodyText: ""
-    }));
-    const readiness = evaluatePublishCreatePageReadiness(health);
-    if (readiness.action === "ready") {
-      return;
-    }
-    if (readiness.action === "fail_login") {
-      throw new Error(readiness.issue);
-    }
-    if (readiness.action === "reopen_from_platform_spu") {
-      throw new PublishCreatePageReopenRequiredError(readiness.issue);
-    }
-    await savePageScreenshot(page, runtimeDir, `${label}-publish-page-not-ready-${attempt + 1}.png`).catch(() => "");
-    if (attempt < maxAttempts - 1) {
-      if (allowPageNavigationRecovery) {
-        if (page.url().includes("/ffa/g/create")) {
-          await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
-        } else if (publishPageUrl) {
-          await gotoWithTolerance(page, publishPageUrl, 2500).catch(() => {});
-        }
-      }
-      await page.waitForTimeout(2200 + attempt * 700).catch(() => {});
-      continue;
-    }
-    throw new Error(
-      `Publish create page did not become ready after network/page-content recovery. sections=${health.sectionCount}; textLength=${health.bodyTextLength}; loading=${health.loading}; body=${health.bodyText}`
-    );
-  }
-}
-
-async function recoverUsablePageFromContext(context: Awaited<ReturnType<typeof launchPersistentBrowser>>, preferredUrlPart?: string): Promise<Page> {
-  const recoveredPage =
-    (preferredUrlPart
-      ? context.pages().find((item) => !item.isClosed() && item.url().includes(preferredUrlPart))
-      : null) ||
-    context.pages().find((item) => !item.isClosed()) ||
-    null;
-
-  if (!recoveredPage) {
-    throw new Error("Browser page context was lost and no replacement page is available.");
-  }
-
-  attachSafeDialogHandler(recoveredPage);
-  await recoveredPage.bringToFront().catch(() => {});
-  await recoveredPage.waitForTimeout(1200).catch(() => {});
-  return recoveredPage;
-}
-
 async function runPublishCheckOnPage(
   page: Page,
   runtimeDir: string,
@@ -7641,450 +4626,6 @@ async function clickPublishProductOnPage(
   };
 }
 
-function normalizeNumericInputValue(value: string): string {
-  const text = value.trim();
-  if (!text) {
-    return "";
-  }
-  const numeric = Number(text.replace(/,/g, ""));
-  return Number.isFinite(numeric) ? String(numeric) : text;
-}
-
-async function ensurePriceInventorySectionReady(page: Page): Promise<void> {
-  await ensurePublishSectionTab(page, "价格库存");
-  const anchors = ["价格与库存", "现货库存", "商品规格", "价格"];
-
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    for (const anchor of anchors) {
-      const top = await findLabelAbsoluteTop(page, anchor).catch(() => null);
-      if (typeof top === "number") {
-        await page
-          .evaluate((targetTop) => window.scrollTo({ top: Math.max(0, targetTop - 220), behavior: "instant" }), top)
-          .catch(() => {});
-        await page.waitForTimeout(400);
-        await scrollLabelIntoView(page, anchor).catch(() => false);
-        await page.waitForTimeout(300);
-        break;
-      }
-    }
-
-    await scrollPublishSectionContentIntoView(page, "价格库存").catch(() => false);
-    await page.waitForTimeout(500);
-
-    if (await countVisiblePriceInventoryRows(page).catch(() => 0)) {
-      return;
-    }
-    if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
-      await clickSwitchManualSpecEntryMode(page).catch(() => false);
-      await page.waitForTimeout(1200);
-      await scrollPublishSectionContentIntoView(page, "价格库存").catch(() => false);
-      await page.waitForTimeout(500);
-      if (await countVisiblePriceInventoryRows(page).catch(() => 0)) {
-        return;
-      }
-    }
-  }
-}
-
-type PriceInventoryDomRow = {
-  trIndex: number;
-  priceInputIndex: number;
-  stockInputIndex: number;
-  rowOrder: number;
-  priceValue: string;
-  stockValue: string;
-};
-
-async function findPriceInventoryTableDomRows(page: Page): Promise<PriceInventoryDomRow[]> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const allRows = Array.from(document.querySelectorAll("tr")).map((row) => row as HTMLTableRowElement);
-    const visible = (el: HTMLElement): boolean => {
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-    };
-    const usableInput = (input: HTMLInputElement): boolean => {
-      const type = (input.getAttribute("type") || "text").toLowerCase();
-      const context = normalize(
-        [
-          input.getAttribute("placeholder") || "",
-          input.getAttribute("aria-label") || "",
-          input.closest("td, th, tr")?.textContent || ""
-        ].join(" ")
-      );
-      return (
-        visible(input) &&
-        !input.disabled &&
-        !input.readOnly &&
-        !["hidden", "file", "checkbox", "radio"].includes(type) &&
-        !/erp编码|商家编码|规格值|请输入规格值/i.test(context)
-      );
-    };
-
-    const tables = Array.from(document.querySelectorAll("table"));
-    for (const table of tables) {
-      const tableRows = Array.from(table.querySelectorAll("tr")).map((row) => row as HTMLTableRowElement);
-      const header = tableRows
-        .map((row, rowOrder) => {
-          const cells = Array.from(row.querySelectorAll("th, td")).map((cell) => cell as HTMLTableCellElement);
-          const priceCell = cells.find((cell) => /价格|售价/.test(normalize(cell.innerText || cell.textContent || "")));
-          const stockCell = cells.find((cell) => /现货库存|库存/.test(normalize(cell.innerText || cell.textContent || "")));
-          return priceCell && stockCell
-            ? {
-                rowOrder,
-                priceCellIndex: priceCell.cellIndex,
-                stockCellIndex: stockCell.cellIndex
-              }
-            : null;
-        })
-        .filter(Boolean)[0] as { rowOrder: number; priceCellIndex: number; stockCellIndex: number } | undefined;
-      if (!header) {
-        continue;
-      }
-
-      const rows = tableRows
-        .slice(header.rowOrder + 1)
-        .map((row, index) => {
-          if (!visible(row)) {
-            return null;
-          }
-          const cells = Array.from(row.querySelectorAll("th, td")).map((cell) => cell as HTMLTableCellElement);
-          const priceCell = cells.find((cell) => cell.cellIndex === header.priceCellIndex);
-          const stockCell = cells.find((cell) => cell.cellIndex === header.stockCellIndex);
-          if (!priceCell || !stockCell) {
-            return null;
-          }
-          const priceInput = Array.from(priceCell.querySelectorAll("input")).find((input) => usableInput(input as HTMLInputElement)) as HTMLInputElement | undefined;
-          const stockInput = Array.from(stockCell.querySelectorAll("input")).find((input) => usableInput(input as HTMLInputElement)) as HTMLInputElement | undefined;
-          if (!priceInput || !stockInput) {
-            return null;
-          }
-          return {
-            trIndex: allRows.indexOf(row),
-            priceInputIndex: Array.from(row.querySelectorAll("input")).indexOf(priceInput),
-            stockInputIndex: Array.from(row.querySelectorAll("input")).indexOf(stockInput),
-            rowOrder: index,
-            priceValue: priceInput.value || "",
-            stockValue: stockInput.value || ""
-          };
-        })
-        .filter((row): row is PriceInventoryDomRow => Boolean(row));
-      if (rows.length) {
-        return rows;
-      }
-    }
-    const detachedRows = allRows
-      .map((row, index) => {
-        if (!visible(row)) {
-          return null;
-        }
-        const rowInputs = Array.from(row.querySelectorAll("input")).map((input) => input as HTMLInputElement);
-        const rowText = normalize(row.innerText || row.textContent || "");
-        const stockInput = rowInputs.find((input) => {
-          const placeholder = input.getAttribute("placeholder") || "";
-          return usableInput(input) && placeholder.includes("请输入库存");
-        });
-        const codeInput = rowInputs.find((input) => {
-          const placeholder = input.getAttribute("placeholder") || "";
-          return placeholder.includes("请输入erp编码") || placeholder.includes("商家编码");
-        });
-        const priceInput = rowInputs.find((input) => {
-          const placeholder = input.getAttribute("placeholder") || "";
-          return (
-            usableInput(input) &&
-            input !== stockInput &&
-            input !== codeInput &&
-            (placeholder.includes("请输入") || placeholder.includes("价格") || rowText.includes("￥"))
-          );
-        });
-        if (!priceInput || !stockInput || !codeInput) {
-          return null;
-        }
-        return {
-          trIndex: allRows.indexOf(row),
-          priceInputIndex: rowInputs.indexOf(priceInput),
-          stockInputIndex: rowInputs.indexOf(stockInput),
-          rowOrder: index,
-          priceValue: priceInput.value || "",
-          stockValue: stockInput.value || ""
-        };
-      })
-      .filter((row): row is PriceInventoryDomRow => Boolean(row));
-    return detachedRows;
-  });
-}
-
-async function detectPriceInventoryValuesInsideSpecInputs(
-  page: Page,
-  priceInventoryRows: PriceInventoryRowValue[]
-): Promise<string[]> {
-  return page.evaluate((expectedValues) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-    const dangerousValues = expectedValues.map((value) => normalize(String(value)));
-    return Array.from(document.querySelectorAll("input"))
-      .map((el) => el as HTMLInputElement)
-      .map((input) => {
-        const rect = input.getBoundingClientRect();
-        const style = window.getComputedStyle(input);
-        const placeholder = (input.getAttribute("placeholder") || "").trim();
-        const context = [
-          placeholder,
-          input.parentElement?.textContent || "",
-          input.parentElement?.parentElement?.textContent || "",
-          input.closest("div")?.textContent || ""
-        ]
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (
-          rect.width <= 120 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          !(placeholder.includes("请输入规格值") || context.includes("请输入规格值") || context.includes("规格值"))
-        ) {
-          return "";
-        }
-        const value = normalize(input.value || "");
-        if (!value) {
-          return "";
-        }
-        return dangerousValues.includes(value) ? input.value || "" : "";
-      })
-      .filter(Boolean);
-  }, [...priceInventoryRows.map((row) => row.price), ...priceInventoryRows.map((row) => row.stock)]);
-}
-
-type PriceInventoryRowTarget = {
-  trIndex: number;
-  priceInputIndex: number;
-  stockInputIndex: number;
-  rowOrder: number;
-  priceValue: string;
-  stockValue: string;
-};
-
-async function readVisiblePriceInventoryRowTargets(page: Page): Promise<PriceInventoryRowTarget[]> {
-  return (await findPriceInventoryTableDomRows(page))
-    .map((row) => ({
-      trIndex: row.trIndex,
-      priceInputIndex: row.priceInputIndex,
-      stockInputIndex: row.stockInputIndex,
-      rowOrder: row.rowOrder,
-      priceValue: row.priceValue,
-      stockValue: row.stockValue
-    }))
-    .sort((a, b) => a.rowOrder - b.rowOrder);
-}
-
-async function readVisiblePriceInventoryRows(
-  page: Page
-): Promise<Array<{ priceValue: string; stockValue: string }>> {
-  return (await readVisiblePriceInventoryRowTargets(page)).map((row) => ({
-    priceValue: row.priceValue,
-    stockValue: row.stockValue
-  }));
-}
-
-async function setLocatorInputValue(locator: Locator, value: string): Promise<string> {
-  return locator.evaluate((node, nextValue) => {
-    const input = node as HTMLInputElement | HTMLTextAreaElement;
-    const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    input.focus();
-    setter?.call(input, "");
-    input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
-    setter?.call(input, nextValue);
-    input.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-    return (input.value || "").trim();
-  }, value);
-}
-
-async function fillVisiblePriceInventoryRowByTableDom(
-  page: Page,
-  rowIndex: number,
-  expectedPriceText: string,
-  expectedStockText: string
-): Promise<void> {
-  const rows = await readVisiblePriceInventoryRowTargets(page);
-  const target = rows[rowIndex];
-  if (!target) {
-    throw new Error(`Visible price/inventory row ${rowIndex + 1} was not found.`);
-  }
-
-  const row = page.locator("tr").nth(target.trIndex);
-  await row.evaluate((node) => {
-    node.scrollIntoView({ block: "center", inline: "nearest" });
-  }).catch(() => {});
-  await page.waitForTimeout(200);
-  const priceInput = row.locator("input").nth(target.priceInputIndex);
-  const stockInput = row.locator("input").nth(target.stockInputIndex);
-
-  await priceInput.scrollIntoViewIfNeeded().catch(() => {});
-  await priceInput.click({ timeout: 3000 }).catch(() => {});
-  await priceInput.fill(expectedPriceText, { timeout: 3000 }).catch(() => {});
-  let currentPriceValue = await priceInput.inputValue().catch(() => "");
-  if (normalizeNumericInputValue(currentPriceValue) !== normalizeNumericInputValue(expectedPriceText)) {
-    currentPriceValue = await setLocatorInputValue(priceInput, expectedPriceText).catch(() => currentPriceValue);
-  }
-
-  await stockInput.scrollIntoViewIfNeeded().catch(() => {});
-  await stockInput.click({ timeout: 3000 }).catch(() => {});
-  await stockInput.fill(expectedStockText, { timeout: 3000 }).catch(() => {});
-  let currentStockValue = await stockInput.inputValue().catch(() => "");
-  if (normalizeNumericInputValue(currentStockValue) !== normalizeNumericInputValue(expectedStockText)) {
-    currentStockValue = await setLocatorInputValue(stockInput, expectedStockText).catch(() => currentStockValue);
-  }
-  await stockInput.press("Tab").catch(() => {});
-}
-
-async function fillAndVerifyPriceInventoryRow(
-  page: Page,
-  rowIndex: number,
-  expectedPrice: number,
-  expectedStock: number
-): Promise<string> {
-  const expectedPriceText = String(expectedPrice);
-  const expectedStockText = String(expectedStock);
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await fillVisiblePriceInventoryRowByTableDom(page, rowIndex, expectedPriceText, expectedStockText);
-    await page.waitForTimeout(300);
-
-    const rows = await readVisiblePriceInventoryRows(page);
-    const currentRow = rows[rowIndex];
-    if (
-      currentRow &&
-      normalizeNumericInputValue(currentRow.priceValue) === normalizeNumericInputValue(expectedPriceText) &&
-      normalizeNumericInputValue(currentRow.stockValue) === normalizeNumericInputValue(expectedStockText)
-    ) {
-      return "";
-    }
-
-    await dismissTransientOverlays(page);
-  }
-
-  const rows = await readVisiblePriceInventoryRows(page);
-  const currentRow = rows[rowIndex];
-  return `Price/inventory row ${rowIndex + 1} value mismatch after fill. expectedPrice=${expectedPriceText}; actualPrice=${
-    currentRow?.priceValue || "<empty>"
-  }; expectedStock=${expectedStockText}; actualStock=${currentRow?.stockValue || "<empty>"}`;
-}
-
-async function countVisiblePriceInventoryRows(page: Page): Promise<number> {
-  const rows = await readVisiblePriceInventoryRows(page).catch(() => []);
-  return rows.length;
-}
-
-async function applyPriceInventoryOnPage(
-  page: Page,
-  runtimeDir: string,
-  fileName: string,
-  priceInventoryRows: PriceInventoryRowValue[]
-): Promise<{
-  pageUrl: string;
-  pageTitle: string;
-  screenshotFile: string;
-  filledRows: number;
-  priceIssue: string;
-}> {
-  await page.bringToFront();
-  await page.waitForTimeout(1200);
-  await ensurePriceInventorySectionReady(page);
-  await dismissTransientOverlays(page);
-
-  const pollutedSpecInputsBeforeFill = await detectPriceInventoryValuesInsideSpecInputs(page, priceInventoryRows).catch(() => []);
-  if (pollutedSpecInputsBeforeFill.length) {
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
-    return {
-      pageUrl: page.url(),
-      pageTitle: await page.title(),
-      screenshotFile,
-      filledRows: 0,
-      priceIssue: `Price/inventory values were found inside spec value inputs before fill: ${pollutedSpecInputsBeforeFill.join(", ")}`
-    };
-  }
-
-  const rows = await readVisiblePriceInventoryRows(page);
-  if (!rows.length) {
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
-    return {
-      pageUrl: page.url(),
-      pageTitle: await page.title(),
-      screenshotFile,
-      filledRows: 0,
-      priceIssue: "No visible price/inventory rows found on publish page."
-    };
-  }
-
-  const filledRows = Math.min(rows.length, priceInventoryRows.length);
-  for (let index = 0; index < filledRows; index += 1) {
-    const expected = priceInventoryRows[index];
-    const rowIssue = await fillAndVerifyPriceInventoryRow(page, index, expected.price, expected.stock);
-    if (rowIssue) {
-      const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
-      return {
-        pageUrl: page.url(),
-        pageTitle: await page.title(),
-        screenshotFile,
-        filledRows: index,
-        priceIssue: rowIssue
-      };
-    }
-  }
-
-  const finalRows = await readVisiblePriceInventoryRows(page);
-  const pollutedSpecInputsAfterFill = await detectPriceInventoryValuesInsideSpecInputs(page, priceInventoryRows).catch(() => []);
-  if (pollutedSpecInputsAfterFill.length) {
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
-    return {
-      pageUrl: page.url(),
-      pageTitle: await page.title(),
-      screenshotFile,
-      filledRows: 0,
-      priceIssue: `Price/inventory values were incorrectly written into spec value inputs: ${pollutedSpecInputsAfterFill.join(", ")}`
-    };
-  }
-  const missingRows = priceInventoryRows.map((expected, index) => {
-    const currentRow = finalRows[index];
-    if (!currentRow) {
-      return `row ${index + 1} missing`;
-    }
-    const priceOk = normalizeNumericInputValue(currentRow.priceValue) === normalizeNumericInputValue(String(expected.price));
-    const stockOk = normalizeNumericInputValue(currentRow.stockValue) === normalizeNumericInputValue(String(expected.stock));
-    return priceOk && stockOk
-      ? ""
-      : `row ${index + 1} expected price=${expected.price}, stock=${expected.stock}; actual price=${currentRow.priceValue || "<empty>"}, stock=${currentRow.stockValue || "<empty>"}`;
-  }).filter(Boolean);
-
-  if (missingRows.length) {
-    const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
-    return {
-      pageUrl: page.url(),
-      pageTitle: await page.title(),
-      screenshotFile,
-      filledRows: finalRows.filter((row, index) => {
-        const expected = priceInventoryRows[index];
-        const priceOk = normalizeNumericInputValue(row.priceValue) === normalizeNumericInputValue(String(expected?.price ?? ""));
-        const stockOk = normalizeNumericInputValue(row.stockValue) === normalizeNumericInputValue(String(expected?.stock ?? ""));
-        return priceOk && stockOk;
-      }).length,
-      priceIssue: `Price/inventory verification failed: ${missingRows.join(" | ")}`
-    };
-  }
-
-  const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
-  return {
-    pageUrl: page.url(),
-    pageTitle: await page.title(),
-    screenshotFile,
-    filledRows,
-    priceIssue: ""
-  };
-}
-
 async function runPublishFlow(
   runtimeDir: string,
   metadata: ResolvedPublishFromSpuMetadata,
@@ -8137,18 +4678,10 @@ async function runPublishFlow(
   let specIssue = "";
   let filledPriceRows = 0;
   let priceIssue = "";
-  let checkPassed = false;
-  let checkMessage = "";
-  let checkHints: string[] = [];
-  let blockingFields: string[] = [];
-  let publishClicked = false;
-  let publishClickAttempted = false;
-  let publishIssue = "";
   let freightTemplateName = "";
 
   let createPageUrl = publishPageUrl || "";
   let matchedRowText = "";
-  let shopVerifiedBeforeCreatePage = false;
   const productCategory = normalizeProductCategory(metadata.productCategory);
   const basicMetadata =
     productCategory === "保健食品"
@@ -8167,18 +4700,30 @@ async function runPublishFlow(
   const basicInfoGuardUnexpectedFieldChanges = productCategory !== "保健食品";
   const priceInventoryRows = resolveFeishuPriceInventoryRows(metadata.productPriceText || "");
 
-  if (!createPageUrl) {
-    const queryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
-    screenshotFiles.push(queryResult.screenshotFile);
-    createPageUrl = queryResult.createPageUrl;
-    matchedRowText = queryResult.matchedRowText;
-    shopVerifiedBeforeCreatePage = Boolean(shopFolder);
-    stages.push({ step: "query_platform_spu", status: "completed" });
-  }
-
   const context = await launchPersistentBrowser();
   try {
-    let page = await reuseOrOpenCreatePage(context, createPageUrl);
+    const shopSpuDeps = createDefaultShopSpuActionDeps();
+    const categoryContext = {
+      productCategory,
+      basicMetadata,
+      basicInfoGuardUnexpectedFieldChanges
+    };
+    const shopSpuResult = await runShopSpuAction(
+      shopSpuDeps,
+      {
+        context,
+        runtimeDir,
+        metadata,
+        shopFolder,
+        publishPageUrl
+      }
+    );
+    screenshotFiles.push(...shopSpuResult.screenshotFiles);
+    stages.push(...shopSpuResult.stages);
+    let page = shopSpuResult.page;
+    createPageUrl = shopSpuResult.createPageUrl;
+    matchedRowText = shopSpuResult.matchedRowText;
+
     try {
       await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "publish-initial");
     } catch (error) {
@@ -8209,245 +4754,129 @@ async function runPublishFlow(
       }
       throw error;
     }
-    if (!shopVerifiedBeforeCreatePage) {
-      await ensureShopContext(page, runtimeDir, shopFolder);
-    }
-    logInfo(`publish module started: basic_info (${path.basename(shopFolder)})`);
-    let basicInfoCompleted = false;
-    for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
-      emitPublishFlowProgress("basic_info_attempt", `${basicAttempt + 1}/2 ${path.basename(shopFolder)}`);
-      if (basicAttempt > 0) {
-        page = await reuseOrOpenCreatePage(context, createPageUrl, page);
-      }
-      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-basic-${basicAttempt + 1}`, 3, {
-        allowPageNavigationRecovery: basicAttempt > 0
-      });
 
-      try {
-        await assertBasicPrefillReadyOnPage(page, basicMetadata, (message) =>
-          emitPublishFlowProgress("basic_info_wait", message)
-        );
-        if (basicMetadata.modelSpec) {
-          await verifyCategoryRegistrationGateOnPage(
-            page,
-            runtimeDir,
-            metadata.spu,
-            "publish-page-category-registration-mismatch.png"
-          );
-        }
-        if (basicMetadata.title || basicMetadata.shortTitle || basicMetadata.modelSpec) {
-          const fillResult = await fillBasicPublishPageOnPage(
-            page,
-            runtimeDir,
-            basicMetadata,
-            "publish-page-basic-filled.png",
-            (message) => emitPublishFlowProgress("basic_info_fill", message),
-            basicInfoGuardUnexpectedFieldChanges
-          );
-          screenshotFiles.push(fillResult.screenshotFile);
-          filledFields.length = 0;
-          filledFields.push(...fillResult.filledFields);
-          const missingBasicFields = [
-            basicMetadata.title ? "title" : "",
-            basicMetadata.shortTitle ? "shortTitle" : "",
-            basicMetadata.modelSpec ? "modelSpec" : ""
-          ]
-            .filter(Boolean)
-            .filter((field) => !filledFields.includes(field));
-          if (missingBasicFields.length) {
-            throw new Error(`基础信息模块缺失字段: ${missingBasicFields.join(", ")}`);
-          }
-        }
-        await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "after_basic_fill");
-        stages.push({ step: "fill_basic_publish_page", status: "completed" });
-        basicInfoCompleted = true;
-        break;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (error instanceof PublishCreatePageReopenRequiredError && basicAttempt === 0) {
-          emitPublishFlowProgress("basic_info_reopen", message);
-          const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
-          screenshotFiles.push(retryQueryResult.screenshotFile);
-          createPageUrl = retryQueryResult.createPageUrl;
-          matchedRowText = retryQueryResult.matchedRowText;
-          page = await reuseOrOpenCreatePage(context, createPageUrl, page);
-          continue;
-        }
-        const categoryMismatch = message.includes("Category registration mismatch before modelSpec fill.");
-        if (categoryMismatch && basicAttempt === 0) {
-          emitPublishFlowProgress("basic_info_reopen", message);
-          const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
-          screenshotFiles.push(retryQueryResult.screenshotFile);
-          createPageUrl = retryQueryResult.createPageUrl;
-          matchedRowText = retryQueryResult.matchedRowText;
-          continue;
-        }
-        stages.push({ step: "fill_basic_publish_page", status: "failed" });
-        throw new Error(`Sequential publish flow stopped: 基础信息模块未完成。${message}`);
+    const basicResult = await runBasicInfoAction(
+      {
+        queryPlatformSpu,
+        reuseOrOpenCreatePage: (targetContext, targetCreatePageUrl, currentPage) =>
+          reuseOrOpenCreatePage(targetContext as Awaited<ReturnType<typeof launchPersistentBrowser>>, targetCreatePageUrl, currentPage),
+        waitForPublishCreatePageReady,
+        assertBasicPrefillReadyOnPage,
+        verifyCategoryRegistrationGateOnPage,
+        fillBasicPublishPageOnPage,
+        assertBasicPublishCompletionOnPage,
+        isPublishCreatePageReopenRequiredError: (error) => error instanceof PublishCreatePageReopenRequiredError,
+        logInfo,
+        fillHealthFoodSafetyAttributesOnPage,
+        uploadHealthFoodOuterPackagingOnPage,
+        fillHealthFoodCategoryAttributesOnPage
+      },
+      {
+        page,
+        runtimeDir,
+        createPageUrl,
+        metadata,
+        productCategory,
+        basicMetadata,
+        shopFolder,
+        assets,
+        guardUnexpectedFieldChanges: basicInfoGuardUnexpectedFieldChanges,
+        emitProgress: emitPublishFlowProgress
       }
+    );
+    page = basicResult.page;
+    createPageUrl = basicResult.createPageUrl;
+    if (basicResult.matchedRowText) {
+      matchedRowText = basicResult.matchedRowText;
     }
-    if (!basicInfoCompleted) {
-      stages.push({ step: "fill_basic_publish_page", status: "failed" });
-      throw new Error("Sequential publish flow stopped: 基础信息模块未完成。");
-    }
-
-    if (productCategory === "保健食品") {
-      logInfo(`publish module started: food_safety (${path.basename(shopFolder)})`);
-      const foodSafetyResult = await fillHealthFoodSafetyAttributesOnPage(page, metadata);
-      if (!foodSafetyResult.ok) {
-        stages.push({ step: "fill_health_food_safety", status: "failed" });
-        throw new Error("Sequential publish flow stopped: 食品安全小模块稳定读回未完成。");
-      }
-      const outerPackagingResult = await uploadHealthFoodOuterPackagingOnPage(page, assets.detailImages);
-      if (!outerPackagingResult.ok) {
-        stages.push({ step: "fill_health_food_safety", status: "failed" });
-        throw new Error(
-          `Sequential publish flow stopped: 食品安全模块未完成。foodSafety=${foodSafetyResult.ok}; outerPackaging=${outerPackagingResult.ok}`
-        );
-      }
-      configuredFields.push("healthFoodSafety", "healthFoodOuterPackaging");
-      stages.push({ step: "fill_health_food_safety", status: "completed" });
-
-      logInfo(`publish module started: category_attributes (${path.basename(shopFolder)})`);
-      const categoryAttributeResult = await fillHealthFoodCategoryAttributesOnPage(page, metadata);
-      if (!categoryAttributeResult.ok) {
-        stages.push({ step: "fill_health_food_category_attributes", status: "failed" });
-        throw new Error("Sequential publish flow stopped: 保健食品类目属性模块未完成。");
-      }
-      configuredFields.push("healthFoodCategoryAttributes");
-      stages.push({ step: "fill_health_food_category_attributes", status: "completed" });
-    }
+    screenshotFiles.push(...basicResult.screenshotFiles);
+    stages.push(...basicResult.stages);
+    filledFields.length = 0;
+    filledFields.push(...basicResult.filledFields);
+    configuredFields.push(...basicResult.configuredFields);
 
     let priceInventoryCompleted = false;
     for (let specAttempt = 0; specAttempt < 2; specAttempt += 1) {
-      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-before-images-${specAttempt + 1}`);
-      await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "before_graphic_module");
       if (specAttempt === 0) {
-        logInfo(`publish module started: graphic_info (${path.basename(shopFolder)})`);
+        logInfo(`publish module started: ${"graphic_info"} (${path.basename(shopFolder)})`);
       }
-      let imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
-      screenshotFiles.push(imageResult.screenshotFile);
-      uploadedGroups = imageResult.uploadedGroups;
-      uploadIssue = imageResult.uploadIssue;
-      if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
-        if (graphicResetAttempt < 1) {
-          logWarn(
-            `Graphic module did not reach a clean completed state; resetting the current graphic module before retry. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
-          );
-          await waitForPublishCreatePageReady(
-            page,
-            runtimeDir,
-            createPageUrl,
-            "publish-before-graphic-reset"
-          );
-          screenshotFiles.push(
-            await resetGraphicModuleOnPage(page, runtimeDir, "publish-page-graphic-module-reset-before-retry.png")
-          );
-          stages.push({ step: "reset_graphic_module_after_upload_failure", status: "completed" });
-          imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded-after-reset.png");
-          screenshotFiles.push(imageResult.screenshotFile);
-          uploadedGroups = imageResult.uploadedGroups;
-          uploadIssue = imageResult.uploadIssue;
+      const graphicResult = await runGraphicInfoAction(
+        {
+          waitForPublishCreatePageReady,
+          assertBasicPublishCompletionOnPage,
+          uploadProductImagesOnPage,
+          graphicUploadGroupsComplete,
+          resetGraphicModuleOnPage
+        },
+        {
+          page,
+          runtimeDir,
+          createPageUrl,
+          basicMetadata,
+          assets,
+          graphicResetAttempt,
+          specAttempt,
+          logWarn
         }
-      }
-      if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
-        stages.push({ step: "upload_product_images", status: "failed" });
-        throw new Error(
-          `Sequential publish flow stopped: 图文信息模块未完成。${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
-        );
-      }
-      if (specAttempt === 0) {
-        stages.push({ step: "upload_product_images", status: "completed" });
-      }
+      );
+      screenshotFiles.push(...graphicResult.screenshotFiles);
+      stages.push(...graphicResult.stages);
+      uploadedGroups = graphicResult.uploadedGroups;
+      uploadIssue = graphicResult.uploadIssue;
 
       if (productCategory === "保健食品") {
         if (specAttempt === 0) {
-          logInfo(`publish module started: shipping_and_spec (${path.basename(shopFolder)})`);
-        }
-        const shippingRule = await applyHealthFoodShippingBeforeSpecOnPage(page);
-        if (!shippingRule.passed) {
-          stages.push({ step: "apply_health_food_shipping_before_spec", status: "failed" });
-          throw new Error(`Sequential publish flow stopped: 发货与规格前置模块未完成。${shippingRule.issue}`);
-        }
-        if (specAttempt === 0) {
-          configuredFields.push("healthFoodShippingMode", "healthFoodShippingTime");
-          stages.push({ step: "apply_health_food_shipping_before_spec", status: "completed" });
+          logInfo(`publish module started: ${"shipping_and_spec"} (${path.basename(shopFolder)})`);
         }
       }
 
-      const specResult = await applyFixedSpecsOnPage(page, runtimeDir, "publish-page-spec-editor.png", metadata.title);
-      screenshotFiles.push(specResult.screenshotFile);
-      configuredFields.push(...specResult.configuredFields);
-      specTypeOptions = specResult.specTypeOptions;
-      specIssue = specResult.specIssue;
-      if (productCategory === "保健食品" && !specIssue) {
-        const healthFoodSpecResult = await applyHealthFoodSpecificationOnPage(page, metadata);
-        if (!healthFoodSpecResult.ok) {
-          specIssue = `Health-food full specification readback mismatch: expected=${
-            healthFoodSpecResult.expectedValue || "<empty>"
-          } actual=${healthFoodSpecResult.readbackValue || "<empty>"}`;
-        } else {
-          configuredFields.push("healthFoodSpecification");
+      const specPriceResult = await runSpecPriceAction(
+        {
+          queryPlatformSpu,
+          reuseOrOpenCreatePage: (targetContext, targetCreatePageUrl, currentPage) =>
+            reuseOrOpenCreatePage(targetContext as Awaited<ReturnType<typeof launchPersistentBrowser>>, targetCreatePageUrl, currentPage),
+          waitForPublishCreatePageReady,
+          verifyCategoryRegistrationGateOnPage,
+          fillBasicPublishPageOnPage,
+          assertBasicPublishCompletionOnPage,
+          gotoWithTolerance,
+          applyHealthFoodShippingBeforeSpecOnPage,
+          applyFixedSpecsOnPage,
+          applyHealthFoodSpecificationOnPage,
+          readSpecModuleErrorOnPage,
+          evaluatePriceInventoryEntryRule,
+          applyPriceInventoryOnPage,
+          evaluatePriceInventoryCompletion
+        },
+        {
+          page,
+          runtimeDir,
+          createPageUrl,
+          metadata,
+          categoryContext,
+          shopFolder,
+          priceInventoryRows,
+          specAttempt
         }
+      );
+      page = specPriceResult.page;
+      createPageUrl = specPriceResult.createPageUrl;
+      if (specPriceResult.matchedRowText) {
+        matchedRowText = specPriceResult.matchedRowText;
       }
-      const specModuleError = await readSpecModuleErrorOnPage(page).catch(() => "");
-      if (!specIssue && specModuleError) {
-        specIssue = `Spec module error detected: ${specModuleError}`;
-      }
-
-      const priceEntryRule = evaluatePriceInventoryEntryRule({ specIssue });
-      if (priceEntryRule.action === "block_until_spec_template_complete" && specAttempt === 0) {
-        await gotoWithTolerance(page, createPageUrl, 3500);
-        if (basicMetadata.modelSpec) {
-          await verifyCategoryRegistrationGateOnPage(
-            page,
-            runtimeDir,
-            metadata.spu,
-            "publish-page-category-registration-mismatch.png"
-          );
-        }
-        if (basicMetadata.title || basicMetadata.shortTitle || basicMetadata.modelSpec) {
-          const refillResult = await fillBasicPublishPageOnPage(
-            page,
-            runtimeDir,
-            basicMetadata,
-            "publish-page-basic-filled.png",
-            undefined,
-            basicInfoGuardUnexpectedFieldChanges
-          );
-          screenshotFiles.push(refillResult.screenshotFile);
-          filledFields.length = 0;
-          filledFields.push(...refillResult.filledFields);
-        }
+      screenshotFiles.push(...specPriceResult.screenshotFiles);
+      stages.push(...specPriceResult.stages);
+      configuredFields.push(...specPriceResult.configuredFields);
+      specTypeOptions = specPriceResult.specTypeOptions;
+      specIssue = specPriceResult.specIssue;
+      filledPriceRows = specPriceResult.filledPriceRows;
+      priceIssue = specPriceResult.priceIssue;
+      if (specPriceResult.shouldRetryFromSpecTemplate) {
         continue;
       }
-      if (priceEntryRule.action === "block_until_spec_template_complete") {
-        break;
-      }
-
-      await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "before_price_inventory_module");
-      logInfo(`publish module started: price_inventory (${path.basename(shopFolder)})`);
-      const priceInventoryResult = await applyPriceInventoryOnPage(
-        page,
-        runtimeDir,
-        "publish-page-price-inventory-filled.png",
-        priceInventoryRows
-      );
-      screenshotFiles.push(priceInventoryResult.screenshotFile);
-      filledPriceRows = priceInventoryResult.filledRows;
-      priceIssue = priceInventoryResult.priceIssue;
-      const priceRule = evaluatePriceInventoryCompletion({
-        filledPriceRows,
-        expectedRows: priceInventoryRows.length,
-        priceIssue,
-        specIssue
-      });
-      if (priceRule.passed) {
+      if (specPriceResult.completed) {
         priceInventoryCompleted = true;
         break;
-      }
-      if (specAttempt === 0 && specIssue) {
-        continue;
       }
       break;
     }
@@ -8463,174 +4892,61 @@ async function runPublishFlow(
     }
     stages.push({ step: "apply_price_inventory", status: "completed" });
 
-    try {
-      await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "before_service_module");
-    } catch {
-      if (basicMetadata.title || basicMetadata.shortTitle || basicMetadata.modelSpec) {
-        const refillResult = await fillBasicPublishPageOnPage(
-          page,
-          runtimeDir,
-          basicMetadata,
-          "publish-page-basic-refilled-before-service.png",
-          undefined,
-          basicInfoGuardUnexpectedFieldChanges
-        );
-        screenshotFiles.push(refillResult.screenshotFile);
-        filledFields.length = 0;
-        filledFields.push(...refillResult.filledFields);
-      }
-      await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "before_service_module");
-    }
-
-    logInfo(`publish module started: service_fulfillment (${path.basename(shopFolder)})`);
-    const settingsResult = await applyFixedPublishSettingsOnPage(
-      page,
-      runtimeDir,
-      "publish-page-fixed-settings.png",
-      productCategory === "保健食品" ? undefined : metadata.spu
-    );
-    screenshotFiles.push(settingsResult.screenshotFile);
-    configuredFields.push(...settingsResult.configuredFields);
-    freightTemplateName = settingsResult.freightTemplateName;
-    const serviceState = settingsResult.serviceState;
-    const serviceRule = evaluateServiceFulfillmentCompletion(serviceState);
-    if (!serviceRule.passed) {
-      stages.push({ step: "apply_fixed_publish_settings", status: "failed" });
-      throw new Error(`Sequential publish flow stopped: 服务与履约模块未完成。${serviceRule.issue}`);
-    }
-    stages.push({ step: "apply_fixed_publish_settings", status: "completed" });
-
-    if (productCategory === "保健食品") {
-      logInfo(`publish module started: packaging_label (${path.basename(shopFolder)})`);
-      const packagingLabelResult = await uploadHealthFoodPackagingLabelOnPage(page, assets.detailImages);
-      if (!packagingLabelResult.ok) {
-        stages.push({ step: "upload_health_food_packaging_label", status: "failed" });
-        throw new Error("Sequential publish flow stopped: 保健食品包装标签模块未完成。");
-      }
-      configuredFields.push("healthFoodPackagingLabel");
-      stages.push({ step: "upload_health_food_packaging_label", status: "completed" });
-    }
-
-    if (productCategory === "医疗器械") {
-      const medicalCertificateResult = await ensureMedicalDeviceCertificateFromFirstQualification(
+    logInfo(`publish module started: ${"service_fulfillment"} (${path.basename(shopFolder)})`);
+    const serviceResult = await runServiceAction(
+      {
+        assertBasicPublishCompletionOnPage,
+        fillBasicPublishPageOnPage,
+        applyFixedPublishSettingsOnPage,
+        evaluateServiceFulfillmentCompletion,
+        uploadHealthFoodPackagingLabelOnPage,
+        ensureMedicalDeviceCertificateFromFirstQualification
+      },
+      {
         page,
         runtimeDir,
-        assets
-      );
-      if (medicalCertificateResult.screenshotFile) {
-        screenshotFiles.push(medicalCertificateResult.screenshotFile);
+        metadata,
+        categoryContext,
+        assets,
+        filledFields
       }
-      if (!medicalCertificateResult.completed) {
-        stages.push({ step: "apply_medical_device_certificate", status: "failed" });
-        throw new Error(`Sequential publish flow stopped: 其他信息模块未完成。${medicalCertificateResult.issue}`);
-      }
-      if (medicalCertificateResult.configuredField) {
-        configuredFields.push(medicalCertificateResult.configuredField);
-      }
-      stages.push({ step: "apply_medical_device_certificate", status: "completed" });
-    }
-
-    if (productCategory === "保健食品") {
-      checkPassed = true;
-      checkMessage = "Health-food packaging label upload matched Feishu qualification image count; submit without fill-check gating.";
-      checkHints = [];
-      blockingFields = [];
-    } else {
-      const checkResult = await runPublishCheckOnPage(page, runtimeDir, "publish-page-fill-check.png");
-      screenshotFiles.push(checkResult.screenshotFile);
-      checkPassed = checkResult.checkPassed;
-      checkMessage = checkResult.checkMessage;
-      checkHints = checkResult.checkHints;
-      blockingFields = checkResult.blockingFields;
-      const completedFieldSet = new Set<string>([
-        ...filledFields,
-        ...configuredFields,
-        ...(filledPriceRows > 0 ? ["\u4ef7\u683c", "\u73b0\u8d27\u5e93\u5b58"] : []),
-        ...(freightTemplateName ? ["\u8fd0\u8d39\u6a21\u677f"] : [])
-      ]);
-      blockingFields = blockingFields.filter((field) => {
-        if (field === "\u578b\u53f7\u89c4\u683c" && completedFieldSet.has("modelSpec")) {
-          return false;
-        }
-        if ((field === "\u4ef7\u683c" || field === "\u73b0\u8d27\u5e93\u5b58") && filledPriceRows > 0) {
-          return false;
-        }
-        if (field === "\u8fd0\u8d39\u6a21\u677f" && freightTemplateName) {
-          return false;
-        }
-        if (field === "\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1" && completedFieldSet.has("medicalDeviceCertificate")) {
-          return false;
-        }
-        return true;
-      });
-      if (!blockingFields.length && !uploadIssue && !specIssue && !priceIssue) {
-        checkPassed = true;
-        checkMessage = "Publish check indicates the page is ready to submit.";
-      }
-      if (checkPassed && !blockingFields.length && specIssue) {
-        specIssue = "";
-      }
-      const publishCheckRule = evaluatePublishCheckResult({
-        checkPassed,
-        blockingFields,
-        uploadIssue,
-        specIssue,
-        priceIssue
-      });
-      if (!publishCheckRule.passed) {
-        stages.push({ step: "run_publish_check", status: "failed" });
-        throw new Error(`Sequential publish flow stopped: 模块校验未通过。${checkMessage} ${publishCheckRule.issue}`);
-      }
-      stages.push({ step: "run_publish_check", status: "completed" });
-    }
+    );
+    screenshotFiles.push(...serviceResult.screenshotFiles);
+    stages.push(...serviceResult.stages);
+    configuredFields.push(...serviceResult.configuredFields);
+    freightTemplateName = serviceResult.freightTemplateName;
 
     if (!stopBeforePublish) {
       logInfo(`publish module started: final_submit (${path.basename(shopFolder)})`);
-      const publishResult = await clickPublishProductOnPage(page, runtimeDir, "publish-page-published.png");
-      if (publishResult.screenshotFile) {
-        screenshotFiles.push(publishResult.screenshotFile);
-      }
-      publishClicked = publishResult.publishClicked;
-      publishClickAttempted = publishResult.publishClickAttempted;
-      publishIssue = publishResult.publishIssue;
-      if (!publishClicked || publishIssue) {
-        if (!publishClickAttempted) {
-          stages.push({ step: "click_publish_product", status: "failed" });
-          throw new Error(`Sequential publish flow stopped: 最终发布动作未完成。${publishIssue}`);
-        }
-        stages.push({ step: "click_publish_product", status: "completed" });
-        stages.push({ step: "verify_publish_result", status: "failed" });
-      } else {
-        stages.push({ step: "click_publish_product", status: "completed" });
-      }
-    } else {
-      const stopScreenshot = await savePageScreenshot(page, runtimeDir, "publish-page-ready-before-submit.png");
-      screenshotFiles.push(stopScreenshot);
-      stages.push({ step: "ready_before_publish", status: "completed" });
     }
-
-    const inspectResult =
-      publishClickAttempted && !publishClicked
-        ? {
-            pageUrl: page.url(),
-            pageTitle: await page.title().catch(() => ""),
-            screenshotFile: "",
-            sections: [] as string[],
-            topActions: [] as string[],
-            errorHints: publishIssue ? [publishIssue] : []
-          }
-        : await inspectPublishPageOnPage(page, runtimeDir, "publish-page-inspect.png");
-    if (inspectResult.screenshotFile) {
-      screenshotFiles.push(inspectResult.screenshotFile);
-    }
-    stages.push({
-      step: "inspect_publish_page",
-      status: publishClickAttempted && !publishClicked ? "failed" : "completed"
-    });
+    const submitResult = await runSubmitAction(
+      {
+        runPublishCheckOnPage,
+        evaluatePublishCheckResult,
+        clickPublishProductOnPage,
+        inspectPublishPageOnPage,
+        savePageScreenshot
+      },
+      {
+        page,
+        runtimeDir,
+        stopBeforePublish,
+        categoryContext,
+        filledFields,
+        configuredFields,
+        filledPriceRows,
+        freightTemplateName,
+        uploadIssue,
+        specIssue,
+        priceIssue
+      }
+    );
+    screenshotFiles.push(...submitResult.screenshotFiles);
+    stages.push(...submitResult.stages);
 
     return {
-      pageUrl: inspectResult.pageUrl,
-      pageTitle: inspectResult.pageTitle,
+      pageUrl: submitResult.pageUrl,
+      pageTitle: submitResult.pageTitle,
       screenshotFiles,
       createPageUrl,
       matchedRowText,
@@ -8642,17 +4958,17 @@ async function runPublishFlow(
       specIssue,
       filledPriceRows,
       priceIssue,
-      checkPassed,
-      checkMessage,
-      checkHints,
-      blockingFields,
-      publishClicked,
-      publishClickAttempted,
-      publishIssue,
+      checkPassed: submitResult.checkPassed,
+      checkMessage: submitResult.checkMessage,
+      checkHints: submitResult.checkHints,
+      blockingFields: submitResult.blockingFields,
+      publishClicked: submitResult.publishClicked,
+      publishClickAttempted: submitResult.publishClickAttempted,
+      publishIssue: submitResult.publishIssue,
       freightTemplateName,
-      sections: inspectResult.sections,
-      topActions: inspectResult.topActions,
-      errorHints: inspectResult.errorHints,
+      sections: submitResult.sections,
+      topActions: submitResult.topActions,
+      errorHints: submitResult.errorHints,
       stages
     };
   } finally {
@@ -8662,7 +4978,7 @@ async function runPublishFlow(
 
 async function runGraphicFlow(
   runtimeDir: string,
-  metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string; productPriceText?: string },
+  metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string; productPriceText?: string; productCategory?: string },
   assets: ProductAssets,
   shopFolder: string,
   publishPageUrl?: string,
@@ -8686,129 +5002,110 @@ async function runGraphicFlow(
   const filledFields: string[] = [];
   let uploadedGroups: string[] = [];
   let uploadIssue = "";
-
-  let createPageUrl = publishPageUrl || "";
+  let createPageUrl = "";
   let matchedRowText = "";
-
-  if (!createPageUrl) {
-    const queryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
-    screenshotFiles.push(queryResult.screenshotFile);
-    createPageUrl = queryResult.createPageUrl;
-    matchedRowText = queryResult.matchedRowText;
-    stages.push({ step: "query_platform_spu", status: "completed" });
-  }
+  const productCategory = normalizeProductCategory(metadata.productCategory);
+  const actionMetadata: ResolvedPublishFromSpuMetadata = {
+    brand: metadata.brand,
+    spu: metadata.spu,
+    title: metadata.title || "",
+    shortTitle: metadata.shortTitle || "",
+    modelSpec: metadata.modelSpec || "",
+    productPriceText: metadata.productPriceText || "",
+    productCategory
+  };
+  const basicMetadata = {
+    title: actionMetadata.title,
+    shortTitle: actionMetadata.shortTitle,
+    modelSpec: actionMetadata.modelSpec,
+    spu: actionMetadata.spu
+  };
 
   const context = await launchPersistentBrowser();
   try {
-    let page = await reuseOrOpenCreatePage(context, createPageUrl);
-    await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "graphic-initial");
-    await ensureShopContext(page, runtimeDir, shopFolder);
-    let basicInfoCompleted = false;
-    for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1) {
-      if (basicAttempt > 0) {
-        page = await reuseOrOpenCreatePage(context, createPageUrl, page);
+    const shopSpuDeps = createDefaultShopSpuActionDeps();
+    const shopSpuResult = await runShopSpuAction(
+      shopSpuDeps,
+      {
+        context,
+        runtimeDir,
+        metadata: actionMetadata,
+        shopFolder,
+        publishPageUrl
       }
-      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `graphic-basic-${basicAttempt + 1}`, 3, {
-        allowPageNavigationRecovery: basicAttempt > 0
-      });
+    );
+    screenshotFiles.push(...shopSpuResult.screenshotFiles);
+    stages.push(...shopSpuResult.stages);
+    let page = shopSpuResult.page;
+    createPageUrl = shopSpuResult.createPageUrl;
+    matchedRowText = shopSpuResult.matchedRowText;
 
-      try {
-        await assertBasicPrefillReadyOnPage(page, metadata);
-        await verifyCategoryRegistrationGateOnPage(
-          page,
-          runtimeDir,
-          metadata.spu,
-          "publish-page-category-registration-mismatch.png"
-        );
-        if (metadata.title || metadata.shortTitle || metadata.modelSpec) {
-          const fillResult = await fillBasicPublishPageOnPage(
-            page,
-            runtimeDir,
-            {
-              title: metadata.title,
-              shortTitle: metadata.shortTitle,
-              modelSpec: metadata.modelSpec,
-              spu: metadata.spu
-            },
-            "publish-page-basic-filled.png"
-          );
-          screenshotFiles.push(fillResult.screenshotFile);
-          filledFields.length = 0;
-          filledFields.push(...fillResult.filledFields);
-          const missingBasicFields = [
-            metadata.title ? "title" : "",
-            metadata.shortTitle ? "shortTitle" : "",
-            metadata.modelSpec ? "modelSpec" : ""
-          ]
-            .filter(Boolean)
-            .filter((field) => !filledFields.includes(field));
-          if (missingBasicFields.length) {
-            throw new Error(`基础信息模块缺失字段: ${missingBasicFields.join(", ")}`);
-          }
-        }
-        await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "after_basic_fill");
-        stages.push({ step: "fill_basic_publish_page", status: "completed" });
-        basicInfoCompleted = true;
-        break;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (error instanceof PublishCreatePageReopenRequiredError && basicAttempt === 0) {
-          const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
-          screenshotFiles.push(retryQueryResult.screenshotFile);
-          createPageUrl = retryQueryResult.createPageUrl;
-          matchedRowText = retryQueryResult.matchedRowText;
-          page = await reuseOrOpenCreatePage(context, createPageUrl, page);
-          continue;
-        }
-        const categoryMismatch = message.includes("Category registration mismatch before modelSpec fill.");
-        if (categoryMismatch && basicAttempt === 0) {
-          const retryQueryResult = await queryPlatformSpu(runtimeDir, metadata.brand, metadata.spu, shopFolder);
-          screenshotFiles.push(retryQueryResult.screenshotFile);
-          createPageUrl = retryQueryResult.createPageUrl;
-          matchedRowText = retryQueryResult.matchedRowText;
-          continue;
-        }
-        stages.push({ step: "fill_basic_publish_page", status: "failed" });
-        throw new Error(`Graphic flow stopped: 基础信息模块未完成。${message}`);
+    const basicResult = await runBasicInfoAction(
+      {
+        queryPlatformSpu,
+        reuseOrOpenCreatePage: (targetContext, targetCreatePageUrl, currentPage) =>
+          reuseOrOpenCreatePage(targetContext as Awaited<ReturnType<typeof launchPersistentBrowser>>, targetCreatePageUrl, currentPage),
+        waitForPublishCreatePageReady,
+        assertBasicPrefillReadyOnPage,
+        verifyCategoryRegistrationGateOnPage,
+        fillBasicPublishPageOnPage,
+        assertBasicPublishCompletionOnPage,
+        isPublishCreatePageReopenRequiredError: (error) => error instanceof PublishCreatePageReopenRequiredError,
+        logInfo,
+        fillHealthFoodSafetyAttributesOnPage,
+        uploadHealthFoodOuterPackagingOnPage,
+        fillHealthFoodCategoryAttributesOnPage
+      },
+      {
+        page,
+        runtimeDir,
+        createPageUrl,
+        metadata: actionMetadata,
+        productCategory,
+        basicMetadata,
+        shopFolder,
+        assets,
+        guardUnexpectedFieldChanges: true,
+        emitProgress: () => {},
+        failurePrefix: "Graphic flow stopped"
       }
+    );
+    page = basicResult.page;
+    createPageUrl = basicResult.createPageUrl;
+    if (basicResult.matchedRowText) {
+      matchedRowText = basicResult.matchedRowText;
     }
-    if (!basicInfoCompleted) {
-      stages.push({ step: "fill_basic_publish_page", status: "failed" });
-      throw new Error("Graphic flow stopped: 基础信息模块未完成。");
-    }
+    screenshotFiles.push(...basicResult.screenshotFiles);
+    stages.push(...basicResult.stages);
+    filledFields.push(...basicResult.filledFields);
 
-    await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "graphic-before-images");
-    await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_graphic_module");
-    let imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded.png");
-    screenshotFiles.push(imageResult.screenshotFile);
-    uploadedGroups = imageResult.uploadedGroups;
-    uploadIssue = imageResult.uploadIssue;
-    if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
-      if (graphicResetAttempt < 1) {
-        logWarn(
-          `Graphic module did not reach a clean completed state; resetting the current graphic module before retry. issue=${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`
-        );
-        await waitForPublishCreatePageReady(
-          page,
-          runtimeDir,
-          createPageUrl,
-          "graphic-before-graphic-reset"
-        );
-        screenshotFiles.push(
-          await resetGraphicModuleOnPage(page, runtimeDir, "publish-page-graphic-module-reset-before-retry.png")
-        );
-        stages.push({ step: "reset_graphic_module_after_upload_failure", status: "completed" });
-        imageResult = await uploadProductImagesOnPage(page, runtimeDir, assets, "publish-page-images-uploaded-after-reset.png");
-        screenshotFiles.push(imageResult.screenshotFile);
-        uploadedGroups = imageResult.uploadedGroups;
-        uploadIssue = imageResult.uploadIssue;
+    const graphicResult = await runGraphicInfoAction(
+      {
+        waitForPublishCreatePageReady,
+        assertBasicPublishCompletionOnPage,
+        uploadProductImagesOnPage,
+        graphicUploadGroupsComplete,
+        resetGraphicModuleOnPage
+      },
+      {
+        page,
+        runtimeDir,
+        createPageUrl,
+        basicMetadata,
+        assets,
+        graphicResetAttempt,
+        specAttempt: 0,
+        logWarn,
+        failurePrefix: "Graphic flow stopped"
       }
+    );
+    screenshotFiles.push(...graphicResult.screenshotFiles);
+    stages.push(...graphicResult.stages);
+    uploadedGroups = graphicResult.uploadedGroups;
+    uploadIssue = graphicResult.uploadIssue;
+    if (!stages.some((stage) => stage.step === "upload_product_images" && stage.status === "completed")) {
+      stages.push({ step: "upload_product_images", status: "completed" });
     }
-    if (uploadIssue || !graphicUploadGroupsComplete(uploadedGroups)) {
-      stages.push({ step: "upload_product_images", status: "failed" });
-      throw new Error(`Graphic flow stopped: 图文信息模块未完成。${uploadIssue || "Main/white-background/detail image groups were not uploaded successfully."}`);
-    }
-    stages.push({ step: "upload_product_images", status: "completed" });
 
     const inspectResult = await inspectPublishPageOnPage(page, runtimeDir, "publish-page-graphic-flow-inspect.png");
     screenshotFiles.push(inspectResult.screenshotFile);

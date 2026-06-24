@@ -80,7 +80,10 @@ const loginFailureClass = classifyPublishFailure("Doudian login required: open t
 assert.equal(loginFailureClass, "doudian_login_required");
 assert.equal(shouldRetryPublishFailure(loginFailureClass, 0), false);
 
-const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishSource = [
+  fs.readFileSync("src/business/publish-from-spu.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/platform-spu-query-action.ts", "utf8")
+].join("\n");
 assert.match(
   publishSource,
   /evaluatePlatformSpuQueryPageReadiness/,

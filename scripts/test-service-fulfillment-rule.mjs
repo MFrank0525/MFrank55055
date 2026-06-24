@@ -5,9 +5,10 @@ import {
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 
 const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const serviceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8");
 
 assert.match(
-  publishSource,
+  serviceActionSource,
   /before_service_module/,
   "publish flow must re-check basic info before entering service fulfillment"
 );

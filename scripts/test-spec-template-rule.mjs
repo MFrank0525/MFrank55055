@@ -121,7 +121,20 @@ assert.deepEqual(
   "price/inventory rows must treat the first editable non-code input as price even when its placeholder is only 请输入"
 );
 
-const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishSource = [
+  fs.readFileSync("src/business/publish-from-spu.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/price-inventory-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/publish-section-navigation.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8")
+].join("\n");
+const publishActionSource = [
+  publishSource,
+  fs.readFileSync("src/business/publish-from-spu/actions/basic-info-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/actions/graphic-info-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/actions/spec-price-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/actions/submit-action.ts", "utf8")
+].join("\n");
 for (const obsoleteAction of [
   "createFixedSpecTypeAndValues",
   "fillSpecEditorText",
@@ -197,13 +210,13 @@ assert.match(
 );
 
 assert.match(
-  publishSource,
+  publishActionSource,
   /assertBasicPublishCompletionOnPage\([\s\S]*before_graphic_module/,
   "publish flow must gate entry into graphic/image module on completed basic info"
 );
 
 assert.match(
-  publishSource,
+  publishActionSource,
   /assertBasicPublishCompletionOnPage\([\s\S]*before_price_inventory_module/,
   "publish flow must re-check earlier basic info before entering price/inventory"
 );

@@ -114,7 +114,11 @@ const hermesSupervisorSource = fs.readFileSync("src/cli/auto-listing-supervisor.
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
-const publishFromSpuSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const publishFromSpuSource = [
+  fs.readFileSync("src/business/publish-from-spu.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/price-inventory-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/publish-section-navigation.ts", "utf8")
+].join("\n");
 const publishAssetsSource = fs.readFileSync("src/business/publish-from-spu/assets.ts", "utf8");
 const feishuAssetsSource = fs.readFileSync("src/feishu/assets.ts", "utf8");
 const autoListingCliSource = fs.readFileSync("src/cli/auto-listing.ts", "utf8");

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const source = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const source = [
+  fs.readFileSync("src/business/publish-from-spu.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/shop-switch-action.ts", "utf8")
+].join("\n");
 
 function functionBody(name) {
   const match = source.match(new RegExp(`async function ${name}\\([\\s\\S]*?\\n}\\n(?=\\nasync function|\\nfunction|\\ninterface|\\ntype|$)`));

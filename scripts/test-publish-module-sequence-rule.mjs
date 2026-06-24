@@ -2,14 +2,23 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const publishSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
+const actionSources = [
+  "src/business/publish-from-spu/actions/shop-spu-action.ts",
+  "src/business/publish-from-spu/actions/basic-info-action.ts",
+  "src/business/publish-from-spu/actions/graphic-info-action.ts",
+  "src/business/publish-from-spu/actions/spec-price-action.ts",
+  "src/business/publish-from-spu/actions/service-action.ts",
+  "src/business/publish-from-spu/actions/submit-action.ts"
+].map((file) => fs.readFileSync(file, "utf8"));
+const publishActionSource = [publishSource, ...actionSources].join("\n");
 const autolistPublishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 
-function sliceFunction(name) {
-  const start = publishSource.indexOf(`async function ${name}`);
+function sliceFunction(name, source = publishSource) {
+  const start = source.indexOf(`async function ${name}`);
   assert.notEqual(start, -1, `function not found: ${name}`);
-  const next = publishSource.indexOf("\nasync function ", start + 1);
-  return publishSource.slice(start, next === -1 ? publishSource.length : next);
+  const next = source.indexOf("\nasync function ", start + 1);
+  return source.slice(start, next === -1 ? source.length : next);
 }
 
 const basicGateSource = sliceFunction("assertBasicPublishCompletionOnPage");
@@ -64,29 +73,28 @@ assert.doesNotMatch(
 );
 
 const publishFlowSource = sliceFunction("runPublishFlow");
-for (const marker of [
-  "publish module started: basic_info",
-  "publish module started: graphic_info",
-  "publish module started: price_inventory",
-  "publish module started: service_fulfillment",
-  "publish module started: final_submit"
+for (const action of [
+  "runShopSpuAction",
+  "runBasicInfoAction",
+  "runGraphicInfoAction",
+  "runSpecPriceAction",
+  "runServiceAction",
+  "runSubmitAction"
 ]) {
-  assert.match(
-    publishFlowSource,
-    new RegExp(marker),
-    `publish flow must emit business progress heartbeat: ${marker}`
-  );
+  assert.match(publishFlowSource, new RegExp(`${action}\\(`), `publish flow must delegate to ${action}`);
 }
-const publishBasicLoop = publishFlowSource.indexOf("for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1)");
+
+const basicActionSource = sliceFunction("runBasicInfoAction", actionSources.join("\n"));
+const publishBasicLoop = basicActionSource.indexOf("for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1)");
 assert.match(
-  publishFlowSource.slice(0, publishBasicLoop),
-  /let page = await reuseOrOpenCreatePage\(context, createPageUrl\)/,
+  publishFlowSource,
+  /runShopSpuAction\([\s\S]*reuseOrOpenCreatePage/,
   "publish flow must reuse the create page opened by the platform SPU publish action"
 );
 assert.notEqual(publishBasicLoop, -1, "publish flow basic-info retry loop not found");
-const publishBasicFirstAttemptWindow = publishFlowSource.slice(
+const publishBasicFirstAttemptWindow = basicActionSource.slice(
   publishBasicLoop,
-  publishFlowSource.indexOf("const fillResult = await fillBasicPublishPageOnPage", publishBasicLoop)
+  basicActionSource.indexOf("const fillResult = await deps.fillBasicPublishPageOnPage", publishBasicLoop)
 );
 assert.doesNotMatch(
   publishBasicFirstAttemptWindow,
@@ -95,7 +103,7 @@ assert.doesNotMatch(
 );
 assert.match(
   publishBasicFirstAttemptWindow,
-  /if \(basicAttempt > 0\)[\s\S]*reuseOrOpenCreatePage\(context, createPageUrl, page\)/,
+  /if \(basicAttempt > 0\)[\s\S]*reuseOrOpenCreatePage\(page\.context\(\), createPageUrl, page\)/,
   "publish flow must reuse a newly SPU-opened create page on an explicit basic-info retry"
 );
 assert.match(
@@ -104,8 +112,8 @@ assert.match(
   "publish flow must not let the first basic-info readiness check reload the already-ready create page"
 );
 assert.match(
-  publishFlowSource,
-  /emitPublishFlowProgress\([\s\S]*basic_info_attempt[\s\S]*basicAttempt \+ 1/,
+  basicActionSource,
+  /input\.emitProgress\("basic_info_attempt"[\s\S]*basicAttempt \+ 1/,
   "basic-info attempts must emit progress heartbeats so Hermes watchdog does not kill a live Doudian recovery"
 );
 assert.match(
@@ -123,64 +131,42 @@ assert.match(
   /const metadata = metadataByTargetKey\.get\(targetKey\)[\s\S]*runPublishFromSpuJob\([\s\S]*metadata,/,
   "auto-listing publish must pass the fully built Feishu metadata into Doudian publish jobs"
 );
-const publishBasicCatchWindow = publishFlowSource.slice(
-  publishFlowSource.indexOf("} catch (error) {", publishBasicLoop),
-  publishFlowSource.indexOf("if (!basicInfoCompleted)", publishBasicLoop)
+const publishBasicCatchWindow = basicActionSource.slice(
+  basicActionSource.indexOf("} catch (error) {", publishBasicLoop),
+  basicActionSource.indexOf("if (!basicInfoCompleted)", publishBasicLoop)
 );
 assert.match(
   publishBasicCatchWindow,
-  /PublishCreatePageReopenRequiredError[\s\S]*queryPlatformSpu/,
+  /isPublishCreatePageReopenRequiredError[\s\S]*queryPlatformSpu/,
   "publish flow must reopen an incomplete SPU-prefilled page from the platform SPU row"
 );
 
 const graphicFlowSource = sliceFunction("runGraphicFlow");
-const graphicBasicLoop = graphicFlowSource.indexOf("for (let basicAttempt = 0; basicAttempt < 2; basicAttempt += 1)");
-assert.match(
-  graphicFlowSource.slice(0, graphicBasicLoop),
-  /let page = await reuseOrOpenCreatePage\(context, createPageUrl\)/,
-  "graphic flow must reuse the create page opened by the platform SPU publish action"
-);
-assert.notEqual(graphicBasicLoop, -1, "graphic flow basic-info retry loop not found");
-const graphicBasicFirstAttemptWindow = graphicFlowSource.slice(
-  graphicBasicLoop,
-  graphicFlowSource.indexOf("const fillResult = await fillBasicPublishPageOnPage", graphicBasicLoop)
-);
+for (const action of ["runShopSpuAction", "runBasicInfoAction", "runGraphicInfoAction"]) {
+  assert.match(graphicFlowSource, new RegExp(`${action}\\(`), `graphic flow must delegate to ${action}`);
+}
 assert.doesNotMatch(
-  graphicBasicFirstAttemptWindow,
-  /for \(let basicAttempt = 0; basicAttempt < 2; basicAttempt \+= 1\) \{\s*await gotoWithTolerance\(page, createPageUrl, 3500\);/,
-  "graphic flow must reuse the already-ready create page on the first basic-info attempt instead of immediately reloading it"
+  graphicFlowSource,
+  /for \(let basicAttempt = 0; basicAttempt < 2; basicAttempt \+= 1\)/,
+  "graphic flow must not keep a second copy of the basic-info retry loop"
 );
 assert.match(
-  graphicBasicFirstAttemptWindow,
-  /if \(basicAttempt > 0\)[\s\S]*reuseOrOpenCreatePage\(context, createPageUrl, page\)/,
-  "graphic flow must reuse a newly SPU-opened create page on an explicit basic-info retry"
-);
-assert.match(
-  graphicBasicFirstAttemptWindow,
-  /waitForPublishCreatePageReady\([\s\S]*allowPageNavigationRecovery: basicAttempt > 0[\s\S]*\)/,
-  "graphic flow must not let the first basic-info readiness check reload the already-ready create page"
-);
-const graphicBasicCatchWindow = graphicFlowSource.slice(
-  graphicFlowSource.indexOf("} catch (error) {", graphicBasicLoop),
-  graphicFlowSource.indexOf("if (!basicInfoCompleted)", graphicBasicLoop)
-);
-assert.match(
-  graphicBasicCatchWindow,
-  /PublishCreatePageReopenRequiredError[\s\S]*queryPlatformSpu/,
-  "graphic flow must reopen an incomplete SPU-prefilled page from the platform SPU row"
+  graphicFlowSource,
+  /runBasicInfoAction\([\s\S]*failurePrefix: "Graphic flow stopped"/,
+  "graphic flow must preserve graphic-flow failure wording through the shared basic-info action"
 );
 
 assert.match(
-  publishSource,
+  publishActionSource,
   /resetGraphicModuleOnPage/,
   "graphic upload failures must first reset the current graphic module instead of reopening from platform SPU"
 );
 for (const marker of [
-  'resetGraphicModuleOnPage(page, runtimeDir, "publish-page-graphic-module-reset-before-retry.png")'
+  'resetGraphicModuleOnPage(input.page, input.runtimeDir, "publish-page-graphic-module-reset-before-retry.png")'
 ]) {
-  const resetStart = publishSource.indexOf(marker);
+  const resetStart = publishActionSource.indexOf(marker);
   assert.notEqual(resetStart, -1, `graphic reset call not found: ${marker}`);
-  const resetWindow = publishSource.slice(Math.max(0, resetStart - 700), resetStart);
+  const resetWindow = publishActionSource.slice(Math.max(0, resetStart - 700), resetStart);
   assert.match(
     resetWindow,
     /waitForPublishCreatePageReady/,
@@ -209,26 +195,26 @@ assert.match(
   "the rule layer must explicitly declare that white-background and 3:4 slots are outside the publish flow"
 );
 assert.match(
-  publishSource,
+  publishActionSource,
   /OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW/,
   "the publisher action layer must consume the optional-graphic-section policy from the rule layer"
 );
 assert.doesNotMatch(
-  publishSource,
+  publishActionSource,
   /publish-page-forbidden-graphic-sections-before-main-upload/,
   "graphic upload must not inspect or clear stale white-background/3:4 slots before uploading main images"
 );
 assert.doesNotMatch(
-  publishSource,
+  publishActionSource,
   /Forbidden optional graphic sections still contain images/,
   "white-background/3:4 auto-fill must never become a project-blocking publish error"
 );
 
-const afterMedicalStart = publishSource.indexOf('stages.push({ step: "apply_medical_device_certificate", status: "completed" });');
-const publishClickStart = publishSource.indexOf("const publishResult = await clickPublishProductOnPage", afterMedicalStart);
+const afterMedicalStart = publishActionSource.indexOf('stages.push({ step: "apply_medical_device_certificate", status: "completed" });');
+const publishClickStart = publishActionSource.indexOf("const publishResult = await deps.clickPublishProductOnPage", afterMedicalStart);
 assert.notEqual(afterMedicalStart, -1, "medical certificate stage not found");
 assert.notEqual(publishClickStart, -1, "publish click stage not found");
-const afterMedicalBeforeSubmit = publishSource.slice(afterMedicalStart, publishClickStart);
+const afterMedicalBeforeSubmit = publishActionSource.slice(afterMedicalStart, publishClickStart);
 assert.doesNotMatch(
   afterMedicalBeforeSubmit,
   /verifyForbiddenGraphicSectionsEmptyOnPage/,
