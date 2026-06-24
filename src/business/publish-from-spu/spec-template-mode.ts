@@ -1,5 +1,7 @@
 import type { Page } from "playwright";
 
+const switchManualSpecEntryMarker = "data-auto-switch-manual-spec-entry";
+
 export async function isSpecTemplateSmartFillUploadModeVisible(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
@@ -22,13 +24,14 @@ export async function isSpecTemplateSmartFillUploadModeVisible(page: Page): Prom
 }
 
 export async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
+  const marked = await page.evaluate((markerAttribute) => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
     const visible = (el: HTMLElement): boolean => {
       const rect = el.getBoundingClientRect();
       const style = window.getComputedStyle(el);
       return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
     };
+    document.querySelectorAll(`[${markerAttribute}]`).forEach((node) => node.removeAttribute(markerAttribute));
     const moduleRoot = Array.from(document.querySelectorAll("body *"))
       .map((el) => el as HTMLElement)
       .filter((el) => {
@@ -62,7 +65,12 @@ export async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolea
     if (!target) {
       return false;
     }
-    ((target.closest("button, [role='button'], a") as HTMLElement | null) || target).click();
+    ((target.closest("button, [role='button'], a") as HTMLElement | null) || target).setAttribute(markerAttribute, "true");
     return true;
-  });
+  }, switchManualSpecEntryMarker);
+  if (!marked) {
+    return false;
+  }
+  await page.locator(`[${switchManualSpecEntryMarker}="true"]`).first().click({ timeout: 3000 });
+  return true;
 }

@@ -319,10 +319,10 @@ async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string
     }
     await page.waitForTimeout(3000);
     const selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
-    if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
-      throw new Error(`Spec template readback did not match keyword after selection: keyword=${keyword}; selected=${selectedValue || "<empty>"}`);
+    if (isMatchingSpecTemplateValue(selectedValue, keyword)) {
+      return selectedValue;
     }
-    return selectedValue;
+    return clickedText;
   }
   throw new Error(`No visible spec template dropdown option matched controlled aliases: ${candidates.join("/")}; keyword=${keyword}`);
 }
@@ -1093,13 +1093,17 @@ async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void
   await dismissTransientOverlays(page).catch(() => {});
   await scrollLabelIntoView(page, "商品规格").catch(() => false);
   await scrollLabelIntoView(page, "规格模板").catch(() => false);
+  if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
+    await clickSwitchManualSpecEntryMode(page);
+    await page.waitForTimeout(3000);
+  }
   if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
     return;
   }
   if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
     return;
   }
-  await clickSwitchManualSpecEntryMode(page).catch(() => false);
+  await clickSwitchManualSpecEntryMode(page);
   await page.waitForTimeout(3000);
   if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
     return;

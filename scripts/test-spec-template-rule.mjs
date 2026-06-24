@@ -286,6 +286,7 @@ assert.match(
   "Missing shop template configuration must be diagnosed from the real 商品规格 DOM surface"
 );
 const autoListPublishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
+const specTemplateModeSource = fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8");
 assert.doesNotMatch(
   autoListPublishSource,
   /quarantinedShopFailures|shouldQuarantineShopAfterPublishFailure/,
@@ -298,8 +299,8 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /chooseSpecTemplateKeywordFromDropdown\([\s\S]*readSpecTemplateSelectedValue\(page, keyword\)/,
-  "spec template selection must verify the selected template with the dedicated readback after clicking"
+  /const selectedValue = await readSpecTemplateSelectedValue\(page, keyword\)[\s\S]*if \(isMatchingSpecTemplateValue\(selectedValue, keyword\)\)[\s\S]*return selectedValue[\s\S]*return clickedText/,
+  "spec template selection must prefer selected readback but fall back to the clicked matching option text"
 );
 assert.match(
   publishSource,
@@ -308,21 +309,23 @@ assert.match(
 );
 assert.doesNotMatch(
   publishSource,
-  /async function waitForSpecTemplateSelectionConfirmation|waitForSpecTemplateReadback\(page\)/,
-  "spec template selection must not add confirmation/readback polling around the atomic 3 second wait"
+  /async function waitForSpecTemplateSelectionConfirmation|waitForSpecTemplateReadback\(page\)|Spec template readback did not match keyword after selection/,
+  "spec template selection must not add confirmation/readback polling or fail solely because selected-value readback is empty"
 );
 assert.match(
-  publishSource,
-  /async function clickSwitchManualSpecEntryMode[\s\S]*智能填写助手[\s\S]*切换手动填写[\s\S]*点击 或 拖动 文件到虚线框内上传[\s\S]*querySelectorAll\("button, \[role='button'\], a, body \*"\)/,
+  specTemplateModeSource,
+  /function clickSwitchManualSpecEntryMode[\s\S]*智能填写助手[\s\S]*切换手动填写[\s\S]*点击 或 拖动 文件到虚线框内上传[\s\S]*querySelectorAll\("button, \[role='button'\], a, body \*"\)/,
   "switching out of Doudian smart-fill mode must target the smart-fill DOM structure, not a generic global text click"
 );
+assert.match(
+  specTemplateModeSource,
+  /const switchManualSpecEntryMarker[\s\S]*page\.locator\(`\[\$\{switchManualSpecEntryMarker\}="true"\]`\)\.first\(\)[\s\S]*click\(\{ timeout: 3000 \}\)/,
+  "manual-mode switching must mark the real switch control and click it through Playwright locator action"
+);
 assert.doesNotMatch(
-  publishSource.slice(
-    publishSource.indexOf("async function clickSwitchManualSpecEntryMode"),
-    publishSource.indexOf("async function ensureManualSpecTemplateEntryModeOnPage")
-  ),
-  /getByText/,
-  "manual-mode switching must not prefer Playwright global text lookup over the current smart-fill DOM structure"
+  specTemplateModeSource.slice(specTemplateModeSource.indexOf("function clickSwitchManualSpecEntryMode")),
+  /\.click\(\);|getByText/,
+  "manual-mode switching must not use synthetic DOM click or Playwright global text lookup"
 );
 const applySpecTemplateSource = publishSource.slice(
   publishSource.indexOf("async function applySpecTemplateWithVerificationOnPage"),
@@ -346,6 +349,11 @@ assert.doesNotMatch(
   applySpecTemplateSource,
   /chooseDynamicSpecTemplateOnPage\(page, title\)\.catch/,
   "spec template selection failures must not be swallowed and deferred to price/inventory checks"
+);
+assert.doesNotMatch(
+  fs.readFileSync("src/business/publish-from-spu/actions/spec-price-action.ts", "utf8"),
+  /gotoWithTolerance\(page, createPageUrl, 3500\)[\s\S]*shouldRetryFromSpecTemplate: true/,
+  "spec-template failures must not reload the create page and replay basic-info entry from the beginning"
 );
 assert.doesNotMatch(
   applySpecTemplateSource,
@@ -387,6 +395,11 @@ assert.match(
   publishSource,
   /async function isSpecTemplateEntryControlVisible[\s\S]*findSpecTemplateInputInFieldRootOnPage\(page\)/,
   "manual spec setup must recognize the spec-template control itself instead of depending only on the legacy switch button"
+);
+assert.match(
+  ensureManualSpecTemplateEntrySource,
+  /if \(await isSpecTemplateSmartFillUploadModeVisible\(page\)\.catch\(\(\) => false\)\) \{[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*await page\.waitForTimeout\(3000\)/,
+  "manual spec setup must switch out of smart-fill upload mode before accepting manual-mode visibility"
 );
 assert.match(
   publishSource,

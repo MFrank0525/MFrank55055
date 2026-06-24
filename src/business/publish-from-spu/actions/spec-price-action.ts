@@ -69,46 +69,6 @@ export async function runSpecPriceAction(
   }
 
   const priceEntryRule = deps.evaluatePriceInventoryEntryRule({ specIssue });
-  if (priceEntryRule.action === "block_until_spec_template_complete" && input.specAttempt === 0) {
-    await deps.gotoWithTolerance(page, createPageUrl, 3500);
-    if (input.categoryContext.basicMetadata.modelSpec) {
-      await deps.verifyCategoryRegistrationGateOnPage(
-        page,
-        input.runtimeDir,
-        input.metadata.spu,
-        "publish-page-category-registration-mismatch.png"
-      );
-    }
-    if (
-      input.categoryContext.basicMetadata.title ||
-      input.categoryContext.basicMetadata.shortTitle ||
-      input.categoryContext.basicMetadata.modelSpec
-    ) {
-      const refillResult = await deps.fillBasicPublishPageOnPage(
-        page,
-        input.runtimeDir,
-        input.categoryContext.basicMetadata,
-        "publish-page-basic-filled.png",
-        undefined,
-        input.categoryContext.basicInfoGuardUnexpectedFieldChanges
-      );
-      screenshotFiles.push(refillResult.screenshotFile);
-    }
-    return {
-      page,
-      createPageUrl,
-      matchedRowText,
-      screenshotFiles,
-      stages,
-      configuredFields,
-      specTypeOptions,
-      specIssue,
-      filledPriceRows: 0,
-      priceIssue: "",
-      completed: false,
-      shouldRetryFromSpecTemplate: true
-    };
-  }
   if (priceEntryRule.action === "block_until_spec_template_complete") {
     return {
       page,
@@ -155,6 +115,6 @@ export async function runSpecPriceAction(
     filledPriceRows,
     priceIssue,
     completed: priceRule.passed,
-    shouldRetryFromSpecTemplate: input.specAttempt === 0 && Boolean(specIssue)
+    shouldRetryFromSpecTemplate: false
   };
 }
