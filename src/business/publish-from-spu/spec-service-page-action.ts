@@ -374,12 +374,12 @@ async function waitForSpecTemplateApplyEvidence(page: Page, keyword: string): Pr
 
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
   await dismissTransientOverlays(page);
-  const input = await findSpecTemplateInputInFieldRootOnPage(page);
   const candidates = resolveSpecTemplateKeywordCandidates(keyword);
   const visibleClickedText = await clickSpecTemplateOptionByDomStructure(page, candidates);
   if (isMatchingSpecTemplateValue(visibleClickedText, keyword)) {
     return (await waitForSpecTemplateApplyEvidence(page, keyword)) || visibleClickedText;
   }
+  const input = await findSpecTemplateInputInFieldRootOnPage(page);
   for (const candidate of candidates) {
     await input.click({ timeout: 3000 });
     await input.fill(candidate).catch(async () => {

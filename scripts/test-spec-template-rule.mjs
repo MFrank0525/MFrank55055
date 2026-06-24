@@ -320,6 +320,14 @@ assert.match(
   /const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*if \(isMatchingSpecTemplateValue\(visibleClickedText, keyword\)\)[\s\S]*waitForSpecTemplateApplyEvidence\(page, keyword\)[\s\S]*await input\.click/,
   "spec template selection must click an already visible matching template option before typing into the search input and then wait on apply evidence"
 );
+assert.match(
+  publishSource.slice(
+    publishSource.indexOf("async function chooseSpecTemplateKeywordFromDropdown"),
+    publishSource.indexOf("async function scrollMainFormContainerToBottom")
+  ),
+  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\);[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);/,
+  "spec template selection must try the already-visible dropdown option before searching for the template input"
+);
 assert.doesNotMatch(
   publishSource,
   /innerText\(\{ timeout: 3000 \}\)[\s\S]*click\(\{ timeout: 3000 \}\)/,
