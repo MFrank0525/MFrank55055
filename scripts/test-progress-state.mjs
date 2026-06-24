@@ -197,13 +197,13 @@ assert.match(
 );
 assert.doesNotMatch(
   uploadMainImagesSource,
-  /waitForPreviewCount\(page, \(\) => countMainImagePreviews\(page\), previousCount \+ 1, 12000\)/,
-  "main-image upload must not block on a full preview wait after every file"
+  /waitForPreviewCount\(page, \(\) => countMainImagePreviews\(page\), files\.length, 8000\)/,
+  "main-image upload must not defer confirmation to a single long end-of-batch wait"
 );
 assert.match(
   uploadMainImagesSource,
-  /await page\.waitForTimeout\(fileIndex === 0 \? 650 : 250\);[\s\S]*const confirmed = await waitForPreviewCount\(page, \(\) => countMainImagePreviews\(page\), files\.length, 8000\)\.catch\(\(\) => 0\);/,
-  "main-image upload must use short per-file settling and one final confirmation"
+  /const observedCount = await waitForPreviewCount\([\s\S]*fileIndex === 0 \? 4000 : 3000[\s\S]*await page\.waitForTimeout\(fileIndex === 0 \? 450 : 180\);/,
+  "main-image upload must use short per-file confirmation windows"
 );
 assert.match(
   uploadMainImagesSource,

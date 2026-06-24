@@ -5622,20 +5622,30 @@ async function uploadMainImagesToSection(page: Page, files: string[]): Promise<n
   const uploadSequenceOnce = async (): Promise<{ uploaded: number; confirmed: number }> => {
     const orderedInputs = [mainInput, ...auxiliaryInputs];
     let uploaded = 0;
+    let previousCount = await countMainImagePreviews(page).catch(() => 0);
 
     for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
       const input = orderedInputs[fileIndex];
       if (!input) {
-        return { uploaded, confirmed: 0 };
+        return { uploaded, confirmed: previousCount };
       }
       await page.locator("input[type='file']").nth(input.index).setInputFiles(files[fileIndex]);
       uploaded += 1;
-      await page.waitForTimeout(fileIndex === 0 ? 650 : 250);
+      const observedCount = await waitForPreviewCount(
+        page,
+        () => countMainImagePreviews(page),
+        previousCount + 1,
+        fileIndex === 0 ? 4000 : 3000
+      ).catch(() => previousCount);
+      if (observedCount < previousCount + 1) {
+        return { uploaded: uploaded - 1, confirmed: previousCount };
+      }
+      previousCount = observedCount;
+      await page.waitForTimeout(fileIndex === 0 ? 450 : 180);
       await dismissTransientOverlays(page);
     }
 
-    const confirmed = await waitForPreviewCount(page, () => countMainImagePreviews(page), files.length, 8000).catch(() => 0);
-    return { uploaded, confirmed };
+    return { uploaded, confirmed: previousCount };
   };
 
   const firstAttempt = await uploadSequenceOnce();
