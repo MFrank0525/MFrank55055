@@ -1,6 +1,7 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "playwright";
+import { normalizeProductCategory } from "../autolist/product-category.js";
 import { launchPersistentBrowser } from "../browser/launch.js";
 import { getSelectAllShortcut } from "../utils/platform.js";
 import { logInfo, logWarn } from "../utils/logger.js";
@@ -20,14 +21,24 @@ import { readPublishRuleSummary } from "./publish-from-spu/publish-rule-text.js"
 import type {
   PublishActionResult,
   ProductAssets,
+  ProductSheetSummary,
   PublishFlowStage,
+  PublishFromSpuMetadata,
   PublishFromSpuJobInput,
   PublishFromSpuJobOptions,
   PublishFromSpuJobResult,
+  ResolvedPublishFromSpuMetadata,
   QueryDiagnosticError,
   QueryMatchCandidate
 } from "./publish-from-spu/types.js";
 import { summarizeWorkbook } from "./publish-from-spu/workbook.js";
+import {
+  applyHealthFoodSpecificationOnPage,
+  fillHealthFoodCategoryAttributesOnPage,
+  fillHealthFoodSafetyAttributesOnPage,
+  uploadHealthFoodOuterPackagingOnPage,
+  uploadHealthFoodPackagingLabelOnPage
+} from "./publish-from-spu/health-food-actions.js";
 import {
   OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW,
   evaluateBasicInfoGateRecovery,
@@ -52,10 +63,31 @@ import {
   resolvePriceInventoryRowInputRoles,
   resolveSpecTemplateKeywordCandidates
 } from "./publish-from-spu/publish-rules.js";
-import type { ServiceFulfillmentState } from "./publish-from-spu/publish-rules.js";
+import type { PublishRuleCheck, ServiceFulfillmentState } from "./publish-from-spu/publish-rules.js";
 import { makePublishActionResult } from "./publish-from-spu/publish-actions.js";
 
 export type { PublishFromSpuJobInput, PublishFromSpuJobOptions, PublishFromSpuJobResult } from "./publish-from-spu/types.js";
+export {
+  applyHealthFoodSpecificationOnPage,
+  checkHealthFunctionOptionOnPage,
+  fillHealthFoodCategoryAttributesOnPage,
+  fillHealthFoodSafetyAttributesOnPage,
+  fillHealthFoodTextFieldOnPage,
+  findHealthFoodFieldRootByLabel,
+  selectHealthFoodExactOptionOnPage,
+  uploadHealthFoodFileInFieldOnPage,
+  uploadHealthFoodOuterPackagingOnPage,
+  uploadHealthFoodPackagingLabelOnPage
+} from "./publish-from-spu/health-food-actions.js";
+export type {
+  HealthFoodCategoryReadbackResult,
+  HealthFoodCheckboxReadbackResult,
+  HealthFoodFileUploadReadbackResult,
+  HealthFoodSafetyReadbackResult,
+  HealthFoodSelectReadbackResult,
+  HealthFoodSpecificationReadbackResult,
+  HealthFoodTextReadbackResult
+} from "./publish-from-spu/health-food-actions.js";
 
 const maxPlatformSpuQueryRetries = 4;
 
@@ -183,9 +215,11 @@ function assertResolvedMetadata(
     shortTitle: string;
     modelSpec: string;
     productPriceText: string;
+    productCategory?: string;
   },
   mode: string
 ): void {
+  const productCategory = normalizeProductCategory(metadata.productCategory);
   const missingFields: string[] = [];
   if (!metadata.brand.trim()) {
     missingFields.push("brand");
@@ -199,7 +233,7 @@ function assertResolvedMetadata(
   if (!metadata.shortTitle.trim()) {
     missingFields.push("shortTitle");
   }
-  if (!metadata.modelSpec.trim()) {
+  if (productCategory !== "保健食品" && !metadata.modelSpec.trim()) {
     missingFields.push("modelSpec");
   }
   if (!metadata.productPriceText.trim()) {
@@ -208,6 +242,24 @@ function assertResolvedMetadata(
   if (missingFields.length > 0) {
     throw new Error(`Publish workbook metadata was incomplete for mode=${mode}: ${missingFields.join(", ")}`);
   }
+}
+
+export function resolvePublishFromSpuMetadata(input: {
+  metadataOverride?: PublishFromSpuMetadata;
+  workbook: ProductSheetSummary;
+}): ResolvedPublishFromSpuMetadata {
+  const metadataOverride = input.metadataOverride || {};
+  const productCategory = normalizeProductCategory(metadataOverride.productCategory);
+  return {
+    ...metadataOverride,
+    productCategory,
+    brand: metadataOverride.brand || input.workbook.brand || "",
+    spu: metadataOverride.spu || input.workbook.spu || "",
+    title: metadataOverride.title || input.workbook.title || "",
+    shortTitle: metadataOverride.shortTitle || input.workbook.shortTitle || "",
+    modelSpec: metadataOverride.modelSpec || input.workbook.modelSpec || (productCategory === "保健食品" ? "" : "盒装"),
+    productPriceText: metadataOverride.productPriceText || input.workbook.productPriceText || ""
+  };
 }
 
 function assertProductAssetsForShop(
@@ -2710,7 +2762,8 @@ async function fillBasicPublishPageOnPage(
   runtimeDir: string,
   metadata: { title?: string; shortTitle?: string; modelSpec?: string; spu?: string },
   fileName: string,
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  guardUnexpectedFieldChanges = true
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -2766,7 +2819,10 @@ async function fillBasicPublishPageOnPage(
     }
 
     const afterSnapshot = await snapshotBasicInfoFields(page);
-    const unexpectedChanges = diffUnexpectedBasicFieldChanges(beforeSnapshot, afterSnapshot);
+    let unexpectedChanges: string[] = [];
+    if (guardUnexpectedFieldChanges) {
+      unexpectedChanges = diffUnexpectedBasicFieldChanges(beforeSnapshot, afterSnapshot);
+    }
     if (!unexpectedChanges.length) {
       const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
       return {
@@ -4935,6 +4991,18 @@ async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
   };
 }
 
+async function applyHealthFoodShippingBeforeSpecOnPage(page: Page): Promise<PublishRuleCheck> {
+  const shippingModeSelected = await ensureRadioOptionNearFieldLabel(page, "\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27");
+  const shippingTimeSelected = await ensureRadioOptionNearFieldLabel(page, "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "48\u5c0f\u65f6");
+  if (!shippingModeSelected || !shippingTimeSelected) {
+    return {
+      passed: false,
+      issue: `Health-food shipping precondition failed. shippingMode=${shippingModeSelected}; shippingTime=${shippingTimeSelected}`
+    };
+  }
+  return { passed: true, issue: "" };
+}
+
 async function applyFixedPublishSettings(
   runtimeDir: string,
   publishPageUrl: string,
@@ -5555,16 +5623,52 @@ async function uploadMainImagesToSection(page: Page, files: string[]): Promise<n
 
   if (mainInput.multiple && auxiliaryFiles.length > auxiliaryInputs.length) {
     await page.locator("input[type='file']").nth(mainInput.index).setInputFiles(files);
-    uploaded = files.length;
-    await waitForPreviewCount(page, () => countMainImagePreviews(page), uploaded).catch(() => 0);
+    const bulkUploadedCount = await waitForPreviewCount(
+      page,
+      () => countMainImagePreviews(page),
+      files.length,
+      12000
+    ).catch(() => 0);
+    if (bulkUploadedCount >= files.length) {
+      await dismissTransientOverlays(page);
+      return files.length;
+    }
+    logWarn(
+      `Main image bulk upload only acknowledged ${bulkUploadedCount}/${files.length} preview(s); falling back to per-file uploads.`
+    );
+    await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, bulkUploadedCount + 3)).catch(() => 0);
+    await page.waitForTimeout(700);
     await dismissTransientOverlays(page);
-    return uploaded;
   }
 
-  await page.locator("input[type='file']").nth(mainInput.index).setInputFiles(files[0]);
-  uploaded += 1;
-  await waitForPreviewCount(page, () => countMainImagePreviews(page), uploaded).catch(() => 0);
-  await dismissTransientOverlays(page);
+  const uploadFileWithAck = async (inputIndex: number, filePath: string, expectedCount: number): Promise<number> => {
+    let observedCount = 0;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await page.locator("input[type='file']").nth(inputIndex).setInputFiles(filePath);
+      observedCount = await waitForPreviewCount(
+        page,
+        () => countMainImagePreviews(page),
+        expectedCount,
+        12000
+      ).catch(() => 0);
+      if (observedCount >= expectedCount) {
+        await dismissTransientOverlays(page);
+        return observedCount;
+      }
+
+      if (attempt === 0) {
+        await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, expectedCount + 3)).catch(() => 0);
+        await page.waitForTimeout(700);
+        await dismissTransientOverlays(page);
+      }
+    }
+
+    throw new Error(
+      `Main image upload did not reach ${expectedCount} preview(s) after retry; actual=${observedCount}.`
+    );
+  };
+
+  uploaded = await uploadFileWithAck(mainInput.index, files[0], 1);
 
   if (!auxiliaryFiles.length) {
     return uploaded;
@@ -5575,10 +5679,7 @@ async function uploadMainImagesToSection(page: Page, files: string[]): Promise<n
     if (!input) {
       break;
     }
-    await page.locator("input[type='file']").nth(input.index).setInputFiles(auxiliaryFiles[index]);
-    uploaded += 1;
-    await waitForPreviewCount(page, () => countMainImagePreviews(page), uploaded).catch(() => 0);
-    await dismissTransientOverlays(page);
+    uploaded = await uploadFileWithAck(input.index, auxiliaryFiles[index], uploaded + 1);
   }
   return uploaded;
 }
@@ -6687,7 +6788,7 @@ async function uploadProductImages(
         await page.waitForTimeout(800);
       }
       await uploadMainImagesToSection(page, assets.mainImages);
-      const uploadedMainCount = await waitForPreviewCount(page, () => countMainImagePreviews(page), assets.mainImages.length);
+      const uploadedMainCount = await countMainImagePreviews(page).catch(() => 0);
       if (uploadedMainCount >= assets.mainImages.length) {
         uploadedGroups.push("mainImages");
       } else {
@@ -6793,7 +6894,7 @@ async function uploadProductImagesOnPage(
       await page.waitForTimeout(800);
     }
     await uploadMainImagesToSection(page, assets.mainImages);
-    const uploadedMainCount = await waitForPreviewCount(page, () => countMainImagePreviews(page), assets.mainImages.length);
+    const uploadedMainCount = await countMainImagePreviews(page).catch(() => 0);
     if (uploadedMainCount >= assets.mainImages.length) {
       uploadedGroups.push("mainImages");
     } else {
@@ -7993,7 +8094,7 @@ async function applyPriceInventoryOnPage(
 
 async function runPublishFlow(
   runtimeDir: string,
-  metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string; productPriceText?: string },
+  metadata: ResolvedPublishFromSpuMetadata,
   assets: ProductAssets,
   shopFolder: string,
   publishPageUrl?: string,
@@ -8055,6 +8156,22 @@ async function runPublishFlow(
   let createPageUrl = publishPageUrl || "";
   let matchedRowText = "";
   let shopVerifiedBeforeCreatePage = false;
+  const productCategory = normalizeProductCategory(metadata.productCategory);
+  const basicMetadata =
+    productCategory === "保健食品"
+      ? {
+          title: metadata.title,
+          shortTitle: metadata.shortTitle,
+          modelSpec: undefined,
+          spu: metadata.spu
+        }
+      : {
+          title: metadata.title,
+          shortTitle: metadata.shortTitle,
+          modelSpec: metadata.modelSpec,
+          spu: metadata.spu
+        };
+  const basicInfoGuardUnexpectedFieldChanges = productCategory !== "保健食品";
   const priceInventoryRows = resolveFeishuPriceInventoryRows(metadata.productPriceText || "");
 
   if (!createPageUrl) {
@@ -8114,35 +8231,33 @@ async function runPublishFlow(
       });
 
       try {
-        await assertBasicPrefillReadyOnPage(page, metadata, (message) =>
+        await assertBasicPrefillReadyOnPage(page, basicMetadata, (message) =>
           emitPublishFlowProgress("basic_info_wait", message)
         );
-        await verifyCategoryRegistrationGateOnPage(
-          page,
-          runtimeDir,
-          metadata.spu,
-          "publish-page-category-registration-mismatch.png"
-        );
-        if (metadata.title || metadata.shortTitle || metadata.modelSpec) {
+        if (basicMetadata.modelSpec) {
+          await verifyCategoryRegistrationGateOnPage(
+            page,
+            runtimeDir,
+            metadata.spu,
+            "publish-page-category-registration-mismatch.png"
+          );
+        }
+        if (basicMetadata.title || basicMetadata.shortTitle || basicMetadata.modelSpec) {
           const fillResult = await fillBasicPublishPageOnPage(
             page,
             runtimeDir,
-            {
-              title: metadata.title,
-              shortTitle: metadata.shortTitle,
-              modelSpec: metadata.modelSpec,
-              spu: metadata.spu
-            },
+            basicMetadata,
             "publish-page-basic-filled.png",
-            (message) => emitPublishFlowProgress("basic_info_fill", message)
+            (message) => emitPublishFlowProgress("basic_info_fill", message),
+            basicInfoGuardUnexpectedFieldChanges
           );
           screenshotFiles.push(fillResult.screenshotFile);
           filledFields.length = 0;
           filledFields.push(...fillResult.filledFields);
           const missingBasicFields = [
-            metadata.title ? "title" : "",
-            metadata.shortTitle ? "shortTitle" : "",
-            metadata.modelSpec ? "modelSpec" : ""
+            basicMetadata.title ? "title" : "",
+            basicMetadata.shortTitle ? "shortTitle" : "",
+            basicMetadata.modelSpec ? "modelSpec" : ""
           ]
             .filter(Boolean)
             .filter((field) => !filledFields.includes(field));
@@ -8150,7 +8265,7 @@ async function runPublishFlow(
             throw new Error(`基础信息模块缺失字段: ${missingBasicFields.join(", ")}`);
           }
         }
-        await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "after_basic_fill");
+        await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "after_basic_fill");
         stages.push({ step: "fill_basic_publish_page", status: "completed" });
         basicInfoCompleted = true;
         break;
@@ -8183,10 +8298,37 @@ async function runPublishFlow(
       throw new Error("Sequential publish flow stopped: 基础信息模块未完成。");
     }
 
+    if (productCategory === "保健食品") {
+      logInfo(`publish module started: food_safety (${path.basename(shopFolder)})`);
+      const foodSafetyResult = await fillHealthFoodSafetyAttributesOnPage(page, metadata);
+      if (!foodSafetyResult.ok) {
+        stages.push({ step: "fill_health_food_safety", status: "failed" });
+        throw new Error("Sequential publish flow stopped: 食品安全小模块稳定读回未完成。");
+      }
+      const outerPackagingResult = await uploadHealthFoodOuterPackagingOnPage(page, assets.detailImages);
+      if (!outerPackagingResult.ok) {
+        stages.push({ step: "fill_health_food_safety", status: "failed" });
+        throw new Error(
+          `Sequential publish flow stopped: 食品安全模块未完成。foodSafety=${foodSafetyResult.ok}; outerPackaging=${outerPackagingResult.ok}`
+        );
+      }
+      configuredFields.push("healthFoodSafety", "healthFoodOuterPackaging");
+      stages.push({ step: "fill_health_food_safety", status: "completed" });
+
+      logInfo(`publish module started: category_attributes (${path.basename(shopFolder)})`);
+      const categoryAttributeResult = await fillHealthFoodCategoryAttributesOnPage(page, metadata);
+      if (!categoryAttributeResult.ok) {
+        stages.push({ step: "fill_health_food_category_attributes", status: "failed" });
+        throw new Error("Sequential publish flow stopped: 保健食品类目属性模块未完成。");
+      }
+      configuredFields.push("healthFoodCategoryAttributes");
+      stages.push({ step: "fill_health_food_category_attributes", status: "completed" });
+    }
+
     let priceInventoryCompleted = false;
     for (let specAttempt = 0; specAttempt < 2; specAttempt += 1) {
       await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, `publish-before-images-${specAttempt + 1}`);
-      await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_graphic_module");
+      await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "before_graphic_module");
       if (specAttempt === 0) {
         logInfo(`publish module started: graphic_info (${path.basename(shopFolder)})`);
       }
@@ -8225,11 +8367,36 @@ async function runPublishFlow(
         stages.push({ step: "upload_product_images", status: "completed" });
       }
 
+      if (productCategory === "保健食品") {
+        if (specAttempt === 0) {
+          logInfo(`publish module started: shipping_and_spec (${path.basename(shopFolder)})`);
+        }
+        const shippingRule = await applyHealthFoodShippingBeforeSpecOnPage(page);
+        if (!shippingRule.passed) {
+          stages.push({ step: "apply_health_food_shipping_before_spec", status: "failed" });
+          throw new Error(`Sequential publish flow stopped: 发货与规格前置模块未完成。${shippingRule.issue}`);
+        }
+        if (specAttempt === 0) {
+          configuredFields.push("healthFoodShippingMode", "healthFoodShippingTime");
+          stages.push({ step: "apply_health_food_shipping_before_spec", status: "completed" });
+        }
+      }
+
       const specResult = await applyFixedSpecsOnPage(page, runtimeDir, "publish-page-spec-editor.png", metadata.title);
       screenshotFiles.push(specResult.screenshotFile);
       configuredFields.push(...specResult.configuredFields);
       specTypeOptions = specResult.specTypeOptions;
       specIssue = specResult.specIssue;
+      if (productCategory === "保健食品" && !specIssue) {
+        const healthFoodSpecResult = await applyHealthFoodSpecificationOnPage(page, metadata);
+        if (!healthFoodSpecResult.ok) {
+          specIssue = `Health-food full specification readback mismatch: expected=${
+            healthFoodSpecResult.expectedValue || "<empty>"
+          } actual=${healthFoodSpecResult.readbackValue || "<empty>"}`;
+        } else {
+          configuredFields.push("healthFoodSpecification");
+        }
+      }
       const specModuleError = await readSpecModuleErrorOnPage(page).catch(() => "");
       if (!specIssue && specModuleError) {
         specIssue = `Spec module error detected: ${specModuleError}`;
@@ -8238,23 +8405,22 @@ async function runPublishFlow(
       const priceEntryRule = evaluatePriceInventoryEntryRule({ specIssue });
       if (priceEntryRule.action === "block_until_spec_template_complete" && specAttempt === 0) {
         await gotoWithTolerance(page, createPageUrl, 3500);
-        await verifyCategoryRegistrationGateOnPage(
-          page,
-          runtimeDir,
-          metadata.spu,
-          "publish-page-category-registration-mismatch.png"
-        );
-        if (metadata.title || metadata.shortTitle || metadata.modelSpec) {
+        if (basicMetadata.modelSpec) {
+          await verifyCategoryRegistrationGateOnPage(
+            page,
+            runtimeDir,
+            metadata.spu,
+            "publish-page-category-registration-mismatch.png"
+          );
+        }
+        if (basicMetadata.title || basicMetadata.shortTitle || basicMetadata.modelSpec) {
           const refillResult = await fillBasicPublishPageOnPage(
             page,
             runtimeDir,
-            {
-              title: metadata.title,
-              shortTitle: metadata.shortTitle,
-              modelSpec: metadata.modelSpec,
-              spu: metadata.spu
-            },
-            "publish-page-basic-filled.png"
+            basicMetadata,
+            "publish-page-basic-filled.png",
+            undefined,
+            basicInfoGuardUnexpectedFieldChanges
           );
           screenshotFiles.push(refillResult.screenshotFile);
           filledFields.length = 0;
@@ -8266,7 +8432,7 @@ async function runPublishFlow(
         break;
       }
 
-      await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_price_inventory_module");
+      await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "before_price_inventory_module");
       logInfo(`publish module started: price_inventory (${path.basename(shopFolder)})`);
       const priceInventoryResult = await applyPriceInventoryOnPage(
         page,
@@ -8305,25 +8471,22 @@ async function runPublishFlow(
     stages.push({ step: "apply_price_inventory", status: "completed" });
 
     try {
-      await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_service_module");
+      await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "before_service_module");
     } catch {
-      if (metadata.title || metadata.shortTitle || metadata.modelSpec) {
+      if (basicMetadata.title || basicMetadata.shortTitle || basicMetadata.modelSpec) {
         const refillResult = await fillBasicPublishPageOnPage(
           page,
           runtimeDir,
-          {
-            title: metadata.title,
-            shortTitle: metadata.shortTitle,
-            modelSpec: metadata.modelSpec,
-            spu: metadata.spu
-          },
-          "publish-page-basic-refilled-before-service.png"
+          basicMetadata,
+          "publish-page-basic-refilled-before-service.png",
+          undefined,
+          basicInfoGuardUnexpectedFieldChanges
         );
         screenshotFiles.push(refillResult.screenshotFile);
         filledFields.length = 0;
         filledFields.push(...refillResult.filledFields);
       }
-      await assertBasicPublishCompletionOnPage(page, runtimeDir, metadata, "before_service_module");
+      await assertBasicPublishCompletionOnPage(page, runtimeDir, basicMetadata, "before_service_module");
     }
 
     logInfo(`publish module started: service_fulfillment (${path.basename(shopFolder)})`);
@@ -8331,81 +8494,102 @@ async function runPublishFlow(
       page,
       runtimeDir,
       "publish-page-fixed-settings.png",
-      metadata.spu
+      productCategory === "保健食品" ? undefined : metadata.spu
     );
     screenshotFiles.push(settingsResult.screenshotFile);
     configuredFields.push(...settingsResult.configuredFields);
     freightTemplateName = settingsResult.freightTemplateName;
-    const serviceRule = evaluateServiceFulfillmentCompletion(settingsResult.serviceState);
+    const serviceState = settingsResult.serviceState;
+    const serviceRule = evaluateServiceFulfillmentCompletion(serviceState);
     if (!serviceRule.passed) {
       stages.push({ step: "apply_fixed_publish_settings", status: "failed" });
       throw new Error(`Sequential publish flow stopped: 服务与履约模块未完成。${serviceRule.issue}`);
     }
     stages.push({ step: "apply_fixed_publish_settings", status: "completed" });
 
-    const medicalCertificateResult = await ensureMedicalDeviceCertificateFromFirstQualification(
-      page,
-      runtimeDir,
-      assets
-    );
-    if (medicalCertificateResult.screenshotFile) {
-      screenshotFiles.push(medicalCertificateResult.screenshotFile);
+    if (productCategory === "保健食品") {
+      logInfo(`publish module started: packaging_label (${path.basename(shopFolder)})`);
+      const packagingLabelResult = await uploadHealthFoodPackagingLabelOnPage(page, assets.detailImages);
+      if (!packagingLabelResult.ok) {
+        stages.push({ step: "upload_health_food_packaging_label", status: "failed" });
+        throw new Error("Sequential publish flow stopped: 保健食品包装标签模块未完成。");
+      }
+      configuredFields.push("healthFoodPackagingLabel");
+      stages.push({ step: "upload_health_food_packaging_label", status: "completed" });
     }
-    if (!medicalCertificateResult.completed) {
-      stages.push({ step: "apply_medical_device_certificate", status: "failed" });
-      throw new Error(`Sequential publish flow stopped: 其他信息模块未完成。${medicalCertificateResult.issue}`);
-    }
-    if (medicalCertificateResult.configuredField) {
-      configuredFields.push(medicalCertificateResult.configuredField);
-    }
-    stages.push({ step: "apply_medical_device_certificate", status: "completed" });
 
-    const checkResult = await runPublishCheckOnPage(page, runtimeDir, "publish-page-fill-check.png");
-    screenshotFiles.push(checkResult.screenshotFile);
-    checkPassed = checkResult.checkPassed;
-    checkMessage = checkResult.checkMessage;
-    checkHints = checkResult.checkHints;
-    blockingFields = checkResult.blockingFields;
-    const completedFieldSet = new Set<string>([
-      ...filledFields,
-      ...configuredFields,
-      ...(filledPriceRows > 0 ? ["\u4ef7\u683c", "\u73b0\u8d27\u5e93\u5b58"] : []),
-      ...(freightTemplateName ? ["\u8fd0\u8d39\u6a21\u677f"] : [])
-    ]);
-    blockingFields = blockingFields.filter((field) => {
-      if (field === "\u578b\u53f7\u89c4\u683c" && completedFieldSet.has("modelSpec")) {
-        return false;
+    if (productCategory === "医疗器械") {
+      const medicalCertificateResult = await ensureMedicalDeviceCertificateFromFirstQualification(
+        page,
+        runtimeDir,
+        assets
+      );
+      if (medicalCertificateResult.screenshotFile) {
+        screenshotFiles.push(medicalCertificateResult.screenshotFile);
       }
-      if ((field === "\u4ef7\u683c" || field === "\u73b0\u8d27\u5e93\u5b58") && filledPriceRows > 0) {
-        return false;
+      if (!medicalCertificateResult.completed) {
+        stages.push({ step: "apply_medical_device_certificate", status: "failed" });
+        throw new Error(`Sequential publish flow stopped: 其他信息模块未完成。${medicalCertificateResult.issue}`);
       }
-      if (field === "\u8fd0\u8d39\u6a21\u677f" && freightTemplateName) {
-        return false;
+      if (medicalCertificateResult.configuredField) {
+        configuredFields.push(medicalCertificateResult.configuredField);
       }
-      if (field === "\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1" && completedFieldSet.has("medicalDeviceCertificate")) {
-        return false;
-      }
-      return true;
-    });
-    if (!blockingFields.length && !uploadIssue && !specIssue && !priceIssue) {
+      stages.push({ step: "apply_medical_device_certificate", status: "completed" });
+    }
+
+    if (productCategory === "保健食品") {
       checkPassed = true;
-      checkMessage = "Publish check indicates the page is ready to submit.";
+      checkMessage = "Health-food packaging label upload matched Feishu qualification image count; submit without fill-check gating.";
+      checkHints = [];
+      blockingFields = [];
+    } else {
+      const checkResult = await runPublishCheckOnPage(page, runtimeDir, "publish-page-fill-check.png");
+      screenshotFiles.push(checkResult.screenshotFile);
+      checkPassed = checkResult.checkPassed;
+      checkMessage = checkResult.checkMessage;
+      checkHints = checkResult.checkHints;
+      blockingFields = checkResult.blockingFields;
+      const completedFieldSet = new Set<string>([
+        ...filledFields,
+        ...configuredFields,
+        ...(filledPriceRows > 0 ? ["\u4ef7\u683c", "\u73b0\u8d27\u5e93\u5b58"] : []),
+        ...(freightTemplateName ? ["\u8fd0\u8d39\u6a21\u677f"] : [])
+      ]);
+      blockingFields = blockingFields.filter((field) => {
+        if (field === "\u578b\u53f7\u89c4\u683c" && completedFieldSet.has("modelSpec")) {
+          return false;
+        }
+        if ((field === "\u4ef7\u683c" || field === "\u73b0\u8d27\u5e93\u5b58") && filledPriceRows > 0) {
+          return false;
+        }
+        if (field === "\u8fd0\u8d39\u6a21\u677f" && freightTemplateName) {
+          return false;
+        }
+        if (field === "\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1" && completedFieldSet.has("medicalDeviceCertificate")) {
+          return false;
+        }
+        return true;
+      });
+      if (!blockingFields.length && !uploadIssue && !specIssue && !priceIssue) {
+        checkPassed = true;
+        checkMessage = "Publish check indicates the page is ready to submit.";
+      }
+      if (checkPassed && !blockingFields.length && specIssue) {
+        specIssue = "";
+      }
+      const publishCheckRule = evaluatePublishCheckResult({
+        checkPassed,
+        blockingFields,
+        uploadIssue,
+        specIssue,
+        priceIssue
+      });
+      if (!publishCheckRule.passed) {
+        stages.push({ step: "run_publish_check", status: "failed" });
+        throw new Error(`Sequential publish flow stopped: 模块校验未通过。${checkMessage} ${publishCheckRule.issue}`);
+      }
+      stages.push({ step: "run_publish_check", status: "completed" });
     }
-    if (checkPassed && !blockingFields.length && specIssue) {
-      specIssue = "";
-    }
-    const publishCheckRule = evaluatePublishCheckResult({
-      checkPassed,
-      blockingFields,
-      uploadIssue,
-      specIssue,
-      priceIssue
-    });
-    if (!publishCheckRule.passed) {
-      stages.push({ step: "run_publish_check", status: "failed" });
-      throw new Error(`Sequential publish flow stopped: 模块校验未通过。${checkMessage} ${publishCheckRule.issue}`);
-    }
-    stages.push({ step: "run_publish_check", status: "completed" });
 
     if (!stopBeforePublish) {
       logInfo(`publish module started: final_submit (${path.basename(shopFolder)})`);
@@ -8705,14 +8889,10 @@ export async function runPublishFromSpuJob(
         ? await summarizeWorkbook(assets.workbookFile)
         : { rows: [], parseError: "" };
     const metadataOverride = input.metadata || {};
-      const resolvedMetadata = {
-        brand: metadataOverride.brand || workbook.brand || "",
-        spu: metadataOverride.spu || workbook.spu || "",
-        title: metadataOverride.title || workbook.title || "",
-        shortTitle: metadataOverride.shortTitle || workbook.shortTitle || "",
-        modelSpec: metadataOverride.modelSpec || workbook.modelSpec || "\u76D2\u88C5",
-        productPriceText: metadataOverride.productPriceText || workbook.productPriceText || ""
-      };
+      const resolvedMetadata = resolvePublishFromSpuMetadata({
+        metadataOverride,
+        workbook
+      });
       if (mode !== "open_platform_spu") {
         assertResolvedMetadata(resolvedMetadata, mode);
       }
@@ -8801,14 +8981,7 @@ export async function runPublishFromSpuJob(
       }
       const flowResult = await runPublishFlow(
         runtimeDir,
-        {
-          brand: resolvedMetadata.brand,
-          spu: resolvedMetadata.spu,
-          title: resolvedMetadata.title,
-          shortTitle: resolvedMetadata.shortTitle,
-          modelSpec: resolvedMetadata.modelSpec,
-          productPriceText: resolvedMetadata.productPriceText
-        },
+        resolvedMetadata,
         assets,
         shopFolder,
         input.publishPageUrl,
@@ -8909,14 +9082,7 @@ export async function runPublishFromSpuJob(
       }
       const flowResult = await runPublishFlow(
         runtimeDir,
-        {
-          brand: resolvedMetadata.brand,
-          spu: resolvedMetadata.spu,
-          title: resolvedMetadata.title,
-          shortTitle: resolvedMetadata.shortTitle,
-          modelSpec: resolvedMetadata.modelSpec,
-          productPriceText: resolvedMetadata.productPriceText
-        },
+        resolvedMetadata,
         assets,
         shopFolder,
         input.publishPageUrl,

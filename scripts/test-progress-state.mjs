@@ -128,9 +128,24 @@ assert.match(
   "AutoListingController runner must use resume-rules when building resume jobs so recoverable title-folder states resume at publish"
 );
 assert.match(
+  hermesRunnerSource,
+  /deferred-main-images/,
+  "AutoListingController resume must know where deferred paid main-image rounds are stored."
+);
+assert.match(
+  hermesRunnerSource,
+  /findDeferredMainImageShopRootForResume[\s\S]*deferred-round\.json[\s\S]*countMatchingProductFoldersInShopRoot\(shopsDir,\s*names,\s*true\)/,
+  "AutoListingController resume must activate a complete deferred round when the normal shop root no longer contains publishable folders."
+);
+assert.match(
+  hermesRunnerSource,
+  /resolvedShopRootDir[\s\S]*resumeJob\.input\.shopRootDir\s*=\s*resolvedShopRootDir[\s\S]*atomicWriteJson\(resumeJobFile,\s*resumeJob\)/,
+  "Existing resume jobs must be rewritten to the recovered deferred shop root before product-folder validation invalidates them."
+);
+assert.match(
   publishSource,
-  /feishuRecordId:\s*productIdentity\?\.recordId/,
-  "Auto-listing publish jobs must pass the current Feishu recordId into Doudian publish metadata"
+  /buildPublishJobMetadata[\s\S]*feishuRecordId:\s*targetIdentity\.recordId/,
+  "Auto-listing publish jobs must pass the canonical target recordId into Doudian publish metadata"
 );
 assert.match(
   publishFromSpuSource,
@@ -171,6 +186,10 @@ const priceInventoryDomSlice = publishFromSpuSource.slice(
   publishFromSpuSource.indexOf("function findPriceInventoryTableDomRows"),
   publishFromSpuSource.indexOf("async function detectPriceInventoryValuesInsideSpecInputs")
 );
+const uploadMainImagesSource = publishFromSpuSource.slice(
+  publishFromSpuSource.indexOf("async function uploadMainImagesToSection"),
+  publishFromSpuSource.indexOf("async function countGraphicSectionPreviews")
+);
 assert.match(
   priceInventoryDomSlice,
   /querySelectorAll\("th, td"\)[\s\S]*cellIndex[\s\S]*priceCellIndex[\s\S]*stockCellIndex/,
@@ -180,6 +199,21 @@ assert.doesNotMatch(
   priceInventoryDomSlice,
   /score|centerX|distanceToPrice|distanceToStock|getBoundingClientRect\(\)\.x/,
   "price/inventory row targeting must not use coordinate distance or scoring heuristics"
+);
+assert.match(
+  uploadMainImagesSource,
+  /if \(mainInput\.multiple && auxiliaryFiles\.length > auxiliaryInputs\.length\)[\s\S]*const bulkUploadedCount = await waitForPreviewCount\([\s\S]*if \(bulkUploadedCount >= files\.length\)[\s\S]*clearGraphicSectionPreviewsStrict/,
+  "main image upload must verify bulk uploads and fall back instead of trusting a partial result"
+);
+assert.match(
+  uploadMainImagesSource,
+  /const uploadFileWithAck = async[\s\S]*throw new Error\([\s\S]*Main image upload did not reach [\s\S]*preview\(s\) after retry; actual=/,
+  "each main-image upload must be treated as an atomic acknowledged action"
+);
+assert.match(
+  uploadMainImagesSource,
+  /uploaded = await uploadFileWithAck\(mainInput\.index, files\[0\], 1\);[\s\S]*for \(let index = 0; index < auxiliaryFiles\.length; index \+= 1\) \{[\s\S]*uploaded = await uploadFileWithAck\(input\.index, auxiliaryFiles\[index\], uploaded \+ 1\);/,
+  "auxiliary images must never run ahead of the primary main image acknowledgement"
 );
 assert.match(
   hermesSupervisorSource,
@@ -755,6 +789,37 @@ assert.equal(
   "当前商品：延草纲目测试品，产品 11/20，店铺 6/10，最近产物：publish-page-basic-filled.png",
   "Hermes progress message must not append the same realtime phrase twice"
 );
+const hermesStablePublishMessagePayload = resolveAutoListingControllerHermesStatusPayload({
+  status: "running",
+  realtimeProgress: {
+    source: "latest_artifact",
+    message: "最近产物：publish-page-basic-filled.png",
+    timestamp: "2026-06-14T06:10:02.000Z",
+    key: "artifact|publish-page-basic-filled.png|2026-06-14T06:10:02.000Z"
+  },
+  publishProgress: {
+    progressText: "当前商品：延草纲目测试品，产品 11/20，店铺 6/10",
+    publishGroupProgress: {
+      productName: "延草纲目测试品",
+      productIndex: 11,
+      productTotal: 20,
+      shopName: "06延草纲目理疗器械旗舰店",
+      shopIndex: 6,
+      shopTotal: 10,
+      failed: 0
+    }
+  }
+}).hermesProgress;
+assert.equal(
+  hermesStablePublishMessagePayload?.message,
+  "当前商品：延草纲目测试品，产品 11/20，店铺 6/10",
+  "Hermes publish-stage automatic feedback must use the stable current product progress message, not transient artifact text"
+);
+assert.equal(
+  /publish-page-basic-filled|2026-06-14T06:10:02/.test(String(hermesStablePublishMessagePayload?.key || "")),
+  false,
+  "Hermes publish-stage automatic feedback key must not include transient artifact names or timestamps"
+);
 
 const pageNotReadyClass = classifyPublishFailure("Platform SPU query page was not ready after navigation.");
 assert.equal(pageNotReadyClass, "platform_page_not_ready");
@@ -1021,6 +1086,33 @@ const uncertainPublishResult = await publishDistributedProducts({
     sourceImagePath: "/tmp/source.png",
     userCognitionName: "护理软膏",
     genericName: "医用重组胶原蛋白护理软膏"
+  },
+  feishuProductRecord: {
+    recordId: "record-uncertain",
+    userCognitionName: "护理软膏",
+    genericName: "医用重组胶原蛋白护理软膏",
+    brand: "延草纲目",
+    spu: "械注准20240001",
+    sellingPointText: "卖点",
+    deepseekPromptText: "提示词",
+    mainImageInstructionText: "主图",
+    positivePromptText: "正向",
+    negativePromptText: "反向",
+    titleKeywordText: "标题",
+    titleSuffixText: "旗舰店",
+    productPriceText: "39,29,19,9",
+    shortTitle: "护理软膏",
+    productCategory: "医疗器械",
+    qualificationImages: [],
+    whiteBackgroundImages: [],
+    manufacturerName: "",
+    manufacturerAddress: "",
+    netContent: "",
+    productStandardCode: "",
+    ingredients: "",
+    healthFunction: "",
+    specification: "",
+    rawFields: {}
   },
   simulateOnly: true
 });
@@ -2458,6 +2550,18 @@ assert.equal(
   }),
   "pause_requested",
   "A project-owned pause signal must be visible even when no controller process is active"
+);
+assert.match(
+  formatAutoListingControllerCompactStatusText({
+    status: "pause_requested",
+    showPublishProgress: false,
+    summary:
+      "批次保护暂停：运行批次 b19afe509cf5 与当前飞书缓存 3f88a9c9c0ae 不一致；已停止复用旧运行证据。继续上架会清除暂停信号并按当前飞书缓存安全续跑。",
+    feishuCompleted: 0,
+    feishuTotal: 1
+  }),
+  /批次保护暂停：旧批次 b19afe509cf5，当前批次 3f88a9c9c0ae；继续会按当前飞书缓存重选断点/,
+  "Hermes compact status must expose the batch-mismatch pause reason instead of presenting a generic stuck state"
 );
 assert.equal(
   resolveAutoListingControllerIdleStatus({
