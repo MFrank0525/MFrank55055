@@ -302,19 +302,6 @@ async function clickSpecTemplateOptionByDomStructure(page: Page, keyword: string
   return text;
 }
 
-async function waitForSpecTemplateSelectionConfirmation(page: Page, keyword: string, timeoutMs = 2500): Promise<string> {
-  const startedAt = Date.now();
-  let lastValue = "";
-  while (Date.now() - startedAt < timeoutMs) {
-    lastValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
-    if (isMatchingSpecTemplateValue(lastValue, keyword)) {
-      return lastValue;
-    }
-    await page.waitForTimeout(150);
-  }
-  return lastValue;
-}
-
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
   await dismissTransientOverlays(page);
   const input = await findSpecTemplateInputInFieldRootOnPage(page);
@@ -330,7 +317,8 @@ async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string
     if (!isMatchingSpecTemplateValue(clickedText, keyword)) {
       continue;
     }
-    const selectedValue = await waitForSpecTemplateSelectionConfirmation(page, keyword, 2500);
+    await page.waitForTimeout(3000);
+    const selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
     if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
       throw new Error(`Spec template readback did not match keyword after selection: keyword=${keyword}; selected=${selectedValue || "<empty>"}`);
     }
@@ -1134,40 +1122,17 @@ async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void
   throw new Error("Spec template entry control was not visible after opening manual goods-spec mode.");
 }
 
-async function waitForSpecTemplateReadback(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
-    const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-    if (filledValues.length > 0 || visiblePriceRows > 0) {
-      return;
-    }
-    await page.waitForTimeout(700);
-  }
-}
-
 async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    await dismissTransientOverlays(page).catch(() => {});
-    await scrollLabelIntoView(page, "商品规格").catch(() => false);
-    await scrollLabelIntoView(page, "规格模板").catch(() => false);
-    if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
-      await clickSwitchManualSpecEntryMode(page).catch(() => false);
-    }
-    await page.waitForTimeout(700);
-    const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
-    const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-    if (filledValues.length > 0 || visiblePriceRows > 0) {
-      return;
-    }
-    await scrollLabelIntoView(page, "价格与库存").catch(() => false);
-    if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
-      await page.waitForTimeout(500);
-      const refreshedValues = await readCurrentSpecValuesStrict(page).catch(() => []);
-      const refreshedRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-      if (refreshedValues.length > 0 || refreshedRows > 0) {
-        return;
-      }
-    }
+  await dismissTransientOverlays(page).catch(() => {});
+  await scrollLabelIntoView(page, "商品规格").catch(() => false);
+  await scrollLabelIntoView(page, "规格模板").catch(() => false);
+  if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
+    await clickSwitchManualSpecEntryMode(page).catch(() => false);
+  }
+  const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
+  const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
+  if (filledValues.length > 0 || visiblePriceRows > 0) {
+    return;
   }
   throw new Error("Spec template selected but manual spec values or price/inventory rows were not visible after switching from smart-fill mode.");
 }
@@ -1271,8 +1236,6 @@ export async function applySpecTemplateWithVerificationOnPage(
       issue: `${message}; keyword=${keyword}`
     };
   }
-  await waitForSpecTemplateReadback(page);
-
   const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
   const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
   const blankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);

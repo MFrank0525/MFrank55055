@@ -234,13 +234,13 @@ assert.doesNotMatch(
 );
 assert.match(
   specTemplateSelectionSource,
-  /await input\.click\(\{ timeout: 3000 \}\);\s*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(120\);[\s\S]*const selectedValue = await waitForSpecTemplateSelectionConfirmation\(page, keyword, 2500\);/,
-  "spec-template selection must use short settle timing and bounded confirmation polling"
+  /await input\.click\(\{ timeout: 3000 \}\);\s*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(120\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidate\)[\s\S]*await page\.waitForTimeout\(3000\);[\s\S]*readSpecTemplateSelectedValue\(page, keyword\)/,
+  "spec-template selection must use one atomic option choice with a single 3 second settle wait"
 );
 assert.doesNotMatch(
   specTemplateSelectionSource,
-  /waitForTimeout\(300\)|waitForTimeout\(600\)|waitForTimeout\(800\)/,
-  "spec-template selection must not use the old long fixed waits"
+  /waitForSpecTemplateSelectionConfirmation|waitForTimeout\(300\)|waitForTimeout\(600\)|waitForTimeout\(800\)|waitForTimeout\(2500\)/,
+  "spec-template selection must not use the old confirmation polling or legacy fixed waits"
 );
 assert.match(
   hermesSupervisorSource,

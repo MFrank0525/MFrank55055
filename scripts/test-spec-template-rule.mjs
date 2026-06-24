@@ -303,6 +303,16 @@ assert.match(
 );
 assert.match(
   publishSource,
+  /async function chooseSpecTemplateKeywordFromDropdown[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidate\)[\s\S]*await page\.waitForTimeout\(3000\)[\s\S]*readSpecTemplateSelectedValue\(page, keyword\)/,
+  "spec template selection must be one atomic choose action with a single 3 second settle wait before readback"
+);
+assert.doesNotMatch(
+  publishSource,
+  /async function waitForSpecTemplateSelectionConfirmation|waitForSpecTemplateReadback\(page\)/,
+  "spec template selection must not add confirmation/readback polling around the atomic 3 second wait"
+);
+assert.match(
+  publishSource,
   /async function clickSwitchManualSpecEntryMode[\s\S]*智能填写助手[\s\S]*切换手动填写[\s\S]*点击 或 拖动 文件到虚线框内上传[\s\S]*querySelectorAll\("button, \[role='button'\], a, body \*"\)/,
   "switching out of Doudian smart-fill mode must target the smart-fill DOM structure, not a generic global text click"
 );
