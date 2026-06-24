@@ -1090,25 +1090,22 @@ async function describeSpecTemplateEntrySurfaceOnPage(page: Page): Promise<{
 }
 
 async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    await dismissTransientOverlays(page).catch(() => {});
-    await scrollLabelIntoView(page, "商品规格").catch(() => false);
-    await scrollLabelIntoView(page, "规格模板").catch(() => false);
-    await page.waitForTimeout(400);
-    if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
-      return;
-    }
-    if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
-      return;
-    }
-    await clickSwitchManualSpecEntryMode(page).catch(() => false);
-    await page.waitForTimeout(1000);
-    if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
-      return;
-    }
-    if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
-      return;
-    }
+  await dismissTransientOverlays(page).catch(() => {});
+  await scrollLabelIntoView(page, "商品规格").catch(() => false);
+  await scrollLabelIntoView(page, "规格模板").catch(() => false);
+  if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
+    return;
+  }
+  if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
+    return;
+  }
+  await clickSwitchManualSpecEntryMode(page).catch(() => false);
+  await page.waitForTimeout(3000);
+  if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
+    return;
+  }
+  if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
+    return;
   }
   const surface = await describeSpecTemplateEntrySurfaceOnPage(page).catch(() => ({
     templateConfigured: false,

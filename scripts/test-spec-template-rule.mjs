@@ -363,6 +363,20 @@ assert.match(
   /scrollLabelIntoView\(page, "商品规格"\)[\s\S]*scrollLabelIntoView\(page, "规格模板"\)/,
   "manual spec setup must scroll by current goods-spec structure labels"
 );
+const ensureManualSpecTemplateEntrySource = publishSource.slice(
+  publishSource.indexOf("async function ensureManualSpecTemplateEntryModeOnPage"),
+  publishSource.indexOf("async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage")
+);
+assert.doesNotMatch(
+  ensureManualSpecTemplateEntrySource,
+  /for \(let attempt = 0; attempt < 4; attempt \+= 1\)|waitForTimeout\(400\)|waitForTimeout\(1000\)/,
+  "manual spec-template entry preparation must be a single atomic DOM action, not a retry loop with stacked waits"
+);
+assert.match(
+  ensureManualSpecTemplateEntrySource,
+  /clickSwitchManualSpecEntryMode\(page\)[\s\S]*await page\.waitForTimeout\(3000\)[\s\S]*isManualSpecTemplateEntryModeVisible\(page\)[\s\S]*isSpecTemplateEntryControlVisible\(page\)/,
+  "manual spec-template entry preparation may switch once, then wait exactly 3 seconds before one readback"
+);
 
 assert.match(
   publishSource,
