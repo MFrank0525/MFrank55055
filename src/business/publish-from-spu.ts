@@ -5601,87 +5601,77 @@ async function uploadMainImagesToSection(page: Page, files: string[]): Promise<n
     return 0;
   }
 
-  let uploaded = 0;
-  const initialInputs = await collectFileInputs(page);
-  const mainInput =
-    initialInputs
-      .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
-      .filter((input) => input.parentText.includes("\u4e0a\u4f20\u4e3b\u56fe") || input.parentText.includes("\u5546\u54c1\u6b63\u9762\u56fe"))
-      .sort((a, b) => scoreMainGraphicInput(b) - scoreMainGraphicInput(a) || a.index - b.index)[0] ||
-    pickBestSectionFileInput(initialInputs, "\u4e3b\u56fe", scoreMainGraphicInput);
-
-  if (!mainInput) {
-    return 0;
-  }
-
-  const auxiliaryFiles = files.slice(1);
-  const auxiliaryInputs = (await collectFileInputs(page))
-    .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
-    .filter((input) => input.index !== mainInput.index)
-    .filter((input) => input.parentText.includes("\u4e0a\u4f20\u8f85\u52a9\u56fe"))
-    .sort((a, b) => a.index - b.index);
-
-  if (mainInput.multiple && auxiliaryFiles.length > auxiliaryInputs.length) {
-    await page.locator("input[type='file']").nth(mainInput.index).setInputFiles(files);
-    const bulkUploadedCount = await waitForPreviewCount(
-      page,
-      () => countMainImagePreviews(page),
-      files.length,
-      12000
-    ).catch(() => 0);
-    if (bulkUploadedCount >= files.length) {
-      await dismissTransientOverlays(page);
-      return files.length;
-    }
-    logWarn(
-      `Main image bulk upload only acknowledged ${bulkUploadedCount}/${files.length} preview(s); falling back to per-file uploads.`
-    );
-    await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, bulkUploadedCount + 3)).catch(() => 0);
-    await page.waitForTimeout(700);
-    await dismissTransientOverlays(page);
-  }
-
-  const uploadFileWithAck = async (inputIndex: number, filePath: string, expectedCount: number): Promise<number> => {
-    let observedCount = 0;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      await page.locator("input[type='file']").nth(inputIndex).setInputFiles(filePath);
-      observedCount = await waitForPreviewCount(
-        page,
-        () => countMainImagePreviews(page),
-        expectedCount,
-        12000
-      ).catch(() => 0);
-      if (observedCount >= expectedCount) {
-        await dismissTransientOverlays(page);
-        return observedCount;
-      }
-
-      if (attempt === 0) {
-        await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, expectedCount + 3)).catch(() => 0);
-        await page.waitForTimeout(700);
-        await dismissTransientOverlays(page);
-      }
-    }
-
-    throw new Error(
-      `Main image upload did not reach ${expectedCount} preview(s) after retry; actual=${observedCount}.`
+  const selectNextMainInput = async (usedIndexes: Set<number>): Promise<{ index: number } | null> => {
+    const inputs = await collectFileInputs(page);
+    return (
+      inputs
+        .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
+        .filter((input) => !usedIndexes.has(input.index))
+        .filter((input) => input.parentText.includes("\u4e0a\u4f20\u4e3b\u56fe") || input.parentText.includes("\u5546\u54c1\u6b63\u9762\u56fe"))
+        .sort((a, b) => scoreMainGraphicInput(b) - scoreMainGraphicInput(a) || a.index - b.index)[0] ||
+      pickBestSectionFileInput(
+        inputs.filter((input) => input.sectionLabel === "\u4e3b\u56fe" && !usedIndexes.has(input.index)),
+        "\u4e3b\u56fe",
+        scoreMainGraphicInput
+      )
     );
   };
 
-  uploaded = await uploadFileWithAck(mainInput.index, files[0], 1);
+  const uploadSequenceOnce = async (): Promise<{ uploaded: number; failedAt: number }> => {
+    let uploaded = 0;
+    let previousCount = await countMainImagePreviews(page).catch(() => 0);
+    const usedIndexes = new Set<number>();
 
-  if (!auxiliaryFiles.length) {
-    return uploaded;
-  }
+    for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+      let acknowledged = false;
+      for (let attempt = 0; attempt < 2 && !acknowledged; attempt += 1) {
+        const input = await selectNextMainInput(usedIndexes);
+        if (!input) {
+          break;
+        }
+        await page.locator("input[type='file']").nth(input.index).setInputFiles(files[fileIndex]);
+        const observedCount = await waitForPreviewCount(page, () => countMainImagePreviews(page), previousCount + 1, 12000).catch(() => 0);
+        if (observedCount >= previousCount + 1) {
+          previousCount = observedCount;
+          uploaded += 1;
+          usedIndexes.add(input.index);
+          acknowledged = true;
+          await dismissTransientOverlays(page);
+          break;
+        }
 
-  for (let index = 0; index < auxiliaryFiles.length; index += 1) {
-    const input = auxiliaryInputs[index];
-    if (!input) {
-      break;
+        await page.waitForTimeout(700);
+        await dismissTransientOverlays(page);
+      }
+
+      if (!acknowledged) {
+        return { uploaded, failedAt: fileIndex + 1 };
+      }
     }
-    uploaded = await uploadFileWithAck(input.index, auxiliaryFiles[index], uploaded + 1);
+
+    return { uploaded, failedAt: 0 };
+  };
+
+  const firstAttempt = await uploadSequenceOnce();
+  if (firstAttempt.failedAt === 0) {
+    return firstAttempt.uploaded;
   }
-  return uploaded;
+
+  logWarn(
+    `Main image upload sequence stalled at file ${firstAttempt.failedAt}/${files.length}; clearing section and restarting once.`
+  );
+  await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, files.length + 3)).catch(() => 0);
+  await page.waitForTimeout(700);
+  await dismissTransientOverlays(page);
+
+  const secondAttempt = await uploadSequenceOnce();
+  if (secondAttempt.failedAt > 0) {
+    throw new Error(
+      `Main image upload did not reach ${files.length} preview(s) after restart; failed at ${secondAttempt.failedAt}, acknowledged=${secondAttempt.uploaded}.`
+    );
+  }
+
+  return secondAttempt.uploaded;
 }
 
 async function countGraphicSectionPreviews(page: Page, sectionName: string): Promise<number> {
@@ -6787,8 +6777,7 @@ async function uploadProductImages(
         await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, existingMainCount + 3)).catch(() => 0);
         await page.waitForTimeout(800);
       }
-      await uploadMainImagesToSection(page, assets.mainImages);
-      const uploadedMainCount = await countMainImagePreviews(page).catch(() => 0);
+      const uploadedMainCount = await uploadMainImagesToSection(page, assets.mainImages);
       if (uploadedMainCount >= assets.mainImages.length) {
         uploadedGroups.push("mainImages");
       } else {
@@ -6893,8 +6882,7 @@ async function uploadProductImagesOnPage(
       await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, existingMainCount + 3)).catch(() => 0);
       await page.waitForTimeout(800);
     }
-    await uploadMainImagesToSection(page, assets.mainImages);
-    const uploadedMainCount = await countMainImagePreviews(page).catch(() => 0);
+    const uploadedMainCount = await uploadMainImagesToSection(page, assets.mainImages);
     if (uploadedMainCount >= assets.mainImages.length) {
       uploadedGroups.push("mainImages");
     } else {

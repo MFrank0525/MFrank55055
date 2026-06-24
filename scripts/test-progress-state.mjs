@@ -202,18 +202,13 @@ assert.doesNotMatch(
 );
 assert.match(
   uploadMainImagesSource,
-  /if \(mainInput\.multiple && auxiliaryFiles\.length > auxiliaryInputs\.length\)[\s\S]*const bulkUploadedCount = await waitForPreviewCount\([\s\S]*if \(bulkUploadedCount >= files\.length\)[\s\S]*clearGraphicSectionPreviewsStrict/,
-  "main image upload must verify bulk uploads and fall back instead of trusting a partial result"
+  /const uploadSequenceOnce = async[\s\S]*const usedIndexes = new Set<number>\(\)[\s\S]*const observedCount = await waitForPreviewCount\(page, \(\) => countMainImagePreviews\(page\), previousCount \+ 1, 12000\)\.catch\(\(\) => 0\);[\s\S]*return \{ uploaded, failedAt: fileIndex \+ 1 \};/s,
+  "each main-image upload must be treated as a single acknowledged step with per-file retry"
 );
 assert.match(
   uploadMainImagesSource,
-  /const uploadFileWithAck = async[\s\S]*throw new Error\([\s\S]*Main image upload did not reach [\s\S]*preview\(s\) after retry; actual=/,
-  "each main-image upload must be treated as an atomic acknowledged action"
-);
-assert.match(
-  uploadMainImagesSource,
-  /uploaded = await uploadFileWithAck\(mainInput\.index, files\[0\], 1\);[\s\S]*for \(let index = 0; index < auxiliaryFiles\.length; index \+= 1\) \{[\s\S]*uploaded = await uploadFileWithAck\(input\.index, auxiliaryFiles\[index\], uploaded \+ 1\);/,
-  "auxiliary images must never run ahead of the primary main image acknowledgement"
+  /logWarn\([\s\S]*clearing section and restarting once[\s\S]*const secondAttempt = await uploadSequenceOnce\(\);[\s\S]*throw new Error\([\s\S]*failed at/,
+  "the main-image batch must fail closed and restart once instead of letting a partial result continue"
 );
 assert.match(
   hermesSupervisorSource,
