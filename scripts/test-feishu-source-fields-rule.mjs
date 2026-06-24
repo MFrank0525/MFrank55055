@@ -94,6 +94,52 @@ assert.deepEqual(
   "医疗器械记录不应因为同表保健食品专用列为空而失败"
 );
 
+const shuffledMedicalDeviceRecord = normalizeFeishuProductRecord(
+  {
+    recordId: "rec-medical-shuffled-extra-columns",
+    fields: {
+      新增无关表头B: "不参与上架",
+      资质图片: [{ file_token: "cert-token", name: "cert.png" }],
+      标题固定后缀: "医用聚乙二醇润护敷料",
+      白底图: [{ file_token: "white-token", name: "white.png" }],
+      新增无关表头A: "顺序变化不应阻塞",
+      产品价格: "129,99,79,59",
+      品牌: "延草纲目",
+      DeepSeek提示词: "唇部护理场景,聚乙二醇凝胶,保湿润护,电商主图",
+      产品类目: "医疗器械",
+      规格: "",
+      用户认知名: "医用唇部保湿凝胶",
+      产品卖点: "适用于唇部干燥护理，保湿润护。",
+      标题关键词: "唇部护理,保湿凝胶,聚乙二醇,润护敷料",
+      通用名称: "医用聚乙二醇润护敷料",
+      反向提示词: "飞书反向提示词：不要治疗暗示，不要前后对比。",
+      主图指令: "飞书主图指令：锁定白底图主体，传统电商主图。",
+      生产企业名称: "",
+      SPU: "湘械注准20212141816",
+      保健功能: "",
+      导购短标题: "唇部保湿凝胶",
+      正向提示词: "飞书正向提示词：C4D质感，高级光影。"
+    }
+  },
+  {
+    ...config,
+    fieldMap: {
+      ...config.fieldMap,
+      manufacturerName: "生产企业名称",
+      healthFunction: "保健功能",
+      specification: "规格"
+    }
+  }
+);
+assert.equal(shuffledMedicalDeviceRecord.productCategory, "医疗器械");
+assert.equal(shuffledMedicalDeviceRecord.userCognitionName, "医用唇部保湿凝胶");
+assert.equal(shuffledMedicalDeviceRecord.rawFields.新增无关表头A, "顺序变化不应阻塞");
+assert.deepEqual(
+  validateFeishuProductRecord(shuffledMedicalDeviceRecord),
+  [],
+  "表头顺序变化和新增无关表头不应阻塞医疗器械记录"
+);
+
 const richTextRecord = normalizeFeishuProductRecord(
   {
     ...baseRecord,
