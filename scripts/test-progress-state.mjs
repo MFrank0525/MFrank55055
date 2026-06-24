@@ -196,19 +196,24 @@ assert.match(
   "price/inventory row targeting must derive price and stock inputs from table DOM headers and cell indexes"
 );
 assert.doesNotMatch(
+  uploadMainImagesSource,
+  /waitForPreviewCount\(page, \(\) => countMainImagePreviews\(page\), previousCount \+ 1, 12000\)/,
+  "main-image upload must not block on a full preview wait after every file"
+);
+assert.match(
+  uploadMainImagesSource,
+  /await page\.waitForTimeout\(fileIndex === 0 \? 650 : 250\);[\s\S]*const confirmed = await waitForPreviewCount\(page, \(\) => countMainImagePreviews\(page\), files\.length, 8000\)\.catch\(\(\) => 0\);/,
+  "main-image upload must use short per-file settling and one final confirmation"
+);
+assert.match(
+  uploadMainImagesSource,
+  /logWarn\([\s\S]*only confirmed[\s\S]*clearing section and restarting once[\s\S]*const secondAttempt = await uploadSequenceOnce\(\);[\s\S]*throw new Error\([\s\S]*confirmed=/,
+  "the main-image batch must fail closed and restart once instead of letting a partial result continue"
+);
+assert.doesNotMatch(
   priceInventoryDomSlice,
   /score|centerX|distanceToPrice|distanceToStock|getBoundingClientRect\(\)\.x/,
   "price/inventory row targeting must not use coordinate distance or scoring heuristics"
-);
-assert.match(
-  uploadMainImagesSource,
-  /const uploadSequenceOnce = async[\s\S]*const usedIndexes = new Set<number>\(\)[\s\S]*const observedCount = await waitForPreviewCount\(page, \(\) => countMainImagePreviews\(page\), previousCount \+ 1, 12000\)\.catch\(\(\) => 0\);[\s\S]*return \{ uploaded, failedAt: fileIndex \+ 1 \};/s,
-  "each main-image upload must be treated as a single acknowledged step with per-file retry"
-);
-assert.match(
-  uploadMainImagesSource,
-  /logWarn\([\s\S]*clearing section and restarting once[\s\S]*const secondAttempt = await uploadSequenceOnce\(\);[\s\S]*throw new Error\([\s\S]*failed at/,
-  "the main-image batch must fail closed and restart once instead of letting a partial result continue"
 );
 assert.match(
   hermesSupervisorSource,

@@ -5601,77 +5601,63 @@ async function uploadMainImagesToSection(page: Page, files: string[]): Promise<n
     return 0;
   }
 
-  const selectNextMainInput = async (usedIndexes: Set<number>): Promise<{ index: number } | null> => {
-    const inputs = await collectFileInputs(page);
-    return (
-      inputs
-        .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
-        .filter((input) => !usedIndexes.has(input.index))
-        .filter((input) => input.parentText.includes("\u4e0a\u4f20\u4e3b\u56fe") || input.parentText.includes("\u5546\u54c1\u6b63\u9762\u56fe"))
-        .sort((a, b) => scoreMainGraphicInput(b) - scoreMainGraphicInput(a) || a.index - b.index)[0] ||
-      pickBestSectionFileInput(
-        inputs.filter((input) => input.sectionLabel === "\u4e3b\u56fe" && !usedIndexes.has(input.index)),
-        "\u4e3b\u56fe",
-        scoreMainGraphicInput
-      )
-    );
-  };
+  const initialInputs = await collectFileInputs(page);
+  const mainInput =
+    initialInputs
+      .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
+      .filter((input) => input.parentText.includes("\u4e0a\u4f20\u4e3b\u56fe") || input.parentText.includes("\u5546\u54c1\u6b63\u9762\u56fe"))
+      .sort((a, b) => scoreMainGraphicInput(b) - scoreMainGraphicInput(a) || a.index - b.index)[0] ||
+    pickBestSectionFileInput(initialInputs, "\u4e3b\u56fe", scoreMainGraphicInput);
 
-  const uploadSequenceOnce = async (): Promise<{ uploaded: number; failedAt: number }> => {
+  if (!mainInput) {
+    return 0;
+  }
+
+  const auxiliaryInputs = initialInputs
+    .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
+    .filter((input) => input.index !== mainInput.index)
+    .filter((input) => input.parentText.includes("\u4e0a\u4f20\u8f85\u52a9\u56fe"))
+    .sort((a, b) => a.index - b.index);
+
+  const uploadSequenceOnce = async (): Promise<{ uploaded: number; confirmed: number }> => {
+    const orderedInputs = [mainInput, ...auxiliaryInputs];
     let uploaded = 0;
-    let previousCount = await countMainImagePreviews(page).catch(() => 0);
-    const usedIndexes = new Set<number>();
 
     for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
-      let acknowledged = false;
-      for (let attempt = 0; attempt < 2 && !acknowledged; attempt += 1) {
-        const input = await selectNextMainInput(usedIndexes);
-        if (!input) {
-          break;
-        }
-        await page.locator("input[type='file']").nth(input.index).setInputFiles(files[fileIndex]);
-        const observedCount = await waitForPreviewCount(page, () => countMainImagePreviews(page), previousCount + 1, 12000).catch(() => 0);
-        if (observedCount >= previousCount + 1) {
-          previousCount = observedCount;
-          uploaded += 1;
-          usedIndexes.add(input.index);
-          acknowledged = true;
-          await dismissTransientOverlays(page);
-          break;
-        }
-
-        await page.waitForTimeout(700);
-        await dismissTransientOverlays(page);
+      const input = orderedInputs[fileIndex];
+      if (!input) {
+        return { uploaded, confirmed: 0 };
       }
-
-      if (!acknowledged) {
-        return { uploaded, failedAt: fileIndex + 1 };
-      }
+      await page.locator("input[type='file']").nth(input.index).setInputFiles(files[fileIndex]);
+      uploaded += 1;
+      await page.waitForTimeout(fileIndex === 0 ? 650 : 250);
+      await dismissTransientOverlays(page);
     }
 
-    return { uploaded, failedAt: 0 };
+    const confirmed = await waitForPreviewCount(page, () => countMainImagePreviews(page), files.length, 8000).catch(() => 0);
+    return { uploaded, confirmed };
   };
 
   const firstAttempt = await uploadSequenceOnce();
-  if (firstAttempt.failedAt === 0) {
-    return firstAttempt.uploaded;
+  if (firstAttempt.confirmed >= files.length) {
+    return firstAttempt.confirmed;
   }
 
   logWarn(
-    `Main image upload sequence stalled at file ${firstAttempt.failedAt}/${files.length}; clearing section and restarting once.`
+    `Main image upload sequence only confirmed ${firstAttempt.confirmed}/${files.length} preview(s); clearing section and restarting once.`
   );
   await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, files.length + 3)).catch(() => 0);
   await page.waitForTimeout(700);
   await dismissTransientOverlays(page);
 
   const secondAttempt = await uploadSequenceOnce();
-  if (secondAttempt.failedAt > 0) {
+  if (secondAttempt.confirmed < files.length) {
     throw new Error(
-      `Main image upload did not reach ${files.length} preview(s) after restart; failed at ${secondAttempt.failedAt}, acknowledged=${secondAttempt.uploaded}.`
+      `Main image upload did not reach ${files.length} preview(s) after restart; confirmed=${secondAttempt.confirmed}, uploaded=${secondAttempt.uploaded}.`
     );
   }
 
-  return secondAttempt.uploaded;
+  return secondAttempt.confirmed;
 }
 
 async function countGraphicSectionPreviews(page: Page, sectionName: string): Promise<number> {
