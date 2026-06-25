@@ -762,6 +762,30 @@ assert.equal(
   false,
   "Hermes-facing JSON must not expose completed image-generation progress during publish stage"
 );
+const hermesChineseFeedbackPayload = resolveAutoListingControllerHermesStatusPayload({
+  status: "running",
+  realtimeProgress: {
+    source: "state",
+    message: "Task chain completed.",
+    timestamp: "2026-06-14T06:12:00.000Z",
+    key: "state|Task chain completed."
+  },
+  feishuCurrentProduct: {
+    current: 4,
+    total: 4,
+    userCognitionName: "喜维他B族"
+  }
+});
+assert.equal(
+  hermesChineseFeedbackPayload.hermesProgress?.message,
+  "飞书产品 4/4；任务链已完成",
+  "Hermes progress message must translate terminal English progress into concise Chinese"
+);
+assert.equal(
+  /[A-Za-z]{3,}/.test(String(hermesChineseFeedbackPayload.hermesProgress?.message || "")),
+  false,
+  "Hermes progress message must not expose English words to operators"
+);
 const groupedHermesRealtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-14T06:00:00.000Z",
   activeRunId: "20260614-211821",
@@ -882,6 +906,19 @@ assert.equal(
   /publish-page-basic-filled|2026-06-14T06:10:02/.test(String(hermesStablePublishMessagePayload?.key || "")),
   false,
   "Hermes publish-stage automatic feedback key must not include transient artifact names or timestamps"
+);
+assert.equal(
+  resolveAutoListingControllerHermesStatusPayload({
+    status: "running",
+    realtimeProgress: {
+      source: "latest_artifact",
+      message: "最近产物：publish-page-images-uploaded.png",
+      timestamp: "2026-06-14T06:10:02.000Z",
+      key: "artifact|publish-page-images-uploaded.png"
+    }
+  }).hermesProgress?.message,
+  "最近产物：图文上传截图",
+  "Hermes artifact feedback must show a Chinese artifact label instead of an English filename"
 );
 
 const pageNotReadyClass = classifyPublishFailure("Platform SPU query page was not ready after navigation.");
@@ -1979,7 +2016,7 @@ assert.deepEqual(
   [
     "状态：运行中｜主图 15/20｜飞书产品 0/4",
     "当前：医用芦荟凝胶",
-    "进度：等待图片服务队列：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0"
+    "进度：等待图片服务队列：第 5/5 组，第 4 张，任务 task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM 排队中"
   ],
   "AutoListingController text status must use completed paid-ledger slots instead of the currently polled slot ordinal"
 );
@@ -1997,9 +2034,25 @@ assert.deepEqual(
   [
     "状态：运行中｜主图 11/20｜飞书产品 4/4",
     "当前：B族维生素片-recvntth27DUyf-白底图-01-2a63110e80",
-    "进度：等待图片服务队列：Prompt 2/5: Image 1: videos-base64 task task_U8RAbBSpF6hMeYzVVVOARoLKQ9m5zWMa status queued 0"
+    "进度：等待图片服务队列：第 2/5 组，第 1 张，任务 task_U8RAbBSpF6hMeYzVVVOARoLKQ9m5zWMa 排队中"
   ],
   "Image generation progress must suppress stale publish-log progress while the active task is generating main images"
+);
+assert.equal(
+  formatAutoListingControllerCompactStatusText({
+    status: "running",
+    summary: "Task chain completed.",
+    latestProgress: "Task chain completed.",
+    productName: "延草纲目喜维他牌族维生素片(菠萝味)",
+    publishProductIndex: 20,
+    publishProductTotal: 20,
+    publishShopIndex: 10,
+    publishShopTotal: 10,
+    feishuCompleted: 4,
+    feishuTotal: 4
+  }).split("\n").at(-1),
+  "进度：任务链已完成",
+  "Text status must translate completed task-chain progress into Chinese"
 );
 assert.equal(
   resolveAutoListingControllerPaidImageRecordId({

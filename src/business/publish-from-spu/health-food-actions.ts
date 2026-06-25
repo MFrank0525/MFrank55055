@@ -425,30 +425,85 @@ export async function uploadHealthFoodFileInFieldOnPage(
   const fieldRoot = await findHealthFoodFieldRootByLabel(page, label);
   const input = fieldRoot.locator("input[type='file']").first();
   await input.setInputFiles(selectedFiles, { timeout: 10000 });
-  await page.waitForTimeout(300);
-  const readback = await fieldRoot.evaluate((root) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-    const fileInputCount = Array.from(root.querySelectorAll("input[type='file']"))
-      .map((node) => node as HTMLInputElement)
-      .reduce((sum, input) => sum + (input.files?.length || 0), 0);
-    const previewCount = Array.from(
-      root.querySelectorAll("img, video, [class*='preview'], [class*='Preview'], [class*='upload-list'], [class*='UploadList'], [class*='file-list'], [class*='FileList']")
-    )
-      .map((node) => node as HTMLElement)
-      .filter((node) => {
-        const style = window.getComputedStyle(node);
-        const text = normalize(node.textContent || "");
-        return style.display !== "none" && style.visibility !== "hidden" && (node.tagName === "IMG" || node.tagName === "VIDEO" || text.includes("上传成功") || text.includes("预览") || text.includes("删除"));
-      }).length;
-    return { fileInputCount, previewCount };
-  });
-  const acceptedCount = Math.max(readback.fileInputCount, readback.previewCount);
+
+  let acceptedCount = 0;
+  let previewCount = 0;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const readback = await fieldRoot.evaluate((root) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+      const fieldText = normalize((root as HTMLElement).innerText || root.textContent || "");
+      const uploadedCount = Math.max(
+        ...Array.from(fieldText.matchAll(/(\d+)\/(?:20|\d+)|已上传(\d+)|上传成功/g)).map((match) =>
+          Number(match[1] || match[2] || 0)
+        ),
+        0
+      );
+      const fileInputCount = Array.from(root.querySelectorAll("input[type='file']"))
+        .map((node) => node as HTMLInputElement)
+        .reduce((sum, inputNode) => sum + (inputNode.files?.length || 0), 0);
+      const imageEvidenceCount = Array.from(
+        root.querySelectorAll("img, video, [class*='preview'], [class*='Preview'], [class*='upload-list'], [class*='UploadList'], [class*='file-list'], [class*='FileList']")
+      )
+        .map((node) => node as HTMLElement)
+        .filter((node) => {
+          const style = window.getComputedStyle(node);
+          const text = normalize(node.textContent || "");
+          return style.display !== "none" && style.visibility !== "hidden" && (node.tagName === "IMG" || node.tagName === "VIDEO" || text.includes("上传成功") || text.includes("预览") || text.includes("删除"));
+        }).length;
+      return { uploadedCount, fileInputCount, previewCount: imageEvidenceCount };
+    });
+    acceptedCount = Math.max(readback.uploadedCount, readback.fileInputCount, readback.previewCount);
+    previewCount = readback.previewCount;
+    if (acceptedCount >= selectedFiles.length) {
+      break;
+    }
+    await page.waitForTimeout(1000);
+  }
+
+  if (acceptedCount < selectedFiles.length && selectedFiles.length > 1) {
+    for (const file of selectedFiles) {
+      await input.setInputFiles(file, { timeout: 10000 });
+      await page.waitForTimeout(500);
+    }
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const readback = await fieldRoot.evaluate((root) => {
+        const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+        const fieldText = normalize((root as HTMLElement).innerText || root.textContent || "");
+        const uploadedCount = Math.max(
+          ...Array.from(fieldText.matchAll(/(\d+)\/(?:20|\d+)|已上传(\d+)|上传成功/g)).map((match) =>
+            Number(match[1] || match[2] || 0)
+          ),
+          0
+        );
+        const fileInputCount = Array.from(root.querySelectorAll("input[type='file']"))
+          .map((node) => node as HTMLInputElement)
+          .reduce((sum, inputNode) => sum + (inputNode.files?.length || 0), 0);
+        const imageEvidenceCount = Array.from(
+          root.querySelectorAll("img, video, [class*='preview'], [class*='Preview'], [class*='upload-list'], [class*='UploadList'], [class*='file-list'], [class*='FileList']")
+        )
+          .map((node) => node as HTMLElement)
+          .filter((node) => {
+            const style = window.getComputedStyle(node);
+            const text = normalize(node.textContent || "");
+            return style.display !== "none" && style.visibility !== "hidden" && (node.tagName === "IMG" || node.tagName === "VIDEO" || text.includes("上传成功") || text.includes("预览") || text.includes("删除"));
+          }).length;
+        return { uploadedCount, fileInputCount, previewCount: imageEvidenceCount };
+      });
+      acceptedCount = Math.max(readback.uploadedCount, readback.fileInputCount, readback.previewCount);
+      previewCount = readback.previewCount;
+      if (acceptedCount >= selectedFiles.length) {
+        break;
+      }
+      await page.waitForTimeout(1000);
+    }
+  }
+
   return {
     action: "upload_file",
     label,
     fileCount: selectedFiles.length,
     readbackValue: String(acceptedCount),
-    previewCount: readback.previewCount,
+    previewCount,
     recognitionDiffDismissed: false,
     ok: acceptedCount >= selectedFiles.length
   };

@@ -752,11 +752,74 @@ function formatFeishuProductProgress(value: unknown): string | undefined {
 
 function compactImageProviderQueueWaitProgress(message?: string): string | undefined {
   const text = String(message || "").replace(/\s+/g, " ").trim();
-  const match = /(Prompt\s+\d+\/\d+:\s*Image\s+\d+:\s*videos-base64 task \S+ status (?:queued|pending)\s+0\.?)/i.exec(text);
+  const match = /Prompt\s+(\d+)\/(\d+):\s*Image\s+(\d+):\s*videos-base64 task (\S+) status (queued|pending)\s+0\.?/i.exec(text);
   if (!match) {
     return undefined;
   }
-  return `等待图片服务队列：${match[1].replace(/\.$/, "")}`;
+  const status = match[5].toLowerCase() === "pending" ? "等待中" : "排队中";
+  return `等待图片服务队列：第 ${match[1]}/${match[2]} 组，第 ${match[3]} 张，任务 ${match[4]} ${status}`;
+}
+
+function formatAutoListingControllerArtifactName(name?: string): string {
+  const value = String(name || "").trim();
+  const labels: Record<string, string> = {
+    "platform-spu-query-result.png": "标品检索截图",
+    "publish-page-basic-filled.png": "基础信息截图",
+    "publish-page-images-uploaded.png": "图文上传截图",
+    "publish-page-spec-editor.png": "规格编辑截图",
+    "publish-page-price-inventory-filled.png": "价格库存截图",
+    "publish-page-fixed-settings.png": "服务履约截图",
+    "publish-page-published.png": "已发布截图",
+    "publish-page-inspect.png": "发布检查截图"
+  };
+  return labels[value] || value;
+}
+
+function translateAutoListingControllerOperatorMessage(message?: string): string | undefined {
+  const text = String(message || "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return undefined;
+  }
+  const queueWait = compactImageProviderQueueWaitProgress(text);
+  if (queueWait) {
+    return queueWait;
+  }
+  const artifact = /^最近产物[:：]\s*(.+)$/i.exec(text);
+  if (artifact) {
+    return `最近产物：${formatAutoListingControllerArtifactName(artifact[1])}`;
+  }
+  const ready = /Main images ready:\s*(\d+)\s*file/i.exec(text);
+  if (ready) {
+    return `主图已就绪：${ready[1]} 张`;
+  }
+  const prompt = /Prompt\s+(\d+)\/(\d+):\s*Image\s+(\d+):\s*(.+)$/i.exec(text);
+  if (prompt) {
+    const action = prompt[4];
+    if (/submitting .*request/i.test(action)) {
+      return `主图生成：第 ${prompt[1]}/${prompt[2]} 组，第 ${prompt[3]} 张，正在提交`;
+    }
+    if (/saved generated-\d+/i.test(action)) {
+      return `主图生成：第 ${prompt[1]}/${prompt[2]} 组，第 ${prompt[3]} 张，已保存`;
+    }
+    if (/transient transport error/i.test(action)) {
+      return `主图生成：第 ${prompt[1]}/${prompt[2]} 组，第 ${prompt[3]} 张，网络重试中`;
+    }
+  }
+  const direct: Array<[RegExp, string]> = [
+    [/^Task chain completed\.?$/i, "任务链已完成"],
+    [/^Publish flow is running\.?$/i, "发布流程运行中"],
+    [/^Waiting for publish result\.?$/i, "等待发布结果"],
+    [/^checking Doudian login preflight before paid image generation\.?$/i, "正在检查抖店登录状态"],
+    [/^Title workbooks already exist; resume must continue from publishing\.?$/i, "标题表已存在，将从发布阶段继续"],
+    [/^Publishing product folder:\s*(.+)$/i, "正在发布商品"],
+    [/^Publish failed:\s*(.+)$/i, "发布失败"]
+  ];
+  for (const [pattern, replacement] of direct) {
+    if (pattern.test(text)) {
+      return replacement;
+    }
+  }
+  return text;
 }
 
 export function resolveAutoListingControllerHermesStatusPayload(
@@ -773,7 +836,7 @@ export function resolveAutoListingControllerHermesStatusPayload(
         : undefined;
     const realtimeMessage =
       typeof realtimeProgress.message === "string"
-        ? compactImageProviderQueueWaitProgress(String(realtimeProgress.message)) || String(realtimeProgress.message)
+        ? translateAutoListingControllerOperatorMessage(String(realtimeProgress.message))
         : undefined;
     const message = publishProgressText || realtimeMessage;
     const feishuPrefixedMessage =
@@ -1234,6 +1297,10 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
 
 function compactAutoListingControllerReason(summary?: string): string {
   const text = String(summary || "").replace(/\s+/g, " ").trim();
+  const translated = translateAutoListingControllerOperatorMessage(text);
+  if (translated && translated !== text) {
+    return translated;
+  }
   const paidSafety = /paid submission safety block: paid image ledger has ambiguous=(\d+), reserved=(\d+)/i.exec(text);
   if (paidSafety) {
     const ambiguous = Number(paidSafety[1] || 0);
@@ -1277,11 +1344,11 @@ function compactAutoListingControllerReason(summary?: string): string {
 }
 
 function compactAutoListingControllerImageProgress(progress?: string): string {
-  const queueWait = compactImageProviderQueueWaitProgress(progress);
-  if (queueWait) {
-    return queueWait;
-  }
+  const translated = translateAutoListingControllerOperatorMessage(progress);
   const text = String(progress || "").replace(/\s+/g, " ").trim();
+  if (translated && translated !== text) {
+    return translated;
+  }
   return text.length > 180 ? `${text.slice(0, 180)}...` : text;
 }
 

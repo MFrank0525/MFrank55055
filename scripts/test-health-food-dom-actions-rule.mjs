@@ -155,6 +155,16 @@ assert.match(
   /uploadHealthFoodOuterPackagingOnPage[\s\S]*从商品外包装图识别[\s\S]*ok:\s*true/,
   "outer packaging upload must treat Doudian recognition-difference evidence as upload completion without blocking on the reminder"
 );
+assert.match(
+  source,
+  /uploadHealthFoodFileInFieldOnPage[\s\S]*for \(let attempt = 0; attempt < 20; attempt \+= 1\)[\s\S]*uploadedCount[\s\S]*acceptedCount[\s\S]*page\.waitForTimeout\(1000\)/,
+  "outer packaging upload must poll for asynchronous upload acceptance instead of checking file input state once"
+);
+assert.match(
+  source,
+  /uploadHealthFoodFileInFieldOnPage[\s\S]*if \(acceptedCount < selectedFiles\.length && selectedFiles\.length > 1\)[\s\S]*for \(const file of selectedFiles\)[\s\S]*setInputFiles\(file/,
+  "outer packaging upload must fall back to per-file uploads when Doudian does not accept one multi-file selection"
+);
 const outerPackagingSource = source.slice(
   source.indexOf("export async function uploadHealthFoodOuterPackagingOnPage"),
   source.indexOf("export async function applyHealthFoodSpecificationOnPage")
