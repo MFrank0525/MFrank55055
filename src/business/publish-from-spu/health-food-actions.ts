@@ -1,5 +1,5 @@
 import type { Locator, Page } from "playwright";
-import { resolveHealthFoodFunctionOptionTexts } from "./health-food-rules.js";
+import { resolveHealthFoodFunctionOptionCandidateGroups } from "./health-food-rules.js";
 import type { PublishFromSpuMetadata } from "./types.js";
 
 export interface HealthFoodTextReadbackResult {
@@ -366,12 +366,16 @@ export async function checkHealthFunctionOptionOnPage(
   optionText: string
 ): Promise<HealthFoodCheckboxReadbackResult> {
   const fieldRoot = await findHealthFoodFieldRootByLabel(page, "保健功能");
-  const optionTexts = resolveHealthFoodFunctionOptionTexts(optionText);
-  if (!optionTexts.length) {
+  const optionGroups = resolveHealthFoodFunctionOptionCandidateGroups(optionText);
+  if (!optionGroups.length) {
     throw new Error(`Health-food 保健功能 checkbox option not found: ${optionText}`);
   }
   const selectedBefore = await fieldRoot.locator(".ecom-g-select-selection-item").allInnerTexts().catch(() => []);
-  if (optionTexts.every((expected) => selectedBefore.some((value) => normalizeDomText(value).includes(normalizeDomText(expected))))) {
+  if (
+    optionGroups.every((expectedOptions) =>
+      expectedOptions.some((expected) => selectedBefore.some((value) => normalizeDomText(value).includes(normalizeDomText(expected))))
+    )
+  ) {
     return {
       action: "check_health_function",
       label: "保健功能",
@@ -381,44 +385,54 @@ export async function checkHealthFunctionOptionOnPage(
       ok: true
     };
   }
-  for (const expectedOption of optionTexts) {
+  for (const expectedOptions of optionGroups) {
     const selectedNow = await fieldRoot.locator(".ecom-g-select-selection-item").allInnerTexts().catch(() => []);
-    if (selectedNow.some((value) => normalizeDomText(value).includes(normalizeDomText(expectedOption)))) {
+    if (expectedOptions.some((expected) => selectedNow.some((value) => normalizeDomText(value).includes(normalizeDomText(expected))))) {
       continue;
     }
-    const trigger = fieldRoot.locator(".ecom-g-select-selector").first();
-    await trigger.scrollIntoViewIfNeeded().catch(() => {});
-    await trigger.click({ timeout: 5000 }).catch(async () => {
-      await trigger.click({ timeout: 5000, force: true });
-    });
-    const search = fieldRoot.locator("input[role='combobox']").first();
-    await search.fill(expectedOption, { timeout: 5000 });
-    const titles = page.locator(".ecom-g-select-tree-title").filter({ hasText: expectedOption });
-    let exactTitle: Locator | null = null;
-    const titleCount = await titles.count().catch(() => 0);
-    for (let index = 0; index < titleCount; index += 1) {
-      const title = titles.nth(index);
-      if (
-        (await title.isVisible().catch(() => false)) &&
-        normalizeDomText(await title.innerText({ timeout: 500 }).catch(() => "")) === normalizeDomText(expectedOption)
-      ) {
-        exactTitle = title;
-        break;
+    let selectedCandidate = false;
+    for (const expectedOption of expectedOptions) {
+      const trigger = fieldRoot.locator(".ecom-g-select-selector").first();
+      await trigger.scrollIntoViewIfNeeded().catch(() => {});
+      await trigger.click({ timeout: 5000 }).catch(async () => {
+        await trigger.click({ timeout: 5000, force: true });
+      });
+      const search = fieldRoot.locator("input[role='combobox']").first();
+      await search.fill(expectedOption, { timeout: 5000 });
+      const titles = page.locator(".ecom-g-select-tree-title").filter({ hasText: expectedOption });
+      let exactTitle: Locator | null = null;
+      const titleCount = await titles.count().catch(() => 0);
+      for (let index = 0; index < titleCount; index += 1) {
+        const title = titles.nth(index);
+        if (
+          (await title.isVisible().catch(() => false)) &&
+          normalizeDomText(await title.innerText({ timeout: 500 }).catch(() => "")) === normalizeDomText(expectedOption)
+        ) {
+          exactTitle = title;
+          break;
+        }
       }
+      if (!exactTitle) {
+        continue;
+      }
+      const row = exactTitle.locator("xpath=ancestor::div[contains(@class,'ecom-g-select-tree-treenode')][1]");
+      const checkbox = row.locator(".ecom-g-select-tree-checkbox").first();
+      await checkbox.scrollIntoViewIfNeeded().catch(() => {});
+      await checkbox.click({ timeout: 5000 });
+      await page.waitForTimeout(3000);
+      selectedCandidate = true;
+      break;
     }
-    if (!exactTitle) {
-      throw new Error(`Health-food 保健功能 checkbox option not found: ${expectedOption}`);
+    if (!selectedCandidate) {
+      throw new Error(`Health-food 保健功能 checkbox option not found: ${expectedOptions.join(" / ")}`);
     }
-    const row = exactTitle.locator("xpath=ancestor::div[contains(@class,'ecom-g-select-tree-treenode')][1]");
-    const checkbox = row.locator(".ecom-g-select-tree-checkbox").first();
-    await checkbox.scrollIntoViewIfNeeded().catch(() => {});
-    await checkbox.click({ timeout: 5000 });
-    await page.waitForTimeout(3000);
   }
   await page.keyboard.press("Escape").catch(() => {});
   const selected = await fieldRoot.locator(".ecom-g-select-selection-item").allInnerTexts().catch(() => []);
   const readbackValue = selected.join(" ");
-  const checked = optionTexts.every((expected) => selected.some((value) => normalizeDomText(value).includes(normalizeDomText(expected))));
+  const checked = optionGroups.every((expectedOptions) =>
+    expectedOptions.some((expected) => selected.some((value) => normalizeDomText(value).includes(normalizeDomText(expected))))
+  );
   return {
     action: "check_health_function",
     label: "保健功能",

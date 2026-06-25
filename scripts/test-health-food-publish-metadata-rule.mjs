@@ -4,6 +4,7 @@ import { buildPublishJobMetadata } from "../dist/src/autolist/publish.js";
 import { resolvePublishFromSpuMetadata } from "../dist/src/business/publish-from-spu.js";
 import {
   evaluateHealthFoodPublishRules,
+  resolveHealthFoodFunctionOptionCandidateGroups,
   resolveHealthFoodFunctionOptionTexts
 } from "../dist/src/business/publish-from-spu/health-food-rules.js";
 
@@ -242,6 +243,11 @@ assert.deepEqual(
   ["调节血压", "调节血脂"],
   "compound health-food function values from Feishu must be split into Doudian selectable function options"
 );
+assert.deepEqual(
+  resolveHealthFoodFunctionOptionCandidateGroups("调节血压，调节血脂(降低总胆固醇、降低甘油三酯)"),
+  [["调节血压"], ["调节血脂(降低总胆固醇、降低甘油三酯)", "调节血脂"]],
+  "compound health-food function values must keep parenthesized Doudian option text as the preferred exact-match candidate"
+);
 
 assert.equal(
   evaluateHealthFoodPublishRules({
@@ -265,8 +271,8 @@ assert.equal(
       shelfLife: "2",
       storage: "常温"
     },
-    healthFunctionOptions: ["调节血压", "调节血脂", "增强免疫力"],
-    selectedHealthFunction: "调节血压 调节血脂",
+    healthFunctionOptions: ["调节血压", "调节血脂(降低总胆固醇、降低甘油三酯)", "增强免疫力"],
+    selectedHealthFunction: "调节血压 调节血脂(降低总胆固醇、降低甘油三酯)",
     visibleOptionalFieldLabels: [],
     qualificationImageCount: 2,
     qualificationImageSlots: [

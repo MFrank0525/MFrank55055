@@ -68,12 +68,46 @@ function normalizeRuleText(value: string | undefined): string {
 }
 
 export function resolveHealthFoodFunctionOptionTexts(value: string | undefined): string[] {
-  const withoutExplanations = (value || "").replace(/\([^)]*\)/g, "").replace(/（[^）]*）/g, "");
-  const options = withoutExplanations
-    .split(/[，,、;；/]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return Array.from(new Set(options));
+  return resolveHealthFoodFunctionOptionCandidateGroups(value).map((group) => group[group.length - 1]).filter(Boolean);
+}
+
+function splitTopLevelHealthFunctionOptions(value: string): string[] {
+  const options: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (const char of value) {
+    if (char === "(" || char === "（") {
+      depth += 1;
+      current += char;
+      continue;
+    }
+    if ((char === ")" || char === "）") && depth > 0) {
+      depth -= 1;
+      current += char;
+      continue;
+    }
+    if (depth === 0 && /[，,、;；/]/.test(char)) {
+      if (current.trim()) {
+        options.push(current.trim());
+      }
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) {
+    options.push(current.trim());
+  }
+  return options;
+}
+
+export function resolveHealthFoodFunctionOptionCandidateGroups(value: string | undefined): string[][] {
+  return splitTopLevelHealthFunctionOptions(value || "")
+    .map((option) => {
+      const shortOption = option.replace(/\([^)]*\)/g, "").replace(/（[^）]*）/g, "").trim();
+      return Array.from(new Set([option.trim(), shortOption].filter(Boolean)));
+    })
+    .filter((group) => group.length > 0);
 }
 
 function block(issue: string): HealthFoodRuleDecision {
@@ -114,15 +148,17 @@ export function resolveHealthFoodSpecificationReplacement(input: {
 
 function evaluateHealthFunctionExactMatch(input: HealthFoodPublishRuleInput): HealthFoodRuleDecision | undefined {
   const expected = input.metadata.healthFunction || "";
-  const expectedOptions = resolveHealthFoodFunctionOptionTexts(expected);
+  const expectedOptionGroups = resolveHealthFoodFunctionOptionCandidateGroups(expected);
   const normalizedSelected = normalizeRuleText(input.selectedHealthFunction);
-  const missingOptions = expectedOptions.filter((expectedOption) => {
-    const normalizedExpectedOption = normalizeRuleText(expectedOption);
-    const optionMatched = input.healthFunctionOptions.some((option) => normalizeRuleText(option) === normalizedExpectedOption);
-    const selected = normalizedSelected.includes(normalizedExpectedOption);
-    return !optionMatched || !selected;
+  const missingOptions = expectedOptionGroups.filter((expectedOptions) => {
+    return !expectedOptions.some((expectedOption) => {
+      const normalizedExpectedOption = normalizeRuleText(expectedOption);
+      const optionMatched = input.healthFunctionOptions.some((option) => normalizeRuleText(option) === normalizedExpectedOption);
+      const selected = normalizedSelected.includes(normalizedExpectedOption);
+      return optionMatched && selected;
+    });
   });
-  if (!expectedOptions.length || missingOptions.length) {
+  if (!expectedOptionGroups.length || missingOptions.length) {
     return block(`Health-food function option must exact match Feishu value: ${expected || "<empty>"}`);
   }
   return undefined;
