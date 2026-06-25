@@ -228,6 +228,21 @@ assert.match(
   /logWarn\([\s\S]*only confirmed[\s\S]*clearing section and restarting once[\s\S]*const secondAttempt = await uploadSequenceOnce\(\);[\s\S]*throw new Error\([\s\S]*confirmed=/,
   "the main-image batch must fail closed and restart once instead of letting a partial result continue"
 );
+assert.match(
+  uploadMainImagesSource,
+  /resolveCurrentMainImageUploadInput[\s\S]*const uploadSequenceOnce[\s\S]*resolveCurrentMainImageUploadInput\(page, fileIndex\)/,
+  "main-image upload must resolve current Doudian file inputs for every slot instead of reusing stale indexes after DOM rerenders"
+);
+assert.match(
+  uploadMainImagesSource,
+  /for \(let fileIndex = 0; fileIndex < files\.length; fileIndex \+= 1\)[\s\S]*const expectedCount = Math\.max\(previousCount, fileIndex \+ 1\)[\s\S]*waitForPreviewCount\([\s\S]*expectedCount/,
+  "main-image upload must overwrite stale slot previews and confirm by slot position instead of skipping files when stale previews exist"
+);
+assert.doesNotMatch(
+  uploadMainImagesSource,
+  /Math\.min\(previousCount, files\.length\)/,
+  "main-image upload must not assume existing previews are the correct files"
+);
 assert.doesNotMatch(
   priceInventoryDomSlice,
   /score|centerX|distanceToPrice|distanceToStock|getBoundingClientRect\(\)\.x/,

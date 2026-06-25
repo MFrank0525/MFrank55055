@@ -582,48 +582,51 @@ export async function uploadFilesToSectionSlots(
   return uploaded;
 }
 
+async function resolveCurrentMainImageUploadInput(page: Page, fileIndex: number): Promise<{ index: number } | null> {
+  const inputs = await collectFileInputs(page);
+  const sectionInputs = inputs
+    .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
+    .sort((a, b) => a.index - b.index);
+
+  if (sectionInputs.length) {
+    return sectionInputs[fileIndex] || null;
+  }
+
+  if (fileIndex === 0) {
+    return pickBestSectionFileInput(inputs, "\u4e3b\u56fe", scoreMainGraphicInput) || null;
+  }
+
+  return null;
+}
+
 export async function uploadMainImagesToSection(page: Page, files: string[]): Promise<number> {
   if (!files.length) {
     return 0;
   }
 
-  const initialInputs = await collectFileInputs(page);
-  const mainInput =
-    initialInputs
-      .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
-      .filter((input) => input.parentText.includes("\u4e0a\u4f20\u4e3b\u56fe") || input.parentText.includes("\u5546\u54c1\u6b63\u9762\u56fe"))
-      .sort((a, b) => scoreMainGraphicInput(b) - scoreMainGraphicInput(a) || a.index - b.index)[0] ||
-    pickBestSectionFileInput(initialInputs, "\u4e3b\u56fe", scoreMainGraphicInput);
-
-  if (!mainInput) {
+  if (!(await resolveCurrentMainImageUploadInput(page, 0))) {
     return 0;
   }
 
-  const auxiliaryInputs = initialInputs
-    .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
-    .filter((input) => input.index !== mainInput.index)
-    .filter((input) => input.parentText.includes("\u4e0a\u4f20\u8f85\u52a9\u56fe"))
-    .sort((a, b) => a.index - b.index);
-
   const uploadSequenceOnce = async (): Promise<{ uploaded: number; confirmed: number }> => {
-    const orderedInputs = [mainInput, ...auxiliaryInputs];
     let uploaded = 0;
     let previousCount = await countMainImagePreviews(page).catch(() => 0);
 
     for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
-      const input = orderedInputs[fileIndex];
+      const input = await resolveCurrentMainImageUploadInput(page, fileIndex);
       if (!input) {
         return { uploaded, confirmed: previousCount };
       }
       await page.locator("input[type='file']").nth(input.index).setInputFiles(files[fileIndex]);
       uploaded += 1;
+      const expectedCount = Math.max(previousCount, fileIndex + 1);
       const observedCount = await waitForPreviewCount(
         page,
         () => countMainImagePreviews(page),
-        previousCount + 1,
+        expectedCount,
         fileIndex === 0 ? 4000 : 3000
       ).catch(() => previousCount);
-      if (observedCount < previousCount + 1) {
+      if (observedCount < expectedCount) {
         return { uploaded: uploaded - 1, confirmed: previousCount };
       }
       previousCount = observedCount;
