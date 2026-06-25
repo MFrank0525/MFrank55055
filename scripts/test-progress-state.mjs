@@ -1259,6 +1259,16 @@ assert.equal(
   true,
   "A create page with no publish sections after SPU query must be retried"
 );
+assert.equal(
+  shouldRetryPublishFailure(emptyPublishSectionsAfterSpuClass, 3),
+  true,
+  "SPU prefill empty-page failures need the same extended retry budget as platform readiness failures"
+);
+assert.equal(
+  shouldRetryPublishFailure(emptyPublishSectionsAfterSpuClass, 4),
+  false,
+  "SPU prefill empty-page failures must still stop after the extended retry budget is exhausted"
+);
 
 assert.deepEqual(
   evaluatePublishCreatePageReadiness({

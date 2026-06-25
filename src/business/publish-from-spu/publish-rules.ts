@@ -531,6 +531,8 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   const effectiveMaxRetryAttempts =
     errorClass === "platform_page_not_ready"
       ? Math.max(maxRetryAttempts, 4)
+      : errorClass === "platform_spu_prefill_failed"
+        ? Math.max(maxRetryAttempts, 4)
       : errorClass === "price_inventory_not_ready"
         ? Math.max(maxRetryAttempts, 3)
       : maxRetryAttempts;
