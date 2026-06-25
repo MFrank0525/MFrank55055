@@ -53,6 +53,16 @@ export async function runSpecPriceAction(
   configuredFields.push(...specResult.configuredFields);
   const specTypeOptions = specResult.specTypeOptions;
   let specIssue = specResult.specIssue;
+  if (input.categoryContext.productCategory === "保健食品" && !specIssue) {
+    const healthFoodSpecResult = await deps.applyHealthFoodSpecificationOnPage(page, input.metadata);
+    if (!healthFoodSpecResult.ok) {
+      specIssue = `Health-food full specification readback mismatch: expected=${
+        healthFoodSpecResult.expectedValue || "<empty>"
+      } actual=${healthFoodSpecResult.readbackValue || "<empty>"}`;
+    } else {
+      configuredFields.push("healthFoodSpecification");
+    }
+  }
   const specModuleError = await deps.readSpecModuleErrorOnPage(page).catch(() => "");
   if (!specIssue && specModuleError) {
     specIssue = `Spec module error detected: ${specModuleError}`;

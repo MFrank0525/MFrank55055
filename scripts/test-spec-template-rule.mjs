@@ -258,10 +258,13 @@ assert.match(
   /async function readSpecTemplateSelectedValue/,
   "spec template verification must use a dedicated selected-template readback instead of freight-template dropdown heuristics"
 );
-assert.match(
-  publishSource,
-  /readSpecTemplateSelectedValue\(page, keyword\)/,
-  "spec template application must read back the selected spec-template control text after choosing"
+assert.doesNotMatch(
+  publishSource.slice(
+    publishSource.indexOf("async function chooseDynamicSpecTemplateOnPage"),
+    publishSource.indexOf("async function clickManualSpecFillAfterTemplateOnPage")
+  ),
+  /readSpecTemplateSelectedValue\(page, keyword\)|readDropdownValueByLabel\(page, "\u89c4\u683c\u6a21\u677f"\)/,
+  "spec template dropdown selection must not wait on selected-value readback before switching manual fill"
 );
 assert.match(
   publishSource,

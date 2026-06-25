@@ -668,31 +668,46 @@ async function applyHealthFoodSpecificationEditorOnPage(
       clickElement(option);
       await sleep(500);
     };
-    const fillQuantities = (): void => {
+    const fillQuantity = (index: number, value: string): void => {
       const popup = findPopup();
       const quantityInputs = getQuantityInputs(popup);
-      if (quantityInputs.length < 2) {
-        throw new Error(`Health-food specification split editor must expose two quantity inputs: actual=${quantityInputs.length}`);
+      const input = quantityInputs[index] || (index === 0 ? quantityInputs[0] : undefined);
+      if (!input) {
+        throw new Error(`Health-food specification split editor missing quantity input index=${index}; actual=${quantityInputs.length}`);
       }
-      setNumber(quantityInputs[0], targetParts.firstQuantity);
-      setNumber(quantityInputs[1], targetParts.secondQuantity);
+      setNumber(input, value);
+    };
+    const chooseUnitByIndex = async (index: number, unitText: string): Promise<void> => {
+      const popup = findPopup();
+      const unitSelects = getUnitSelects(popup);
+      const select = unitSelects[index] || (index === 0 ? unitSelects[0] : undefined);
+      if (!select) {
+        throw new Error(`Health-food specification split editor missing unit selector index=${index}; actual=${unitSelects.length}`);
+      }
+      await chooseUnit(select, unitText);
+    };
+    const waitForSecondPartControls = async (): Promise<void> => {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const popup = findPopup();
+        if (getQuantityInputs(popup).length >= 2 && getUnitSelects(popup).length >= 2) {
+          return;
+        }
+        await sleep(300);
+      }
+      const popup = findPopup();
+      throw new Error(
+        `Health-food specification split editor did not expose second part controls: quantity=${getQuantityInputs(popup).length}; unit=${getUnitSelects(popup).length}`
+      );
     };
 
-    fillQuantities();
-    let popup = findPopup();
-    let unitSelects = getUnitSelects(popup);
-    if (unitSelects.length < 2) {
-      throw new Error(`Health-food specification split editor must expose two unit selectors: actual=${unitSelects.length}`);
-    }
-    await chooseUnit(unitSelects[0], targetParts.firstUnit);
-    fillQuantities();
-    popup = findPopup();
-    unitSelects = getUnitSelects(popup);
-    if (unitSelects.length < 2) {
-      throw new Error(`Health-food specification split editor lost second unit selector after first selection: actual=${unitSelects.length}`);
-    }
-    await chooseUnit(unitSelects[1], targetParts.secondUnit);
-    fillQuantities();
+    fillQuantity(0, targetParts.firstQuantity);
+    await chooseUnitByIndex(0, targetParts.firstUnit);
+    await waitForSecondPartControls();
+    fillQuantity(0, targetParts.firstQuantity);
+    fillQuantity(1, targetParts.secondQuantity);
+    await chooseUnitByIndex(1, targetParts.secondUnit);
+    fillQuantity(0, targetParts.firstQuantity);
+    fillQuantity(1, targetParts.secondQuantity);
     const active = document.activeElement as HTMLElement | null;
     active?.blur();
   }, parts);

@@ -1071,23 +1071,9 @@ async function chooseDynamicSpecTemplateOnPage(page: Page, title?: string): Prom
   const keyword = resolveSpecTemplateKeyword(title);
   await dismissTransientOverlays(page);
   await scrollLabelIntoView(page, "规格模板").catch(() => false);
-  let selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
-  if (isMatchingSpecTemplateValue(selectedValue, keyword)) {
-    return selectedValue;
-  }
-  selectedValue = await chooseSpecTemplateKeywordFromDropdown(page, keyword);
-  const readbackValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
-  if (isMatchingSpecTemplateValue(readbackValue, keyword)) {
-    return readbackValue;
-  }
+  const selectedValue = await chooseSpecTemplateKeywordFromDropdown(page, keyword);
   if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
-    selectedValue = await readDropdownValueByLabel(page, "\u89c4\u683c\u6a21\u677f").catch(() => "");
-  }
-  if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
-    selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
-  }
-  if (!isMatchingSpecTemplateValue(selectedValue, keyword)) {
-    throw new Error(`No visible spec template matched keyword: ${keyword}`);
+    throw new Error(`No visible spec template matched keyword: ${keyword}; selected=${selectedValue || "<empty>"}`);
   }
   return selectedValue;
 }
