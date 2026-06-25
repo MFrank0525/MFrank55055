@@ -3,6 +3,7 @@ import path from "node:path";
 import { auditAutoListingContinuity, auditCompletedBatchResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
+import { imageServiceWaitCeilingMs } from "../autolist/image-generation-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
@@ -374,7 +375,10 @@ async function main(): Promise<void> {
     }),
     titleRuleText: fs.readFileSync("docs/auto-listing/steps/05-title-generation.md", "utf8"),
     shopRuleText: fs.readFileSync("docs/auto-listing/steps/09-shop-distribution.md", "utf8"),
-    promptRuleText: fs.readFileSync("docs/auto-listing/steps/02-deepseek-prompts.md", "utf8")
+    promptRuleText: fs.readFileSync("docs/auto-listing/steps/02-deepseek-prompts.md", "utf8"),
+    imageRuleText: fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8"),
+    stabilityRuleText: fs.readFileSync("docs/auto-listing/stability-checklist.md", "utf8"),
+    imageWaitCeilingMs: imageServiceWaitCeilingMs
   });
 
   const toDeepIssues = (issues: Array<{ code: string; message: string }>): DeepAuditIssue[] =>

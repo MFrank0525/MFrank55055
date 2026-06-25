@@ -35,6 +35,21 @@ assert.match(
   /controller_process_batch_fingerprint_mismatch/,
   "Deep audit must fail when an active controller process belongs to another Feishu batch"
 );
+assert.match(
+  auditCliSource,
+  /imageWaitCeilingMs:\s*imageServiceWaitCeilingMs/,
+  "Deep audit must compare image wait rule sources against the executable wait ceiling"
+);
+assert.match(
+  auditCliSource,
+  /docs\/auto-listing\/steps\/03-main-image-generation\.md/,
+  "Deep audit must read the main-image rule source for contradiction checks"
+);
+assert.match(
+  auditCliSource,
+  /docs\/auto-listing\/stability-checklist\.md/,
+  "Deep audit must read the stability checklist for contradiction checks"
+);
 
 const dimensions = runDeepAuditRules({
   rules: { errors: [], warnings: [], evidence: ["rule source loaded"] },
@@ -93,5 +108,20 @@ const contradictionAudit = auditRuleContradictions({
 });
 assert.equal(contradictionAudit.ok, false);
 assert.equal(contradictionAudit.errors[0].code, "title_count_rule_contradiction");
+
+const imageWaitContradictionAudit = auditRuleContradictions({
+  categoryPlans: [{ category: "医疗器械", titleCount: 20, shopCount: 10, promptCount: 5 }],
+  titleRuleText: "医疗器械：20 条标题",
+  shopRuleText: "医疗器械：10 个店铺",
+  promptRuleText: "医疗器械：5 段提示词",
+  imageRuleText: "固定等待 5 分钟",
+  stabilityRuleText: "图片服务等待不得超过 5 分钟",
+  imageWaitCeilingMs: 3 * 60 * 1000
+});
+assert.equal(imageWaitContradictionAudit.ok, false);
+assert.deepEqual(imageWaitContradictionAudit.errors.map((item) => item.code), [
+  "main_image_wait_rule_contradiction",
+  "stability_wait_rule_contradiction"
+]);
 
 console.log("deep auto-listing audit rules passed");

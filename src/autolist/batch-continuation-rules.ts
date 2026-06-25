@@ -1,4 +1,5 @@
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
+import { imageServiceWaitCeilingMs } from "./image-generation-rules.js";
 
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
@@ -103,7 +104,7 @@ export function resolveSupervisorRecoveryDelayMs(input: {
   if (!isRetryableExternalServiceAvailabilityFailure(input.failureMessage)) {
     return 10000;
   }
-  const normalDelayMs = 5 * 60 * 1000;
+  const normalDelayMs = imageServiceWaitCeilingMs;
   const retryMatch = /paid image provider timeout circuit open[\s\S]*?retry after\s+(\d+)ms/i.exec(
     input.failureMessage
   );
@@ -354,7 +355,7 @@ export function resolveAutoListingControllerChildStallTimeoutMs(input: AutoListi
     /main_images_generated/i.test(activeText) &&
     /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(activeText)
   ) {
-    return Math.min(defaultTimeoutMs, 4 * 60 * 1000);
+    return Math.min(defaultTimeoutMs, imageServiceWaitCeilingMs);
   }
   if (
     /published|Publishing product folder|Retrying publish|Publish failed|page_context_lost|browser_remote_debugging_unavailable/i.test(activeText)

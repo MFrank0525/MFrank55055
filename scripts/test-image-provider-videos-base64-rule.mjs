@@ -108,8 +108,8 @@ assert.deepEqual(
     policyCompatiblePromptDigest: "policy-digest",
     nowMs: Date.parse("2026-06-18T01:41:00.000Z")
   }),
-  { action: "defer_to_supervisor", usePolicyCompatiblePrompt: true, deferMs: 4 * 60 * 1000 },
-  "A policy-compatible fixed slot that still times out must defer with the exact circuit cooldown"
+  { action: "defer_to_supervisor", usePolicyCompatiblePrompt: true, deferMs: 2 * 60 * 1000 },
+  "A policy-compatible fixed slot that still times out must defer with a cooldown capped at the project three-minute ceiling"
 );
 assert.deepEqual(
   resolvePaidImageProviderTimeoutRetry({
@@ -119,8 +119,8 @@ assert.deepEqual(
     policyCompatiblePromptDigest: "policy-digest",
     nowMs: Date.parse("2026-06-18T01:41:00.000Z")
   }),
-  { usePolicyCompatiblePrompt: true, deferMs: 4 * 60 * 1000 },
-  "A stability-compatible slot that still times out must enter a fixed-slot cooldown instead of immediate paid resubmission"
+  { usePolicyCompatiblePrompt: true, deferMs: 2 * 60 * 1000 },
+  "A stability-compatible slot that still times out must enter a fixed-slot cooldown capped at three minutes instead of immediate paid resubmission"
 );
 assert.match(source, /mode\?: "generations" \| "edits" \| "media-generate" \| "videos-base64"/);
 assert.match(source, /buildVideosBase64JsonBody/);
@@ -244,11 +244,11 @@ assert.match(
   /超时熔断.*supervisor.*精确冷却/s,
   "Only a fixed-slot timeout circuit may defer terminal timeouts to the supervisor"
 );
-assert.match(ruleDoc, /超时熔断.*5 分钟/s, "Fixed-slot timeout circuit cooldown must be five minutes");
+assert.match(ruleDoc, /超时熔断.*3 分钟/s, "Fixed-slot timeout circuit cooldown must be three minutes");
 assert.match(
   stabilityChecklist,
-  /外部服务.*固定等待 5 分钟.*不再指数增长/s,
-  "External image-service waits must stay at five minutes instead of growing exponentially"
+  /外部服务.*最多等待 3 分钟.*不再指数增长/s,
+  "External image-service waits must stay at or below three minutes instead of growing exponentially"
 );
 assert.match(ruleDoc, /内容策略.*仅对该固定 slot.*内容策略兼容降级提示词/s);
 assert.match(ruleDoc, /内容策略.*failed_after_acceptance.*requestDigest.*promptDigest.*允许.*更新/s);

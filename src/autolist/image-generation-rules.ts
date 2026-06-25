@@ -1,3 +1,5 @@
+export const imageServiceWaitCeilingMs = 3 * 60 * 1000;
+
 export function resolveImageDownloadTimeoutMs(requestTimeoutMs: number | undefined): number {
   return Math.max(30000, requestTimeoutMs || 180000);
 }
@@ -130,7 +132,7 @@ export function resolveImageGenerationTransportRetryPolicy(configuredMaxRetries:
 }
 
 export function resolveImageGenerationHttpRetryPolicy(input: ImageGenerationHttpRetryPolicyInput): ImageGenerationHttpRetryPolicy {
-  const longDelayMs = [60000, 90000, 120000, 180000, 240000, 300000, 300000, 300000];
+  const longDelayMs = [60000, 90000, 120000, 180000, 180000, 180000, 180000, 180000];
   const longMaxRetries = Math.max(8, Number.isFinite(input.configuredMaxRetries || NaN) ? Number(input.configuredMaxRetries) : 0);
   if (/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(input.responseText)) {
     return {
@@ -219,7 +221,7 @@ export function resolvePaidImageProviderTimeoutRetry(input: {
   cooldownMs?: number;
 }): { usePolicyCompatiblePrompt: boolean; deferMs: number } {
   const timeoutThreshold = Math.max(1, input.timeoutThreshold ?? 3);
-  const cooldownMs = Math.max(0, input.cooldownMs ?? 5 * 60 * 1000);
+  const cooldownMs = Math.min(imageServiceWaitCeilingMs, Math.max(0, input.cooldownMs ?? imageServiceWaitCeilingMs));
   const timeoutPattern = /timeout|timed out|超时/i;
   const timeoutFailures = input.audit.filter(
     (entry) => entry.state === "failed_after_acceptance" && timeoutPattern.test(entry.reason || "")

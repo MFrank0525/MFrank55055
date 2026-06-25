@@ -157,11 +157,24 @@ function includesCountRule(text: string, category: string, count: number, unit: 
   return normalized.includes(`${category}：${count}${unit}`) || normalized.includes(`${category}:${count}${unit}`);
 }
 
+function includesMinuteCeilingRule(text: string, ceilingMs: number): boolean {
+  const minutes = Math.floor(ceilingMs / 60000);
+  const normalized = text.replace(/\s+/g, "");
+  return (
+    normalized.includes(`不得超过${minutes}分钟`) ||
+    normalized.includes(`最多等待${minutes}分钟`) ||
+    normalized.includes(`固定等待${minutes}分钟`)
+  );
+}
+
 export function auditRuleContradictions(input: {
   categoryPlans: Array<{ category: string; titleCount: number; shopCount: number; promptCount: number }>;
   titleRuleText: string;
   shopRuleText: string;
   promptRuleText: string;
+  imageRuleText?: string;
+  stabilityRuleText?: string;
+  imageWaitCeilingMs?: number;
 }): { ok: boolean; errors: DeepAuditIssue[]; warnings: DeepAuditIssue[]; evidence: string[] } {
   const errors: DeepAuditIssue[] = [];
   for (const plan of input.categoryPlans) {
@@ -175,10 +188,28 @@ export function auditRuleContradictions(input: {
       errors.push({ code: "prompt_count_rule_contradiction", message: `${plan.category} promptCount=${plan.promptCount} is not reflected in the prompt rule source.` });
     }
   }
+  if (Number.isFinite(input.imageWaitCeilingMs || NaN)) {
+    const ceilingMs = Number(input.imageWaitCeilingMs);
+    if (input.imageRuleText !== undefined && !includesMinuteCeilingRule(input.imageRuleText, ceilingMs)) {
+      errors.push({
+        code: "main_image_wait_rule_contradiction",
+        message: `Main image rule source does not reflect image service wait ceiling ${ceilingMs}ms.`
+      });
+    }
+    if (input.stabilityRuleText !== undefined && !includesMinuteCeilingRule(input.stabilityRuleText, ceilingMs)) {
+      errors.push({
+        code: "stability_wait_rule_contradiction",
+        message: `Stability checklist does not reflect image service wait ceiling ${ceilingMs}ms.`
+      });
+    }
+  }
   return {
     ok: errors.length === 0,
     errors,
     warnings: [],
-    evidence: input.categoryPlans.map((plan) => `${plan.category}:titles=${plan.titleCount},shops=${plan.shopCount},prompts=${plan.promptCount}`)
+    evidence: [
+      ...input.categoryPlans.map((plan) => `${plan.category}:titles=${plan.titleCount},shops=${plan.shopCount},prompts=${plan.promptCount}`),
+      ...(Number.isFinite(input.imageWaitCeilingMs || NaN) ? [`imageWaitCeilingMs=${Number(input.imageWaitCeilingMs)}`] : [])
+    ]
   };
 }

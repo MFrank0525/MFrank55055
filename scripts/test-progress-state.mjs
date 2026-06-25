@@ -75,6 +75,7 @@ import {
   resolveVideosBase64SubmitTimeoutMs,
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
+  resolvePaidImageProviderTimeoutRetry,
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
@@ -1308,7 +1309,7 @@ assert.equal(
     activeStep: "main_images_generated",
     activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_queued status queued 0."
   }),
-  4 * 60 * 1000,
+  3 * 60 * 1000,
   "The supervisor must let the provider's three-minute accepted-task poll deadline finish before declaring a queue stall"
 );
 
@@ -2625,8 +2626,8 @@ assert.equal(
     failureMessage: "failed at main_images_generated: fetch failed",
     externalServiceWaitAttempts: 0
   }),
-  5 * 60 * 1000,
-  "Main-image transport failures must use the fixed five-minute external-service wait"
+  3 * 60 * 1000,
+  "Main-image transport failures must use the fixed three-minute external-service wait"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
@@ -3090,8 +3091,8 @@ assert.equal(
   "Temporary external-service outages must remain recoverable after the generic recovery budget is exhausted"
 );
 assert.equal(shouldConsumeSupervisorRecoveryAttempt(providerUnavailableMessage), false);
-assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 0 }), 5 * 60 * 1000);
-assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 3 }), 5 * 60 * 1000);
+assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 0 }), 3 * 60 * 1000);
+assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 3 }), 3 * 60 * 1000);
 assert.equal(
   isRetryableExternalServiceAvailabilityFailure(
     "failed at main_images_generated: Image generation request timed out. The provider did not respond in time. Raw error: This operation was aborted"
@@ -3313,15 +3314,15 @@ assert.equal(
     failureMessage: videosBase64ProviderCircuitOpen,
     externalServiceWaitAttempts: 0
   }),
-  5 * 60 * 1000,
-  "The supervisor must cap every slot cooldown at the requested five-minute wait"
+  3 * 60 * 1000,
+  "The supervisor must cap every slot cooldown at the requested three-minute wait"
 );
 assert.equal(
   resolveSupervisorRecoveryDelayMs({
     failureMessage: "paid image provider timeout circuit open for slot 17; retry after invalidms.",
     externalServiceWaitAttempts: 0
   }),
-  5 * 60 * 1000,
+  3 * 60 * 1000,
   "Malformed slot cooldown text must fall back to the normal external-service delay"
 );
 assert.equal(
@@ -3329,8 +3330,23 @@ assert.equal(
     failureMessage: "paid image provider timeout circuit open for slot 17; retry after 999999999ms.",
     externalServiceWaitAttempts: 0
   }),
-  5 * 60 * 1000,
+  3 * 60 * 1000,
   "Out-of-range slot cooldown text must not create an unbounded supervisor sleep"
+);
+assert.deepEqual(
+  resolvePaidImageProviderTimeoutRetry({
+    failureReason: "provider task failed: timed out",
+    audit: [
+      { state: "failed_after_acceptance", at: "2026-06-18T01:00:00.000Z", reason: "provider task failed: timed out" },
+      { state: "failed_after_acceptance", at: "2026-06-18T01:20:00.000Z", reason: "provider task failed: timed out" },
+      { state: "failed_after_acceptance", at: "2026-06-18T01:40:00.000Z", reason: "provider task failed: timed out" }
+    ],
+    recordedPromptDigest: "policy-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-06-18T01:41:00.000Z")
+  }),
+  { usePolicyCompatiblePrompt: true, deferMs: 2 * 60 * 1000 },
+  "Paid image fixed-slot cooldown must be capped by the project three-minute image wait ceiling"
 );
 assert.equal(
   typeof progressRulesModule.formatAutoListingControllerExternalServiceWaitSummary,
@@ -3381,8 +3397,8 @@ assert.equal(
     failureMessage: videosBase64PollTimeoutMessage,
     externalServiceWaitAttempts: 0
   }),
-  5 * 60 * 1000,
-  "videos-base64 submitted-task poll timeouts must use the fixed five-minute external-service wait"
+  3 * 60 * 1000,
+  "videos-base64 submitted-task poll timeouts must use the fixed three-minute external-service wait"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
@@ -3462,8 +3478,8 @@ assert.equal(
     failureMessage: videosBase64QueuedWatchdogMessage,
     externalServiceWaitAttempts: 0
   }),
-  5 * 60 * 1000,
-  "accepted videos-base64 queued 0 watchdog stalls must use the fixed five-minute external-service wait"
+  3 * 60 * 1000,
+  "accepted videos-base64 queued 0 watchdog stalls must use the fixed three-minute external-service wait"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -3950,7 +3966,7 @@ assert.deepEqual(
   }),
   {
     maxRetries: 8,
-    delayMs: [60000, 90000, 120000, 180000, 240000, 300000, 300000, 300000],
+    delayMs: [60000, 90000, 120000, 180000, 180000, 180000, 180000, 180000],
     reason: "provider_resource_overloaded"
   }
 );
@@ -3962,7 +3978,7 @@ assert.deepEqual(
   }),
   {
     maxRetries: 8,
-    delayMs: [60000, 90000, 120000, 180000, 240000, 300000, 300000, 300000],
+    delayMs: [60000, 90000, 120000, 180000, 180000, 180000, 180000, 180000],
     reason: "provider_gateway_unavailable"
   }
 );
@@ -3986,7 +4002,7 @@ assert.deepEqual(
   }),
   {
     maxRetries: 8,
-    delayMs: [60000, 90000, 120000, 180000, 240000, 300000, 300000, 300000],
+    delayMs: [60000, 90000, 120000, 180000, 180000, 180000, 180000, 180000],
     reason: "provider_upstream_failed"
   }
 );
