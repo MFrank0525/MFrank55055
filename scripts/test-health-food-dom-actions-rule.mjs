@@ -223,6 +223,11 @@ assert.match(
   /async function applyHealthFoodSpecificationEditorOnPage[\s\S]*ecom-g-popover-content[\s\S]*input\.ecom-g-input\[placeholder=.请输入.\][\s\S]*chooseUnit[\s\S]*ecom-g-select-item-option/,
   "health-food specification action must operate the expanded popover numeric inputs and unit dropdown options"
 );
+assert.match(
+  source,
+  /page\.locator\(`\[\$\{optionMarker\}="true"\]`\)\.first\(\)\.click\(\{\s*timeout:\s*3000\s*\}\)\.catch[\s\S]*page\.locator\(`\[\$\{optionMarker\}="true"\]`\)\.first\(\)\.click\(\{\s*timeout:\s*3000,\s*force:\s*true\s*\}\)/,
+  "health-food specification unit option click must keep exact structural option targeting but force the same locator when Doudian overlays intercept pointer events"
+);
 assert.doesNotMatch(
   source,
   /chooseSplitRuleOnPage|两类组合|三类组合|单品/,

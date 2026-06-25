@@ -869,7 +869,9 @@ async function applyHealthFoodSpecificationEditorOnPage(
     if (!optionInfo.found) {
       throw new Error(`Health-food specification unit option not found: ${unitText}; visible=${optionInfo.visibleOptions || "<none>"}`);
     }
-    await page.locator(`[${optionMarker}="true"]`).first().click({ timeout: 1000 });
+    await page.locator(`[${optionMarker}="true"]`).first().click({ timeout: 3000 }).catch(async () => {
+      await page.locator(`[${optionMarker}="true"]`).first().click({ timeout: 3000, force: true });
+    });
     await page.waitForTimeout(200);
     const selectedText = await page.evaluate(({ markerName, unitIndex }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
