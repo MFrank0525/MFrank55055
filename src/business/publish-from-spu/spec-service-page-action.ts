@@ -1092,22 +1092,13 @@ async function chooseDynamicSpecTemplateOnPage(page: Page, title?: string): Prom
   return selectedValue;
 }
 
-async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page: Page): Promise<void> {
+async function clickManualSpecFillAfterTemplateOnPage(page: Page): Promise<void> {
   await dismissTransientOverlays(page).catch(() => {});
   await scrollLabelIntoView(page, "商品规格").catch(() => false);
   await scrollLabelIntoView(page, "规格模板").catch(() => false);
   if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
     await clickSwitchManualSpecEntryMode(page).catch(() => false);
   }
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
-    const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-    if (filledValues.length > 0 || visiblePriceRows > 0) {
-      return;
-    }
-    await page.waitForTimeout(250);
-  }
-  throw new Error("Spec template selected but manual spec values or price/inventory rows were not visible after switching from smart-fill mode.");
 }
 
 async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {
@@ -1208,16 +1199,7 @@ export async function applySpecTemplateWithVerificationOnPage(
       issue: `${message}; keyword=${keyword}`
     };
   }
-  try {
-    await ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      selectedTemplate: selectedTemplate || keyword,
-      filledValues: [],
-      issue: `${message}; keyword=${keyword}`
-    };
-  }
+  await clickManualSpecFillAfterTemplateOnPage(page);
   const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
   const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
   const blankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);

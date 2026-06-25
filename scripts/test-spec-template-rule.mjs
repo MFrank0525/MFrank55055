@@ -343,8 +343,8 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*countVisiblePriceInventoryRows\(page\)[\s\S]*readCurrentSpecValuesStrict\(page\)/,
-  "spec template expansion evidence must be checked only after clicking the post-template manual-fill switch"
+  /async function clickManualSpecFillAfterTemplateOnPage[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)/,
+  "spec template flow must only click the post-template manual-fill switch before handing off to price/inventory"
 );
 assert.doesNotMatch(
   publishSource.slice(
@@ -416,7 +416,7 @@ assert.match(
 
 assert.match(
   publishSource,
-  /applySpecTemplateWithVerificationOnPage[\s\S]*chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*ensureManualPriceInventoryRowsAfterSpecTemplateOnPage\(page\)/,
+  /applySpecTemplateWithVerificationOnPage[\s\S]*chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*clickManualSpecFillAfterTemplateOnPage\(page\)/,
   "spec template application must choose the dropdown template first, then switch manual mode and expand price/inventory rows"
 );
 const switchManualSpecEntrySource = fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8");
@@ -437,18 +437,13 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*countVisiblePriceInventoryRows\(page\)/,
-  "after selecting the spec template, the action must immediately switch smart-fill to manual mode and wait for price/inventory rows"
-);
-assert.match(
-  publishSource,
-  /async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage[\s\S]*for \(let attempt = 0; attempt < 20; attempt \+= 1\)[\s\S]*countVisiblePriceInventoryRows\(page\)[\s\S]*await page\.waitForTimeout\(250\)/,
-  "after selecting the spec template, the action must wait in-place for Doudian to expand template price/inventory rows instead of failing into whole-flow retry"
+  /async function clickManualSpecFillAfterTemplateOnPage[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)/,
+  "after selecting the spec template, the action must immediately switch smart-fill to manual mode"
 );
 assert.match(
   applySpecTemplateSource,
-  /chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*ensureManualPriceInventoryRowsAfterSpecTemplateOnPage\(page\)[\s\S]*const visiblePriceRows = await countVisiblePriceInventoryRows\(page\)/,
-  "spec template application must not evaluate completion until manual price/inventory rows are visible after template selection"
+  /chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*clickManualSpecFillAfterTemplateOnPage\(page\)[\s\S]*evaluateSpecTemplateCompletion/,
+  "spec template application must evaluate completion from selected template after the manual-fill switch action"
 );
 assert.doesNotMatch(
   applySpecTemplateSource,
@@ -457,7 +452,7 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(
   applySpecTemplateSource,
-  /ensureManualPriceInventoryRowsAfterSpecTemplateOnPage\(page\)[\s\S]*catch[\s\S]*continue;/,
+  /clickManualSpecFillAfterTemplateOnPage\(page\)[\s\S]*catch[\s\S]*continue;/,
   "after a spec template is selected, manual-mode readiness must not loop back and click the spec template again"
 );
 assert.doesNotMatch(
