@@ -203,15 +203,15 @@ assert.match(
   /async function applyHealthFoodSpecificationEditorOnPage[\s\S]*ecom-g-popover-content[\s\S]*input\.ecom-g-input\[placeholder=.请输入.\][\s\S]*chooseUnit[\s\S]*ecom-g-select-item-option/,
   "health-food specification action must operate the expanded popover numeric inputs and unit dropdown options"
 );
-assert.match(
+assert.doesNotMatch(
   source,
-  /chooseSplitRuleOnPage[\s\S]*expectedRule[\s\S]*两类组合[\s\S]*chooseSplitRuleOnPage\("两类组合"\)[\s\S]*chooseUnit/,
-  "health-food specification split editor must choose the two-part rule before selecting quantity units"
+  /chooseSplitRuleOnPage|两类组合|三类组合|单品/,
+  "health-food specification action must not touch the split-rule/default selector; only quantity/unit/quantity/unit fields are controlled"
 );
 assert.match(
   source,
-  /getUnitSelects[\s\S]*单品[\s\S]*两类组合[\s\S]*三类组合/,
-  "health-food specification unit selector discovery must exclude the split-rule selector options"
+  /fillQuantityOnPage\(0, parts\.firstQuantity\)[\s\S]*chooseUnit\(0, parts\.firstUnit\)[\s\S]*fillQuantityOnPage\(1, parts\.secondQuantity\)[\s\S]*chooseUnit\(1, parts\.secondUnit\)/,
+  "health-food specification action must fill exactly the four lower controls in order: quantity, unit, quantity, unit"
 );
 assert.doesNotMatch(
   source.slice(

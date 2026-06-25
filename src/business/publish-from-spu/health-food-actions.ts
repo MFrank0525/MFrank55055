@@ -679,16 +679,8 @@ async function applyHealthFoodSpecificationEditorOnPage(
       const getUnitSelects = (popup: HTMLElement): HTMLElement[] =>
         Array.from(popup.querySelectorAll(".ecom-g-select"))
           .map((node) => node as HTMLElement)
-          .filter((select) => {
-            const text = normalize(select.innerText || select.textContent || "");
-            return (
-              notHiddenByEcomContainer(select) &&
-              !text.includes("单件净含量") &&
-              !text.includes("单品") &&
-              !text.includes("两类组合") &&
-              !text.includes("三类组合")
-            );
-          });
+          .filter((select) => notHiddenByEcomContainer(select))
+          .slice(1);
       for (let attempt = 0; attempt < 10; attempt += 1) {
         const popup = findPopup();
         if (getQuantityInputs(popup).length >= 2 && getUnitSelects(popup).length >= 2) {
@@ -701,100 +693,6 @@ async function applyHealthFoodSpecificationEditorOnPage(
         `Health-food specification split editor did not expose second part controls: quantity=${getQuantityInputs(popup).length}; unit=${getUnitSelects(popup).length}`
       );
     });
-  };
-  const chooseSplitRuleOnPage = async (expectedRule: string): Promise<void> => {
-    const selectMarker = `${markerBase}-split-rule-select`;
-    const optionMarker = `${markerBase}-split-rule-option`;
-    const selected = await page.evaluate(({ markerName, expectedRuleText }) => {
-      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-      const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
-        let current: HTMLElement | null = element;
-        while (current && current !== document.body) {
-          const style = window.getComputedStyle(current);
-          const className = String(current.className || "");
-          if (
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            className.includes("ecom-g-popover-hidden") ||
-            className.includes("ecom-g-select-dropdown-hidden")
-          ) {
-            return false;
-          }
-          current = current.parentElement;
-        }
-        return true;
-      };
-      document.querySelectorAll(`[${markerName}]`).forEach((node) => node.removeAttribute(markerName));
-      const popup = Array.from(document.querySelectorAll(".ecom-g-popover-content"))
-        .map((node) => node as HTMLElement)
-        .find((element) => notHiddenByEcomContainer(element) && normalize(element.innerText || "").includes("选择规则"));
-      if (!popup) {
-        throw new Error("Health-food specification split editor popover not found after opening combined value input.");
-      }
-      const ruleSelect = Array.from(popup.querySelectorAll(".ecom-g-select"))
-        .map((node) => node as HTMLElement)
-        .find((select) => {
-          const text = normalize(select.innerText || select.textContent || "");
-          return (
-            notHiddenByEcomContainer(select) &&
-            (text.includes("单品") || text.includes("两类组合") || text.includes("三类组合") || text.includes("单件净含量"))
-          );
-        });
-      if (!ruleSelect) {
-        throw new Error("Health-food specification split-rule selector was not found.");
-      }
-      ruleSelect.setAttribute(markerName, "true");
-      const selectedText = normalize(ruleSelect.innerText || ruleSelect.textContent || "");
-      return selectedText.includes(normalize(expectedRuleText));
-    }, { markerName: selectMarker, expectedRuleText: expectedRule });
-    if (selected) {
-      return;
-    }
-
-    await page.locator(`[${selectMarker}="true"] .ecom-g-select-selector`).first().click({ timeout: 1000 });
-    await page.waitForTimeout(200);
-    const optionInfo = await page.evaluate(({ markerName, expectedRuleText }) => {
-      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-      const visible = (element: HTMLElement): boolean => {
-        const style = window.getComputedStyle(element);
-        return Boolean(element.offsetParent) && style.display !== "none" && style.visibility !== "hidden";
-      };
-      const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
-        let current: HTMLElement | null = element;
-        while (current && current !== document.body) {
-          const style = window.getComputedStyle(current);
-          const className = String(current.className || "");
-          if (
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            className.includes("ecom-g-popover-hidden") ||
-            className.includes("ecom-g-select-dropdown-hidden")
-          ) {
-            return false;
-          }
-          current = current.parentElement;
-        }
-        return true;
-      };
-      document.querySelectorAll(`[${markerName}]`).forEach((node) => node.removeAttribute(markerName));
-      const options = Array.from(document.querySelectorAll(".ecom-g-select-dropdown .ecom-g-select-item-option, .ecom-g-select-item-option, [role='option']"))
-        .map((node) => node as HTMLElement)
-        .filter((item) => visible(item) && notHiddenByEcomContainer(item));
-      const option = options.find((item) => normalize(item.innerText || item.textContent || "") === normalize(expectedRuleText));
-      if (!option) {
-        return {
-          found: false,
-          visibleOptions: Array.from(new Set(options.map((item) => normalize(item.innerText || item.textContent || "")).filter(Boolean))).join("/")
-        };
-      }
-      option.setAttribute(markerName, "true");
-      return { found: true, visibleOptions: "" };
-    }, { markerName: optionMarker, expectedRuleText: expectedRule });
-    if (!optionInfo.found) {
-      throw new Error(`Health-food specification split-rule option not found: ${expectedRule}; visible=${optionInfo.visibleOptions || "<none>"}`);
-    }
-    await page.locator(`[${optionMarker}="true"]`).first().click({ timeout: 1000 });
-    await page.waitForTimeout(3000);
   };
   const chooseUnit = async (index: number, unitText: string): Promise<void> => {
     const selectMarker = `${markerBase}-unit-select-${index}`;
@@ -827,16 +725,8 @@ async function applyHealthFoodSpecificationEditorOnPage(
       }
       const unitSelects = Array.from(popup.querySelectorAll(".ecom-g-select"))
         .map((node) => node as HTMLElement)
-        .filter((select) => {
-          const text = normalize(select.innerText || select.textContent || "");
-          return (
-            notHiddenByEcomContainer(select) &&
-            !text.includes("单件净含量") &&
-            !text.includes("单品") &&
-            !text.includes("两类组合") &&
-            !text.includes("三类组合")
-          );
-        });
+        .filter((select) => notHiddenByEcomContainer(select))
+        .slice(1);
       const select = unitSelects[unitIndex] || (unitIndex === 0 ? unitSelects[0] : undefined);
       if (!select) {
         throw new Error(`Health-food specification split editor missing unit selector index=${unitIndex}; actual=${unitSelects.length}`);
@@ -924,16 +814,8 @@ async function applyHealthFoodSpecificationEditorOnPage(
         .find((element) => notHiddenByEcomContainer(element) && normalize(element.innerText || "").includes("选择规则"));
       const unitSelects = Array.from(popup?.querySelectorAll(".ecom-g-select") || [])
         .map((node) => node as HTMLElement)
-        .filter((select) => {
-          const text = normalize(select.innerText || select.textContent || "");
-          return (
-            notHiddenByEcomContainer(select) &&
-            !text.includes("单件净含量") &&
-            !text.includes("单品") &&
-            !text.includes("两类组合") &&
-            !text.includes("三类组合")
-          );
-        });
+        .filter((select) => notHiddenByEcomContainer(select))
+        .slice(1);
       const select = markedSelect || unitSelects[unitIndex] || null;
       return normalize(select?.innerText || select?.textContent || "");
     }, { markerName: selectMarker, unitIndex: index });
@@ -942,7 +824,6 @@ async function applyHealthFoodSpecificationEditorOnPage(
     }
   };
 
-  await chooseSplitRuleOnPage("两类组合");
   await fillQuantityOnPage(0, parts.firstQuantity);
   await chooseUnit(0, parts.firstUnit);
   await waitForSecondPartControls();
