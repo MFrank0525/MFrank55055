@@ -40,8 +40,26 @@ assert.doesNotMatch(
     publishSource.indexOf("async function revealFreightTemplateControl"),
     publishSource.indexOf("async function readFreightTemplateValue")
   ),
-  /waitForTimeout\((?:400|500)\)/,
-  "freight-template reveal must not add fixed 400/500ms waits on every attempt"
+  /for \(let attempt|scrollMainFormContainerToTop|scrollPublishSectionContentIntoView|scrollLabelIntoView\(page, "\\u8fd0\\u8d39\\u6a21\\u677f"\)|waitForTimeout/,
+  "freight-template reveal must not loop through page up/down positioning before clicking the service-field DOM control"
+);
+assert.match(
+  publishSource,
+  /async function findFreightTemplateFieldRootOnPage[\s\S]*服务与履约[\s\S]*运费模板[\s\S]*setAttribute\(attributeName, "true"\)/,
+  "freight-template selection must anchor to the 服务与履约/运费模板 field root"
+);
+assert.match(
+  publishSource,
+  /async function findFreightTemplateDropdownClickTargetOnPage[\s\S]*findFreightTemplateFieldRootOnPage[\s\S]*\.ecom-g-select-selector/,
+  "freight-template dropdown opening must use the field-root control instead of global label scoring"
+);
+assert.doesNotMatch(
+  publishSource.slice(
+    publishSource.indexOf("export async function chooseKeywordFreightTemplate"),
+    publishSource.indexOf("function resolveSpecTemplateKeyword")
+  ),
+  /clickDropdownControlByLabelDirect|clickLabeledSelect|chooseNonFreeShippingTemplate/,
+  "freight-template keyword selection must not fall back to global label-scored dropdown clicks"
 );
 assert.doesNotMatch(
   freightTemplateOptionClickSource,

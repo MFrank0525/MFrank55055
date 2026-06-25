@@ -407,19 +407,70 @@ async function scrollMainFormContainerToTop(page: Page): Promise<boolean> {
   });
 }
 
-async function revealFreightTemplateControl(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    if (attempt === 0 || attempt % 4 === 0) {
-      await ensurePublishSectionTab(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => {});
-      await scrollMainFormContainerToTop(page).catch(() => false);
-      await scrollPublishSectionContentIntoView(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => false);
+async function findFreightTemplateFieldRootOnPage(page: Page): Promise<Locator> {
+  const marker = `auto-freight-template-field-${Date.now()}`;
+  const found = await page.evaluate((attributeName) => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    const hasFreightTemplateControl = (node: Element): boolean =>
+      Boolean(node.querySelector(".ecom-g-select, .ant-select, [role='combobox'], input[type='search'], input[role='combobox']"));
+    const visibleText = (node: Element | null): string => normalize((node as HTMLElement | null)?.innerText || node?.textContent || "");
+    document.querySelectorAll(`[${attributeName}]`).forEach((node) => node.removeAttribute(attributeName));
+
+    const isServiceSection = (node: Element): boolean => {
+      const text = visibleText(node);
+      return text.includes("服务与履约") && text.includes("运费模板") && !text.includes("商品规格");
+    };
+    const isFreightField = (node: Element): boolean => {
+      const text = visibleText(node);
+      return text.includes("运费模板") && hasFreightTemplateControl(node);
+    };
+
+    const labels = Array.from(document.querySelectorAll("label, [class*='label'], [class*='Label'], span, div")).filter((node) =>
+      visibleText(node).includes("运费模板")
+    );
+    for (const label of labels) {
+      let field: Element | null = label;
+      while (field && field !== document.body) {
+        if (isFreightField(field)) {
+          let section: Element | null = field;
+          while (section && section !== document.body) {
+            if (isServiceSection(section)) {
+              (field as HTMLElement).setAttribute(attributeName, "true");
+              return true;
+            }
+            section = section.parentElement;
+          }
+        }
+        field = field.parentElement;
+      }
     }
-    await scrollLabelIntoView(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false);
-    if (await isDropdownControlByLabelAvailable(page, "运费模板").catch(() => false)) {
-      return;
-    }
-    await page.waitForTimeout(100);
+    return false;
+  }, marker);
+  if (!found) {
+    throw new Error("Freight template field root was not found in 服务与履约/运费模板 DOM structure.");
   }
+  return page.locator(`[${marker}="true"]`).first();
+}
+
+async function findFreightTemplateDropdownClickTargetOnPage(page: Page): Promise<Locator> {
+  const fieldRoot = await findFreightTemplateFieldRootOnPage(page);
+  const selector = fieldRoot
+    .locator(".ecom-g-select-selector, .ant-select-selector, [role='combobox'], input[type='search'], input[role='combobox']")
+    .first();
+  if ((await selector.count()) > 0) {
+    return selector;
+  }
+  const select = fieldRoot.locator(".ecom-g-select, .ant-select, [class*='select'], [class*='Select']").first();
+  if ((await select.count()) > 0) {
+    return select;
+  }
+  throw new Error("Freight template dropdown control was not found inside 服务与履约/运费模板 field root.");
+}
+
+async function revealFreightTemplateControl(page: Page): Promise<void> {
+  await ensurePublishSectionTab(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => {});
+  const fieldRoot = await findFreightTemplateFieldRootOnPage(page);
+  await fieldRoot.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
 }
 
 async function readFreightTemplateValue(page: Page): Promise<string> {
@@ -1045,14 +1096,10 @@ export async function chooseKeywordFreightTemplate(page: Page, keyword: string):
     return selectedValue;
   }
 
+  const clickTarget = await findFreightTemplateDropdownClickTargetOnPage(page);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await dismissTransientOverlays(page);
-    const clickedDirect =
-      (await clickLabeledSelect(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false)) ||
-      (await clickDropdownControlByLabelDirect(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false));
-    if (!clickedDirect) {
-      throw new Error(`No visible freight template combobox matched keyword: ${keyword}`);
-    }
+    await clickTarget.click({ timeout: 1000 });
     await clickFreightTemplateDropdownOption(page, keyword).catch(() => "");
     selectedValue = await waitForFreightTemplateReadback(page, keyword);
     if (selectedValue.includes(keyword)) {

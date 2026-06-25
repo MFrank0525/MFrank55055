@@ -45,6 +45,10 @@ export function assertResolvedMetadata(
   }
 }
 
+function normalizePublishShortTitle(value: string): string {
+  return value.replace(/\s+/g, "").trim();
+}
+
 export function resolvePublishFromSpuMetadata(input: {
   metadataOverride?: PublishFromSpuMetadata;
   workbook: ProductSheetSummary;
@@ -57,7 +61,7 @@ export function resolvePublishFromSpuMetadata(input: {
     brand: metadataOverride.brand || input.workbook.brand || "",
     spu: metadataOverride.spu || input.workbook.spu || "",
     title: metadataOverride.title || input.workbook.title || "",
-    shortTitle: metadataOverride.shortTitle || input.workbook.shortTitle || "",
+    shortTitle: normalizePublishShortTitle(metadataOverride.shortTitle || input.workbook.shortTitle || ""),
     modelSpec: metadataOverride.modelSpec || input.workbook.modelSpec || (productCategory === "保健食品" ? "" : "盒装"),
     productPriceText: metadataOverride.productPriceText || input.workbook.productPriceText || ""
   };

@@ -196,4 +196,28 @@ for (const forbidden of [
   );
 }
 
+const whitespaceNormalizedMetadata = resolvePublishFromSpuMetadata({
+  metadataOverride: {
+    brand: "延草纲目",
+    spu: "Speakin甘草片",
+    title: "甘草片标题",
+    shortTitle: "甘草片 蓝帽认证",
+    productPriceText: "99,89,79,69",
+    productCategory: "保健食品"
+  },
+  workbook: {
+    brand: "",
+    spu: "",
+    title: "",
+    shortTitle: "",
+    modelSpec: "",
+    productPriceText: ""
+  }
+});
+assert.equal(
+  whitespaceNormalizedMetadata.shortTitle,
+  "甘草片蓝帽认证",
+  "publish metadata must normalize accidental Feishu whitespace inside 导购短标题 before filling Doudian"
+);
+
 console.log("health food publish metadata rule passed");
