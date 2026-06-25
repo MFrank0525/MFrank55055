@@ -289,6 +289,15 @@ async function findSpecTemplateInputInFieldRootOnPage(page: Page): Promise<Locat
   throw new Error("Spec template input was not found inside 商品规格/规格模板 field root.");
 }
 
+async function findSpecTemplateDropdownClickTargetOnPage(page: Page): Promise<Locator> {
+  const fieldRoot = await findSpecTemplateFieldRootOnPage(page);
+  const selector = fieldRoot.locator(".ecom-g-select-selector, [role='combobox']").first();
+  if ((await selector.count()) > 0) {
+    return selector;
+  }
+  return findSpecTemplateInputInFieldRootOnPage(page);
+}
+
 const specTemplateOptionMarker = "data-auto-spec-template-option";
 
 async function markVisibleSpecTemplateOption(page: Page, keywords: string[]): Promise<string> {
@@ -353,18 +362,20 @@ async function clickSpecTemplateOptionByDomStructure(page: Page, keywords: strin
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
   await dismissTransientOverlays(page);
   const candidates = resolveSpecTemplateKeywordCandidates(keyword);
+  const clickTarget = await findSpecTemplateDropdownClickTargetOnPage(page);
+  await clickTarget.click({ timeout: 1000 });
   const visibleClickedText = await clickSpecTemplateOptionByDomStructure(page, candidates);
   if (isMatchingSpecTemplateValue(visibleClickedText, keyword)) {
     return visibleClickedText;
   }
   const input = await findSpecTemplateInputInFieldRootOnPage(page);
   for (const candidate of candidates) {
-    await input.click({ timeout: 3000 });
+    await clickTarget.click({ timeout: 1000 });
     await input.fill(candidate).catch(async () => {
       await page.keyboard.press(getSelectAllShortcut());
       await page.keyboard.type(candidate, { delay: 20 });
     });
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(80);
     const clickedText = await clickSpecTemplateOptionByDomStructure(page, candidates);
     if (!isMatchingSpecTemplateValue(clickedText, keyword)) {
       continue;
@@ -745,13 +756,10 @@ async function markVisibleFreightTemplateOption(page: Page, keyword: string): Pr
 }
 
 async function clickFreightTemplateDropdownOption(page: Page, keyword: string): Promise<string> {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const text = await markVisibleFreightTemplateOption(page, keyword);
-    if (text) {
-      await page.locator(`[${freightTemplateOptionMarker}="true"]`).first().click({ timeout: 1000 });
-      return text;
-    }
-    await page.waitForTimeout(100);
+  const text = await markVisibleFreightTemplateOption(page, keyword);
+  if (text) {
+    await page.locator(`[${freightTemplateOptionMarker}="true"]`).first().click({ timeout: 1000 });
+    return text;
   }
   return "";
 }
@@ -1082,9 +1090,7 @@ async function clickManualSpecFillAfterTemplateOnPage(page: Page): Promise<void>
   await dismissTransientOverlays(page).catch(() => {});
   await scrollLabelIntoView(page, "商品规格").catch(() => false);
   await scrollLabelIntoView(page, "规格模板").catch(() => false);
-  if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
-    await clickSwitchManualSpecEntryMode(page).catch(() => false);
-  }
+  await clickSwitchManualSpecEntryMode(page).catch(() => false);
 }
 
 async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {

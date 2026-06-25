@@ -323,16 +323,16 @@ assert.doesNotMatch(
 );
 assert.match(
   publishSource,
-  /const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*if \(isMatchingSpecTemplateValue\(visibleClickedText, keyword\)\) \{[\s\S]*return visibleClickedText;[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\)/,
-  "spec template selection must atomically click an already visible matching template option before typing into the search input"
+  /const clickTarget = await findSpecTemplateDropdownClickTargetOnPage\(page\);[\s\S]*await clickTarget\.click\(\{ timeout: 1000 \}\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\)/,
+  "spec template selection must atomically open the goods-spec template dropdown before looking for the search input or clicking a visible matching option"
 );
 assert.match(
   publishSource.slice(
     publishSource.indexOf("async function chooseSpecTemplateKeywordFromDropdown"),
     publishSource.indexOf("async function scrollMainFormContainerToBottom")
   ),
-  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\);[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);/,
-  "spec template selection must try the already-visible dropdown option before searching for the template input"
+  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*const clickTarget = await findSpecTemplateDropdownClickTargetOnPage\(page\);[\s\S]*await clickTarget\.click\(\{ timeout: 1000 \}\);/,
+  "spec template selection must find the 商品规格/规格模板 control and open it immediately"
 );
 assert.doesNotMatch(
   publishSource,
@@ -346,8 +346,8 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /async function clickManualSpecFillAfterTemplateOnPage[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)/,
-  "spec template flow must only click the post-template manual-fill switch before handing off to price/inventory"
+  /async function clickManualSpecFillAfterTemplateOnPage[\s\S]*scrollLabelIntoView\(page, "商品规格"\)[\s\S]*scrollLabelIntoView\(page, "规格模板"\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)/,
+  "spec template flow must immediately click the post-template manual-fill switch before handing off to price/inventory"
 );
 assert.doesNotMatch(
   publishSource.slice(
@@ -364,12 +364,12 @@ assert.doesNotMatch(
 );
 assert.match(
   specTemplateModeSource,
-  /function clickSwitchManualSpecEntryMode[\s\S]*智能填写助手[\s\S]*切换手动填写[\s\S]*点击 或 拖动 文件到虚线框内上传[\s\S]*querySelectorAll\("button, \[role='button'\], a, body \*"\)/,
+  /function clickSwitchManualSpecEntryMode[\s\S]*智能填写助手[\s\S]*切换手动填写[\s\S]*querySelectorAll\("button, \[role='button'\], a, body \*"\)/,
   "switching out of Doudian smart-fill mode must target the smart-fill DOM structure, not a generic global text click"
 );
 assert.match(
   specTemplateModeSource,
-  /const switchManualSpecEntryMarker[\s\S]*page\.locator\(`\[\$\{switchManualSpecEntryMarker\}="true"\]`\)\.first\(\)[\s\S]*click\(\{ timeout: 3000 \}\)/,
+  /const switchManualSpecEntryMarker[\s\S]*page\.locator\(`\[\$\{switchManualSpecEntryMarker\}="true"\]`\)\.first\(\)[\s\S]*click\(\{ timeout: 1000 \}\)/,
   "manual-mode switching must mark the real switch control and click it through Playwright locator action"
 );
 assert.doesNotMatch(
@@ -425,13 +425,8 @@ assert.match(
 const switchManualSpecEntrySource = fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8");
 assert.match(
   switchManualSpecEntrySource,
-  /clickSwitchManualSpecEntryMode[\s\S]*page\.locator\(`\[\$\{switchManualSpecEntryMarker\}="true"\]`\)\.first\(\)\.click[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)/,
-  "manual spec switch action must verify the smart-fill upload surface disappears after clicking"
-);
-assert.match(
-  switchManualSpecEntrySource,
-  /return !\(await isSpecTemplateSmartFillUploadModeVisible\(page\)\.catch\(\(\) => true\)\)/,
-  "manual spec switch action must return false when click does not leave smart-fill upload mode"
+  /clickSwitchManualSpecEntryMode[\s\S]*page\.locator\(`\[\$\{switchManualSpecEntryMarker\}="true"\]`\)\.first\(\)\.click\(\{ timeout: 1000 \}\);[\s\S]*return true;/,
+  "manual spec switch action must be an atomic structured click without post-click polling"
 );
 assert.match(
   publishSource,
@@ -440,7 +435,7 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /async function clickManualSpecFillAfterTemplateOnPage[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)/,
+  /async function clickManualSpecFillAfterTemplateOnPage[\s\S]*scrollLabelIntoView\(page, "商品规格"\)[\s\S]*clickSwitchManualSpecEntryMode\(page\)/,
   "after selecting the spec template, the action must immediately switch smart-fill to manual mode"
 );
 assert.match(

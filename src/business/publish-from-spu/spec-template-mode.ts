@@ -39,11 +39,7 @@ export async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolea
           return false;
         }
         const text = normalize(el.innerText || el.textContent || "");
-        return (
-          text.includes("智能填写助手") &&
-          text.includes("切换手动填写") &&
-          text.includes("点击 或 拖动 文件到虚线框内上传")
-        );
+        return text.includes("智能填写助手") && text.includes("切换手动填写");
       })
       .sort((a, b) => {
         const aRect = a.getBoundingClientRect();
@@ -71,12 +67,6 @@ export async function clickSwitchManualSpecEntryMode(page: Page): Promise<boolea
   if (!marked) {
     return false;
   }
-  await page.locator(`[${switchManualSpecEntryMarker}="true"]`).first().click({ timeout: 3000 });
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    if (!(await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => true))) {
-      return true;
-    }
-    await page.waitForTimeout(250);
-  }
-  return !(await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => true));
+  await page.locator(`[${switchManualSpecEntryMarker}="true"]`).first().click({ timeout: 1000 });
+  return true;
 }

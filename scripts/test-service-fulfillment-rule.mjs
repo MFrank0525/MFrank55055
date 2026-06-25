@@ -12,7 +12,7 @@ const publishSource = [
 const serviceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8");
 const freightTemplateOptionClickSource = publishSource.slice(
   publishSource.indexOf("async function clickFreightTemplateDropdownOption"),
-  publishSource.indexOf("async function clickDropdownControlByLabelDirect")
+  publishSource.indexOf("async function waitForFreightTemplateReadback")
 );
 
 assert.match(
@@ -47,6 +47,11 @@ assert.doesNotMatch(
   freightTemplateOptionClickSource,
   /clickable\?*\.click\(\)/,
   "freight-template selection must not use synthetic DOM click for the critical option choice"
+);
+assert.doesNotMatch(
+  freightTemplateOptionClickSource,
+  /for \(let attempt|waitForTimeout/,
+  "freight-template option clicking must be a single atomic visible-option click without pre-click polling"
 );
 assert.doesNotMatch(
   publishSource,

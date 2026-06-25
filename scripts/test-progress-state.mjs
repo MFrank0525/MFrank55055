@@ -234,8 +234,8 @@ assert.doesNotMatch(
 );
 assert.match(
   specTemplateSelectionSource,
-  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return visibleClickedText;[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);[\s\S]*await input\.click\(\{ timeout: 3000 \}\);[\s\S]*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(120\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return clickedText;/,
-  "spec-template selection must click an already visible option before typing and return the clicked template without waiting for expansion"
+  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*const clickTarget = await findSpecTemplateDropdownClickTargetOnPage\(page\);[\s\S]*await clickTarget\.click\(\{ timeout: 1000 \}\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return visibleClickedText;[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);[\s\S]*await clickTarget\.click\(\{ timeout: 1000 \}\);[\s\S]*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(80\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return clickedText;/,
+  "spec-template selection must open the goods-spec dropdown before clicking a visible option and return the clicked template without waiting for expansion"
 );
 assert.doesNotMatch(
   specTemplateSelectionSource,

@@ -588,105 +588,98 @@ async function applyHealthFoodSpecificationEditorOnPage(
   page: Page,
   parts: HealthFoodSpecificationParts
 ): Promise<void> {
-  await page.evaluate(async (targetParts) => {
-    const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
-    const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-    const visible = (element: HTMLElement): boolean => {
-      const style = window.getComputedStyle(element);
-      return Boolean(element.offsetParent) && style.display !== "none" && style.visibility !== "hidden";
-    };
-    const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
-      let current: HTMLElement | null = element;
-      while (current && current !== document.body) {
-        const style = window.getComputedStyle(current);
-        const className = String(current.className || "");
-        if (
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          className.includes("ecom-g-popover-hidden") ||
-          className.includes("ecom-g-select-dropdown-hidden")
-        ) {
-          return false;
+  const markerBase = `health-food-spec-editor-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const fillQuantityOnPage = async (index: number, value: string): Promise<void> => {
+    await page.evaluate(({ quantityIndex, quantityValue }) => {
+      const normalize = (text: string): string => text.replace(/\s+/g, "").trim();
+      const visible = (element: HTMLElement): boolean => {
+        const style = window.getComputedStyle(element);
+        return Boolean(element.offsetParent) && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
+        let current: HTMLElement | null = element;
+        while (current && current !== document.body) {
+          const style = window.getComputedStyle(current);
+          const className = String(current.className || "");
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            className.includes("ecom-g-popover-hidden") ||
+            className.includes("ecom-g-select-dropdown-hidden")
+          ) {
+            return false;
+          }
+          current = current.parentElement;
         }
-        current = current.parentElement;
-      }
-      return true;
-    };
-    const clickElement = (element: HTMLElement): void => {
-      const target = (element.querySelector(".ecom-g-select-selector") as HTMLElement | null) || element;
-      target.focus();
-      for (const eventName of ["mousedown", "mouseup", "click"]) {
-        target.dispatchEvent(new MouseEvent(eventName, { bubbles: true, cancelable: true, view: window }));
-      }
-    };
-    const setNumber = (input: HTMLInputElement, value: string): void => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-      input.focus();
-      setter?.call(input, "");
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
-      setter?.call(input, value);
-      const tracker = (input as unknown as { _valueTracker?: { setValue: (nextValue: string) => void } })._valueTracker;
-      tracker?.setValue("");
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      input.dispatchEvent(new Event("blur", { bubbles: true }));
-    };
-    const findPopup = (): HTMLElement => {
+        return true;
+      };
       const popup = Array.from(document.querySelectorAll(".ecom-g-popover-content"))
         .map((node) => node as HTMLElement)
         .find((element) => notHiddenByEcomContainer(element) && normalize(element.innerText || "").includes("选择规则"));
       if (!popup) {
         throw new Error("Health-food specification split editor popover not found after opening combined value input.");
       }
-      return popup;
-    };
-    const getQuantityInputs = (popup: HTMLElement): HTMLInputElement[] =>
-      Array.from(popup.querySelectorAll('input.ecom-g-input[placeholder="请输入"]'))
+      const quantityInputs = Array.from(popup.querySelectorAll('input.ecom-g-input[placeholder="请输入"]'))
         .map((node) => node as HTMLInputElement)
         .filter((input) => visible(input) && !input.disabled && !input.readOnly);
-    const getUnitSelects = (popup: HTMLElement): HTMLElement[] =>
-      Array.from(popup.querySelectorAll(".ecom-g-select"))
-        .map((node) => node as HTMLElement)
-        .filter((select) => notHiddenByEcomContainer(select) && normalize(select.innerText || "") !== "默认");
-    const chooseUnit = async (unitSelect: HTMLElement, unitText: string): Promise<void> => {
-      if (normalize(unitSelect.innerText || unitSelect.textContent || "") === normalize(unitText)) {
-        return;
-      }
-      clickElement(unitSelect);
-      await sleep(500);
-      const openDropdowns = Array.from(document.querySelectorAll(".ecom-g-select-dropdown"))
-        .map((node) => node as HTMLElement)
-        .filter((dropdown) => notHiddenByEcomContainer(dropdown));
-      const option = openDropdowns.flatMap((dropdown) =>
-        Array.from(dropdown.querySelectorAll(".ecom-g-select-item-option")).map((node) => node as HTMLElement)
-      )
-        .map((node) => node as HTMLElement)
-        .find((item) => notHiddenByEcomContainer(item) && normalize(item.innerText || item.textContent || "") === normalize(unitText));
-      if (!option) {
-        throw new Error(`Health-food specification unit option not found: ${unitText}`);
-      }
-      clickElement(option);
-      await sleep(500);
-    };
-    const fillQuantity = (index: number, value: string): void => {
-      const popup = findPopup();
-      const quantityInputs = getQuantityInputs(popup);
-      const input = quantityInputs[index] || (index === 0 ? quantityInputs[0] : undefined);
+      const input = quantityInputs[quantityIndex] || (quantityIndex === 0 ? quantityInputs[0] : undefined);
       if (!input) {
-        throw new Error(`Health-food specification split editor missing quantity input index=${index}; actual=${quantityInputs.length}`);
+        throw new Error(`Health-food specification split editor missing quantity input index=${quantityIndex}; actual=${quantityInputs.length}`);
       }
-      setNumber(input, value);
-    };
-    const chooseUnitByIndex = async (index: number, unitText: string): Promise<void> => {
-      const popup = findPopup();
-      const unitSelects = getUnitSelects(popup);
-      const select = unitSelects[index] || (index === 0 ? unitSelects[0] : undefined);
-      if (!select) {
-        throw new Error(`Health-food specification split editor missing unit selector index=${index}; actual=${unitSelects.length}`);
-      }
-      await chooseUnit(select, unitText);
-    };
-    const waitForSecondPartControls = async (): Promise<void> => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      input.focus();
+      setter?.call(input, "");
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
+      setter?.call(input, quantityValue);
+      const tracker = (input as unknown as { _valueTracker?: { setValue: (nextValue: string) => void } })._valueTracker;
+      tracker?.setValue("");
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: quantityValue, inputType: "insertText" }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      input.dispatchEvent(new Event("blur", { bubbles: true }));
+    }, { quantityIndex: index, quantityValue: value });
+  };
+  const waitForSecondPartControls = async (): Promise<void> => {
+    await page.evaluate(async () => {
+      const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+      const visible = (element: HTMLElement): boolean => {
+        const style = window.getComputedStyle(element);
+        return Boolean(element.offsetParent) && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
+        let current: HTMLElement | null = element;
+        while (current && current !== document.body) {
+          const style = window.getComputedStyle(current);
+          const className = String(current.className || "");
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            className.includes("ecom-g-popover-hidden") ||
+            className.includes("ecom-g-select-dropdown-hidden")
+          ) {
+            return false;
+          }
+          current = current.parentElement;
+        }
+        return true;
+      };
+      const findPopup = (): HTMLElement => {
+        const popup = Array.from(document.querySelectorAll(".ecom-g-popover-content"))
+          .map((node) => node as HTMLElement)
+          .find((element) => notHiddenByEcomContainer(element) && normalize(element.innerText || "").includes("选择规则"));
+        if (!popup) {
+          throw new Error("Health-food specification split editor popover not found after opening combined value input.");
+        }
+        return popup;
+      };
+      const getQuantityInputs = (popup: HTMLElement): HTMLInputElement[] =>
+        Array.from(popup.querySelectorAll('input.ecom-g-input[placeholder="请输入"]'))
+          .map((node) => node as HTMLInputElement)
+          .filter((input) => visible(input) && !input.disabled && !input.readOnly);
+      const getUnitSelects = (popup: HTMLElement): HTMLElement[] =>
+        Array.from(popup.querySelectorAll(".ecom-g-select"))
+          .map((node) => node as HTMLElement)
+          .filter((select) => notHiddenByEcomContainer(select) && normalize(select.innerText || "") !== "默认");
       for (let attempt = 0; attempt < 10; attempt += 1) {
         const popup = findPopup();
         if (getQuantityInputs(popup).length >= 2 && getUnitSelects(popup).length >= 2) {
@@ -698,19 +691,149 @@ async function applyHealthFoodSpecificationEditorOnPage(
       throw new Error(
         `Health-food specification split editor did not expose second part controls: quantity=${getQuantityInputs(popup).length}; unit=${getUnitSelects(popup).length}`
       );
-    };
+    });
+  };
+  const chooseUnit = async (index: number, unitText: string): Promise<void> => {
+    const selectMarker = `${markerBase}-unit-select-${index}`;
+    const optionMarker = `${markerBase}-unit-option-${index}`;
+    const selected = await page.evaluate(({ markerName, unitIndex, expectedUnit }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+      const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
+        let current: HTMLElement | null = element;
+        while (current && current !== document.body) {
+          const style = window.getComputedStyle(current);
+          const className = String(current.className || "");
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            className.includes("ecom-g-popover-hidden") ||
+            className.includes("ecom-g-select-dropdown-hidden")
+          ) {
+            return false;
+          }
+          current = current.parentElement;
+        }
+        return true;
+      };
+      document.querySelectorAll(`[${markerName}]`).forEach((node) => node.removeAttribute(markerName));
+      const popup = Array.from(document.querySelectorAll(".ecom-g-popover-content"))
+        .map((node) => node as HTMLElement)
+        .find((element) => notHiddenByEcomContainer(element) && normalize(element.innerText || "").includes("选择规则"));
+      if (!popup) {
+        throw new Error("Health-food specification split editor popover not found after opening combined value input.");
+      }
+      const unitSelects = Array.from(popup.querySelectorAll(".ecom-g-select"))
+        .map((node) => node as HTMLElement)
+        .filter((select) => notHiddenByEcomContainer(select) && normalize(select.innerText || "") !== "默认");
+      const select = unitSelects[unitIndex] || (unitIndex === 0 ? unitSelects[0] : undefined);
+      if (!select) {
+        throw new Error(`Health-food specification split editor missing unit selector index=${unitIndex}; actual=${unitSelects.length}`);
+      }
+      select.setAttribute(markerName, "true");
+      const selectedText = normalize(select.innerText || select.textContent || "");
+      return selectedText.includes(normalize(expectedUnit));
+    }, { markerName: selectMarker, unitIndex: index, expectedUnit: unitText });
+    if (selected) {
+      return;
+    }
 
-    fillQuantity(0, targetParts.firstQuantity);
-    await chooseUnitByIndex(0, targetParts.firstUnit);
-    await waitForSecondPartControls();
-    fillQuantity(0, targetParts.firstQuantity);
-    fillQuantity(1, targetParts.secondQuantity);
-    await chooseUnitByIndex(1, targetParts.secondUnit);
-    fillQuantity(0, targetParts.firstQuantity);
-    fillQuantity(1, targetParts.secondQuantity);
+    await page.locator(`[${selectMarker}="true"] .ecom-g-select-selector`).first().click({ timeout: 1000 });
+    await page.waitForTimeout(200);
+    const optionInfo = await page.evaluate(({ markerName, expectedUnit }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+      const visible = (element: HTMLElement): boolean => {
+        const style = window.getComputedStyle(element);
+        return Boolean(element.offsetParent) && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
+        let current: HTMLElement | null = element;
+        while (current && current !== document.body) {
+          const style = window.getComputedStyle(current);
+          const className = String(current.className || "");
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            className.includes("ecom-g-popover-hidden") ||
+            className.includes("ecom-g-select-dropdown-hidden")
+          ) {
+            return false;
+          }
+          current = current.parentElement;
+        }
+        return true;
+      };
+      document.querySelectorAll(`[${markerName}]`).forEach((node) => node.removeAttribute(markerName));
+      const optionSelector = [
+        ".ecom-g-select-dropdown .ecom-g-select-item-option",
+        ".ecom-g-select-item-option",
+        "[role='listbox'] [role='option']",
+        "[role='option']"
+      ].join(", ");
+      const options = Array.from(document.querySelectorAll(optionSelector))
+        .map((node) => node as HTMLElement)
+        .filter((item) => visible(item) && notHiddenByEcomContainer(item));
+      const option = options.find((item) => normalize(item.innerText || item.textContent || "") === normalize(expectedUnit));
+      if (!option) {
+        return {
+          found: false,
+          visibleOptions: Array.from(new Set(options.map((item) => normalize(item.innerText || item.textContent || "")).filter(Boolean))).join("/")
+        };
+      }
+      option.setAttribute(markerName, "true");
+      return { found: true, visibleOptions: "" };
+    }, { markerName: optionMarker, expectedUnit: unitText });
+    if (!optionInfo.found) {
+      throw new Error(`Health-food specification unit option not found: ${unitText}; visible=${optionInfo.visibleOptions || "<none>"}`);
+    }
+    await page.locator(`[${optionMarker}="true"]`).first().click({ timeout: 1000 });
+    await page.waitForTimeout(200);
+    const selectedText = await page.evaluate(({ markerName, unitIndex }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
+      const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
+        let current: HTMLElement | null = element;
+        while (current && current !== document.body) {
+          const style = window.getComputedStyle(current);
+          const className = String(current.className || "");
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            className.includes("ecom-g-popover-hidden") ||
+            className.includes("ecom-g-select-dropdown-hidden")
+          ) {
+            return false;
+          }
+          current = current.parentElement;
+        }
+        return true;
+      };
+      const markedSelect = document.querySelector(`[${markerName}="true"]`) as HTMLElement | null;
+      const popup = Array.from(document.querySelectorAll(".ecom-g-popover-content"))
+        .map((node) => node as HTMLElement)
+        .find((element) => notHiddenByEcomContainer(element) && normalize(element.innerText || "").includes("选择规则"));
+      const unitSelects = Array.from(popup?.querySelectorAll(".ecom-g-select") || [])
+        .map((node) => node as HTMLElement)
+        .filter((select) => notHiddenByEcomContainer(select) && normalize(select.innerText || "") !== "默认");
+      const select = markedSelect || unitSelects[unitIndex] || null;
+      return normalize(select?.innerText || select?.textContent || "");
+    }, { markerName: selectMarker, unitIndex: index });
+    if (!selectedText.includes(unitText.replace(/\s+/g, "").trim())) {
+      throw new Error(`Health-food specification unit option click did not stick: expected=${unitText}; actual=${selectedText || "<empty>"}`);
+    }
+  };
+
+  await fillQuantityOnPage(0, parts.firstQuantity);
+  await chooseUnit(0, parts.firstUnit);
+  await waitForSecondPartControls();
+  await fillQuantityOnPage(0, parts.firstQuantity);
+  await fillQuantityOnPage(1, parts.secondQuantity);
+  await chooseUnit(1, parts.secondUnit);
+  await fillQuantityOnPage(0, parts.firstQuantity);
+  await fillQuantityOnPage(1, parts.secondQuantity);
+  await page.evaluate(() => {
     const active = document.activeElement as HTMLElement | null;
     active?.blur();
-  }, parts);
+  });
+
 }
 
 export async function applyHealthFoodSpecificationOnPage(
