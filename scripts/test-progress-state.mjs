@@ -72,6 +72,7 @@ import {
   evaluateImageGenerationEndpointProbe,
   resolveImageDownloadTimeoutMs,
   resolveImageGenerationRequestDeadlineMs,
+  resolveVideosBase64SubmitTimeoutMs,
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   shouldRetryImageGenerationWithPolicyPrompt
@@ -481,6 +482,16 @@ assert.match(
   hermesRunnerSource,
   /const imageProgressSummaryMessage[\s\S]*imageProgress[\s\S]*latestMessage[\s\S]*stateSummary/,
   "AutoListingController status summary must include image generation progress so main-image batches are visible before final publish results"
+);
+assert.match(
+  hermesRunnerSource,
+  /findLatestInterruptedStateForResume\(\)[\s\S]*summarizeState\([\s\S]*interrupted[\s\S]*runtimeDir[\s\S]*summarizeImageGenerationProgress/,
+  "AutoListingController idle/pause status must expose the latest interrupted main-image state instead of falling back to publish counters"
+);
+assert.match(
+  hermesRunnerSource,
+  /publishProgress:\s*activePublishRunning\s*\?\s*publishProgress\s*:\s*undefined/,
+  "AutoListingController idle/pause text status must not expose inactive historical publish progress over current image-generation state"
 );
 assert.match(
   hermesRunnerSource,
@@ -1245,8 +1256,8 @@ assert.equal(
     activeStep: "main_images_generated",
     activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_queued status queued 0."
   }),
-  35 * 60 * 1000,
-  "The supervisor must let the provider's 30-minute accepted-task poll deadline finish before declaring a queue stall"
+  4 * 60 * 1000,
+  "The supervisor must let the provider's three-minute accepted-task poll deadline finish before declaring a queue stall"
 );
 
 const alreadyInTargetShop = evaluateShopSwitchMenuState({
@@ -1750,6 +1761,16 @@ assert.equal(resolveImageDownloadTimeoutMs(180000), 180000);
 assert.equal(resolveImageDownloadTimeoutMs(10000), 30000);
 assert.equal(resolveImageGenerationRequestDeadlineMs(180000), 210000);
 assert.equal(resolveImageGenerationRequestDeadlineMs(10000), 60000);
+assert.equal(
+  resolveVideosBase64SubmitTimeoutMs(undefined, undefined),
+  180000,
+  "videos-base64 accepted task polling must default to the project three-minute ceiling"
+);
+assert.equal(
+  resolveVideosBase64SubmitTimeoutMs(180000, 1800000),
+  180000,
+  "videos-base64 accepted task polling must cap configured provider waits at three minutes"
+);
 assert.deepEqual(resolveImageGenerationTransportRetryPolicy(undefined), {
   maxRetries: 8,
   delayMs: [3000, 6000, 12000, 24000, 45000, 45000, 45000, 45000]
@@ -1946,6 +1967,24 @@ assert.deepEqual(
     "进度：等待图片服务队列：Prompt 5/5: Image 4: videos-base64 task task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM status queued 0"
   ],
   "AutoListingController text status must use completed paid-ledger slots instead of the currently polled slot ordinal"
+);
+assert.deepEqual(
+  formatAutoListingControllerCompactStatusText({
+    status: "running",
+    summary: "任务正在运行，当前阶段：main_images_generated",
+    productName: "喜维他牌B族维生素片-B族维生素片-recvntth27DUyf-白底图-01-2a63110e80.png",
+    imageGenerationProgress: "Prompt 2/5: Image 1: videos-base64 task task_U8RAbBSpF6hMeYzVVVOARoLKQ9m5zWMa status queued 0.",
+    mainImageCompleted: 11,
+    latestProgress: "发布模块：最终提交（10延草纲目养生器械专营店）",
+    feishuProductIndex: 4,
+    feishuTotal: 4
+  }).split("\n"),
+  [
+    "状态：运行中｜主图 11/20｜飞书产品 4/4",
+    "当前：B族维生素片-recvntth27DUyf-白底图-01-2a63110e80",
+    "进度：等待图片服务队列：Prompt 2/5: Image 1: videos-base64 task task_U8RAbBSpF6hMeYzVVVOARoLKQ9m5zWMa status queued 0"
+  ],
+  "Image generation progress must suppress stale publish-log progress while the active task is generating main images"
 );
 assert.equal(
   resolveAutoListingControllerPaidImageRecordId({

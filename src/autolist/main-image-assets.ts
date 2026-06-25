@@ -777,7 +777,10 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const responseFormat = config.responseFormat || "b64_json";
   const timeoutMs = Math.max(30000, config.timeoutMs || 180000);
   const videosBase64SubmitTimeoutMs = resolveVideosBase64SubmitTimeoutMs(config.submitTimeoutMs || timeoutMs, config.maxPollMs);
-  const videosBase64AcceptedQueueStaleMs = Math.max(0, config.acceptedQueueStaleMs ?? config.maxPollMs ?? 30 * 60 * 1000);
+  const videosBase64AcceptedQueueStaleMs = Math.max(
+    0,
+    Math.min(videosBase64SubmitTimeoutMs, config.acceptedQueueStaleMs ?? config.maxPollMs ?? videosBase64SubmitTimeoutMs)
+  );
   const submitGate =
     options.videosBase64SubmitGate || createConcurrencyGate(resolveVideosBase64SubmitConcurrency(config.submitConcurrency));
   const maxTransientRetries = Math.max(0, config.maxTransientRetries ?? 3);
@@ -1380,8 +1383,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
       }
     }
     taskId = taskId || extractVideosBase64TaskId(submitPayload);
-    const pollIntervalMs = Math.max(1000, config.pollIntervalMs || 10000);
-    const maxPollMs = Math.max(pollIntervalMs, config.maxPollMs || 1800000);
+    const maxPollMs = resolveVideosBase64SubmitTimeoutMs(timeoutMs, config.maxPollMs);
+    const pollIntervalMs = Math.min(maxPollMs, Math.max(1000, config.pollIntervalMs || 10000));
     const startedAt = Date.now();
     let statusPayload: any = submitPayload;
     for (let pollNo = 1; !videosBase64Succeeded(statusPayload) && !videosBase64Failed(statusPayload); pollNo += 1) {

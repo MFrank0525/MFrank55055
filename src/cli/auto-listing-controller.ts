@@ -1328,16 +1328,32 @@ function existingStatus(): Record<string, unknown> {
     });
     const feishuCacheInvalid = feishuProgress?.cacheValid === false;
     const status = feishuCacheInvalid ? "failed" : activePublishRunning ? "running" : idleStatus;
+    const interrupted = status === "pause_requested" ? findLatestInterruptedStateForResume() : undefined;
+    const interruptedState = summarizeState(interrupted?.runtimeDir);
+    const interruptedCurrentTask = interruptedState?.currentTask as Record<string, unknown> | undefined;
+    const interruptedImageProgress = summarizeImageGenerationProgress(
+      interrupted?.runtimeDir,
+      typeof interruptedCurrentTask?.taskId === "string" ? String(interruptedCurrentTask.taskId) : undefined
+    );
+    const interruptedPaidImageProgress = summarizeCurrentPaidImageProgress({
+      batchFingerprint:
+        typeof interruptedState?.feishuBatchFingerprint === "string" ? String(interruptedState.feishuBatchFingerprint) : undefined,
+      currentTask: interruptedCurrentTask,
+      feishuCurrentProduct: undefined
+    });
     return {
       ok: true,
       status,
       jobFile,
       latestResult,
-      activeRuntimeDir: publishRuntimeDir,
-      statusSource: activePublishRunning ? "publish-manifest" : "idle",
+      activeRuntimeDir: publishRuntimeDir || interrupted?.runtimeDir,
+      statusSource: activePublishRunning ? "publish-manifest" : interruptedState ? "state" : "idle",
       historicalRuntimeSuppressed: !exposeHistoricalRuntime && Boolean(historicalResult),
       pauseSignal,
-      publishProgress,
+      publishProgress: activePublishRunning ? publishProgress : undefined,
+      state: interruptedState,
+      imageProgress: interruptedImageProgress,
+      paidImageProgress: interruptedPaidImageProgress,
       feishuProgress,
       feishuBatchDisplayCounts: feishuProgress
         ? resolveAutoListingControllerFeishuBatchDisplayCounts({
@@ -1345,7 +1361,11 @@ function existingStatus(): Record<string, unknown> {
             processedRecordCount: Number(feishuProgress.processedRecordCount || 0),
             pendingSourceImages: Array.isArray(feishuProgress.pendingSourceImages)
               ? feishuProgress.pendingSourceImages.map((item) => path.resolve(rootDir, String(item)))
-              : []
+              : [],
+            currentSourceImagePath:
+              typeof interruptedCurrentTask?.sourceImagePath === "string"
+                ? path.resolve(rootDir, String(interruptedCurrentTask.sourceImagePath))
+                : undefined
           })
         : undefined,
       summary:
@@ -1765,6 +1785,14 @@ function formatStatusText(status: Record<string, unknown>): string {
         ? compactStatusValue(String(latestProgress.message))
         : undefined);
   const shouldExposeImageGenerationProgress = !progress;
+  const imageGenerationProgressMessage =
+    shouldExposeImageGenerationProgress && typeof (status.imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
+      ? String((status.imageProgress as Record<string, unknown>).latestMessage)
+      : shouldExposeImageGenerationProgress &&
+          String(currentTask?.status || "") === "main_images_generated" &&
+          typeof paidImageProgress?.completed === "number"
+        ? `Main images ready: ${Number(paidImageProgress.completed)} file(s).`
+        : undefined;
   return formatAutoListingControllerCompactStatusText({
     status: String(status.status || "unknown"),
     showPublishProgress: Boolean(progress || currentTask || publishLogProgress),
@@ -1777,10 +1805,7 @@ function formatStatusText(status: Record<string, unknown>): string {
           : undefined,
     activeItemName: active?.productFolder ? path.basename(String(active.productFolder)) : undefined,
     latestProgress: latestProgressText,
-    imageGenerationProgress:
-      shouldExposeImageGenerationProgress && typeof (status.imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
-        ? String((status.imageProgress as Record<string, unknown>).latestMessage)
-        : undefined,
+    imageGenerationProgress: imageGenerationProgressMessage,
     mainImageCompleted:
       shouldExposeImageGenerationProgress && typeof paidImageProgress?.completed === "number"
         ? Number(paidImageProgress.completed)

@@ -354,7 +354,7 @@ export function resolveAutoListingControllerChildStallTimeoutMs(input: AutoListi
     /main_images_generated/i.test(activeText) &&
     /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(activeText)
   ) {
-    return Math.max(defaultTimeoutMs, 35 * 60 * 1000);
+    return Math.min(defaultTimeoutMs, 4 * 60 * 1000);
   }
   if (
     /published|Publishing product folder|Retrying publish|Publish failed|page_context_lost|browser_remote_debugging_unavailable/i.test(activeText)
@@ -1304,6 +1304,9 @@ function shouldPreferAutoListingControllerPublishProgress(input: AutoListingCont
   }
   if (input.publishProductIndex !== undefined || input.publishShopIndex !== undefined) {
     return true;
+  }
+  if (input.imageGenerationProgress && !/Main images ready/i.test(input.imageGenerationProgress)) {
+    return false;
   }
   return /发布|publish|basic_info|商品|店铺|spu/i.test(input.latestProgress);
 }

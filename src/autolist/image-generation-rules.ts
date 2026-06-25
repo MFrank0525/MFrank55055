@@ -31,7 +31,8 @@ export function resolveVideosBase64SubmitTimeoutMs(
   requestTimeoutMs: number | undefined,
   maxPollMs: number | undefined
 ): number {
-  return Math.max(resolveImageDownloadTimeoutMs(requestTimeoutMs), maxPollMs || 1800000);
+  const projectPollCeilingMs = 180000;
+  return Math.min(projectPollCeilingMs, Math.max(resolveImageDownloadTimeoutMs(requestTimeoutMs), maxPollMs || projectPollCeilingMs));
 }
 
 export function resolveVideosBase64SubmitConcurrency(configuredConcurrency: number | undefined): number {

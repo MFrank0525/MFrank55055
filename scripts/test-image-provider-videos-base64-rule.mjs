@@ -263,7 +263,7 @@ assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("fetch failed"), tru
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("image generation request exceeded hard deadline 1830000ms"), true);
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("ECONNRESET before response"), true);
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("videos-base64 task abc failed"), false);
-assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 1800000);
+assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 180000);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 60000), 180000);
 assert.equal(resolveOpenAiCompatibleImageMode(undefined, "https://relay.example/v1/videos"), "videos-base64");
 assert.equal(resolveOpenAiCompatibleImageMode("edits", "https://relay.example/v1/videos"), "edits");
