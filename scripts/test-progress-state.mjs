@@ -61,6 +61,7 @@ import {
   resolveAutoListingControllerDryRunStartDecision,
   resolveAutoListingControllerPublishGroupProgress,
   resolveAutoListingControllerPaidImageRecordId,
+  shouldSuppressTerminalFailureBehindNewerProgress,
   compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
@@ -2651,6 +2652,24 @@ assert.equal(
   }),
   "external_service_wait",
   "A running supervisor with an active terminal main-image transport failure must report external-service wait, not normal running"
+);
+assert.equal(
+  shouldSuppressTerminalFailureBehindNewerProgress({
+    running: true,
+    terminalFailureMtimeMs: Date.parse("2026-06-25T14:06:09.000Z"),
+    latestProgressTimestamp: "2026-06-25T14:11:45.000Z"
+  }),
+  true,
+  "A running controller must not let an older failed result.json hide newer current-task progress"
+);
+assert.equal(
+  shouldSuppressTerminalFailureBehindNewerProgress({
+    running: true,
+    terminalFailureMtimeMs: Date.parse("2026-06-25T14:11:45.000Z"),
+    latestProgressTimestamp: "2026-06-25T14:06:09.000Z"
+  }),
+  false,
+  "A current terminal failure must remain visible when no newer progress exists"
 );
 assert.equal(
   resolveAutoListingControllerRuntimeStatus({

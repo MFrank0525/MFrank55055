@@ -502,6 +502,21 @@ export function shouldSuppressStateCurrentTaskInAutoListingControllerStatus(inpu
   return Boolean(input.latestProgressStep && input.currentTaskStatus && input.latestProgressStep !== input.currentTaskStatus);
 }
 
+export function shouldSuppressTerminalFailureBehindNewerProgress(input: {
+  running: boolean;
+  terminalFailureMtimeMs?: number;
+  latestProgressTimestamp?: string;
+}): boolean {
+  if (!input.running || !input.terminalFailureMtimeMs || !input.latestProgressTimestamp) {
+    return false;
+  }
+  const progressMs = Date.parse(input.latestProgressTimestamp);
+  if (!Number.isFinite(progressMs)) {
+    return false;
+  }
+  return progressMs > input.terminalFailureMtimeMs;
+}
+
 export type FeishuBatchRefreshContinuationInput = {
   exitCode: number | null;
   currentBatchComplete: boolean;

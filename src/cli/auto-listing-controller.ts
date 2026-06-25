@@ -33,6 +33,7 @@ import {
   shouldResumeInterruptedTaskInPlace,
   shouldSuppressHistoricalResultInAutoListingControllerStatus,
   shouldSuppressStateCurrentTaskInAutoListingControllerStatus,
+  shouldSuppressTerminalFailureBehindNewerProgress,
   shouldTerminateRecordedAutoListingControllerProcessGroup,
   shouldUseExpectedResultFileInRunningStatus,
   summarizeAutoListingControllerImageGenerationEvents,
@@ -1565,8 +1566,14 @@ function existingStatus(): Record<string, unknown> {
     ? [resultError.step, resultError.message].filter(Boolean).map(String).join(": ")
     : undefined;
   const stateFailureText = stateError ? [stateError.step, stateError.message].filter(Boolean).map(String).join(": ") : undefined;
+  const terminalFailureMtimeMs = fileMtimeMs(resultFile);
+  const suppressTerminalFailureForNewerProgress = shouldSuppressTerminalFailureBehindNewerProgress({
+    running,
+    terminalFailureMtimeMs,
+    latestProgressTimestamp: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined
+  });
   const terminalFailureMessage =
-    running && ((result && (result.ok === false || result.status === "failed")) || state?.status === "failed")
+    !suppressTerminalFailureForNewerProgress && running && ((result && (result.ok === false || result.status === "failed")) || state?.status === "failed")
       ? compactStatusValue(resultFailureText || stateFailureText || "")
       : childFailureMessage
         ? compactStatusValue(childFailureMessage)
@@ -1638,7 +1645,6 @@ function existingStatus(): Record<string, unknown> {
   const failureSummary = failedError?.message
     ? compactStatusValue(String(failedError.message))
     : terminalFailureMessage;
-  const terminalFailureMtimeMs = fileMtimeMs(resultFile);
   const externalWaitReason = activeWaitState?.reason || terminalFailureMessage;
   const terminalRealtimeMessage =
     resolvedStatus === "failed"
