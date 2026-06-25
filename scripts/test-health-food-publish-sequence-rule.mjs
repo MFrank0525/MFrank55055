@@ -141,10 +141,14 @@ assertOrdered(
   [
     "applyHealthFoodShippingBeforeSpecOnPage(page)",
     "applyFixedSpecsOnPage(page",
-    "applyHealthFoodSpecificationOnPage(page, input.metadata)",
     "applyPriceInventoryOnPage("
   ],
   "health-food spec and price action sequence"
+);
+assert.doesNotMatch(
+  specPriceActionSource,
+  /applyHealthFoodSpecificationOnPage\(page, input\.metadata\)|healthFoodSpecification/,
+  "health-food spec/price action must not replace template specification values before price inventory"
 );
 assertOrdered(
   serviceActionSource,
