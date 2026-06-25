@@ -388,7 +388,9 @@ export async function checkHealthFunctionOptionOnPage(
     }
     const trigger = fieldRoot.locator(".ecom-g-select-selector").first();
     await trigger.scrollIntoViewIfNeeded().catch(() => {});
-    await trigger.click({ timeout: 5000 });
+    await trigger.click({ timeout: 5000 }).catch(async () => {
+      await trigger.click({ timeout: 5000, force: true });
+    });
     const search = fieldRoot.locator("input[role='combobox']").first();
     await search.fill(expectedOption, { timeout: 5000 });
     const titles = page.locator(".ecom-g-select-tree-title").filter({ hasText: expectedOption });

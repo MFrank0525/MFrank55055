@@ -101,6 +101,11 @@ assert.match(
 );
 assert.match(
   source,
+  /checkHealthFunctionOptionOnPage[\s\S]*trigger\.click\(\{\s*timeout:\s*5000\s*\}\)\.catch[\s\S]*trigger\.click\(\{\s*timeout:\s*5000,\s*force:\s*true\s*\}\)/,
+  "health function selector click must fall back to the same locator with force when Doudian helper tips intercept pointer events"
+);
+assert.match(
+  source,
   /ecom-g-select-selection-item[\s\S]*readbackValue[\s\S]*normalizeDomText\(readbackValue\)\.includes/,
   "health function action must read back the selected tag from the field instead of the transient dropdown"
 );
