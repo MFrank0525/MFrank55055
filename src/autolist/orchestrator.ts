@@ -271,7 +271,7 @@ async function executeTaskChain(
     current = {
       ...current,
       sellingPointArtifact: current.sellingPointArtifact || feishuRuntimeRecord.sellingPointArtifact,
-      feishuProductRecord: current.feishuProductRecord || feishuRuntimeRecord.record,
+      feishuProductRecord: feishuRuntimeRecord.record,
       lastUpdatedAt: new Date().toISOString(),
       notes: [...current.notes, "Recovered Feishu product identity for publish-stage resume."]
     };

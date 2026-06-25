@@ -22,6 +22,11 @@ assert.match(
   "The orchestrator must pass identity and metadata source from the same current task."
 );
 assert.match(
+  orchestratorSource,
+  /feishuProductRecord:\s*feishuRuntimeRecord\.record,\s*lastUpdatedAt:[\s\S]*Recovered Feishu product identity for publish-stage resume/,
+  "Publish-stage resume must replace stale task Feishu metadata with the current Feishu runtime record."
+);
+assert.match(
   publishFromSpuSource,
   /runPublishFlow\(\s*runtimeDir,\s*resolvedMetadata,/s,
   "runPublishFromSpuJob must pass the complete resolved metadata object to runPublishFlow without a second projection."
@@ -134,6 +139,10 @@ assert.match(
 
 assert.deepEqual(
   {
+    shortTitle: metadata.shortTitle,
+    brand: metadata.brand,
+    spu: metadata.spu,
+    productPriceText: metadata.productPriceText,
     productCategory: metadata.productCategory,
     manufacturerName: metadata.manufacturerName,
     manufacturerAddress: metadata.manufacturerAddress,
@@ -144,6 +153,10 @@ assert.deepEqual(
     specification: metadata.specification
   },
   {
+    shortTitle: "当前短标题",
+    brand: "当前品牌",
+    spu: "CURRENT-SPU",
+    productPriceText: "99,89,79,69",
     productCategory: "保健食品",
     manufacturerName: "当前生产企业",
     manufacturerAddress: "当前生产地址",

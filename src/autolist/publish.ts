@@ -52,12 +52,12 @@ export function buildPublishJobMetadata(input: {
     );
   }
   return {
-    brand: workbookFields.brand,
-    spu: workbookFields.spu,
+    brand: feishuProductRecord.brand || workbookFields.brand,
+    spu: feishuProductRecord.spu || workbookFields.spu,
     title: workbookFields.title,
-    shortTitle: workbookFields.shortTitle,
+    shortTitle: feishuProductRecord.shortTitle || workbookFields.shortTitle,
     modelSpec: workbookFields.modelSpec || "盒装",
-    productPriceText: workbookFields.productPriceText,
+    productPriceText: feishuProductRecord.productPriceText || workbookFields.productPriceText,
     feishuRecordId: targetIdentity.recordId,
     productCategory: feishuProductRecord.productCategory,
     manufacturerName: feishuProductRecord.manufacturerName,
