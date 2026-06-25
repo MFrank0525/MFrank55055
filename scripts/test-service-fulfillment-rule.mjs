@@ -9,11 +9,17 @@ const publishSource = [
   fs.readFileSync("src/business/publish-from-spu/spec-service-page-action.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/service-fulfillment-page-action.ts", "utf8")
 ].join("\n");
+const navigationSource = fs.readFileSync("src/business/publish-from-spu/publish-section-navigation.ts", "utf8");
 const serviceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8");
 const freightTemplateOptionClickSource = publishSource.slice(
   publishSource.indexOf("async function clickFreightTemplateDropdownOption"),
   publishSource.indexOf("async function waitForFreightTemplateReadback")
 );
+const chooseFreightTemplateSource = publishSource.slice(
+  publishSource.indexOf("export async function chooseKeywordFreightTemplate"),
+  publishSource.indexOf("function resolveSpecTemplateKeyword")
+);
+const beforeFirstFreightDropdownClick = chooseFreightTemplateSource.slice(0, chooseFreightTemplateSource.indexOf("clickTarget.click"));
 
 assert.match(
   serviceActionSource,
@@ -43,6 +49,14 @@ assert.doesNotMatch(
   /for \(let attempt|scrollMainFormContainerToTop|scrollPublishSectionContentIntoView|scrollLabelIntoView\(page, "\\u8fd0\\u8d39\\u6a21\\u677f"\)|waitForTimeout/,
   "freight-template reveal must not loop through page up/down positioning before clicking the service-field DOM control"
 );
+assert.doesNotMatch(
+  navigationSource.slice(
+    navigationSource.indexOf("export async function ensureServiceSectionReady"),
+    navigationSource.length
+  ),
+  /findLabelAbsoluteTop|scrollLabelIntoView\(page, "\\u8fd0\\u8d39\\u6a21\\u677f"\)|waitForTimeout\(500\)/,
+  "service section readiness must not do extra freight-label positioning or fixed waits before the dropdown click"
+);
 assert.match(
   publishSource,
   /async function findFreightTemplateFieldRootOnPage[\s\S]*服务与履约[\s\S]*运费模板[\s\S]*setAttribute\(attributeName, "true"\)/,
@@ -54,12 +68,14 @@ assert.match(
   "freight-template dropdown opening must use the field-root control instead of global label scoring"
 );
 assert.doesNotMatch(
-  publishSource.slice(
-    publishSource.indexOf("export async function chooseKeywordFreightTemplate"),
-    publishSource.indexOf("function resolveSpecTemplateKeyword")
-  ),
+  chooseFreightTemplateSource,
   /clickDropdownControlByLabelDirect|clickLabeledSelect|chooseNonFreeShippingTemplate/,
   "freight-template keyword selection must not fall back to global label-scored dropdown clicks"
+);
+assert.doesNotMatch(
+  beforeFirstFreightDropdownClick,
+  /dismissTransientOverlays|readLabeledSelectValue|waitForFreightTemplateReadback/,
+  "freight-template selection must open the field-root dropdown immediately before any overlay cleanup or readback"
 );
 assert.doesNotMatch(
   freightTemplateOptionClickSource,

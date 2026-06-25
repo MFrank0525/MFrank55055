@@ -280,6 +280,11 @@ export async function scrollUntilPublishSectionVisible(page: Page, text: string)
 }
 
 export async function ensurePublishSectionTab(page: Page, text: string): Promise<void> {
+  const fastPathActiveTab = await readActivePublishSectionTab(page).catch(() => "");
+  if (fastPathActiveTab === text || (await isPublishSectionContentPresent(page, text).catch(() => false))) {
+    return;
+  }
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await dismissTransientOverlays(page);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" })).catch(() => {});
@@ -382,16 +387,10 @@ export async function ensurePublishSectionTab(page: Page, text: string): Promise
 
 export async function ensureServiceSectionReady(page: Page): Promise<void> {
   await ensurePublishSectionTab(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6");
-  const freightLabelTop = await findLabelAbsoluteTop(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => null);
-  if (typeof freightLabelTop === "number") {
-    await page.evaluate((top) => window.scrollTo({ top: Math.max(0, top - 180), behavior: "instant" }), freightLabelTop).catch(() => {});
-    await page.waitForTimeout(500);
-  }
-  const freightLabelVisible = await scrollLabelIntoView(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false);
-  await scrollPublishSectionContentIntoView(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => false);
-  await page.waitForTimeout(500);
-  const ready = freightLabelVisible || (await scrollLabelIntoView(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => false)) || false;
+  const ready =
+    (await readActivePublishSectionTab(page).catch(() => "")) === "\u670d\u52a1\u4e0e\u5c65\u7ea6" ||
+    (await isPublishSectionContentPresent(page, "\u670d\u52a1\u4e0e\u5c65\u7ea6").catch(() => false));
   if (!ready) {
-    throw new Error("Service section freight label is not visible after tab activation.");
+    throw new Error("Service section is not ready after tab activation.");
   }
 }

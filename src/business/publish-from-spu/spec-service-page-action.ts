@@ -1088,22 +1088,25 @@ async function chooseNonFreeShippingTemplate(page: Page): Promise<string> {
 }
 
 export async function chooseKeywordFreightTemplate(page: Page, keyword: string): Promise<string> {
-  await dismissTransientOverlays(page);
   await revealFreightTemplateControl(page);
-
-  let selectedValue = await readLabeledSelectValue(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => "");
-  if (selectedValue.includes(keyword)) {
-    return selectedValue;
-  }
 
   const clickTarget = await findFreightTemplateDropdownClickTargetOnPage(page);
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    await dismissTransientOverlays(page);
-    await clickTarget.click({ timeout: 1000 });
-    await clickFreightTemplateDropdownOption(page, keyword).catch(() => "");
-    selectedValue = await waitForFreightTemplateReadback(page, keyword);
+    const opened = await clickTarget.click({ timeout: 1000 }).then(
+      () => true,
+      () => false
+    );
+    if (!opened) {
+      await page.keyboard.press("Escape").catch(() => {});
+      continue;
+    }
+    const clickedText = await clickFreightTemplateDropdownOption(page, keyword).catch(() => "");
+    const selectedValue = await waitForFreightTemplateReadback(page, keyword);
     if (selectedValue.includes(keyword)) {
       return selectedValue;
+    }
+    if (clickedText.includes(keyword)) {
+      return clickedText;
     }
     await page.keyboard.press("Escape").catch(() => {});
   }
