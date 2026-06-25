@@ -350,31 +350,12 @@ async function clickSpecTemplateOptionByDomStructure(page: Page, keywords: strin
   return "";
 }
 
-async function waitForSpecTemplateApplyEvidence(page: Page, keyword: string): Promise<string> {
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const selectedValue = await readSpecTemplateSelectedValue(page, keyword).catch(() => "");
-    if (isMatchingSpecTemplateValue(selectedValue, keyword)) {
-      return selectedValue;
-    }
-    const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
-    if (visiblePriceRows >= FIXED_SPEC_VALUES.length) {
-      return keyword;
-    }
-    const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
-    if (filledValues.length >= FIXED_SPEC_VALUES.length) {
-      return keyword;
-    }
-    await page.waitForTimeout(150);
-  }
-  return "";
-}
-
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
   await dismissTransientOverlays(page);
   const candidates = resolveSpecTemplateKeywordCandidates(keyword);
   const visibleClickedText = await clickSpecTemplateOptionByDomStructure(page, candidates);
   if (isMatchingSpecTemplateValue(visibleClickedText, keyword)) {
-    return (await waitForSpecTemplateApplyEvidence(page, keyword)) || visibleClickedText;
+    return visibleClickedText;
   }
   const input = await findSpecTemplateInputInFieldRootOnPage(page);
   for (const candidate of candidates) {
@@ -387,10 +368,6 @@ async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string
     const clickedText = await clickSpecTemplateOptionByDomStructure(page, candidates);
     if (!isMatchingSpecTemplateValue(clickedText, keyword)) {
       continue;
-    }
-    const selectedValue = await waitForSpecTemplateApplyEvidence(page, keyword);
-    if (isMatchingSpecTemplateValue(selectedValue, keyword)) {
-      return selectedValue;
     }
     return clickedText;
   }
@@ -1115,105 +1092,6 @@ async function chooseDynamicSpecTemplateOnPage(page: Page, title?: string): Prom
   return selectedValue;
 }
 
-async function isManualSpecTemplateEntryModeVisible(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const visibleText = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .filter((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-      })
-      .map((el) => normalize(el.innerText || el.textContent || ""))
-      .join(" ");
-
-    return (
-      visibleText.includes("商品规格") &&
-      visibleText.includes("规格模板") &&
-      (visibleText.includes("添加规格类型") ||
-        visibleText.includes("规格预览") ||
-        (visibleText.includes("价格与库存") && visibleText.includes("现货库存"))) &&
-      !visibleText.includes("点击 或 拖动 文件到虚线框内上传")
-    );
-  });
-}
-
-async function isSpecTemplateEntryControlVisible(page: Page): Promise<boolean> {
-  if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
-    return false;
-  }
-  await findSpecTemplateInputInFieldRootOnPage(page);
-  return true;
-}
-
-async function describeSpecTemplateEntrySurfaceOnPage(page: Page): Promise<{
-  templateConfigured: boolean;
-  manualSurfaceVisible: boolean;
-}> {
-  return page.evaluate(() => {
-    const visibleTexts = Array.from(document.querySelectorAll("body *"))
-      .map((element) => element as HTMLElement)
-      .filter((element) => {
-        const rect = element.getBoundingClientRect();
-        const style = window.getComputedStyle(element);
-        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-      })
-      .map((element) => (element.innerText || element.textContent || "").replace(/\s+/g, "").trim());
-    const visibleText = visibleTexts.join(" ");
-    return {
-      templateConfigured: visibleText.includes("规格模板"),
-      manualSurfaceVisible:
-        visibleText.includes("商品规格") && visibleText.includes("添加规格类型") && visibleText.includes("规格预览")
-    };
-  });
-}
-
-async function ensureManualSpecTemplateEntryModeOnPage(page: Page): Promise<void> {
-  await dismissTransientOverlays(page).catch(() => {});
-  await scrollLabelIntoView(page, "商品规格").catch(() => false);
-  await scrollLabelIntoView(page, "规格模板").catch(() => false);
-  if (await isSpecTemplateSmartFillUploadModeVisible(page).catch(() => false)) {
-    await clickSwitchManualSpecEntryMode(page);
-    if (await waitForManualSpecTemplateEntryReadiness(page)) {
-      return;
-    }
-  }
-  if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
-    return;
-  }
-  if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
-    return;
-  }
-  await clickSwitchManualSpecEntryMode(page);
-  if (await waitForManualSpecTemplateEntryReadiness(page)) {
-    return;
-  }
-  const surface = await describeSpecTemplateEntrySurfaceOnPage(page).catch(() => ({
-    templateConfigured: false,
-    manualSurfaceVisible: false
-  }));
-  if (surface.manualSurfaceVisible && !surface.templateConfigured) {
-    throw new Error(
-      "Spec template is not configured for current shop: 商品规格 surface only exposes 添加规格类型（0/3） and 规格预览."
-    );
-  }
-  throw new Error("Spec template entry control was not visible after opening manual goods-spec mode.");
-}
-
-async function waitForManualSpecTemplateEntryReadiness(page: Page): Promise<boolean> {
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    if (await isManualSpecTemplateEntryModeVisible(page).catch(() => false)) {
-      return true;
-    }
-    if (await isSpecTemplateEntryControlVisible(page).catch(() => false)) {
-      return true;
-    }
-    await page.waitForTimeout(250);
-  }
-  return false;
-}
-
 async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page: Page): Promise<void> {
   await dismissTransientOverlays(page).catch(() => {});
   await scrollLabelIntoView(page, "商品规格").catch(() => false);
@@ -1320,13 +1198,22 @@ export async function applySpecTemplateWithVerificationOnPage(
   const keyword = resolveSpecTemplateKeyword(title);
   let selectedTemplate = "";
 
-  await ensureManualSpecTemplateEntryModeOnPage(page);
   try {
     selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
       selectedTemplate,
+      filledValues: [],
+      issue: `${message}; keyword=${keyword}`
+    };
+  }
+  try {
+    await ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      selectedTemplate: selectedTemplate || keyword,
       filledValues: [],
       issue: `${message}; keyword=${keyword}`
     };
@@ -1343,21 +1230,11 @@ export async function applySpecTemplateWithVerificationOnPage(
     blankSpecValueInputs
   });
   if (initialRule.passed) {
-    try {
-      await ensureManualPriceInventoryRowsAfterSpecTemplateOnPage(page);
-      return {
-        selectedTemplate: selectedTemplate || keyword,
-        filledValues,
-        issue: ""
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        selectedTemplate: selectedTemplate || keyword,
-        filledValues,
-        issue: `${message}; keyword=${keyword}`
-      };
-    }
+    return {
+      selectedTemplate: selectedTemplate || keyword,
+      filledValues,
+      issue: ""
+    };
   }
   return {
     selectedTemplate,

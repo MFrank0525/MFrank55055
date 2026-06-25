@@ -234,8 +234,8 @@ assert.doesNotMatch(
 );
 assert.match(
   specTemplateSelectionSource,
-  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*waitForSpecTemplateApplyEvidence\(page, keyword\)[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);[\s\S]*await input\.click\(\{ timeout: 3000 \}\);[\s\S]*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(120\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*waitForSpecTemplateApplyEvidence\(page, keyword\)/,
-  "spec-template selection must click an already visible option before typing, then wait on template-apply evidence instead of a fixed settle delay"
+  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return visibleClickedText;[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);[\s\S]*await input\.click\(\{ timeout: 3000 \}\);[\s\S]*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(120\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return clickedText;/,
+  "spec-template selection must click an already visible option before typing and return the clicked template without waiting for expansion"
 );
 assert.doesNotMatch(
   specTemplateSelectionSource,

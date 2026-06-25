@@ -288,16 +288,6 @@ assert.match(
   /async function isSpecTemplateSmartFillUploadModeVisible[\s\S]*智能填写助手[\s\S]*切换手动填写[\s\S]*点击 或 拖动 文件到虚线框内上传/,
   "spec template readiness must explicitly detect the AI smart-fill upload mode before looking for template controls"
 );
-assert.match(
-  publishSource,
-  /async function isSpecTemplateEntryControlVisible[\s\S]*isSpecTemplateSmartFillUploadModeVisible\(page\)[\s\S]*return false[\s\S]*findSpecTemplateInputInFieldRootOnPage\(page\)/,
-  "spec template control visibility must not pass while Doudian is still in smart-fill upload mode"
-);
-assert.match(
-  publishSource,
-  /describeSpecTemplateEntrySurfaceOnPage[\s\S]*templateConfigured[\s\S]*manualSurfaceVisible/,
-  "Missing shop template configuration must be diagnosed from the real 商品规格 DOM surface"
-);
 const autoListPublishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const specTemplateModeSource = fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8");
 assert.doesNotMatch(
@@ -323,15 +313,15 @@ assert.match(
 assert.doesNotMatch(
   publishSource.slice(
     publishSource.indexOf("async function clickSpecTemplateOptionByDomStructure"),
-    publishSource.indexOf("async function waitForSpecTemplateApplyEvidence")
+    publishSource.indexOf("async function chooseSpecTemplateKeywordFromDropdown")
   ),
   /for \(let attempt|waitForTimeout/,
   "visible spec template option clicking must not poll or sleep before clicking"
 );
 assert.match(
   publishSource,
-  /const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*if \(isMatchingSpecTemplateValue\(visibleClickedText, keyword\)\)[\s\S]*waitForSpecTemplateApplyEvidence\(page, keyword\)[\s\S]*await input\.click/,
-  "spec template selection must click an already visible matching template option before typing into the search input and then wait on apply evidence"
+  /const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*if \(isMatchingSpecTemplateValue\(visibleClickedText, keyword\)\) \{[\s\S]*return visibleClickedText;[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\)/,
+  "spec template selection must atomically click an already visible matching template option before typing into the search input"
 );
 assert.match(
   publishSource.slice(
@@ -348,13 +338,13 @@ assert.doesNotMatch(
 );
 assert.match(
   publishSource,
-  /const selectedValue = await readSpecTemplateSelectedValue\(page, keyword\)[\s\S]*if \(isMatchingSpecTemplateValue\(selectedValue, keyword\)\)[\s\S]*return selectedValue[\s\S]*return clickedText/,
-  "spec template selection must prefer selected readback but fall back to the clicked matching option text"
+  /const clickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*if \(!isMatchingSpecTemplateValue\(clickedText, keyword\)\) \{[\s\S]*continue;[\s\S]*return clickedText;/,
+  "spec template selection must return the clicked matching option text without waiting for template expansion"
 );
 assert.match(
   publishSource,
-  /async function waitForSpecTemplateApplyEvidence[\s\S]*readSpecTemplateSelectedValue\(page, keyword\)[\s\S]*countVisiblePriceInventoryRows\(page\)[\s\S]*readCurrentSpecValuesStrict\(page\)/,
-  "spec template selection must wait on concrete template-apply evidence instead of a fixed settle delay"
+  /async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*countVisiblePriceInventoryRows\(page\)[\s\S]*readCurrentSpecValuesStrict\(page\)/,
+  "spec template expansion evidence must be checked only after clicking the post-template manual-fill switch"
 );
 assert.doesNotMatch(
   publishSource.slice(
@@ -420,43 +410,14 @@ assert.doesNotMatch(
 
 assert.match(
   publishSource,
-  /async function isManualSpecTemplateEntryModeVisible[\s\S]*商品规格[\s\S]*规格模板[\s\S]*添加规格类型[\s\S]*规格预览[\s\S]*价格与库存[\s\S]*现货库存/,
-  "price/inventory spec setup must structurally detect the current manual goods-spec module, not depend only on legacy switch text"
-);
-assert.match(
-  publishSource,
   /scrollLabelIntoView\(page, "商品规格"\)[\s\S]*scrollLabelIntoView\(page, "规格模板"\)/,
-  "manual spec setup must scroll by current goods-spec structure labels"
-);
-const ensureManualSpecTemplateEntrySource = publishSource.slice(
-  publishSource.indexOf("async function ensureManualSpecTemplateEntryModeOnPage"),
-  publishSource.indexOf("async function ensureManualPriceInventoryRowsAfterSpecTemplateOnPage")
-);
-assert.doesNotMatch(
-  ensureManualSpecTemplateEntrySource,
-  /for \(let attempt = 0; attempt < 4; attempt \+= 1\)|waitForTimeout\(400\)|waitForTimeout\(1000\)/,
-  "manual spec-template entry preparation must be a single atomic DOM action, not a retry loop with stacked waits"
-);
-assert.match(
-  ensureManualSpecTemplateEntrySource,
-  /clickSwitchManualSpecEntryMode\(page\)[\s\S]*waitForManualSpecTemplateEntryReadiness\(page\)/,
-  "manual spec-template entry preparation must use short readiness polling instead of a fixed 3 second delay"
+  "spec template and manual switch setup must scroll by current goods-spec structure labels"
 );
 
 assert.match(
   publishSource,
-  /ensureManualSpecTemplateEntryModeOnPage\(page\)[\s\S]*applySpecTemplateWithVerificationOnPage/,
-  "spec template application must wait for manual spec template mode before choosing a template"
-);
-assert.match(
-  publishSource,
-  /async function isSpecTemplateEntryControlVisible[\s\S]*findSpecTemplateInputInFieldRootOnPage\(page\)/,
-  "manual spec setup must recognize the spec-template control itself instead of depending only on the legacy switch button"
-);
-assert.match(
-  ensureManualSpecTemplateEntrySource,
-  /if \(await isSpecTemplateSmartFillUploadModeVisible\(page\)\.catch\(\(\) => false\)\) \{[\s\S]*clickSwitchManualSpecEntryMode\(page\)[\s\S]*waitForManualSpecTemplateEntryReadiness\(page\)/,
-  "manual spec setup must switch out of smart-fill upload mode and poll readiness without a fixed 3 second pause"
+  /applySpecTemplateWithVerificationOnPage[\s\S]*chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*ensureManualPriceInventoryRowsAfterSpecTemplateOnPage\(page\)/,
+  "spec template application must choose the dropdown template first, then switch manual mode and expand price/inventory rows"
 );
 const switchManualSpecEntrySource = fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8");
 assert.match(
@@ -468,11 +429,6 @@ assert.match(
   switchManualSpecEntrySource,
   /return !\(await isSpecTemplateSmartFillUploadModeVisible\(page\)\.catch\(\(\) => true\)\)/,
   "manual spec switch action must return false when click does not leave smart-fill upload mode"
-);
-assert.match(
-  publishSource,
-  /isSpecTemplateEntryControlVisible\(page\)[\s\S]*return;/,
-  "manual spec setup must proceed when the current spec-template control is already visible"
 );
 assert.match(
   publishSource,
@@ -491,8 +447,13 @@ assert.match(
 );
 assert.match(
   applySpecTemplateSource,
-  /initialRule\.passed[\s\S]*ensureManualPriceInventoryRowsAfterSpecTemplateOnPage\(page\)[\s\S]*return \{/,
-  "spec template application must not report success until manual price/inventory rows are visible after template selection"
+  /chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*ensureManualPriceInventoryRowsAfterSpecTemplateOnPage\(page\)[\s\S]*const visiblePriceRows = await countVisiblePriceInventoryRows\(page\)/,
+  "spec template application must not evaluate completion until manual price/inventory rows are visible after template selection"
+);
+assert.doesNotMatch(
+  applySpecTemplateSource,
+  new RegExp(`${"ensureManual"}${"SpecTemplateEntryModeOnPage"}\\(page\\)[\\s\\S]*chooseDynamicSpecTemplateOnPage\\(page, title\\)`),
+  "spec template application must not require manual-entry mode before selecting the spec-template dropdown"
 );
 assert.doesNotMatch(
   applySpecTemplateSource,
