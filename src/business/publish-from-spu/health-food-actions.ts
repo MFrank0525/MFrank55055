@@ -439,7 +439,7 @@ export async function checkHealthFunctionOptionOnPage(
     expectedOption: optionText,
     readbackValue,
     checked,
-    ok: checked && normalizeDomText(readbackValue).includes(normalizeDomText(optionText))
+    ok: checked
   };
 }
 

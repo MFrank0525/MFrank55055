@@ -106,8 +106,13 @@ assert.match(
 );
 assert.match(
   source,
-  /ecom-g-select-selection-item[\s\S]*readbackValue[\s\S]*normalizeDomText\(readbackValue\)\.includes/,
+  /ecom-g-select-selection-item[\s\S]*readbackValue[\s\S]*const checked = optionGroups\.every/,
   "health function action must read back the selected tag from the field instead of the transient dropdown"
+);
+assert.match(
+  source,
+  /const checked = optionGroups\.every[\s\S]*return \{[\s\S]*action: "check_health_function"[\s\S]*readbackValue,[\s\S]*checked,[\s\S]*ok: checked[\s\S]*\};/,
+  "compound health function readback must pass when every required option group is selected, even when Doudian returns separate tags instead of the original Feishu string"
 );
 
 assert.match(
