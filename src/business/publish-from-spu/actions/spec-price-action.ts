@@ -54,6 +54,7 @@ export async function runSpecPriceAction(
   const specTypeOptions = specResult.specTypeOptions;
   let specIssue = specResult.specIssue;
   if (input.categoryContext.productCategory === "保健食品" && !specIssue) {
+    await page.waitForTimeout(3000);
     const healthFoodSpecResult = await deps.applyHealthFoodSpecificationOnPage(page, input.metadata);
     if (!healthFoodSpecResult.ok) {
       specIssue = `Health-food full specification readback mismatch: expected=${

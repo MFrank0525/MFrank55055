@@ -141,10 +141,11 @@ assertOrdered(
   [
     "applyHealthFoodShippingBeforeSpecOnPage(page)",
     "applyFixedSpecsOnPage(page",
+    "page.waitForTimeout(3000)",
     "applyHealthFoodSpecificationOnPage(page, input.metadata)",
     "applyPriceInventoryOnPage("
   ],
-  "health-food spec and price action sequence"
+  "health-food spec and price action sequence must pause after template/manual-mode setup before filling the full specification"
 );
 assertOrdered(
   serviceActionSource,

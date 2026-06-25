@@ -203,6 +203,16 @@ assert.match(
   /async function applyHealthFoodSpecificationEditorOnPage[\s\S]*ecom-g-popover-content[\s\S]*input\.ecom-g-input\[placeholder=.请输入.\][\s\S]*chooseUnit[\s\S]*ecom-g-select-item-option/,
   "health-food specification action must operate the expanded popover numeric inputs and unit dropdown options"
 );
+assert.match(
+  source,
+  /chooseSplitRuleOnPage[\s\S]*expectedRule[\s\S]*两类组合[\s\S]*chooseSplitRuleOnPage\("两类组合"\)[\s\S]*chooseUnit/,
+  "health-food specification split editor must choose the two-part rule before selecting quantity units"
+);
+assert.match(
+  source,
+  /getUnitSelects[\s\S]*单品[\s\S]*两类组合[\s\S]*三类组合/,
+  "health-food specification unit selector discovery must exclude the split-rule selector options"
+);
 assert.doesNotMatch(
   source.slice(
     source.indexOf("export async function applyHealthFoodSpecificationOnPage"),

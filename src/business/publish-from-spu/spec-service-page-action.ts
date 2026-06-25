@@ -1191,7 +1191,9 @@ export async function applySpecTemplateWithVerificationOnPage(
       issue: `${message}; keyword=${keyword}`
     };
   }
+  await page.waitForTimeout(3000);
   await clickManualSpecFillAfterTemplateOnPage(page);
+  await page.waitForTimeout(3000);
   const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
   const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
   const blankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);

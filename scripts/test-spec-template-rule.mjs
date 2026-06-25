@@ -440,8 +440,8 @@ assert.match(
 );
 assert.match(
   applySpecTemplateSource,
-  /chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*clickManualSpecFillAfterTemplateOnPage\(page\)[\s\S]*evaluateSpecTemplateCompletion/,
-  "spec template application must evaluate completion from selected template after the manual-fill switch action"
+  /chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*page\.waitForTimeout\(3000\)[\s\S]*clickManualSpecFillAfterTemplateOnPage\(page\)[\s\S]*page\.waitForTimeout\(3000\)[\s\S]*evaluateSpecTemplateCompletion/,
+  "spec template application must wait three seconds after selecting the template and after switching manual fill before evaluating completion"
 );
 assert.doesNotMatch(
   applySpecTemplateSource,
