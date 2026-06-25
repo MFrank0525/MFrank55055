@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { buildPublishJobMetadata } from "../dist/src/autolist/publish.js";
 import { resolvePublishFromSpuMetadata } from "../dist/src/business/publish-from-spu.js";
+import {
+  evaluateHealthFoodPublishRules,
+  resolveHealthFoodFunctionOptionTexts
+} from "../dist/src/business/publish-from-spu/health-food-rules.js";
 
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
@@ -231,6 +235,56 @@ assert.equal(
   whitespaceNormalizedMetadata.shortTitle,
   "甘草片蓝帽认证",
   "publish metadata must normalize accidental Feishu whitespace inside 导购短标题 before filling Doudian"
+);
+
+assert.deepEqual(
+  resolveHealthFoodFunctionOptionTexts("调节血压，调节血脂(降低总胆固醇、降低甘油三酯)"),
+  ["调节血压", "调节血脂"],
+  "compound health-food function values from Feishu must be split into Doudian selectable function options"
+);
+
+assert.equal(
+  evaluateHealthFoodPublishRules({
+    metadata: {
+      brand: "延草纲目",
+      spu: "龙翁诗牌杜仲保健茶",
+      title: "杜仲保健茶",
+      shortTitle: "杜仲保健茶",
+      productPriceText: "149,139,89.9,79.9",
+      productCategory: "保健食品",
+      manufacturerName: "陕西斯强生物药业股份有限公司",
+      manufacturerAddress: "陕西省杨凌示范区东环北路与孟杨十字西北角",
+      netContent: "3g/袋x20袋",
+      productStandardCode: "Q/LWSC 0001S",
+      ingredients: "杜仲叶",
+      healthFunction: "调节血压，调节血脂(降低总胆固醇、降低甘油三酯)",
+      specification: "20袋*1盒"
+    },
+    fixedFieldSelections: {
+      foodSafetyQualification: "国产预包装食品",
+      shelfLife: "2",
+      storage: "常温"
+    },
+    healthFunctionOptions: ["调节血压", "调节血脂", "增强免疫力"],
+    selectedHealthFunction: "调节血压 调节血脂",
+    visibleOptionalFieldLabels: [],
+    qualificationImageCount: 2,
+    qualificationImageSlots: [
+      { label: "商品外包装图", selectedImageCount: 1 },
+      { label: "详情图", selectedImageCount: 1 },
+      { label: "包装标签图", selectedImageCount: 1 }
+    ],
+    selectedSpecTemplate: "买二送一",
+    specificationInputs: [{ groupName: "规格", currentValue: "20袋*1盒", readbackValue: "20袋*1盒" }],
+    priceInventoryRows: [
+      { price: 149, stock: 2000 },
+      { price: 139, stock: 2000 },
+      { price: 89.9, stock: 2000 },
+      { price: 79.9, stock: 2000 }
+    ]
+  }).action,
+  "ready",
+  "health-food rule evaluation must accept readback with every parsed Doudian health-function option selected"
 );
 
 console.log("health food publish metadata rule passed");

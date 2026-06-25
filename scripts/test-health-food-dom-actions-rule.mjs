@@ -96,8 +96,8 @@ assert.match(
 
 assert.match(
   source,
-  /checkHealthFunctionOptionOnPage[\s\S]*"保健功能"[\s\S]*ecom-g-select-selector[\s\S]*role=['"]combobox['"][\s\S]*fill\(optionText[\s\S]*ecom-g-select-tree-title[\s\S]*ecom-g-select-tree-treenode[\s\S]*ecom-g-select-tree-checkbox/,
-  "health function action must search the virtualized 保健功能 tree and click the exact option's structural checkbox"
+  /checkHealthFunctionOptionOnPage[\s\S]*resolveHealthFoodFunctionOptionTexts\(optionText\)[\s\S]*"保健功能"[\s\S]*ecom-g-select-selector[\s\S]*role=['"]combobox['"][\s\S]*fill\(expectedOption[\s\S]*ecom-g-select-tree-title[\s\S]*ecom-g-select-tree-treenode[\s\S]*ecom-g-select-tree-checkbox/,
+  "health function action must split compound Feishu 保健功能 values, search the virtualized tree, and click each exact option's structural checkbox"
 );
 assert.match(
   source,
