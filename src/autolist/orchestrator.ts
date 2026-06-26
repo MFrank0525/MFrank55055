@@ -9,7 +9,7 @@ import { writeFeishuPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateMainImageAssets } from "./main-image-assets.js";
 import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
-import { auditMainImageGeneration, collectFeishuProductAssetFiles } from "./audit-rules.js";
+import { auditMainImageGeneration, collectFeishuProductAssetFiles, summarizeFeishuBatchProgress } from "./audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "./feishu-batch-rules.js";
 import {
   loadFeishuProductRecords,
@@ -35,7 +35,7 @@ import { logError, logInfo, setLogFile } from "../utils/logger.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { loadPublishManifest, type PublishProductIdentity } from "./publish-manifest.js";
 import { isProductFullyProcessed } from "./processed-completion-rules.js";
-import { removePaidImageProductLedger } from "./paid-image-submission-ledger.js";
+import { removePaidImageBatchLedger, removePaidImageProductLedger } from "./paid-image-submission-ledger.js";
 import type {
   AutoListingEvent,
   AutoListingJobFile,
@@ -1244,6 +1244,15 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
 
     const completed = markRunCompleted(workingState);
     persistState(resolved.stateFile, completed);
+    if (!resolved.input.simulateOnly && feishuBatchFingerprint && feishuProductRecords.length > 0) {
+      const finalBatchProgress = summarizeFeishuBatchProgress({
+        records: feishuProductRecords,
+        processedImages: readProcessedImages(resolved.processedImageManifest, feishuBatchFingerprint)
+      });
+      if (finalBatchProgress.batchComplete) {
+        removePaidImageBatchLedger(resolved.input.paidImageSubmissionLedgerDir, feishuBatchFingerprint);
+      }
+    }
 
     result.ok = true;
     result.finishedAt = new Date().toISOString();

@@ -148,6 +148,11 @@ assert.match(
   /historicalProcessedManifest[\s\S]*summarizeFeishuProgress\(historicalProcessedManifest\)/,
   "AutoListingController no-job status must use the latest result processed-image manifest instead of the default cache path"
 );
+assert.match(
+  hermesRunnerSource,
+  /artifacts:\s*\{\s*processedImageManifest:\s*result\.artifacts\?\.processedImageManifest\s*\}/,
+  "AutoListingController summarized result must preserve the processed-image manifest path used by that run"
+);
 const publishFromSpuSource = [
   fs.readFileSync("src/business/publish-from-spu.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/basic-info-page-action.ts", "utf8"),
@@ -423,6 +428,11 @@ assert.match(
 );
 assert.match(
   auditAutoListingSource,
+  /resolveProcessedImageManifestForAudit[\s\S]*artifacts\?\.processedImageManifest[\s\S]*readProcessedImages\(effectiveProcessedImageManifest, batchFingerprint\)/,
+  "Auto-listing audits must use the latest exact-batch result processed-image manifest instead of the default job cache path"
+);
+assert.match(
+  auditAutoListingSource,
   /code\s*===\s*"EPERM"/,
   "Auto-listing audit must treat EPERM from process probes as an alive controller in restricted runtimes"
 );
@@ -480,6 +490,11 @@ assert.match(
   orchestratorSource,
   /isProductFullyProcessed[\s\S]*appendProcessedImages[\s\S]*removePaidImageProductLedger/,
   "A safely completed product must be atomically marked processed before its project-owned paid-image ledger is deleted"
+);
+assert.match(
+  orchestratorSource,
+  /summarizeFeishuBatchProgress[\s\S]*finalBatchProgress\.batchComplete[\s\S]*removePaidImageBatchLedger/,
+  "A fully completed Feishu batch must remove its project-owned paid-image batch ledger at run completion"
 );
 assert.match(
   hermesSupervisorSource,

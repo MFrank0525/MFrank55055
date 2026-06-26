@@ -133,6 +133,9 @@ interface AutoListingResultFile {
   status?: string;
   runId?: string;
   runtimeDir?: string;
+  artifacts?: {
+    processedImageManifest?: string;
+  };
   discoveredImages?: string[];
   tasks?: Array<{
     taskId?: string;
@@ -789,6 +792,9 @@ function summarizeResult(resultFile: string | undefined): Record<string, unknown
       status: task.status,
       ...compactProductFolders(task.generatedProductFolders)
     })),
+    artifacts: {
+      processedImageManifest: result.artifacts?.processedImageManifest
+    },
     error: compactErrorObject(failedTask?.error || result.error),
     discoveredImages: result.discoveredImages || []
   };

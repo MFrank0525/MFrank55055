@@ -11,7 +11,7 @@ import { extractWatermarkNo } from "../autolist/publish-manifest.js";
 import { buildPublishTargetIdentity, publishTargetKey } from "../autolist/publish-identity.js";
 import { getProductCategoryPlan, shopCodeFromFolder, type ProductCategory } from "../autolist/product-category.js";
 import { paidImageBatchLedgerDir } from "../autolist/paid-image-submission-ledger.js";
-import type { AutoListingJobFile, AutoListingRunState } from "../autolist/types.js";
+import type { AutoListingJobFile, AutoListingRunResult, AutoListingRunState } from "../autolist/types.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
 
@@ -166,6 +166,28 @@ function latestRunState(
   return undefined;
 }
 
+function resolveProcessedImageManifestForAudit(input: {
+  defaultProcessedImageManifest: string;
+  runtimeRootDir: string;
+  currentBatchFingerprint: string;
+  state?: AutoListingRunState;
+}): string {
+  const resultFile = input.state?.runId ? path.join(input.runtimeRootDir, input.state.runId, "result.json") : undefined;
+  if (!resultFile || !fs.existsSync(resultFile)) {
+    return input.defaultProcessedImageManifest;
+  }
+  try {
+    const result = readJson<AutoListingRunResult>(resultFile);
+    const processedImageManifest = result.artifacts?.processedImageManifest;
+    if (result.feishuBatchFingerprint === input.currentBatchFingerprint && typeof processedImageManifest === "string" && processedImageManifest.trim()) {
+      return path.resolve(processedImageManifest);
+    }
+  } catch {
+    return input.defaultProcessedImageManifest;
+  }
+  return input.defaultProcessedImageManifest;
+}
+
 function resolveFromJob(jobFile: string): {
   job: AutoListingJobFile;
   feishuProductDataFile: string;
@@ -262,7 +284,14 @@ async function main(): Promise<void> {
     });
   }
   const batchFingerprint = buildFeishuBatchFingerprint(records);
-  const processedImages = readProcessedImages(resolved.processedImageManifest, batchFingerprint);
+  const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly, batchFingerprint);
+  const effectiveProcessedImageManifest = resolveProcessedImageManifestForAudit({
+    defaultProcessedImageManifest: resolved.processedImageManifest,
+    runtimeRootDir: resolved.runtimeRootDir,
+    currentBatchFingerprint: batchFingerprint,
+    state
+  });
+  const processedImages = readProcessedImages(effectiveProcessedImageManifest, batchFingerprint);
   const existingFiles = [
     ...listFilesRecursive(resolved.feishuImageDir),
     ...listFilesRecursive(resolved.qualificationDir),
@@ -270,7 +299,6 @@ async function main(): Promise<void> {
     ...listFilesRecursive(resolved.shopRootDir),
     ...listFilesRecursive(resolved.runtimeRootDir)
   ];
-  const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly, batchFingerprint);
   const discoveredRunImageCount = state?.status === "running" ? state.tasks.length : undefined;
   const controllerJob = readOptionalJson<ControllerJobFile>("data/auto-listing/control/auto-listing-controller-job.json");
   const controllerProcessAlive = controllerJob?.status === "running" && isProcessAlive(controllerJob.pid);
@@ -422,7 +450,7 @@ async function main(): Promise<void> {
     qualificationDir: resolved.qualificationDir,
     mainImageWorkDir: resolved.mainImageWorkDir,
     shopRootDir: resolved.shopRootDir,
-    processedImageManifest: resolved.processedImageManifest,
+    processedImageManifest: effectiveProcessedImageManifest,
     runtimeRootDir: resolved.runtimeRootDir,
     runStatus: state?.status,
     runId: state?.runId,
