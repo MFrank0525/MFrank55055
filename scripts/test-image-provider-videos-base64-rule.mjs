@@ -54,6 +54,7 @@ const repeatedProviderTimeoutAudit = [
   { state: "failed_after_acceptance", at: "2026-06-18T01:20:00.000Z", reason: "provider task failed: timed out" },
   { state: "failed_after_acceptance", at: "2026-06-18T01:40:00.000Z", reason: "provider task failed: 失败了超时 请重试" }
 ];
+const twoProviderTimeoutAudit = repeatedProviderTimeoutAudit.slice(0, 2);
 assert.deepEqual(
   resolvePaidImageFixedSlotRecovery({
     failureReason: 'provider task failed: {"code":"task_timeout","message":"任务失败，超时5分钟"}',
@@ -70,6 +71,23 @@ assert.deepEqual(
   }),
   { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: false, deferMs: 0 },
   "A first explicit provider task timeout must retry only its fixed slot in the current child process"
+);
+assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: "provider task failed: videos-base64 task task_dead did not finish within 180000ms.",
+    audit: [
+      {
+        state: "failed_after_acceptance",
+        at: "2026-06-18T01:00:00.000Z",
+        reason: "provider task failed: videos-base64 task task_dead did not finish within 180000ms."
+      }
+    ],
+    recordedPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-06-18T01:01:00.000Z")
+  }),
+  { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: false, deferMs: 0 },
+  "A videos-base64 poll timeout must be treated as an accepted-task timeout and retry only that fixed slot"
 );
 for (const failureReason of [
   "provider task failed: invalid image",
@@ -92,13 +110,35 @@ for (const failureReason of [
 assert.deepEqual(
   resolvePaidImageProviderTimeoutRetry({
     failureReason: "provider task failed: 失败了超时 请重试",
-    audit: repeatedProviderTimeoutAudit,
+    audit: twoProviderTimeoutAudit,
     recordedPromptDigest: "original-digest",
     policyCompatiblePromptDigest: "policy-digest",
-    nowMs: Date.parse("2026-06-18T01:41:00.000Z")
+    nowMs: Date.parse("2026-06-18T01:21:00.000Z")
   }),
   { usePolicyCompatiblePrompt: true, deferMs: 0 },
-  "Three accepted provider timeouts must switch only the failed fixed slot to the stability-compatible prompt"
+  "Two accepted provider timeouts must switch only the failed fixed slot to the stability-compatible prompt"
+);
+assert.deepEqual(
+  resolvePaidImageProviderTimeoutRetry({
+    failureReason: "provider task failed: videos-base64 task task_dead did not finish within 180000ms.",
+    audit: [
+      {
+        state: "failed_after_acceptance",
+        at: "2026-06-18T01:00:00.000Z",
+        reason: "videos-base64 accepted task stayed queued/pending beyond 180000ms; retrying fixed slot 8."
+      },
+      {
+        state: "failed_after_acceptance",
+        at: "2026-06-18T01:20:00.000Z",
+        reason: "provider task failed: videos-base64 task task_dead did not finish within 180000ms."
+      }
+    ],
+    recordedPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-06-18T01:21:00.000Z")
+  }),
+  { usePolicyCompatiblePrompt: true, deferMs: 0 },
+  "Queued/pending stale expiry plus poll timeout must count as two accepted-task timeouts and switch to the fallback prompt"
 );
 assert.deepEqual(
   resolvePaidImageFixedSlotRecovery({
@@ -137,6 +177,16 @@ assert.match(
   source,
   /generateVideosBase64ImageAttempt[\s\S]*const generateVideosBase64Image =[\s\S]*for \(;;\)[\s\S]*generateVideosBase64ImageAttempt\(absoluteImageIndex\)[\s\S]*resolvePaidImageSlotAction[\s\S]*retry_failed_after_acceptance[\s\S]*resolvePaidImageFixedSlotRecovery[\s\S]*retry_fixed_slot_now[\s\S]*retrying fixed paid slot/s,
   "An explicit accepted provider timeout must retry only the failed fixed slot inside the current child process"
+);
+assert.match(
+  source,
+  /Date\.now\(\) - startedAt > maxPollMs[\s\S]*recordPaidImageFailedAfterAcceptance\(\{[\s\S]*slot: ledgerSlot[\s\S]*provider task failed: videos-base64 task \$\{taskId\} did not finish within \$\{maxPollMs\}ms/s,
+  "videos-base64 poll timeout must mark only the accepted fixed slot failed_after_acceptance before retrying"
+);
+assert.match(
+  source,
+  /if \(expired\) \{[\s\S]*resolvePaidImageFixedSlotRecovery\(\{[\s\S]*failureReason: expired\.reason \|\| ""[\s\S]*usePolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"[\s\S]*allowFailedAfterAcceptanceDigestChange: expiredRecovery\.usePolicyCompatiblePrompt/s,
+  "videos-base64 stale queued/pending expiry must apply fixed-slot fallback prompt rules before resubmitting"
 );
 assert.match(
   source,
@@ -184,7 +234,7 @@ assert.match(source, /allowExistingSubmittedTaskImport/);
 assert.match(source, /allowExistingSubmittedTaskImport =[\s\S]*slotAction\.action !== "retry_failed_before_acceptance"[\s\S]*slotAction\.action !== "retry_failed_after_acceptance"/);
 assert.match(
   source,
-  /isPolicyCompatibleRetryFailureReason\(reason: string\)[\s\S]*违规[\s\S]*failedAfterAcceptanceReason[\s\S]*buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*shouldKeepPaidImagePolicyCompatiblePrompt[\s\S]*keepPolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
+  /isPolicyCompatibleRetryFailureReason\(reason: string\)[\s\S]*违规[\s\S]*policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*failedAfterAcceptanceReason[\s\S]*shouldKeepPaidImagePolicyCompatiblePrompt[\s\S]*keepPolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
   "videos-base64 failed-after-acceptance fixed-slot retries must switch only that slot to the policy-compatible prompt"
 );
 assert.match(

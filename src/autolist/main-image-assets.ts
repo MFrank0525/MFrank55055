@@ -1176,6 +1176,9 @@ async function generateWithOpenAiCompatibleProvider(options: {
     let requestBody = JSON.stringify(buildVideosBase64JsonBody(promptText));
     let requestDigest = sha256Text(requestBody);
     let promptDigest = sha256Text(promptText);
+    const originalPromptDigest = promptDigest;
+    const policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
+    const policyCompatiblePromptDigest = sha256Text(policyCompatiblePromptText);
     const rebuildVideosBase64Request = (): void => {
       requestBody = JSON.stringify(buildVideosBase64JsonBody(promptText));
       requestDigest = sha256Text(requestBody);
@@ -1202,9 +1205,6 @@ async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
             ? (slotAction.record?.reason || "")
             : "";
-        const originalPromptDigest = promptDigest;
-        const policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
-        const policyCompatiblePromptDigest = sha256Text(policyCompatiblePromptText);
         const fixedSlotRecovery =
           slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
             ? resolvePaidImageFixedSlotRecovery({
@@ -1280,13 +1280,38 @@ async function generateWithOpenAiCompatibleProvider(options: {
           : undefined;
         if (expired) {
           options.onProgress?.(`Image ${absoluteImageIndex}: videos-base64 accepted task queue timed out; retrying fixed paid slot.`);
+          const expiredRecovery = resolvePaidImageFixedSlotRecovery({
+            failureReason: expired.reason || "",
+            audit: expired.audit || [],
+            recordedPromptDigest: expired.promptDigest || "",
+            policyCompatiblePromptDigest,
+            nowMs: Date.now()
+          });
+          if (expiredRecovery.action === "defer_to_supervisor") {
+            throw normalizeImageGenerationError(
+              `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${expiredRecovery.deferMs}ms.`
+            );
+          }
+          if (expiredRecovery.usePolicyCompatiblePrompt) {
+            promptText = policyCompatiblePromptText;
+            rebuildVideosBase64Request();
+            writeImageGenerationJsonLog(
+              path.join(options.downloadDir, "request-" + paddedImageIndex + "-policy-retry.json"),
+              {
+                endpoint: config.apiUrl,
+                mode,
+                ...JSON.parse(requestBody)
+              }
+            );
+          }
           allowExistingSubmittedTaskImport = false;
           slotAction = reservePaidImageSlot({
             productDir: videosBase64Ledger.productDir,
             slot: ledgerSlot,
             requestDigest,
             promptDigest,
-            owner: options.paidImageLedger?.owner || { pid: process.pid }
+            owner: options.paidImageLedger?.owner || { pid: process.pid },
+            allowFailedAfterAcceptanceDigestChange: expiredRecovery.usePolicyCompatiblePrompt
           });
         }
       }
@@ -1389,6 +1414,13 @@ async function generateWithOpenAiCompatibleProvider(options: {
     let statusPayload: any = submitPayload;
     for (let pollNo = 1; !videosBase64Succeeded(statusPayload) && !videosBase64Failed(statusPayload); pollNo += 1) {
       if (Date.now() - startedAt > maxPollMs) {
+        if (videosBase64Ledger) {
+          recordPaidImageFailedAfterAcceptance({
+            productDir: videosBase64Ledger.productDir,
+            slot: ledgerSlot,
+            reason: `provider task failed: videos-base64 task ${taskId} did not finish within ${maxPollMs}ms.`
+          });
+        }
         throw normalizeImageGenerationError(`videos-base64 task ${taskId} did not finish within ${maxPollMs}ms.`);
       }
       await sleep(pollIntervalMs);

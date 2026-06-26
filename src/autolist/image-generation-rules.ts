@@ -220,9 +220,9 @@ export function resolvePaidImageProviderTimeoutRetry(input: {
   timeoutThreshold?: number;
   cooldownMs?: number;
 }): { usePolicyCompatiblePrompt: boolean; deferMs: number } {
-  const timeoutThreshold = Math.max(1, input.timeoutThreshold ?? 3);
+  const timeoutThreshold = Math.max(1, input.timeoutThreshold ?? 2);
   const cooldownMs = Math.min(imageServiceWaitCeilingMs, Math.max(0, input.cooldownMs ?? imageServiceWaitCeilingMs));
-  const timeoutPattern = /timeout|timed out|超时/i;
+  const timeoutPattern = /timeout|timed out|did not finish within|queued\/pending beyond|超时/i;
   const timeoutFailures = input.audit.filter(
     (entry) => entry.state === "failed_after_acceptance" && timeoutPattern.test(entry.reason || "")
   );
@@ -262,7 +262,7 @@ export function resolvePaidImageFixedSlotRecovery(input: {
       failureReason
     );
   const explicitAcceptedTaskTimeout =
-    /provider task failed/i.test(failureReason) && /task_timeout|timeout|timed out|超时/i.test(failureReason);
+    /provider task failed/i.test(failureReason) && /task_timeout|timeout|timed out|did not finish within|超时/i.test(failureReason);
   if (!explicitAcceptedTaskTimeout || unsafeReplay) {
     return { action: "bubble", usePolicyCompatiblePrompt: false, deferMs: 0 };
   }
