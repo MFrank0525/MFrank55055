@@ -381,11 +381,21 @@ function extractDirectAutoListingJobFile(command: string): string | undefined {
 
 function findActiveDirectAutoListingProcess(): DirectAutoListingProcess | undefined {
   const result = spawnSync("ps", ["-ax", "-o", "pid=,command="], { encoding: "utf8" });
-  if (result.status !== 0) {
+  let lines: string[] = [];
+  if (result.status === 0 && typeof result.stdout === "string" && result.stdout.trim()) {
+    lines = result.stdout.split(/\r?\n/);
+  } else {
+    const fallback = spawnSync("pgrep", ["-lf", "auto-listing.js"], { encoding: "utf8" });
+    if (fallback.status !== 0 || typeof fallback.stdout !== "string" || !fallback.stdout.trim()) {
+      return undefined;
+    }
+    lines = fallback.stdout.split(/\r?\n/);
+  }
+  if (!lines.length) {
     return undefined;
   }
   const candidates: DirectAutoListingProcess[] = [];
-  for (const line of result.stdout.split(/\r?\n/)) {
+  for (const line of lines) {
     const match = /^\s*(\d+)\s+(.+)$/.exec(line);
     if (!match) {
       continue;
@@ -936,7 +946,9 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
   const progressText =
     (publishGroupProgress
       ? `当前商品：${publishGroupProgress.productName}，发布 ${publishGroupProgress.productIndex}/${publishGroupProgress.productTotal}，店铺 ${publishGroupProgress.shopIndex}/${publishGroupProgress.shopTotal}`
-      : `发布进度 ${safelyPublished.length}/${total || "?"}`) +
+      : safelyPublished.length > 0
+        ? `发布清单初始化中，已确认发布 ${safelyPublished.length} 个`
+        : "发布清单初始化中") +
     (latestArtifact?.name ? `，最近产物：${String(latestArtifact.name)}` : "");
 
   return {
@@ -1003,10 +1015,13 @@ function isActivePublishProgress(publishProgress: Record<string, unknown> | unde
   return Boolean(active?.runtimeKey) && Number(publishProgress?.pending || 0) > 0;
 }
 
-function summarizeFeishuProgress(): Record<string, unknown> | undefined {
+function summarizeFeishuProgress(processedManifestOverride?: string): Record<string, unknown> | undefined {
   const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   const feishuProductDataFile = path.resolve(rootDir, job?.input?.feishuProductDataFile || "data/feishu/products.json");
-  const processedManifestFile = path.resolve(rootDir, job?.input?.processedImageManifest || "data/auto-listing/processed-images.json");
+  const processedManifestFile = path.resolve(
+    rootDir,
+    processedManifestOverride || job?.input?.processedImageManifest || "data/auto-listing/processed-images.json"
+  );
   if (!fs.existsSync(feishuProductDataFile)) {
     return undefined;
   }
@@ -1416,7 +1431,11 @@ function existingStatus(): Record<string, unknown> {
   if (!job) {
     const latestResultFile = findLatestResultFile();
     const historicalResult = summarizeResult(latestResultFile);
-    const feishuProgress = summarizeFeishuProgress();
+    const historicalProcessedManifest =
+      typeof ((historicalResult?.artifacts as Record<string, unknown> | undefined)?.processedImageManifest) === "string"
+        ? String((historicalResult?.artifacts as Record<string, unknown>).processedImageManifest)
+        : undefined;
+    const feishuProgress = summarizeFeishuProgress(historicalProcessedManifest);
     const exposeHistoricalRuntime = shouldExposeHistoricalRuntimeForCurrentFeishuBatch({
       currentBatchFingerprint:
         typeof feishuProgress?.batchFingerprint === "string" ? String(feishuProgress.batchFingerprint) : undefined,
@@ -1430,7 +1449,14 @@ function existingStatus(): Record<string, unknown> {
         ? latestRuntimeDir
         : undefined;
     const publishProgress = summarizePublishProgress(publishRuntimeDir);
-    const activePublishRunning = false;
+    const latestRuntimeProgressMtimeMs = Math.max(
+      fileMtimeMs(publishRuntimeDir ? path.join(publishRuntimeDir, "publish-manifest.json") : undefined) || 0,
+      fileMtimeMs(publishRuntimeDir ? path.join(publishRuntimeDir, "state.json") : undefined) || 0,
+      fileMtimeMs(publishRuntimeDir ? path.join(publishRuntimeDir, "events.ndjson") : undefined) || 0
+    );
+    const activePublishRunning =
+      Boolean(publishRuntimeDir && publishProgress && isActivePublishProgress(publishProgress)) &&
+      latestRuntimeProgressMtimeMs > (fileMtimeMs(latestResultFile) || 0);
     const pauseSignal = maybeUpgradeLegacyPauseSignalForBatchMismatch({
       pauseSignal: readPauseSignalFile(),
       currentBatchFingerprint:
@@ -1446,10 +1472,20 @@ function existingStatus(): Record<string, unknown> {
       latestResultOk: typeof latestResult?.ok === "boolean" ? latestResult.ok : undefined,
       latestResultStatus: typeof latestResult?.status === "string" ? latestResult.status : undefined
     });
+    const latestResultTasks = Array.isArray(latestResult?.tasks) ? (latestResult.tasks as Array<Record<string, unknown>>) : [];
+    const latestResultProductsForProgress = Array.isArray(latestResult?.products) ? (latestResult.products as Array<Record<string, unknown>>) : [];
+    const latestResultDoneTaskCount = Math.max(
+      latestResultTasks.filter((task) => ["done", "cleaned"].includes(String(task.status || ""))).length,
+      latestResultProductsForProgress.filter((product) => ["done", "cleaned", "published"].includes(String(product.status || ""))).length
+    );
+    const latestResultDiscoveredCount = Array.isArray(latestResult?.discoveredImages) ? latestResult.discoveredImages.length : latestResultTasks.length;
+    const feishuProgressReliable =
+      !(latestResult?.ok === true && idleStatus === "pending_products" && Number(feishuProgress?.processedRecordCount || 0) < latestResultDoneTaskCount);
     const feishuCacheInvalid = feishuProgress?.cacheValid === false;
     const status = feishuCacheInvalid ? "failed" : activePublishRunning ? "running" : idleStatus;
     const interrupted = status === "pause_requested" ? findLatestInterruptedStateForResume() : undefined;
-    const interruptedState = summarizeState(interrupted?.runtimeDir);
+    const activePublishState = activePublishRunning ? summarizeState(publishRuntimeDir) : undefined;
+    const interruptedState = activePublishState || summarizeState(interrupted?.runtimeDir);
     const interruptedCurrentTask = interruptedState?.currentTask as Record<string, unknown> | undefined;
     const interruptedImageProgress = summarizeImageGenerationProgress(
       interrupted?.runtimeDir,
@@ -1472,8 +1508,16 @@ function existingStatus(): Record<string, unknown> {
         : undefined;
     const feishuProductDataFile = path.resolve(rootDir, "data/feishu/products.json");
     const feishuProductRecordsForStatus = fs.existsSync(feishuProductDataFile) ? safeLoadFeishuProductRecords(feishuProductDataFile) : [];
+    const activeFeishuCurrentProduct =
+      activePublishRunning && feishuProductRecordsForStatus.length
+        ? summarizeFeishuCurrentProduct({
+            records: feishuProductRecordsForStatus,
+            currentTask: interruptedCurrentTask,
+            publishProgress
+          })
+        : undefined;
     const failedFeishuCurrentProduct =
-      failedSourceImagePath && feishuProductRecordsForStatus.length
+      !activeFeishuCurrentProduct && failedSourceImagePath && feishuProductRecordsForStatus.length
         ? summarizeFeishuCurrentProduct({
             records: feishuProductRecordsForStatus,
             currentTask: { sourceImagePath: failedSourceImagePath }
@@ -1483,7 +1527,7 @@ function existingStatus(): Record<string, unknown> {
       ok: true,
       status,
       jobFile,
-      latestResult,
+      latestResult: activePublishRunning ? undefined : latestResult,
       activeRuntimeDir: publishRuntimeDir || interrupted?.runtimeDir,
       statusSource: activePublishRunning ? "publish-manifest" : interruptedState ? "state" : "idle",
       historicalRuntimeSuppressed: !exposeHistoricalRuntime && Boolean(historicalResult),
@@ -1493,7 +1537,8 @@ function existingStatus(): Record<string, unknown> {
       imageProgress: interruptedImageProgress,
       paidImageProgress: interruptedPaidImageProgress,
       feishuProgress,
-      feishuCurrentProduct: failedFeishuCurrentProduct,
+      feishuProgressReliable,
+      feishuCurrentProduct: activeFeishuCurrentProduct || failedFeishuCurrentProduct,
       feishuBatchDisplayCounts: feishuProgress
         ? resolveAutoListingControllerFeishuBatchDisplayCounts({
             recordCount: Number(feishuProgress.recordCount || 0),
@@ -1518,7 +1563,9 @@ function existingStatus(): Record<string, unknown> {
           : status === "completed"
           ? "当前飞书批次已全部处理完成。"
           : status === "pending_products"
-            ? "当前飞书批次仍有待处理产品。"
+            ? latestResult?.ok === true && latestResultDoneTaskCount > 0
+              ? `最近运行已完成 ${latestResultDoneTaskCount}/${latestResultDiscoveredCount || latestResultDoneTaskCount} 个产品；当前飞书批次仍有待处理产品。`
+              : "当前飞书批次仍有待处理产品。"
             : undefined
     };
   }
@@ -1983,9 +2030,15 @@ function formatStatusText(status: Record<string, unknown>): string {
     publishLatestAttemptedWatermarkNo:
       typeof publishGroupProgress?.latestAttemptedWatermarkNo === "number" ? Number(publishGroupProgress.latestAttemptedWatermarkNo) : undefined,
     feishuProductIndex:
-      typeof feishuCurrentProduct?.current === "number" ? Number(feishuCurrentProduct.current) : undefined,
-    feishuCompleted: counts?.completedCount === undefined ? Number(feishuProgress?.processedRecordCount ?? 0) : Number(counts.completedCount),
-    feishuTotal: counts?.recordCount === undefined ? Number(feishuProgress?.recordCount ?? 0) : Number(counts.recordCount)
+      status.feishuProgressReliable === false ? undefined : typeof feishuCurrentProduct?.current === "number" ? Number(feishuCurrentProduct.current) : undefined,
+    feishuCompleted:
+      status.feishuProgressReliable === false
+        ? undefined
+        : counts?.completedCount === undefined ? Number(feishuProgress?.processedRecordCount ?? 0) : Number(counts.completedCount),
+    feishuTotal:
+      status.feishuProgressReliable === false
+        ? undefined
+        : counts?.recordCount === undefined ? Number(feishuProgress?.recordCount ?? 0) : Number(counts.recordCount)
   });
 }
 

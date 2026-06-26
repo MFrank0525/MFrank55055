@@ -763,16 +763,21 @@ export type AutoListingControllerHermesStatusPayload = Record<string, unknown> &
 };
 
 function formatFeishuProductProgress(value: unknown): string | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
+  if (!value || typeof value !== "object") return undefined;
   const progress = value as Record<string, unknown>;
   const current = Number(progress.current ?? progress.index ?? 0);
   const total = Number(progress.total ?? 0);
-  if (!Number.isFinite(current) || !Number.isFinite(total) || current <= 0 || total <= 0) {
-    return undefined;
-  }
+  if (!Number.isFinite(current) || !Number.isFinite(total) || current <= 0 || total <= 0) return undefined;
   return `飞书产品 ${Math.min(total, current)}/${total}`;
+}
+
+function isCompleteAutoListingControllerPublishProgressText(text?: string): boolean {
+  const value = String(text || "").trim();
+  return Boolean(value) && !value.includes("?") && /当前商品：.+发布\s+\d+\/\d+，店铺\s+\d+\/\d+/.test(value);
+}
+
+function normalizeAutoListingControllerPublishProgressText(text: string): string {
+  return text.replace(/最近产物[:：]\s*([^，。；\s]+)/g, (_match, name) => `最近产物：${formatAutoListingControllerArtifactName(String(name))}`);
 }
 
 function compactImageProviderQueueWaitProgress(message?: string): string | undefined {
@@ -802,21 +807,13 @@ function formatAutoListingControllerArtifactName(name?: string): string {
 
 function translateAutoListingControllerOperatorMessage(message?: string): string | undefined {
   const text = String(message || "").replace(/\s+/g, " ").trim();
-  if (!text) {
-    return undefined;
-  }
+  if (!text) return undefined;
   const queueWait = compactImageProviderQueueWaitProgress(text);
-  if (queueWait) {
-    return queueWait;
-  }
+  if (queueWait) return queueWait;
   const artifact = /^最近产物[:：]\s*(.+)$/i.exec(text);
-  if (artifact) {
-    return `最近产物：${formatAutoListingControllerArtifactName(artifact[1])}`;
-  }
+  if (artifact) return `最近产物：${formatAutoListingControllerArtifactName(artifact[1])}`;
   const ready = /Main images ready:\s*(\d+)\s*file/i.exec(text);
-  if (ready) {
-    return `主图已就绪：${ready[1]} 张`;
-  }
+  if (ready) return `主图已就绪：${ready[1]} 张`;
   const prompt = /Prompt\s+(\d+)\/(\d+):\s*Image\s+(\d+):\s*(.+)$/i.exec(text);
   if (prompt) {
     const action = prompt[4];
@@ -854,11 +851,13 @@ export function resolveAutoListingControllerHermesStatusPayload(
   const realtimeProgress = status.realtimeProgress as Record<string, unknown> | undefined;
   const payload: AutoListingControllerHermesStatusPayload = { ...status };
   const feishuProductProgress = formatFeishuProductProgress(status.feishuCurrentProduct);
+  const rawPublishProgressText = typeof publishProgress?.progressText === "string" ? String(publishProgress.progressText) : undefined;
+  const publishProgressText = isCompleteAutoListingControllerPublishProgressText(rawPublishProgressText)
+    ? normalizeAutoListingControllerPublishProgressText(String(rawPublishProgressText))
+    : undefined;
+  const publishGroupProgress = publishProgress?.publishGroupProgress as Record<string, unknown> | undefined;
+  const stablePublishKey = publishProgressText ? ["publish_progress", publishGroupProgress?.productName, publishGroupProgress?.productIndex, publishGroupProgress?.productTotal, publishGroupProgress?.shopIndex, publishGroupProgress?.shopTotal, publishGroupProgress?.failed].filter((value) => value !== undefined && value !== "").join("|") : undefined;
   if (realtimeProgress && typeof realtimeProgress === "object") {
-    const publishProgressText =
-      publishProgress && typeof publishProgress.progressText === "string"
-        ? String(publishProgress.progressText)
-        : undefined;
     const realtimeMessage =
       typeof realtimeProgress.message === "string"
         ? translateAutoListingControllerOperatorMessage(String(realtimeProgress.message))
@@ -868,20 +867,6 @@ export function resolveAutoListingControllerHermesStatusPayload(
       feishuProductProgress && message && !message.includes(feishuProductProgress)
         ? `${feishuProductProgress}；${message}`
         : message || feishuProductProgress;
-    const publishGroupProgress = publishProgress?.publishGroupProgress as Record<string, unknown> | undefined;
-    const stablePublishKey = publishProgressText
-      ? [
-          "publish_progress",
-          publishGroupProgress?.productName,
-          publishGroupProgress?.productIndex,
-          publishGroupProgress?.productTotal,
-          publishGroupProgress?.shopIndex,
-          publishGroupProgress?.shopTotal,
-          publishGroupProgress?.failed
-        ]
-          .filter((value) => value !== undefined && value !== "")
-          .join("|")
-      : undefined;
     const hermesProgress = {
       source: realtimeProgress.source,
       message: feishuPrefixedMessage,
@@ -889,6 +874,12 @@ export function resolveAutoListingControllerHermesStatusPayload(
       key: stablePublishKey || realtimeProgress.key
     };
     payload.hermesProgress = Object.fromEntries(Object.entries(hermesProgress).filter(([, value]) => value !== undefined));
+  } else if (publishProgressText) {
+    const message =
+      feishuProductProgress && !publishProgressText.includes(feishuProductProgress)
+        ? `${feishuProductProgress}；${publishProgressText}`
+        : publishProgressText;
+    payload.hermesProgress = Object.fromEntries(Object.entries({ source: "publish_progress", message, key: stablePublishKey }).filter(([, value]) => value !== undefined));
   }
   if (publishProgress) {
     delete payload.imageProgress;
@@ -1433,9 +1424,15 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const productIndex = Math.max(1, Math.min(productTotal, input.publishProductIndex ?? fallbackProductIndex));
   const shopTotal = input.publishShopTotal ?? Math.max(1, Math.ceil(productTotal / 2));
   const shopIndex = Math.max(1, Math.min(shopTotal, input.publishShopIndex ?? Math.ceil(productIndex / 2)));
-  const feishuCompleted = input.feishuProductIndex ?? input.feishuCompleted ?? "?";
-  const feishuTotal = input.feishuTotal ?? "?";
-  const feishuLabel = `飞书产品 ${feishuCompleted}/${feishuTotal}`;
+  const feishuHasCompleteProgress =
+    input.feishuProductIndex !== undefined ||
+    (input.feishuCompleted !== undefined && input.feishuTotal !== undefined);
+  const feishuCompleted = input.feishuProductIndex ?? input.feishuCompleted;
+  const feishuTotal = input.feishuTotal;
+  const feishuLabel =
+    feishuHasCompleteProgress && feishuCompleted !== undefined && feishuTotal !== undefined
+      ? `飞书产品 ${feishuCompleted}/${feishuTotal}`
+      : "飞书产品 待确认";
   if (input.showPublishProgress === false && !input.imageGenerationProgress) {
     const lines = [`状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${feishuLabel}`];
     if (input.status === "failed") {

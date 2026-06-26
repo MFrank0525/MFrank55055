@@ -118,6 +118,36 @@ const hermesSupervisorSource = fs.readFileSync("src/cli/auto-listing-supervisor.
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
+assert.doesNotMatch(
+  hermesRunnerSource,
+  /total\s*\|\|\s*["']\?["']/,
+  "AutoListingController publish summary must not generate '?' for incomplete publish totals"
+);
+assert.match(
+  hermesRunnerSource,
+  /spawnSync\("pgrep",\s*\["-lf",\s*"auto-listing\.js"\]/,
+  "AutoListingController direct-process discovery must fall back to pgrep when ps output is unavailable"
+);
+assert.match(
+  hermesRunnerSource,
+  /const directProcess = findActiveDirectAutoListingProcess\(\);\s*if \(directProcess\?\.runtimeDir\) \{\s*return summarizeActiveDirectAutoListingStatus\(directProcess\);/s,
+  "AutoListingController status must prefer a live direct auto-listing process before historical result files"
+);
+assert.doesNotMatch(
+  hermesRunnerSource,
+  /const activePublishRunning = false;/,
+  "AutoListingController status must not hard-code inactive publishing when the controller job file is missing"
+);
+assert.match(
+  hermesRunnerSource,
+  /function summarizeFeishuProgress\(processedManifestOverride\?: string\)/,
+  "AutoListingController status must allow latest result artifacts to restore the processed-image manifest path"
+);
+assert.match(
+  hermesRunnerSource,
+  /historicalProcessedManifest[\s\S]*summarizeFeishuProgress\(historicalProcessedManifest\)/,
+  "AutoListingController no-job status must use the latest result processed-image manifest instead of the default cache path"
+);
 const publishFromSpuSource = [
   fs.readFileSync("src/business/publish-from-spu.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/basic-info-page-action.ts", "utf8"),
@@ -862,6 +892,35 @@ assert.match(
   /当前商品：.*发布 20\/20，店铺 10\/10/,
   "Hermes progress message must use the current product-group progress text"
 );
+const publishProgressOnlyHermesPayload = resolveAutoListingControllerHermesStatusPayload({
+  status: "running",
+  publishProgress: {
+    progressText: "当前商品：延草纲目宝元堂腱鞘医用喷雾，发布 17/20，店铺 9/10，最近产物：publish-page-spec-editor.png",
+    publishGroupProgress: {
+      productName: "延草纲目宝元堂腱鞘医用喷雾",
+      productIndex: 17,
+      productTotal: 20,
+      shopName: "09延草纲目中医保健专营店",
+      shopIndex: 9,
+      shopTotal: 10,
+      failed: 0
+    }
+  },
+  feishuCurrentProduct: {
+    current: 6,
+    total: 6,
+    userCognitionName: "宝元堂腱鞘部位喷剂"
+  }
+});
+assert.deepEqual(
+  publishProgressOnlyHermesPayload.hermesProgress,
+  {
+    source: "publish_progress",
+    message: "飞书产品 6/6；当前商品：延草纲目宝元堂腱鞘医用喷雾，发布 17/20，店铺 9/10，最近产物：规格编辑截图",
+    key: "publish_progress|延草纲目宝元堂腱鞘医用喷雾|17|20|9|10|0"
+  },
+  "Hermes payload must expose project-owned publish progress even when realtimeProgress is unavailable"
+);
 const dedupedHermesPayloadMessage = resolveAutoListingControllerHermesStatusPayload({
   status: "running",
   realtimeProgress: {
@@ -876,8 +935,35 @@ const dedupedHermesPayloadMessage = resolveAutoListingControllerHermesStatusPayl
 }).hermesProgress?.message;
 assert.equal(
   dedupedHermesPayloadMessage,
-  "当前商品：延草纲目测试品，发布 11/20，店铺 6/10，最近产物：publish-page-basic-filled.png",
+  "当前商品：延草纲目测试品，发布 11/20，店铺 6/10，最近产物：基础信息截图",
   "Hermes progress message must not append the same realtime phrase twice"
+);
+const hermesIncompletePublishProgressPayload = resolveAutoListingControllerHermesStatusPayload({
+  status: "running",
+  realtimeProgress: {
+    source: "latest_artifact",
+    message: "最近产物：publish-page-basic-filled.png",
+    timestamp: "2026-06-14T06:10:02.000Z",
+    key: "artifact|publish-page-basic-filled.png"
+  },
+  publishProgress: {
+    progressText: "发布进度 1/?，最近产物：publish-page-basic-filled.png"
+  },
+  feishuCurrentProduct: {
+    current: 5,
+    total: 6,
+    userCognitionName: "李时珍痔疮凝胶"
+  }
+});
+assert.equal(
+  /\?/.test(JSON.stringify(hermesIncompletePublishProgressPayload.hermesProgress || {})),
+  false,
+  "Hermes progress payload must not expose '?' when publish group progress is incomplete"
+);
+assert.equal(
+  hermesIncompletePublishProgressPayload.hermesProgress?.message,
+  "飞书产品 5/6；最近产物：基础信息截图",
+  "Hermes progress payload must fall back to a concrete realtime message instead of incomplete publish totals"
 );
 const hermesStablePublishMessagePayload = resolveAutoListingControllerHermesStatusPayload({
   status: "running",
@@ -2462,6 +2548,22 @@ const compactReviewMiddleStatus = formatAutoListingControllerCompactStatusText({
 });
 assert.doesNotMatch(compactReviewMiddleStatus.split("\n")[0], /待复核/);
 assert.doesNotMatch(compactReviewMiddleStatus.split("\n")[0], /失败项/);
+const compactMissingTotalsStatus = formatAutoListingControllerCompactStatusText({
+  status: "running",
+  productName: "延草纲目测试品",
+  latestProgress: "发布流程运行中",
+  showPublishProgress: true
+});
+assert.equal(
+  /\?/.test(compactMissingTotalsStatus),
+  false,
+  "Hermes compact text must not expose '?' when Feishu or publish totals are temporarily unavailable"
+);
+assert.match(
+  compactMissingTotalsStatus,
+  /飞书产品 待确认/,
+  "Hermes compact text must render missing Feishu progress as a concrete pending label"
+);
 const compactBlankSpecStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",
   summary:
