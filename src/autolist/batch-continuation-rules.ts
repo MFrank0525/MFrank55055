@@ -677,6 +677,15 @@ export function isAutoListingControllerChildProcessCommand(command: string): boo
   );
 }
 
+export function isAutoListingDirectRunProcessCommand(command: string): boolean {
+  return (
+    /\bnode\b/.test(command) &&
+    /dist\/src\/cli\/auto-listing\.js\b/.test(command) &&
+    /\s--job\s+(?:\S*\/)?input\/auto-listing\/[^/\s]+\.job\.json\b/.test(command) &&
+    /\s--allow-real\b/.test(command)
+  );
+}
+
 export function shouldTerminateRecordedAutoListingControllerProcessGroup(input: {
   leaderRunning: boolean;
   leaderCommandMatches?: boolean;
@@ -1111,11 +1120,11 @@ export function resolveAutoListingControllerIdleStatus(input: {
   if (input.batchComplete === true) {
     return "completed";
   }
-  if (input.batchComplete === false) {
-    return "pending_products";
-  }
   if (input.latestResultOk === false || input.latestResultStatus === "failed") {
     return "failed";
+  }
+  if (input.batchComplete === false) {
+    return "pending_products";
   }
   return "idle";
 }
@@ -1423,7 +1432,10 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const feishuLabel = `飞书产品 ${feishuCompleted}/${feishuTotal}`;
   if (input.showPublishProgress === false && !input.imageGenerationProgress) {
     const lines = [`状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${feishuLabel}`];
-    if (input.summary) {
+    if (input.status === "failed") {
+      lines.push(`商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`);
+      lines.push(`原因：${compactAutoListingControllerReason(input.summary)}`);
+    } else if (input.summary) {
       lines.push(`进度：${compactAutoListingControllerReason(input.summary)}`);
     }
     return lines.join("\n");
@@ -1436,7 +1448,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const lines = [
     !preferPublishProgress && input.imageGenerationProgress
       ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${input.mainImageCompleted === undefined ? "提交槽位" : "主图"} ${mainImageProgressIndex}/${productTotal}｜${feishuLabel}`
-      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜产品 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}${input.publishReviewWatermarkNo ? `｜待复核 水印${input.publishReviewWatermarkNo}` : ""}｜${feishuLabel}`
+      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜发布 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}${input.publishReviewWatermarkNo ? `｜待复核 水印${input.publishReviewWatermarkNo}` : ""}｜${feishuLabel}`
   ];
 
   if (input.status === "failed") {

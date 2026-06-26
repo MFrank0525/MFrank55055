@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   isAutoListingControllerChildProcessCommand,
+  isAutoListingDirectRunProcessCommand,
   isAutoListingControllerSupervisorProcessCommand,
   isAutoListingControllerRunningProcessConfirmed,
   isExternalMainImageRawReuseMessage,
@@ -75,6 +76,13 @@ interface RunnerJob {
   status: ControllerJobStatus;
   batchFingerprint?: string;
   finishedAt?: string;
+}
+
+interface DirectAutoListingProcess {
+  pid: number;
+  command: string;
+  jobFile: string;
+  runtimeDir?: string;
 }
 
 interface ExternalServiceWait {
@@ -363,6 +371,46 @@ function readProcessCommand(pid: number | undefined): string | undefined {
     return undefined;
   }
   return result.stdout.trim() || undefined;
+}
+
+function extractDirectAutoListingJobFile(command: string): string | undefined {
+  const match = /\s--job\s+("[^"]+"|'[^']+'|\S+)/.exec(` ${command}`);
+  const raw = match?.[1]?.replace(/^['"]|['"]$/g, "");
+  return raw ? path.resolve(rootDir, raw) : undefined;
+}
+
+function findActiveDirectAutoListingProcess(): DirectAutoListingProcess | undefined {
+  const result = spawnSync("ps", ["-ax", "-o", "pid=,command="], { encoding: "utf8" });
+  if (result.status !== 0) {
+    return undefined;
+  }
+  const candidates: DirectAutoListingProcess[] = [];
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const match = /^\s*(\d+)\s+(.+)$/.exec(line);
+    if (!match) {
+      continue;
+    }
+    const pid = Number(match[1]);
+    const command = match[2].trim();
+    if (!Number.isInteger(pid) || pid === process.pid || !isAutoListingDirectRunProcessCommand(command)) {
+      continue;
+    }
+    const directJobFile = extractDirectAutoListingJobFile(command);
+    if (!directJobFile || !fs.existsSync(directJobFile)) {
+      continue;
+    }
+    const directJob = readJsonFile<AutoListingJobFile>(directJobFile);
+    candidates.push({
+      pid,
+      command,
+      jobFile: directJobFile,
+      runtimeDir: directJob?.runtimeDir ? path.resolve(rootDir, directJob.runtimeDir) : undefined
+    });
+  }
+  const stateMtimeMs = (candidate: DirectAutoListingProcess | undefined): number =>
+    candidate?.runtimeDir ? fileMtimeMs(path.join(candidate.runtimeDir, "state.json")) ?? 0 : 0;
+  const [latest] = candidates.sort((a, b) => stateMtimeMs(b) - stateMtimeMs(a));
+  return latest;
 }
 
 function isPidRunning(pid: number | undefined): boolean {
@@ -887,7 +935,7 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
   const latestArtifact = summarizeLatestPublishArtifact(runtimeDir, activeEntry?.runtimeKey);
   const progressText =
     (publishGroupProgress
-      ? `当前商品：${publishGroupProgress.productName}，产品 ${publishGroupProgress.productIndex}/${publishGroupProgress.productTotal}，店铺 ${publishGroupProgress.shopIndex}/${publishGroupProgress.shopTotal}`
+      ? `当前商品：${publishGroupProgress.productName}，发布 ${publishGroupProgress.productIndex}/${publishGroupProgress.productTotal}，店铺 ${publishGroupProgress.shopIndex}/${publishGroupProgress.shopTotal}`
       : `发布进度 ${safelyPublished.length}/${total || "?"}`) +
     (latestArtifact?.name ? `，最近产物：${String(latestArtifact.name)}` : "");
 
@@ -1292,7 +1340,78 @@ function shouldResumeSourceImageForCurrentFeishuBatch(
   });
 }
 
+function summarizeActiveDirectAutoListingStatus(directProcess: DirectAutoListingProcess): Record<string, unknown> {
+  const directJob = readJsonFile<AutoListingJobFile>(directProcess.jobFile);
+  const state = summarizeState(directProcess.runtimeDir);
+  const currentTask = state?.currentTask as Record<string, unknown> | undefined;
+  const publishProgress = summarizePublishProgress(directProcess.runtimeDir);
+  const activePublishRunning = isActivePublishProgress(publishProgress);
+  const imageProgress = summarizeImageGenerationProgress(
+    directProcess.runtimeDir,
+    typeof currentTask?.taskId === "string" ? String(currentTask.taskId) : undefined
+  );
+  const feishuProgress = summarizeFeishuProgress();
+  const feishuProductDataFile = path.resolve(rootDir, directJob?.input?.feishuProductDataFile || "data/feishu/products.json");
+  const feishuProductRecordsForStatus = fs.existsSync(feishuProductDataFile) ? safeLoadFeishuProductRecords(feishuProductDataFile) : [];
+  const feishuCurrentProduct = feishuProductRecordsForStatus.length
+    ? summarizeFeishuCurrentProduct({
+        records: feishuProductRecordsForStatus,
+        currentTask,
+        publishProgress
+      })
+    : undefined;
+  const paidImageProgress = summarizeCurrentPaidImageProgress({
+    job: directJob,
+    batchFingerprint:
+      typeof state?.feishuBatchFingerprint === "string"
+        ? String(state.feishuBatchFingerprint)
+        : typeof feishuProgress?.batchFingerprint === "string"
+          ? String(feishuProgress.batchFingerprint)
+          : undefined,
+    currentTask,
+    feishuCurrentProduct
+  });
+  const stateSummary = state
+    ? `任务正在运行，当前阶段：${String((state.latestProgress as Record<string, unknown> | undefined)?.step || currentTask?.status || state.status || "unknown")}` +
+      ((state.latestProgress as Record<string, unknown> | undefined)?.message
+        ? `，最新进度：${compactStatusValue(String((state.latestProgress as Record<string, unknown>).message))}`
+        : "")
+    : "直接启动的自动上架进程正在运行。";
+  return {
+    ok: true,
+    status: "running",
+    pid: directProcess.pid,
+    mode: "direct-auto-listing",
+    command: directProcess.command,
+    jobFile: directProcess.jobFile,
+    activeRuntimeDir: directProcess.runtimeDir,
+    statusSource: activePublishRunning ? "publish-manifest" : "state",
+    state,
+    imageProgress,
+    paidImageProgress,
+    publishProgress: activePublishRunning ? publishProgress : undefined,
+    feishuProgress,
+    feishuCurrentProduct,
+    feishuBatchDisplayCounts: feishuProgress
+      ? resolveAutoListingControllerFeishuBatchDisplayCounts({
+          recordCount: Number(feishuProgress.recordCount || 0),
+          processedRecordCount: Number(feishuProgress.processedRecordCount || 0),
+          pendingSourceImages: Array.isArray(feishuProgress.pendingSourceImages)
+            ? feishuProgress.pendingSourceImages.map((item) => path.resolve(rootDir, String(item)))
+            : [],
+          currentSourceImagePath:
+            typeof currentTask?.sourceImagePath === "string" ? path.resolve(rootDir, String(currentTask.sourceImagePath)) : undefined
+        })
+      : undefined,
+    summary: activePublishRunning ? publishProgress?.progressText || stateSummary : stateSummary
+  };
+}
+
 function existingStatus(): Record<string, unknown> {
+  const directProcess = findActiveDirectAutoListingProcess();
+  if (directProcess?.runtimeDir) {
+    return summarizeActiveDirectAutoListingStatus(directProcess);
+  }
   const job = readJsonFile<RunnerJob>(jobFile);
   if (!job) {
     const latestResultFile = findLatestResultFile();
@@ -1311,7 +1430,7 @@ function existingStatus(): Record<string, unknown> {
         ? latestRuntimeDir
         : undefined;
     const publishProgress = summarizePublishProgress(publishRuntimeDir);
-    const activePublishRunning = isActivePublishProgress(publishProgress);
+    const activePublishRunning = false;
     const pauseSignal = maybeUpgradeLegacyPauseSignalForBatchMismatch({
       pauseSignal: readPauseSignalFile(),
       currentBatchFingerprint:
@@ -1342,6 +1461,24 @@ function existingStatus(): Record<string, unknown> {
       currentTask: interruptedCurrentTask,
       feishuCurrentProduct: undefined
     });
+    const latestResultProducts = Array.isArray(latestResult?.products) ? (latestResult.products as Array<Record<string, unknown>>) : [];
+    const failedResultProduct = latestResultProducts.find((product) => product.status === "failed" || product.error);
+    const discoveredImages = Array.isArray(latestResult?.discoveredImages)
+      ? latestResult.discoveredImages.map((item) => path.resolve(rootDir, String(item)))
+      : [];
+    const failedSourceImagePath =
+      typeof failedResultProduct?.sourceImageName === "string"
+        ? discoveredImages.find((item) => path.basename(item) === String(failedResultProduct.sourceImageName))
+        : undefined;
+    const feishuProductDataFile = path.resolve(rootDir, "data/feishu/products.json");
+    const feishuProductRecordsForStatus = fs.existsSync(feishuProductDataFile) ? safeLoadFeishuProductRecords(feishuProductDataFile) : [];
+    const failedFeishuCurrentProduct =
+      failedSourceImagePath && feishuProductRecordsForStatus.length
+        ? summarizeFeishuCurrentProduct({
+            records: feishuProductRecordsForStatus,
+            currentTask: { sourceImagePath: failedSourceImagePath }
+          })
+        : undefined;
     return {
       ok: true,
       status,
@@ -1356,6 +1493,7 @@ function existingStatus(): Record<string, unknown> {
       imageProgress: interruptedImageProgress,
       paidImageProgress: interruptedPaidImageProgress,
       feishuProgress,
+      feishuCurrentProduct: failedFeishuCurrentProduct,
       feishuBatchDisplayCounts: feishuProgress
         ? resolveAutoListingControllerFeishuBatchDisplayCounts({
             recordCount: Number(feishuProgress.recordCount || 0),
@@ -1364,9 +1502,10 @@ function existingStatus(): Record<string, unknown> {
               ? feishuProgress.pendingSourceImages.map((item) => path.resolve(rootDir, String(item)))
               : [],
             currentSourceImagePath:
-              typeof interruptedCurrentTask?.sourceImagePath === "string"
+              failedSourceImagePath ||
+              (typeof interruptedCurrentTask?.sourceImagePath === "string"
                 ? path.resolve(rootDir, String(interruptedCurrentTask.sourceImagePath))
-                : undefined
+                : undefined)
           })
         : undefined,
       summary:
@@ -1767,6 +1906,7 @@ function formatStatusText(status: Record<string, unknown>): string {
   const progress = status.publishProgress as Record<string, unknown> | undefined;
   const feishuProgress = status.feishuProgress as Record<string, unknown> | undefined;
   const feishuCurrentProduct = status.feishuCurrentProduct as Record<string, unknown> | undefined;
+  const latestResult = status.latestResult as Record<string, unknown> | undefined;
   const counts = status.feishuBatchDisplayCounts as Record<string, unknown> | undefined;
   const currentTask = state?.currentTask as Record<string, unknown> | undefined;
   const latestProgress = state?.latestProgress as Record<string, unknown> | undefined;
@@ -1783,13 +1923,20 @@ function formatStatusText(status: Record<string, unknown>): string {
       ? `最近产物：${String(latestArtifact.name)}`
       : undefined;
   const publishActiveMessage = publishArtifactMessage || (typeof active?.message === "string" ? compactStatusValue(String(active.message)) : undefined);
+  const latestResultError = latestResult?.error as Record<string, unknown> | undefined;
+  const latestResultProducts = Array.isArray(latestResult?.products) ? (latestResult.products as Array<Record<string, unknown>>) : [];
+  const failedResultProduct = latestResultProducts.find((product) => product.status === "failed" || product.error);
+  const latestResultFailureMessage =
+    String(status.status || "") === "failed" && typeof latestResultError?.message === "string"
+      ? compactStatusValue(String(latestResultError.message))
+      : undefined;
   const latestProgressText =
     publishActiveMessage ||
     (typeof publishLogProgress?.message === "string"
       ? String(publishLogProgress.message)
       : latestProgress?.message
         ? compactStatusValue(String(latestProgress.message))
-        : undefined);
+        : latestResultFailureMessage);
   const shouldExposeImageGenerationProgress = !progress;
   const imageGenerationProgressMessage =
     shouldExposeImageGenerationProgress && typeof (status.imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
@@ -1802,12 +1949,14 @@ function formatStatusText(status: Record<string, unknown>): string {
   return formatAutoListingControllerCompactStatusText({
     status: String(status.status || "unknown"),
     showPublishProgress: Boolean(progress || currentTask || publishLogProgress),
-    summary: String(status.summary || ""),
+    summary: String(status.summary || latestResultFailureMessage || ""),
     productName:
       typeof publishGroupProgress?.productName === "string"
         ? String(publishGroupProgress.productName)
         : currentTask?.sourceImageName
           ? String(currentTask.sourceImageName)
+          : typeof failedResultProduct?.sourceImageName === "string"
+            ? String(failedResultProduct.sourceImageName)
           : undefined,
     activeItemName: active?.productFolder ? path.basename(String(active.productFolder)) : undefined,
     latestProgress: latestProgressText,
