@@ -2808,6 +2808,19 @@ assert.equal(
   "failed",
   "Controller status must surface the latest failed run before generic pending Feishu products"
 );
+assert.match(
+  formatAutoListingControllerCompactStatusText({
+    status: "failed",
+    showPublishProgress: false,
+    productName: "李时珍痔疮凝胶-recvnzbLwiYr2N-白底图-01-b2fa95ab53",
+    summary:
+      "videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 2, 3; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 4; reasons: videos-base64 task task_MlajXJcaYf6eHcsY8dQ32MaPx8sHNfCW did not finish within 180000ms. | videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 3; reasons: videos-base64 task task_dDyBQYUfv3ofeu8WNDoGMNy2AcMsFZ47 did not finish within 180000ms.",
+    feishuProductIndex: 5,
+    feishuTotal: 6
+  }),
+  /原因：图片服务轮询超过 180 秒：失败组 2, 3，槽位 4；3；已按规则停止/,
+  "Hermes failed status must compact videos-base64 180s poll timeouts into a clear operator-facing reason"
+);
 assert.equal(
   resolveAutoListingControllerDryRunStartDecision({
     batchComplete: true,

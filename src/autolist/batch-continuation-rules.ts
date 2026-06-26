@@ -1332,6 +1332,12 @@ function compactAutoListingControllerReason(summary?: string): string {
     const reserved = Number(paidSafety[2] || 0);
     return `付费生图提交状态不明确：${ambiguous} 个槽位 ambiguous，${reserved} 个槽位 reserved；已停止自动重提，需先做供应商对账或无受理对账后再续跑。`;
   }
+  if (/videos-base64 prompt rounds failed/i.test(text) && /did not finish within\s+180000ms/i.test(text)) {
+    const failedRounds = /failed indexes:\s*([0-9,\s]+)/i.exec(text)?.[1]?.trim();
+    const failedSlots = Array.from(text.matchAll(/paid image slots failed.*?failed indexes:\s*([0-9,\s]+)/gi), (match) => match[1].trim()).filter(Boolean);
+    const scopeText = `${failedRounds ? `失败组 ${failedRounds}` : "部分组"}${failedSlots.length ? `，槽位 ${failedSlots.join("；")}` : ""}`;
+    return `图片服务轮询超过 180 秒：${scopeText}；已按规则停止，续跑会复用已完成图片并重试失败槽位。`;
+  }
   if (/videos-base64 submit failed with HTTP\s+502/i.test(text) && /Bad gateway|Host.*Error|Cloudflare/i.test(text)) {
     return "图片中转站 Cloudflare 502，供应商主机不可用；已保留当前飞书批次和断点。";
   }
