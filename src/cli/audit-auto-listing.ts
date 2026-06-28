@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { auditAutoListingContinuity, auditCompletedBatchResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { auditAutoListingContinuity, auditCompletedBatchResidue, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
 import { imageServiceWaitCeilingMs } from "../autolist/image-generation-rules.js";
@@ -355,6 +355,10 @@ async function main(): Promise<void> {
     runDirCount,
     paidLedgerBatchExists: fs.existsSync(paidImageBatchLedgerDir(resolved.paidImageSubmissionLedgerDir, batchFingerprint))
   });
+  const intermediateResidue = auditIntermediateArtifactResidue({
+    tasks: state?.tasks || [],
+    existingPaths: existingFiles
+  });
   const controllerRuntimeAudit = auditRuntimeControllerConsistency({
     controllerStatus: controllerMatchesCurrentBatch ? controllerJob?.status : undefined,
     controllerActive: activeControllerRunning,
@@ -438,7 +442,15 @@ async function main(): Promise<void> {
       evidence: [`unconfirmed=${manifest.entries.filter((entry) => entry.finalVerifyStatus === "submit_accepted_unconfirmed").length}`]
     },
     artifacts: { errors: artifactErrors, warnings: [...toDeepIssues(generation.warnings), ...toDeepIssues(publish.warnings)], evidence: identityAudit.evidence },
-    residue: { errors: toDeepIssues(residue.errors), warnings: toDeepIssues(residue.warnings), evidence: [`runDirs=${runDirCount}`] }
+    residue: {
+      errors: [...toDeepIssues(residue.errors), ...toDeepIssues(intermediateResidue.errors)],
+      warnings: [...toDeepIssues(residue.warnings), ...toDeepIssues(intermediateResidue.warnings)],
+      evidence: [
+        `runDirs=${runDirCount}`,
+        `completedProductRuntimeResidue=${intermediateResidue.summary.residualPublishRuntimeCount}`,
+        `completedProductRuntimeCleanupMissing=${intermediateResidue.summary.missingCleanupEvidenceCount}`
+      ]
+    }
   });
   const ok = deepAudit.ok;
 
@@ -459,6 +471,7 @@ async function main(): Promise<void> {
     generation,
     publish,
     residue,
+    intermediateResidue,
     deepAudit
   };
 

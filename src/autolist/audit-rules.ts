@@ -62,6 +62,34 @@ export interface CompletedBatchResidueAuditResult {
   warnings: AutoListingAuditIssue[];
 }
 
+export interface IntermediateArtifactResidueAuditInput {
+  tasks: Array<{
+    taskId: string;
+    status: string;
+    publishArtifact?: {
+      results: Array<{
+        productFolder: string;
+        resultFile?: string;
+      }>;
+    };
+    cleanupArtifact?: {
+      removedPaths: string[];
+    };
+  }>;
+  existingPaths: Iterable<string>;
+}
+
+export interface IntermediateArtifactResidueAuditResult {
+  ok: boolean;
+  summary: {
+    auditedTaskCount: number;
+    residualPublishRuntimeCount: number;
+    missingCleanupEvidenceCount: number;
+  };
+  errors: AutoListingAuditIssue[];
+  warnings: AutoListingAuditIssue[];
+}
+
 export interface MainImageGenerationAuditInput {
   tasks: ImageTaskState[];
   existingFiles: Iterable<string>;
@@ -101,6 +129,11 @@ export interface PublishCoverageAuditResult {
 
 function normalizePath(value: string): string {
   return path.resolve(value);
+}
+
+function pathContains(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 function localFiles(items: Array<{ localFile?: string }>): string[] {
@@ -182,6 +215,68 @@ export function auditCompletedBatchResidue(input: {
     },
     errors,
     warnings: []
+  };
+}
+
+export function auditIntermediateArtifactResidue(input: IntermediateArtifactResidueAuditInput): IntermediateArtifactResidueAuditResult {
+  const errors: AutoListingAuditIssue[] = [];
+  const warnings: AutoListingAuditIssue[] = [];
+  const existingPaths = new Set(Array.from(input.existingPaths || []).filter(Boolean).map(normalizePath));
+  const existingPathList = [...existingPaths];
+  let auditedTaskCount = 0;
+  let residualPublishRuntimeCount = 0;
+  let missingCleanupEvidenceCount = 0;
+
+  for (const task of input.tasks) {
+    if (!["cleaned", "done"].includes(task.status)) {
+      continue;
+    }
+    auditedTaskCount += 1;
+    const removedPaths = new Set((task.cleanupArtifact?.removedPaths || []).filter(Boolean).map(normalizePath));
+    const publishRuntimeDirs = new Set(
+      (task.publishArtifact?.results || [])
+        .map((result) => result.resultFile ? path.dirname(result.resultFile) : "")
+        .filter(Boolean)
+        .map(normalizePath)
+    );
+
+    for (const runtimeDir of publishRuntimeDirs) {
+      const hasRemovalEvidence = removedPaths.has(runtimeDir) || [...removedPaths].some((removedPath) => pathContains(runtimeDir, removedPath));
+      const residualPath = existingPathList.find((existingPath) => existingPath === runtimeDir || pathContains(runtimeDir, existingPath));
+      if (residualPath) {
+        residualPublishRuntimeCount += 1;
+        errors.push(issue(
+          "error",
+          "completed_product_publish_runtime_residue",
+          `Completed product still retains publish runtime artifacts: ${runtimeDir}`,
+          task.taskId,
+          residualPath
+        ));
+        continue;
+      }
+      if (!hasRemovalEvidence) {
+        missingCleanupEvidenceCount += 1;
+      }
+    }
+  }
+
+  if (missingCleanupEvidenceCount > 0) {
+    warnings.push(issue(
+      "warning",
+      "completed_product_publish_runtime_cleanup_missing",
+      `Completed product cleanup lacks explicit publish runtime removal evidence for ${missingCleanupEvidenceCount} target(s), but no publish runtime residue exists.`
+    ));
+  }
+
+  return {
+    ok: errors.length === 0,
+    summary: {
+      auditedTaskCount,
+      residualPublishRuntimeCount,
+      missingCleanupEvidenceCount
+    },
+    errors,
+    warnings
   };
 }
 

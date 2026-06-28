@@ -36,6 +36,8 @@
 
 除这个归档文件夹外，当前产品的白底图、资质下载附件、Word 文档、标题表、运行目录、店铺产品文件夹、水印图、中间请求响应文件都必须清理。
 
+发布过程中写入 `data/auto-listing/runs/<runId>/publish/<canonicalTargetKey>/screenshots` 的页面截图属于当前产品发布 runtime 中间产物。产品未进入 `cleaned` 之前必须保留这些截图，支持失败分析和断点续跑；产品安全完成并归档通过后，必须随对应 canonical publish runtime 目录一起删除。
+
 真实流程完成清理时，`input/auto-listing/feishu-images`、`input/auto-listing/qualifications`、`input/auto-listing/titles`、`input/auto-listing/main-images` 目录下所有非 `.gitkeep` 文件都视为过时中间产物，必须一并清空；`input/auto-listing/shops` 下保留店铺目录本身，但店铺目录内所有非 `.gitkeep` 商品产物都必须清空；自动生成的断点恢复 job（`*.resume.generated.json`）也必须清理。
 
 自动上架项目禁止长期保留一次性调试脚本、临时补丁脚本、重上架补丁 job 或历史生成 job。`input/auto-listing/*.generated.json` 中除当前运行正在使用的 resume job 外都属于过时动作文件，完成清理时必须删除；`scripts/` 下以 `inspect`、`debug`、`tmp`、`temp`、`temporary`、`patch`、`fix`、`relist` 命名的一次性脚本必须删除或迁移成正式规则/动作入口，不能留给后续工具学习或误用。`rules:check` 必须检查这类维护冗余，发现即失败。
@@ -66,6 +68,7 @@
 18. 历史 run 中存在 raw 主图或旧 runtime 付费账本，不得自动成为永久清理保护理由。只有项目控制器明确选择的当前失败/暂停恢复链路允许保留；正常 full-real-flow 和完成批次收尾必须清除其他历史 run。
 19. 产品安全完成后必须删除 `data/auto-listing/paid-image-submissions/<当前批次>/<recordId>`；批次完成或确认重跑当前批次时必须删除整个当前批次共享账本。正式无水印主图只保留在配置的最终归档目录，共享账本不得作为历史主图库长期保存。
 20. 完成批次审计时，历史 run 目录只允许保留最新状态 run，且当前批次共享付费账本必须不存在；任一条件不满足，`audit:auto-listing` 必须失败。
+21. 产品发布 runtime 清理必须优先使用发布结果中的 canonical `resultFile` 父目录，禁止用店铺名/产品名旧规则推导目录导致 targetKey runtime 和截图残留；`cleaned/done` 产品仍存在 publish runtime 或截图时，`audit:auto-listing` 必须失败。
 
 ## 失败条件
 
@@ -76,6 +79,7 @@
 - `data/auto-listing/runs` 下存在非当前运行的历史 run 目录
 - 任意一次性调试脚本、临时补丁脚本、重上架补丁 job、历史生成 job 残留
 - 产品图片文件夹残留
+- 产品已 `cleaned/done` 但发布 runtime 或截图目录仍残留
 - 店铺目录中残留当前产品文件
 - 无水印主图未归档
 - 无水印主图归档数量与当前类目预期数量不一致

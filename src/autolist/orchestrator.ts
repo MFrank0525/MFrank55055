@@ -19,10 +19,11 @@ import {
 import { getProductCategoryPlan } from "./product-category.js";
 import { enrichDistributedTitleSheets } from "./metadata.js";
 import { cleanupAfterPublish, cleanupStaleRunHistory } from "./cleanup.js";
+import { resolvePublishRuntimeDirsForCleanup } from "./cleanup-rules.js";
 import { buildAutoListingPreflightSummary } from "./preflight.js";
 import { readOperationManual } from "./operation-manual.js";
 import { prepareTestRunOutputs } from "./prepare-test-run.js";
-import { publishDistributedProducts, publishRuntimeKey, selectLatestFailedPublishResult } from "./publish.js";
+import { publishDistributedProducts, selectLatestFailedPublishResult } from "./publish.js";
 import { attachQualificationFiles } from "./qualifications.js";
 import { recoverArtifactsFromWordFiles, recoverDistributedFoldersFromShopRoot } from "./resume.js";
 import { distributeProductFoldersToShops } from "./shop-distribution.js";
@@ -783,10 +784,11 @@ async function executeTaskChain(
       assertNotPaused(pauseSignalFile, current.taskId, step);
       const categoryPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
       const taskRuntimeDir = path.join(runtimeDir, "tasks", current.taskId);
-      const publishRuntimeDirs =
-        current.shopDistributionArtifact?.distributedFolders?.map((folder) =>
-          path.join(runtimeDir, "publish", publishRuntimeKey(folder))
-        ) || [];
+      const publishRuntimeDirs = resolvePublishRuntimeDirsForCleanup({
+        runtimeDir,
+        distributedFolders: current.shopDistributionArtifact?.distributedFolders || [],
+        publishResults: current.publishArtifact?.results || []
+      });
       const archivedFiles = archiveUnwatermarkedMainImages({
         mainImageArtifact: current.mainImageArtifact,
         productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact?.userCognitionName || current.sourceImageName,
