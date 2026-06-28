@@ -148,4 +148,12 @@ export function archiveUnwatermarkedMainImages(options: {
   });
 }
 
+export function resolveArchiveProductName(input: {
+  shortTitle?: string;
+  userCognitionName?: string;
+  fallbackName?: string;
+}): string {
+  return input.shortTitle?.trim() || input.userCognitionName?.trim() || input.fallbackName?.trim() || "未命名产品";
+}
+
 export { DEFAULT_ARCHIVE_ROOT, archiveTimestamp };

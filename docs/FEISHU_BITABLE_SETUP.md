@@ -204,7 +204,7 @@ npm run auto-listing:hermes-pause
 无水印主图归档路径固定为：
 
 ```bash
-/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><用户认知名>/
+/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图/<yyyyMMddHHmm><导购短标题>/
 ```
 
 标题关键词来自飞书 `标题关键词` 字段，脚本只做类目规则内的排列组合。

@@ -2,11 +2,26 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { archiveUnwatermarkedMainImages } from "../dist/src/autolist/archive-main-images.js";
+import { archiveUnwatermarkedMainImages, resolveArchiveProductName } from "../dist/src/autolist/archive-main-images.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "archive-main-images-"));
 const archiveRoot = path.join(tmp, "archive");
-const productName = "医用凡士林唇喃软膏";
+const userCognitionName = "医用凡士林唇喃软膏";
+const shortTitle = "凡士林润唇软膏";
+const productName = resolveArchiveProductName({
+  shortTitle,
+  userCognitionName,
+  fallbackName: "source-image.png"
+});
+assert.equal(productName, shortTitle);
+assert.equal(
+  resolveArchiveProductName({
+    shortTitle: " ",
+    userCognitionName,
+    fallbackName: "source-image.png"
+  }),
+  userCognitionName
+);
 const completeArchive = path.join(archiveRoot, `202606101219${productName}`);
 fs.mkdirSync(completeArchive, { recursive: true });
 for (let index = 1; index <= 20; index += 1) {
@@ -46,5 +61,7 @@ const archived = archiveUnwatermarkedMainImages({
 });
 
 assert.equal(archived.length, 20);
+assert.ok(path.basename(path.dirname(archived[0])).endsWith(shortTitle));
+assert.equal(path.basename(archived[0]), `${shortTitle}无水印主图01.png`);
 assert.equal(fs.readFileSync(archived[0], "utf8"), "archive-1");
 assert.equal(fs.readFileSync(archived[19], "utf8"), "archive-20");

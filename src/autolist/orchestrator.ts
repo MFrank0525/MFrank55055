@@ -7,7 +7,7 @@ import {
 } from "./deepseek-prompt-rules.js";
 import { writeFeishuPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateMainImageAssets } from "./main-image-assets.js";
-import { archiveUnwatermarkedMainImages } from "./archive-main-images.js";
+import { archiveUnwatermarkedMainImages, resolveArchiveProductName } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
 import { auditMainImageGeneration, collectFeishuProductAssetFiles, summarizeFeishuBatchProgress } from "./audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "./feishu-batch-rules.js";
@@ -791,7 +791,11 @@ async function executeTaskChain(
       });
       const archivedFiles = archiveUnwatermarkedMainImages({
         mainImageArtifact: current.mainImageArtifact,
-        productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact?.userCognitionName || current.sourceImageName,
+        productName: resolveArchiveProductName({
+          shortTitle: current.feishuProductRecord?.shortTitle,
+          userCognitionName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact?.userCognitionName,
+          fallbackName: current.sourceImageName
+        }),
         archiveRootDir: archiveMainImageDir,
         rawImageSearchDir: taskRuntimeDir,
         expectedImageCount: categoryPlan.titleCount,
