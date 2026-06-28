@@ -45,9 +45,15 @@ function parseMode(value: string): Mode {
   throw new Error("Usage: --mode <check|fields|records|dump|assets> --config <feishu-bitable.config.json>");
 }
 
+function defaultConfigFile(): string {
+  return fs.existsSync(path.resolve("input/feishu-bitable.config.json"))
+    ? "input/feishu-bitable.config.json"
+    : "input/feishu-bitable.config.example.json";
+}
+
 function parseArgs(argv: string[]): CliArgs {
   const mode = parseMode(getArg(argv, "mode", "check"));
-  const configFile = getArg(argv, "config", "input/feishu-bitable.config.example.json");
+  const configFile = getArg(argv, "config", defaultConfigFile());
   const limit = Number(getArg(argv, "limit", mode === "records" ? "5" : "0"));
   const outFile = getArg(argv, "out", "data/feishu/products.json");
   const whiteBackgroundDir = getArg(argv, "white-background-dir", "input/auto-listing/feishu-images");
@@ -84,9 +90,15 @@ function loadLocalAuthEnv(configFile: string): void {
   if (!parsed.auth) {
     return;
   }
-  process.env.FEISHU_APP_ID = parsed.auth.appId?.trim() || "";
-  process.env.FEISHU_APP_SECRET = parsed.auth.appSecret?.trim() || "";
-  process.env.FEISHU_TENANT_ACCESS_TOKEN = parsed.auth.tenantAccessToken?.trim() || "";
+  if (parsed.auth.appId?.trim()) {
+    process.env.FEISHU_APP_ID = parsed.auth.appId.trim();
+  }
+  if (parsed.auth.appSecret?.trim()) {
+    process.env.FEISHU_APP_SECRET = parsed.auth.appSecret.trim();
+  }
+  if (parsed.auth.tenantAccessToken?.trim()) {
+    process.env.FEISHU_TENANT_ACCESS_TOKEN = parsed.auth.tenantAccessToken.trim();
+  }
 }
 
 async function main(): Promise<void> {
