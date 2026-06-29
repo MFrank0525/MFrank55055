@@ -880,7 +880,6 @@ async function clickDropdownControlByLabelDirect(page: Page, labelText: string):
     const trigger = (control.el.querySelector(
       ".ecom-g-select-selector, .ant-select-selector, [class*='selector'], [class*='selection'], [role='combobox'], input"
     ) || control.el) as HTMLElement;
-    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
     trigger.click();
     return true;
   }, labelText);
@@ -1014,7 +1013,6 @@ async function clickLabeledSelect(page: Page, labelText: string): Promise<boolea
     const trigger = (control.el.querySelector(
       ".ecom-g-select-selector, .ant-select-selector, [class*='selector'], [class*='selection'], [role='combobox'], input"
     ) || control.el) as HTMLElement;
-    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
     trigger.click();
     return true;
   }, labelText);

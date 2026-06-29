@@ -388,7 +388,7 @@ export async function verifyCategoryRegistrationGateOnPage(
     return;
   }
   await ensurePublishSectionTab(page, "\u57fa\u7840\u4fe1\u606f");
-  await page.mouse.wheel(0, -4000).catch(() => {});
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" })).catch(() => {});
   await page.waitForTimeout(600);
   await assertCategoryRegistrationMatchesWorkbookSpu(page, runtimeDir, expectedSpu, screenshotFileName);
 }
@@ -536,7 +536,7 @@ async function fillBasicPublishPage(
     await page.bringToFront();
     await gotoWithTolerance(page, publishPageUrl, 3500);
     await ensurePublishSectionTab(page, "\u57fa\u7840\u4fe1\u606f");
-    await page.mouse.wheel(0, -4000).catch(() => {});
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" })).catch(() => {});
     await page.waitForTimeout(500);
 
     const filledFields: string[] = [];
@@ -603,7 +603,7 @@ export async function fillBasicPublishPageOnPage(
   await page.bringToFront();
   await page.waitForTimeout(1200);
   await ensurePublishSectionTab(page, "\u57fa\u7840\u4fe1\u606f");
-  await page.mouse.wheel(0, -4000).catch(() => {});
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" })).catch(() => {});
   await page.waitForTimeout(800);
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -628,7 +628,7 @@ export async function fillBasicPublishPageOnPage(
     }
 
     if (metadata.modelSpec) {
-      await page.mouse.wheel(0, 600).catch(() => {});
+      await scrollLabelIntoView(page, "\u578b\u53f7\u89c4\u683c").catch(() => false);
       await page.waitForTimeout(500);
       if (metadata.spu) {
         await assertCategoryRegistrationMatchesWorkbookSpu(
@@ -666,7 +666,7 @@ export async function fillBasicPublishPageOnPage(
     await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
     await page.waitForTimeout(3000);
     await ensurePublishSectionTab(page, "\u57fa\u7840\u4fe1\u606f");
-    await page.mouse.wheel(0, -4000).catch(() => {});
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" })).catch(() => {});
     await page.waitForTimeout(800);
   }
 

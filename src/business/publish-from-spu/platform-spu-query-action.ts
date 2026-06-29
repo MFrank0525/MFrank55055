@@ -331,7 +331,6 @@ async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", val
         const trigger = (selector?.querySelector(".ecom-g-select-selector, .ant-select-selector, [class*='selector'], [class*='selection']") ||
           selector ||
           target) as HTMLElement;
-        trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
         trigger.click();
       }
       target.focus();

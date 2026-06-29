@@ -190,12 +190,7 @@ async function clickTopRightShopMenu(page: Page): Promise<boolean> {
       if (!target) {
         return false;
       }
-      target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: "mouse", isPrimary: true }));
-      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
       target.click();
-      target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-      target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: "mouse", isPrimary: true }));
-      target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
       return true;
     });
 
@@ -271,9 +266,6 @@ async function clickVisibleActionText(page: Page, text: string): Promise<boolean
     if (!match) {
       return false;
     }
-    match.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    match.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    match.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
     return true;
   }, text);
 
@@ -355,9 +347,6 @@ async function clickShopSwitchEntry(page: Page): Promise<boolean> {
     if (!item) {
       return false;
     }
-    item.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    item.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    item.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
     return true;
   });
 
@@ -488,9 +477,6 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
           if (!target) {
             return false;
           }
-          target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-          target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-          target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
           return true;
         })
         .catch((error) => {
@@ -629,9 +615,6 @@ async function selectShopFromDialogByVisibleText(page: Page, expectedShopName: s
     if (targetRect.width <= 0 || targetRect.height <= 0 || cardRect.bottom < containerRect.top || cardRect.top > containerRect.bottom) {
       return false;
     }
-    clickTarget.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-    clickTarget.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-    clickTarget.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
     return true;
   }, expectedShopName).catch((error) => {
     if (isNavigationContextDestroyedError(error)) {
@@ -795,9 +778,6 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
             })
             .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0] as HTMLElement | undefined) ||
           card;
-        targetNode.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-        targetNode.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-        targetNode.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
         return {
           found: true,
           scrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight + 40

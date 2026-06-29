@@ -660,9 +660,7 @@ async function openHealthFoodSpecificationEditor(locator: Locator): Promise<void
     const element = node as HTMLElement;
     element.scrollIntoView({ block: "center", inline: "nearest" });
     element.focus();
-    for (const eventName of ["mousedown", "mouseup", "click"]) {
-      element.dispatchEvent(new MouseEvent(eventName, { bubbles: true, cancelable: true, view: window }));
-    }
+    element.click();
   });
 }
 

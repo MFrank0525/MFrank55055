@@ -264,11 +264,6 @@ export async function scrollUntilPublishSectionVisible(page: Page, text: string)
   }
 
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    await page.mouse.wheel(0, 1200).catch(() => {});
-    await page.waitForTimeout(500);
-    if (await isPublishSectionContentVisible(page, text).catch(() => false)) {
-      return true;
-    }
     await scrollPublishSectionContentIntoView(page, text).catch(() => false);
     await page.waitForTimeout(350);
     if (await isPublishSectionContentVisible(page, text).catch(() => false)) {

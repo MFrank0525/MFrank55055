@@ -374,7 +374,8 @@ async function uploadProductImages(
     attachSafeDialogHandler(page);
     await page.bringToFront();
     await gotoWithTolerance(page, publishPageUrl, 3500);
-    await page.mouse.wheel(0, 500).catch(() => {});
+    await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
+    await scrollGraphicSectionIntoView(page, "\u4e3b\u56fe").catch(() => false);
     await page.waitForTimeout(800);
     await dismissTransientOverlays(page);
 
@@ -413,7 +414,7 @@ async function uploadProductImages(
       uploadIssue = "Main image upload input was not found.";
     }
 
-    await page.mouse.wheel(0, 900).catch(() => {});
+    await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false);
     await page.waitForTimeout(800);
 
     let filledFromMain = false;
@@ -479,7 +480,7 @@ export async function uploadProductImagesOnPage(
   await page.bringToFront();
   await page.waitForTimeout(1200);
   await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
-  await page.mouse.wheel(0, 500).catch(() => {});
+  await scrollGraphicSectionIntoView(page, "\u4e3b\u56fe").catch(() => false);
   await page.waitForTimeout(800);
   await dismissTransientOverlays(page);
 
@@ -518,7 +519,7 @@ export async function uploadProductImagesOnPage(
     uploadIssue = "Main image upload input was not found.";
   }
 
-  await page.mouse.wheel(0, 900).catch(() => {});
+  await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false);
   await page.waitForTimeout(800);
 
   let filledFromMain = false;

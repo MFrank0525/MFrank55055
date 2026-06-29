@@ -215,7 +215,6 @@ async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, op
         return false;
       }
       candidate.el.scrollIntoView({ block: "center", inline: "center" });
-      candidate.el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
       candidate.el.click();
       return true;
     },

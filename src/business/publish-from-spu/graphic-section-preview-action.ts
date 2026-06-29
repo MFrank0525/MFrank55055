@@ -462,8 +462,6 @@ export async function clickLastGraphicSectionPreviewDeleteByDom(page: Page, sect
           previewRoot = parent;
         }
       }
-      previewRoot.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true, cancelable: true, view: window }));
-      previewRoot.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
 
       const markerText = (el: HTMLElement): string =>
         [
@@ -518,7 +516,6 @@ export async function clickLastGraphicSectionPreviewDeleteByDom(page: Page, sect
       if (!target) {
         return false;
       }
-      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
       target.click();
       return true;
     },
@@ -869,7 +866,7 @@ export async function clickFillFromMainForDetailSection(page: Page): Promise<boo
   if (!detailSectionVisible) {
     await scrollPublishSectionContentIntoView(page, "\u56fe\u6587\u4fe1\u606f").catch(() => false);
   }
-  await page.mouse.wheel(0, 500).catch(() => {});
+  await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false);
   await page.waitForTimeout(800);
   await dismissTransientOverlays(page);
 
@@ -938,7 +935,7 @@ export async function clearDetailImagePreviewsStrict(page: Page, maxAttempts = 1
   if (!detailSectionVisible) {
     await scrollPublishSectionContentIntoView(page, "\u56fe\u6587\u4fe1\u606f").catch(() => false);
   }
-  await page.mouse.wheel(0, 500).catch(() => {});
+  await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false);
   await page.waitForTimeout(800);
   await dismissTransientOverlays(page);
 
