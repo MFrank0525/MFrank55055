@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { classifyAssets } from "../dist/src/business/publish-from-spu/assets.js";
 import {
   evaluateDetailImageCompletion,
   evaluateDetailUploadOutcome
@@ -73,5 +76,26 @@ assert.match(uploadSource, /pickBestSectionFileInput\(inputs, "\\u5546\\u54c1\\u
 assert.match(uploadSource, /pickBestSectionFileInput\(inputs, "\\u8be6\\u60c5\\u9875"/);
 assert.match(uploadSource, /waitForPreviewCount[\s\S]*previousCount \+ 1/);
 assert.doesNotMatch(uploadSource, /pickBestFileInput\(inputs, scoreDetailGraphicInput\)/);
+
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "detail-order-"));
+const productFolder = path.join(tempRoot, "延草纲目医用测试敷料-recid-水印01");
+fs.mkdirSync(productFolder, { recursive: true });
+const write = (name, content) => fs.writeFileSync(path.join(productFolder, name), content);
+write("延草纲目医用测试敷料延草纲目大药房专营店01.png", "main-image");
+write("测试白底图-01-aaaaaaaaaa.png", "white-image");
+write("测试资质图片-03-0000000001.png", "qualification-03");
+write("测试资质图片-01-9999999999.png", "qualification-01");
+write("测试资质图片-02-1111111111.png", "qualification-02");
+
+const classified = classifyAssets(productFolder);
+assert.deepEqual(
+  classified.detailImages.map((file) => path.basename(file)),
+  [
+    "测试资质图片-01-9999999999.png",
+    "测试资质图片-02-1111111111.png",
+    "测试资质图片-03-0000000001.png"
+  ],
+  "detail qualification images must upload in Feishu qualification order, ignoring hash suffix digits"
+);
 
 console.log("detail upload outcome rule passed");

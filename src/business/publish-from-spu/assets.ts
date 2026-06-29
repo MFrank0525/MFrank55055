@@ -16,6 +16,12 @@ function sortZh(items: string[]): string[] {
 }
 
 function extractTrailingOrder(name: string): number {
+  const qualificationOrder = name.match(
+    /(?:\u8d44\u8d28\u56fe\u7247|\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1|\u533b\u7597\u5668\u68b0\u5907\u6848|\u767d\u88c5\u5c55\u5f00\u56fe|\u5305\u88c5\u5c55\u5f00\u56fe|\u8be6\u60c5\u9875)-(\d{1,3})(?:-[^.]+)?\.[^.]+$/i
+  );
+  if (qualificationOrder) {
+    return Number(qualificationOrder[1]);
+  }
   const match = name.match(/(\d+)(?=\.[^.]+$)/);
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
 }

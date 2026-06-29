@@ -125,7 +125,8 @@ import { readSpecModuleErrorOnPage } from "./spec-service-page-action.js";
 import {
   applyFixedPublishSettingsOnPage,
   applyFixedSpecsOnPage,
-  applyHealthFoodShippingBeforeSpecOnPage
+  applyHealthFoodShippingBeforeSpecOnPage,
+  applyShippingBeforePriceInventoryOnPage
 } from "./service-fulfillment-page-action.js";
 import { ensureMedicalDeviceCertificateFromFirstQualification } from "./graphic-file-input-action.js";
 import { graphicUploadGroupsComplete, resetGraphicModuleOnPage, uploadProductImagesOnPage } from "./graphic-upload-page-action.js";
@@ -346,6 +347,7 @@ export async function runPublishFlow(
           assertBasicPublishCompletionOnPage,
           gotoWithTolerance,
           applyHealthFoodShippingBeforeSpecOnPage,
+          applyShippingBeforePriceInventoryOnPage,
           applyFixedSpecsOnPage,
           applyHealthFoodSpecificationOnPage,
           readSpecModuleErrorOnPage,

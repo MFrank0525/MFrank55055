@@ -23,6 +23,14 @@ The rule layer decides whether the observed state satisfies publish requirements
 
 健康食品动作由 `src/business/publish-from-spu/health-food-actions.ts` 提供，`runPublishFlow` 只负责编排这些动作的顺序、读取 readback 结果并在失败时停止。医疗器械注册证动作只允许在医疗器械分支运行；健康食品的食品安全、类目属性、规格替换、外包装图和包装标签图动作只允许在保健食品分支运行。
 
+医疗器械注册证动作不是通用资质补全动作。规则层只允许在“医疗器械注册证”字段为空且飞书资质图存在时要求上传第一张资质图；动作层必须精确定位“医疗器械注册证”上传控件。若精确控件不可定位，必须失败并保留断点，不得回退到“医疗器械生产许可证”、“赠品资质”或“质检报告”等相邻控件。
+
+详情页资质图上传顺序属于规则层要求：飞书 `资质图片-01`、`资质图片-02`、`资质图片-03` 的顺序必须被保留。动作层只按规则层准备好的文件数组逐个上传，不得重新按哈希、文件系统顺序或页面响应顺序改排。
+
+价格库存模块的发货前置要求属于规则层：`publish-rules.ts` 判定 `发货模式=现货` 和 `现货发货时间=48小时` 是否已在价格库存填表前完成。动作层只负责进入“价格库存”页签、通过字段标签定位发货模式/发货时间控件、选择并读回，不得先填价格库存或后续服务履约后再回退补选。
+
+页面定位和滚动稳定性属于动作层实现约束：关键发布模块必须使用模块页签、字段标签、字段根节点和可见控件的 DOM 关系定位。不得使用坐标点击、`elementFromPoint`、合成坐标事件或大幅 `mouse.wheel` 在模块之间上下寻找控件。
+
 ## Runtime Records
 
 Every publish run must write two structured files under the run runtime directory:
@@ -65,9 +73,10 @@ These rule decisions are owned by `src/business/publish-from-spu/publish-rules.t
 1. Forbidden image slot rules for `主图3:4` and `白底图`.
 2. Detail image upload completion rules for `从主图填入` plus Feishu qualification images.
 3. Price and inventory completion rules.
-4. Freight template and service fulfillment state rules.
-5. Shop context and SPU match readiness rules.
-6. Retryable browser/system failure classification.
+4. Price-inventory entry precondition rules for shipping mode and 48-hour shipping time.
+5. Freight template and service fulfillment state rules.
+6. Shop context and SPU match readiness rules.
+7. Retryable browser/system failure classification.
 
 Health-food business decisions are owned by `src/business/publish-from-spu/health-food-rules.ts`. Health-food browser operations are owned by `src/business/publish-from-spu/health-food-actions.ts`.
 

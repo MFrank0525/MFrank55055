@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   evaluateServiceFulfillmentCompletion,
+  evaluateShippingBeforePriceInventoryCompletion,
   resolvePublishCheckBlockingFields
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 
@@ -89,8 +90,42 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(
   publishSource,
+  /page\.mouse\.wheel/,
+  "service/spec price fulfillment actions must use DOM label anchoring instead of large wheel scrolling"
+);
+assert.match(
+  publishSource,
+  /async function applyShippingSelectionOnPage[\s\S]*evaluateShippingBeforePriceInventoryCompletion[\s\S]*export async function applyShippingBeforePriceInventoryOnPage[\s\S]*ensurePublishSectionTab\(page, "\\u4ef7\\u683c\\u5e93\\u5b58"\)[\s\S]*scrollLabelIntoView\(page, "\\u53d1\\u8d27\\u6a21\\u5f0f"\)[\s\S]*applyShippingSelectionOnPage\(page\)/,
+  "shipping mode and 48-hour shipping time must be completed and read back inside the price-inventory module before price rows"
+);
+assert.match(
+  publishSource,
+  /export async function applyFixedSpecsOnPage[\s\S]*ensurePublishSectionTab\(page, "\\u4ef7\\u683c\\u5e93\\u5b58"\)[\s\S]*scrollLabelIntoView\(page, "\\u5546\\u54c1\\u89c4\\u683c"\)/,
+  "spec setup must position by the 商品规格 label instead of scrolling past the price-inventory module"
+);
+assert.doesNotMatch(
+  publishSource,
   /await page\.waitForTimeout\(600\);[\s\S]*clickFreightTemplateDropdownOption\(page, keyword\)[\s\S]*await page\.waitForTimeout\(800\)[\s\S]*await page\.waitForTimeout\(400\)/,
   "freight-template selection must not keep the old stacked waits after opening the dropdown"
+);
+
+assert.deepEqual(
+  evaluateShippingBeforePriceInventoryCompletion({
+    shippingModeSelected: true,
+    shippingTimeSelected: true
+  }),
+  { passed: true, issue: "" }
+);
+
+assert.deepEqual(
+  evaluateShippingBeforePriceInventoryCompletion({
+    shippingModeSelected: true,
+    shippingTimeSelected: false
+  }),
+  {
+    passed: false,
+    issue: "Missing price-inventory precondition fields: shippingTime"
+  }
 );
 
 assert.deepEqual(

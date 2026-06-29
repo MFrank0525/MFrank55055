@@ -122,6 +122,7 @@ export type SpecPriceActionDeps = Pick<
 > & {
   gotoWithTolerance: (page: Page, url: string, waitMs?: number) => Promise<void>;
   applyHealthFoodShippingBeforeSpecOnPage: (page: Page) => Promise<PublishRuleCheck>;
+  applyShippingBeforePriceInventoryOnPage: (page: Page) => Promise<PublishRuleCheck>;
   applyFixedSpecsOnPage: (
     page: Page,
     runtimeDir: string,

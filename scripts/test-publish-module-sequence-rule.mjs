@@ -106,6 +106,25 @@ assert.match(
   /runShopSpuAction\([\s\S]*reuseOrOpenCreatePage/,
   "publish flow must reuse the create page opened by the platform SPU publish action"
 );
+const specPriceActionSource = sliceFunction("runSpecPriceAction", actionSources.join("\n"));
+assert.match(
+  specPriceActionSource,
+  /applyShippingBeforePriceInventoryOnPage\(page\)/,
+  "price-inventory action must apply shipping mode/time for every category before filling price rows"
+);
+const shippingBeforePriceStart = specPriceActionSource.indexOf("applyShippingBeforePriceInventoryOnPage(page)");
+const priceFillStart = specPriceActionSource.indexOf("applyPriceInventoryOnPage(", shippingBeforePriceStart);
+assert.notEqual(shippingBeforePriceStart, -1, "price-inventory shipping precondition stage not found");
+assert.notEqual(priceFillStart, -1, "price-inventory fill stage not found after shipping precondition");
+assert.ok(
+  shippingBeforePriceStart < priceFillStart,
+  "现货发货时间=48小时 must be selected before price/inventory row filling, not after downstream modules"
+);
+assert.doesNotMatch(
+  specPriceActionSource.slice(0, shippingBeforePriceStart),
+  /input\.categoryContext\.productCategory === "保健食品"[\s\S]*applyShippingBeforePriceInventoryOnPage\(page\)/,
+  "shipping-before-price precondition must not be limited to health-food products"
+);
 assert.notEqual(publishBasicLoop, -1, "publish flow basic-info retry loop not found");
 const publishBasicFirstAttemptWindow = basicActionSource.slice(
   publishBasicLoop,

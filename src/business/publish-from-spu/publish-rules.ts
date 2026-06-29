@@ -56,6 +56,11 @@ export interface PriceInventoryEntryRuleInput {
   specIssue: string;
 }
 
+export interface ShippingBeforePriceInventoryRuleInput {
+  shippingModeSelected: boolean;
+  shippingTimeSelected: boolean;
+}
+
 export interface PriceInventoryEntryRuleDecision {
   action: "apply_price_inventory" | "block_until_spec_template_complete";
   issue: string;
@@ -730,6 +735,22 @@ export function evaluatePriceInventoryCompletion(input: {
     return {
       passed: false,
       issue: `Expected ${input.expectedRows} price rows but filled ${input.filledPriceRows}.`
+    };
+  }
+  return { passed: true, issue: "" };
+}
+
+export function evaluateShippingBeforePriceInventoryCompletion(
+  input: ShippingBeforePriceInventoryRuleInput
+): PublishRuleCheck {
+  const missingFields = [
+    input.shippingModeSelected ? "" : "shippingMode",
+    input.shippingTimeSelected ? "" : "shippingTime"
+  ].filter(Boolean);
+  if (missingFields.length > 0) {
+    return {
+      passed: false,
+      issue: `Missing price-inventory precondition fields: ${missingFields.join(", ")}`
     };
   }
   return { passed: true, issue: "" };

@@ -244,6 +244,14 @@ export function pickBestSectionFileInput(
   return pickBestFileInput(exact.length ? exact : inputs, scoreInput);
 }
 
+export function pickExactSectionFileInput(
+  inputs: Array<{ index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string }>,
+  sectionLabel: string,
+  scoreInput: (input: { index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string }) => number
+): { index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string } | null {
+  return pickBestFileInput(inputs.filter((input) => input.sectionLabel === sectionLabel), scoreInput);
+}
+
 export function scoreMainGraphicInput(input: { parentText: string; multiple: boolean; sectionLabel?: string }): number {
   const text = input.parentText;
   let score = 0;
@@ -309,6 +317,111 @@ export function scoreMedicalDeviceCertificateInput(input: { parentText: string; 
   if (text.includes("\u8d60\u54c1\u8d44\u8d28") || text.includes("\u8d28\u68c0\u62a5\u544a")) score -= 260;
   if (text.includes("\u5546\u54c1\u8be6\u60c5") || text.includes("\u5546\u8be6\u56fe\u7247")) score -= 220;
   return score;
+}
+
+export async function findExactVisibleUploadFieldInput(
+  page: Page,
+  fieldLabel: string
+): Promise<{ index: number; accept: string; multiple: boolean; parentText: string; sectionLabel?: string } | null> {
+  return page.locator("input[type='file']").evaluateAll((elements, targetLabel) => {
+    const normalize = (value: string): string => value.trim().replace(/\s+/g, " ");
+    const isVisibleRect = (rect: DOMRect): boolean => rect.width > 0 && rect.height > 0;
+    const visibleTextItems = Array.from(document.querySelectorAll("body *"))
+      .map((node) => {
+        const element = node as HTMLElement;
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        const text = normalize(element.innerText || element.textContent || "");
+        if (!text || !isVisibleRect(rect) || style.display === "none" || style.visibility === "hidden") {
+          return null;
+        }
+        return { element, rect, text };
+      })
+      .filter(Boolean) as Array<{ element: HTMLElement; rect: DOMRect; text: string }>;
+
+    const fieldLabelText = String(targetLabel);
+    const target = visibleTextItems
+      .filter((item) => {
+        const text = item.text.replace(/^\*\s*/, "");
+        return text === fieldLabelText || item.text === `* ${fieldLabelText}` || item.text === `*${fieldLabelText}`;
+      })
+      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0];
+    if (!target) {
+      return null;
+    }
+
+    const nextLabelTop =
+      visibleTextItems
+        .filter((item) => {
+          if (item === target || item.text.includes("/") || item.text.includes("+")) {
+            return false;
+          }
+          if (item.rect.top <= target.rect.top + 20) {
+            return false;
+          }
+          if (Math.abs(item.rect.left - target.rect.left) > 190) {
+            return false;
+          }
+          if (item.text.length > 48) {
+            return false;
+          }
+          return true;
+        })
+        .sort((a, b) => a.rect.top - b.rect.top)[0]?.rect.top || target.rect.bottom + 260;
+
+    const inputRecords = elements
+      .map((el, index) => {
+        let inputRect: DOMRect | null = null;
+        let node: HTMLElement | null = el as HTMLElement;
+        for (let depth = 0; node && depth < 12; depth += 1, node = node.parentElement) {
+          const rect = node.getBoundingClientRect();
+          if (isVisibleRect(rect)) {
+            inputRect = rect;
+            break;
+          }
+        }
+        if (!inputRect) {
+          return null;
+        }
+        if (!(inputRect.top >= target.rect.top - 12 && inputRect.top < nextLabelTop)) {
+          return null;
+        }
+        const parentText = (() => {
+          let textNode: HTMLElement | null = (el as HTMLElement).parentElement;
+          let best = "";
+          for (let depth = 0; textNode && depth < 8; depth += 1, textNode = textNode.parentElement) {
+            const text = normalize(textNode.textContent || "");
+            if (text && text.length <= 1200 && text.length > best.length) {
+              best = text;
+            }
+          }
+          return best;
+        })();
+        return {
+          index,
+          accept: el.getAttribute("accept") || "",
+          multiple: el.hasAttribute("multiple"),
+          parentText,
+          sectionLabel: fieldLabelText,
+          top: inputRect.top,
+          left: inputRect.left
+        };
+      })
+      .filter(Boolean) as Array<{
+        index: number;
+        accept: string;
+        multiple: boolean;
+        parentText: string;
+        sectionLabel: string;
+        top: number;
+        left: number;
+      }>;
+
+    return (
+      inputRecords
+        .sort((a, b) => Math.abs(a.top - target.rect.bottom) - Math.abs(b.top - target.rect.bottom) || a.left - b.left)[0] || null
+    );
+  }, fieldLabel);
 }
 
 export async function uploadFilesToInput(
@@ -434,10 +547,7 @@ export async function ensureMedicalDeviceCertificateFromFirstQualification(
     };
   }
 
-  const inputs = await collectFileInputs(page);
-  const certificateInput =
-    pickBestSectionFileInput(inputs, "\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1", scoreMedicalDeviceCertificateInput) ||
-    pickBestFileInput(inputs, scoreMedicalDeviceCertificateInput);
+  const certificateInput = await findExactVisibleUploadFieldInput(page, "\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1");
   if (!certificateInput) {
     const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-medical-device-certificate-input-missing.png").catch(() => "");
     return {

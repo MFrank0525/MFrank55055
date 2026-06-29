@@ -102,6 +102,7 @@ import {
   evaluateMedicalDeviceCertificateUploadRule,
   evaluatePriceInventoryEntryRule,
   evaluatePriceInventoryCompletion,
+  evaluateShippingBeforePriceInventoryCompletion,
   evaluatePublishCheckResult,
   evaluatePublishCreatePageReadiness,
   evaluatePlatformSpuQueryPageReadiness,
@@ -349,16 +350,34 @@ async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
   };
 }
 
-export async function applyHealthFoodShippingBeforeSpecOnPage(page: Page): Promise<PublishRuleCheck> {
+async function applyShippingSelectionOnPage(page: Page): Promise<PublishRuleCheck> {
   const shippingModeSelected = await ensureRadioOptionNearFieldLabel(page, "\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27");
   const shippingTimeSelected = await ensureRadioOptionNearFieldLabel(page, "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "48\u5c0f\u65f6");
-  if (!shippingModeSelected || !shippingTimeSelected) {
+  return evaluateShippingBeforePriceInventoryCompletion({ shippingModeSelected, shippingTimeSelected });
+}
+
+export async function applyHealthFoodShippingBeforeSpecOnPage(page: Page): Promise<PublishRuleCheck> {
+  const rule = await applyShippingSelectionOnPage(page);
+  if (!rule.passed) {
     return {
       passed: false,
-      issue: `Health-food shipping precondition failed. shippingMode=${shippingModeSelected}; shippingTime=${shippingTimeSelected}`
+      issue: `Health-food shipping precondition failed. ${rule.issue}`
     };
   }
-  return { passed: true, issue: "" };
+  return rule;
+}
+
+export async function applyShippingBeforePriceInventoryOnPage(page: Page): Promise<PublishRuleCheck> {
+  await ensurePublishSectionTab(page, "\u4ef7\u683c\u5e93\u5b58");
+  await scrollLabelIntoView(page, "\u53d1\u8d27\u6a21\u5f0f").catch(() => false);
+  const rule = await applyShippingSelectionOnPage(page);
+  if (!rule.passed) {
+    return {
+      passed: false,
+      issue: `Price-inventory shipping precondition failed. ${rule.issue}`
+    };
+  }
+  return rule;
 }
 
 export async function applyFixedPublishSettings(
@@ -471,8 +490,8 @@ export async function applyFixedSpecsOnPage(
   await page.bringToFront();
   await page.waitForTimeout(1200);
   await ensurePublishSectionTab(page, "\u4ef7\u683c\u5e93\u5b58");
-  await page.mouse.wheel(0, 2300).catch(() => {});
-  await page.waitForTimeout(1000);
+  await scrollLabelIntoView(page, "\u5546\u54c1\u89c4\u683c").catch(() => false);
+  await page.waitForTimeout(600);
 
   const configuredFields: string[] = [];
   let specIssue = "";
