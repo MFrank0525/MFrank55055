@@ -52,12 +52,6 @@ import {
   scrollLabelIntoView,
   scrollPublishSectionContentIntoView
 } from "./publish-section-navigation.js";
-import { runBasicInfoAction } from "./actions/basic-info-action.js";
-import { runGraphicInfoAction } from "./actions/graphic-info-action.js";
-import { runServiceAction } from "./actions/service-action.js";
-import { createDefaultShopSpuActionDeps, runShopSpuAction } from "./actions/shop-spu-action.js";
-import { runSpecPriceAction } from "./actions/spec-price-action.js";
-import { runSubmitAction } from "./actions/submit-action.js";
 import { classifyAssets, validateMainImageAspectRatio } from "./assets.js";
 import { prepareQualificationImagesForUpload } from "./qualification-image-normalizer.js";
 import {

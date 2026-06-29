@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 
 const requiredActionModules = [
   {
@@ -35,6 +36,86 @@ for (const module of requiredActionModules) {
     assert.match(source, new RegExp(`export async function ${exportName}\\b`), `${module.file} must export ${exportName}`);
   }
   assert.doesNotMatch(source, /from "\.\.\/\.\.\/publish-from-spu\.js"/, `${module.file} must not import from the legacy aggregate module`);
+}
+
+function listTypeScriptFiles(dir) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  return entries.flatMap((entry) => {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return listTypeScriptFiles(fullPath);
+    }
+    return entry.isFile() && entry.name.endsWith(".ts") ? [fullPath] : [];
+  });
+}
+
+const publishModuleFiles = listTypeScriptFiles("src/business/publish-from-spu");
+const publishModuleFileSet = new Set(publishModuleFiles.map((file) => path.normalize(file)));
+const publishModuleImportGraph = new Map();
+
+function resolvePublishModuleImport(fromFile, specifier) {
+  if (!specifier.startsWith(".")) {
+    return null;
+  }
+  const resolved = path.normalize(path.join(path.dirname(fromFile), specifier.replace(/\.js$/, ".ts")));
+  return publishModuleFileSet.has(resolved) ? resolved : null;
+}
+
+for (const file of publishModuleFiles) {
+  const source = fs.readFileSync(file, "utf8");
+  const relativeImports = Array.from(source.matchAll(/^\s*import(?:\s+type)?[\s\S]*?\sfrom\s+"([^"]+)";/gm))
+    .map((match) => resolvePublishModuleImport(file, match[1]))
+    .filter(Boolean);
+  publishModuleImportGraph.set(path.normalize(file), relativeImports);
+
+  if (file !== "src/business/publish-from-spu/publish-flow.ts") {
+    assert.doesNotMatch(
+      source,
+      /from "\.\/actions\/[^"]+\.js"/,
+      `${file} must not import action modules directly; module sequencing belongs in publish-flow.ts`
+    );
+  }
+  if (file.includes("/actions/")) {
+    assert.doesNotMatch(
+      source,
+      /from "\.\.\/publish-flow\.js"/,
+      `${file} must not import publish-flow; orchestration depends on actions, not the reverse`
+    );
+  }
+  if (/(?:^|\/)[^/]*rules[^/]*\.ts$/.test(file)) {
+    assert.doesNotMatch(
+      source,
+      /from "\.\/(?:actions\/|publish-flow\.js|.*-action\.js|browser-session\.js)"/,
+      `${file} must remain rule-only and must not import browser/action/orchestration modules`
+    );
+  }
+}
+
+const visiting = new Set();
+const visited = new Set();
+const stack = [];
+
+function assertNoPublishModuleCycles(file) {
+  if (visited.has(file)) {
+    return;
+  }
+  if (visiting.has(file)) {
+    const cycleStart = stack.indexOf(file);
+    const cycle = [...stack.slice(cycleStart), file].join(" -> ");
+    assert.fail(`publish module imports must be acyclic: ${cycle}`);
+  }
+  visiting.add(file);
+  stack.push(file);
+  for (const dependency of publishModuleImportGraph.get(file) || []) {
+    assertNoPublishModuleCycles(dependency);
+  }
+  stack.pop();
+  visiting.delete(file);
+  visited.add(file);
+}
+
+for (const file of publishModuleFileSet) {
+  assertNoPublishModuleCycles(file);
 }
 
 const aggregateSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
