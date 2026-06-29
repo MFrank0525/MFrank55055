@@ -68,7 +68,9 @@
 - 总调度入口：[auto-listing.ts](src/cli/auto-listing.ts)
 - 总调度核心：[orchestrator.ts](src/autolist/orchestrator.ts)
 - 发布入口：[publish-from-spu.ts](src/cli/publish-from-spu.ts)
-- 发布核心：[publish-from-spu.ts](src/business/publish-from-spu.ts)
+- 发布业务入口：[publish-from-spu.ts](src/business/publish-from-spu.ts)
+- 发布流程编排：[publish-flow.ts](src/business/publish-from-spu/publish-flow.ts)
+- 发布模块动作：[actions/](src/business/publish-from-spu/actions)
 
 ## Hermes / 飞书兼容触发入口
 

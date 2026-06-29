@@ -39,6 +39,7 @@ for (const module of requiredActionModules) {
 
 const aggregateSource = fs.readFileSync("src/business/publish-from-spu.ts", "utf8");
 const flowSource = fs.readFileSync("src/business/publish-from-spu/publish-flow.ts", "utf8");
+const separationManual = fs.readFileSync("docs/auto-listing/publish-rule-action-separation.md", "utf8");
 for (const exportName of requiredActionModules.flatMap((module) => module.exports)) {
   assert.match(
     flowSource,
@@ -85,6 +86,22 @@ assert.match(
   fs.readFileSync("src/business/publish-from-spu/actions/shop-spu-action.ts", "utf8"),
   /export function createDefaultShopSpuActionDeps/,
   "shop-spu action module must own the default shop/SPU browser dependency wiring"
+);
+
+assert.match(
+  separationManual,
+  /Publish orchestration: `src\/business\/publish-from-spu\/publish-flow\.ts`/,
+  "rule/action separation doc must name publish-flow.ts as the orchestration layer"
+);
+assert.match(
+  separationManual,
+  /Module action implementations: `src\/business\/publish-from-spu\/actions\/\*\.ts`/,
+  "rule/action separation doc must name actions/*.ts as the module action layer"
+);
+assert.doesNotMatch(
+  separationManual,
+  /Extract generic Doudian browser action groups out of `src\/business\/publish-from-spu\.ts`/,
+  "rule/action separation doc must not list completed action-module extraction as remaining backlog"
 );
 
 console.log("publish action module boundaries passed");

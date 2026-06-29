@@ -10,10 +10,14 @@ The rule layer decides whether the observed state satisfies publish requirements
 
 ## Current Split
 
-- Action implementation: `src/business/publish-from-spu.ts`
+- CLI/business entrypoint: `src/business/publish-from-spu.ts`
+- Publish orchestration: `src/business/publish-from-spu/publish-flow.ts`
+- Module action implementations: `src/business/publish-from-spu/actions/*.ts`
+- Page-level browser actions: `src/business/publish-from-spu/*-action.ts`
 - Health-food action implementation: `src/business/publish-from-spu/health-food-actions.ts`
 - Shared action result structure: `src/business/publish-from-spu/publish-actions.ts`
 - Rule implementation: `src/business/publish-from-spu/publish-rules.ts`
+- Health-food rule implementation: `src/business/publish-from-spu/health-food-rules.ts`
 - Rule constants that are configuration-like: `src/business/publish-from-spu/constants.ts`
 - Watermark-level run manifest: `src/autolist/publish-manifest.ts`
 
@@ -84,7 +88,6 @@ Health-food business decisions are owned by `src/business/publish-from-spu/healt
 
 Move these next, in order:
 
-1. Extract generic Doudian browser action groups out of `src/business/publish-from-spu.ts` by module: shop/SPU page, basic info, graphic info, spec/price, service commitment, and final submit.
-2. Keep rule classifications in `publish-rules.ts` and `health-food-rules.ts`; extracted action modules may return readback structures but must not decide business pass/fail meaning.
-3. Add product-list verification rules when the 商品管理 list page is stable enough to query by title/SPU.
-4. Replace regex-based source-structure tests with exported pure rule contracts where possible.
+1. Keep rule classifications in `publish-rules.ts` and `health-food-rules.ts`; module action files may return readback structures but must not decide business pass/fail meaning.
+2. Add product-list verification rules when the 商品管理 list page is stable enough to query by title/SPU.
+3. Replace regex-based source-structure tests with exported pure rule contracts where possible.
