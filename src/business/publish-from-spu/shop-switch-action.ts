@@ -477,6 +477,7 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
           if (!target) {
             return false;
           }
+          target.click();
           return true;
         })
         .catch((error) => {
@@ -615,6 +616,7 @@ async function selectShopFromDialogByVisibleText(page: Page, expectedShopName: s
     if (targetRect.width <= 0 || targetRect.height <= 0 || cardRect.bottom < containerRect.top || cardRect.top > containerRect.bottom) {
       return false;
     }
+    clickTarget.click();
     return true;
   }, expectedShopName).catch((error) => {
     if (isNavigationContextDestroyedError(error)) {
@@ -778,6 +780,7 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
             })
             .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0] as HTMLElement | undefined) ||
           card;
+        targetNode.click();
         return {
           found: true,
           scrollable: scrollContainer.scrollHeight > scrollContainer.clientHeight + 40

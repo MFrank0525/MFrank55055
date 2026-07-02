@@ -57,6 +57,21 @@ assert.match(
   "Shop selection must not report target missing when a successful click immediately navigates"
 );
 assert.match(
+  functionBody("selectShopFromDialogByVisibleText"),
+  /clickTarget\.click\(\)/,
+  "Visible-text shop selection fallback must actually click the matched target instead of only reporting it found"
+);
+assert.match(
+  functionBody("selectShopFromDialogExact"),
+  /target\.click\(\)/,
+  "Exact shop selection fallback must actually click the matched target instead of only reporting it found"
+);
+assert.match(
+  functionBody("selectShopFromDialog"),
+  /targetNode\.click\(\)/,
+  "Generic shop selection fallback must actually click the matched target instead of only reporting it found"
+);
+assert.match(
   functionBody("ensureShopContext"),
   /if \(!dialogVisible\) \{[\s\S]*isDoudianLoginRequired\(page\)[\s\S]*Doudian login required[\s\S]*shop-switch-dialog-missing/,
   "A missing shop switch dialog must be reclassified as login expiry when the page has landed on the Doudian login screen"
