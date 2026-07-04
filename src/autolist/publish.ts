@@ -268,8 +268,10 @@ function readPublishResultSummary(resultFile: string): {
   };
 }
 
-export function selectLatestFailedPublishResult<T extends { ok: boolean }>(results: T[]): T | undefined {
-  return [...results].reverse().find((item) => !item.ok);
+export function selectLatestFailedPublishResult<T extends { ok: boolean; finalVerifyStatus?: string; status?: string }>(
+  results: T[]
+): T | undefined {
+  return [...results].reverse().find((item) => !item.ok || item.status === "failed" || item.finalVerifyStatus === "needs_manual_review");
 }
 
 export async function publishDistributedProducts(options: {

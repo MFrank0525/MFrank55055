@@ -578,13 +578,13 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /const shouldResume = publishResumeNeedsWork \|\| !result \|\| \(result\.ok !== true && result\.status !== "success"\)/,
-  "AutoListingController resume must let publish-stage incomplete manifest override an incorrectly successful result file"
+  /const unsafePublishResumeNeedsWork =[\s\S]*unsafePublishEntriesForResume\(resumeRuntimeDir\)[\s\S]*const shouldResume = unsafePublishResumeNeedsWork \|\| publishResumeNeedsWork \|\| !result \|\| \(result\.ok !== true && result\.status !== "success"\)/,
+  "AutoListingController resume must let unsafe publish manifest entries override an incorrectly successful result file"
 );
 assert.match(
   hermesRunnerSource,
-  /if \(!publishResumeNeedsWork && \(!latestRelevantFailure \|\| path\.resolve\(latestRelevantFailure\.resultFile\) !== resultFile\)\)/,
-  "AutoListingController resume must not discard a valid publish-stage resume job only because the stale result file was incorrectly marked successful"
+  /if \(!unsafePublishResumeNeedsWork && !publishResumeNeedsWork && \(!latestRelevantFailure \|\| path\.resolve\(latestRelevantFailure\.resultFile\) !== resultFile\)\)/,
+  "AutoListingController resume must not discard a valid unsafe-publish resume job only because the stale result file was incorrectly marked successful"
 );
 assert.match(
   hermesRunnerSource,
@@ -1248,7 +1248,7 @@ assert.deepEqual(
     errorClass: "final_publish_state_uncertain",
     issue: "Publish product button was clicked, but no submission success signal was detected."
   },
-  "after the final publish click is issued without a platform success signal, the next resume must publish the product again instead of skipping it"
+  "after the final publish click is issued without a platform success signal, recovery must not blindly submit again"
 );
 assert.deepEqual(
   evaluatePublishResult({
@@ -1264,7 +1264,7 @@ assert.deepEqual(
     errorClass: "final_publish_state_uncertain",
     issue: "Publish button click was issued; platform success signal was not observed."
   },
-  "a persisted published result without a platform success signal must remain non-terminal for resume planning"
+  "a persisted published result without a platform success signal must remain non-safe for resume planning"
 );
 
 const navigationContextLostClass = classifyPublishFailure(
@@ -3110,6 +3110,20 @@ assert.deepEqual(
   "Task failure and Hermes summary must report the latest actionable blocker, not the first historical failure"
 );
 assert.equal(
+  selectLatestFailedPublishResult([
+    {
+      productFolder: "/shops/08/水印15",
+      ok: true,
+      status: "published",
+      message: "Publish button click was issued; platform success signal was not observed.",
+      finalVerifyStatus: "needs_manual_review",
+      errorClass: "unknown_publish_failure"
+    }
+  ])?.productFolder,
+  "/shops/08/水印15",
+  "Published-looking results that require manual review must stop cleanup and must not be treated as safe."
+);
+assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
     childMode: "full",
     exitCode: 1,
@@ -4046,6 +4060,53 @@ assert.equal(
   }),
   true,
   "A platform-accepted submit with uncertain final signal must close Feishu batch processing instead of rediscovering a cleaned source image."
+);
+assert.equal(
+  isProductFullyProcessed({
+    task: {
+      taskId: "image-needs-review",
+      sequenceNo: 3,
+      sourceImagePath: "/work/input/needs-review.png",
+      sourceImageName: "needs-review.png",
+      status: "done",
+      lastUpdatedAt: new Date().toISOString(),
+      generatedProductFolders: acceptedSubmitFolders,
+      notes: [],
+      shopDistributionArtifact: {
+        distributedFolders: acceptedSubmitFolders,
+        simulated: false
+      },
+      publishArtifact: {
+        results: acceptedSubmitFolders.map((productFolder, index) => ({
+          productFolder,
+          ok: true,
+          status: "published",
+          finalVerifyStatus: index === 3 ? "needs_manual_review" : "publish_signal_confirmed",
+          errorClass: index === 3 ? "unknown_publish_failure" : "",
+          message: index === 3 ? "Publish button click was issued; platform success signal was not observed." : "ok"
+        }))
+      }
+    },
+    productIdentity: {
+      sourceImagePath: "/work/input/needs-review.png",
+      recordId: "record-needs-review"
+    },
+    publishManifestEntries: acceptedSubmitFolders.map((productFolder, index) => ({
+      productFolder,
+      runtimeKey: `shop__needs-review-product-${index + 1}`,
+      shopFolder: "/work/shop",
+      watermarkNo: index + 1,
+      sourceImagePath: "/work/input/needs-review.png",
+      recordId: "record-needs-review",
+      status: index === 3 ? "failed" : "published",
+      finalVerifyStatus: index === 3 ? "needs_manual_review" : "publish_signal_confirmed",
+      errorClass: index === 3 ? "unknown_publish_failure" : "",
+      message: index === 3 ? "Publish button click was issued; platform success signal was not observed." : "ok",
+      updatedAt: new Date().toISOString()
+    }))
+  }),
+  false,
+  "Manual-review publish uncertainty must not mark the source image processed; cleanup must be blocked before source assets are removed."
 );
 const acceptedSubmitPublishAudit = auditPublishCoverage({
   tasks: [

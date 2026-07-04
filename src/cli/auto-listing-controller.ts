@@ -63,6 +63,11 @@ import {
   summarizePaidImageProductLedger,
   type PaidImageLedgerSummary
 } from "../autolist/paid-image-submission-ledger.js";
+import {
+  buildFallbackSourceJobFromPreflight,
+  findLatestUnsafePublishManifestForResume as selectLatestUnsafePublishManifestForResume,
+  unsafePublishEntriesForResume
+} from "../autolist/unsafe-publish-resume.js";
 
 interface RunnerJob {
   pid: number;
@@ -106,6 +111,7 @@ interface PauseSignalFile {
 
 interface AutoListingJobFile {
   input?: {
+    [key: string]: unknown;
     startStep?: string;
     endStep?: string;
     resumeSourceImagePath?: string;
@@ -2191,13 +2197,17 @@ function shouldResumeCurrentFailure(): boolean {
 
   const resultFile = path.resolve(rootDir, resumeJob.resultFile);
   const result = readJsonFile<AutoListingResultFile>(resultFile);
+  const unsafePublishResumeNeedsWork =
+    unsafePublishEntriesForResume(resumeRuntimeDir).some((entry) =>
+      entry.sourceImagePath && path.resolve(rootDir, entry.sourceImagePath) === path.resolve(rootDir, resumeSourceImagePath)
+    );
   const publishResumeNeedsWork =
     startStep === "published" &&
     resumeProductFolderCount > 0 &&
     countSafelyPublishedManifestEntries(resumeRuntimeDir) < resumeProductFolderCount;
-  const shouldResume = publishResumeNeedsWork || !result || (result.ok !== true && result.status !== "success");
+  const shouldResume = unsafePublishResumeNeedsWork || publishResumeNeedsWork || !result || (result.ok !== true && result.status !== "success");
   const latestRelevantFailure = findLatestFailedResultForResume();
-  if (!publishResumeNeedsWork && (!latestRelevantFailure || path.resolve(latestRelevantFailure.resultFile) !== resultFile)) {
+  if (!unsafePublishResumeNeedsWork && !publishResumeNeedsWork && (!latestRelevantFailure || path.resolve(latestRelevantFailure.resultFile) !== resultFile)) {
     fs.rmSync(resumeJobFile, { force: true });
     return false;
   }
@@ -2544,6 +2554,21 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
   return selected ? { resultFile: selected.resultFile, result: selected.result } : undefined;
 }
 
+function findLatestUnsafePublishManifestForResume(): {
+  runtimeDir: string;
+  resultFile: string;
+  result: AutoListingResultFile;
+  unsafeEntries: NonNullable<PublishManifestFile["entries"]>;
+} | undefined {
+  return selectLatestUnsafePublishManifestForResume({
+    rootDir,
+    resultFiles: listResultFilesNewestFirst(),
+    fileMtimeMs,
+    countSafelyPublishedManifestEntries,
+    shouldResumeSourceImageForCurrentFeishuBatch
+  }) as ReturnType<typeof findLatestUnsafePublishManifestForResume>;
+}
+
 function writeResumeJobFromInterruptedState(
   sourceJob: AutoListingJobFile,
   interrupted: NonNullable<ReturnType<typeof findLatestInterruptedStateForResume>>
@@ -2583,9 +2608,13 @@ function writeResumeJobFromInterruptedState(
 }
 
 function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
-  const sourceJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  let sourceJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   if (!sourceJob?.input) {
-    return undefined;
+    const unsafeLatest = findLatestUnsafePublishManifestForResume();
+    sourceJob = unsafeLatest ? buildFallbackSourceJobFromPreflight(rootDir, unsafeLatest.runtimeDir) as AutoListingJobFile | undefined : undefined;
+    if (!sourceJob?.input) {
+      return undefined;
+    }
   }
 
   if (shouldResumeCurrentFailure()) {
@@ -2595,6 +2624,38 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
   const interrupted = findLatestInterruptedStateForResume();
   if (interrupted?.task.sourceImagePath) {
     return writeResumeJobFromInterruptedState(sourceJob, interrupted);
+  }
+
+  const unsafeLatest = findLatestUnsafePublishManifestForResume();
+  if (unsafeLatest) {
+    const sourceImagePath = unsafeLatest.unsafeEntries[0]?.sourceImagePath;
+    const task = (unsafeLatest.result.tasks || []).find((item) =>
+      sourceImagePath && item.sourceImagePath && path.resolve(rootDir, item.sourceImagePath) === path.resolve(rootDir, sourceImagePath)
+    );
+    if (task?.sourceImagePath) {
+      const resumeProductFolderNames = Array.from(
+        new Set(unsafeLatest.unsafeEntries.map((entry) => path.basename(entry.productFolder || "")).filter(Boolean))
+      );
+      const resumeJob: AutoListingJobFile = {
+        ...sourceJob,
+        runtimeDir: unsafeLatest.runtimeDir,
+        resultFile: unsafeLatest.resultFile,
+        runId: unsafeLatest.result.runId || path.basename(unsafeLatest.runtimeDir),
+        input: {
+          ...sourceJob.input,
+          startStep: "selling_points_loaded",
+          endStep: "done",
+          resumeSourceImagePath: task.sourceImagePath,
+          resumeTaskId: task.taskId,
+          resumeProductFolderNames,
+          feishuBatchFingerprint: unsafeLatest.result.feishuBatchFingerprint,
+          maxImagesPerRun: 1,
+          clearTestOutputsBeforeRun: false
+        }
+      };
+      atomicWriteJson(resumeJobFile, resumeJob);
+      return resumeJob;
+    }
   }
 
   const latest = findLatestFailedResultForResume();

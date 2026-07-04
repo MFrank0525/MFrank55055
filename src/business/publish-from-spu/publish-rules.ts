@@ -571,7 +571,8 @@ export function shouldStopPublishBatchAfterFailure(
     "health_food_packaging_label_not_ready",
     "doudian_login_required",
     "shop_context_mismatch",
-    "spec_template_configuration_missing"
+    "spec_template_configuration_missing",
+    "final_publish_state_uncertain"
   ]);
   const systemicClasses = new Set(["spec_template_not_ready", "service_section_not_ready", "basic_info_field_not_ready"]);
   let lastClass = "";

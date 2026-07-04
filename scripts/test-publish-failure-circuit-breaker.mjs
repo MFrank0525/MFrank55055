@@ -15,6 +15,17 @@ const external = recordPublishFailure(state, {
 });
 assert.deepEqual(external, { signature: "", consecutive: 0, open: false });
 
+const finalSubmitUncertain = recordPublishFailure(state, {
+  stage: "publish",
+  errorClass: "final_publish_state_uncertain",
+  threshold: 2
+});
+assert.deepEqual(
+  finalSubmitUncertain,
+  { signature: "publish:final_publish_state_uncertain", consecutive: 1, open: true },
+  "A final-submit uncertainty crosses a non-idempotent boundary and must stop the publish batch immediately"
+);
+
 const reset = recordPublishFailure(state, { stage: "service", errorClass: "service_section_not_ready", threshold: 3 });
 assert.equal(reset.signature, "service:service_section_not_ready");
 assert.equal(reset.consecutive, 1);
