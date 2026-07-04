@@ -484,6 +484,7 @@ export function classifyPublishFailure(message: string): string {
   }
   if (
     text.includes("最终发布动作未完成") ||
+    text.includes("Publishbuttonclickwasissued;platformsuccesssignalwasnotobserved") ||
     text.includes("Publishproductbuttonclickfailed") ||
     text.includes("Publishproductbuttonwasclicked,butnosubmissionsuccesssignalwasdetected")
   ) {
@@ -621,6 +622,14 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
     };
   }
   if (input.publishClickAttempted === true && errorClass === "final_publish_state_uncertain") {
+    return {
+      safelyPublished: false,
+      finalVerifyStatus: "submit_accepted_unconfirmed",
+      errorClass,
+      issue: publishIssue || message || "Publish button click was accepted, but no submission success signal was observed."
+    };
+  }
+  if (errorClass === "final_publish_state_uncertain") {
     return {
       safelyPublished: false,
       finalVerifyStatus: "submit_accepted_unconfirmed",

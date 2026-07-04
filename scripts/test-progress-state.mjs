@@ -1266,6 +1266,20 @@ assert.deepEqual(
   },
   "a persisted published result without a platform success signal must remain non-safe for resume planning"
 );
+assert.deepEqual(
+  evaluatePublishResult({
+    ok: true,
+    status: "published",
+    message: "Publish button click was issued; platform success signal was not observed."
+  }),
+  {
+    safelyPublished: false,
+    finalVerifyStatus: "submit_accepted_unconfirmed",
+    errorClass: "final_publish_state_uncertain",
+    issue: "Publish button click was issued; platform success signal was not observed."
+  },
+  "a legacy result that only persisted the uncertain final-submit message must still open the final-publish circuit"
+);
 
 const navigationContextLostClass = classifyPublishFailure(
   "page.evaluate: Execution context was destroyed, most likely because of a navigation"
