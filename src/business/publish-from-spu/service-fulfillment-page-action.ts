@@ -148,10 +148,14 @@ function configuredFieldsFromServiceFulfillmentState(state: ServiceFulfillmentSt
 }
 
 async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, optionText: string): Promise<boolean> {
-  return page.evaluate(
-    ({ fieldLabel: targetFieldLabel, optionText: targetOptionText }) => {
+  const radioOptionMarker = `data-auto-listing-radio-option-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const marked = await page.evaluate(
+    ({ fieldLabel: targetFieldLabel, optionText: targetOptionText, markerName }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
       const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
+      for (const el of elements) {
+        el.removeAttribute(markerName);
+      }
       const field = elements
         .map((el) => {
           const rect = el.getBoundingClientRect();
@@ -209,11 +213,25 @@ async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, op
         return false;
       }
       candidate.el.scrollIntoView({ block: "center", inline: "center" });
-      candidate.el.click();
+      candidate.el.setAttribute(markerName, "true");
       return true;
     },
-    { fieldLabel, optionText }
+    { fieldLabel, optionText, markerName: radioOptionMarker }
   );
+  if (!marked) {
+    return false;
+  }
+
+  try {
+    await page.locator(`[${radioOptionMarker}="true"]`).first().click({ timeout: 3000 });
+    return true;
+  } finally {
+    await page.evaluate((markerName) => {
+      for (const el of Array.from(document.querySelectorAll(`[${markerName}="true"]`))) {
+        (el as HTMLElement).removeAttribute(markerName);
+      }
+    }, radioOptionMarker).catch(() => {});
+  }
 }
 
 async function isRadioOptionSelectedNearFieldLabel(page: Page, fieldLabel: string, optionText: string): Promise<boolean> {

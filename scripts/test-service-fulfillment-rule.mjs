@@ -20,6 +20,10 @@ const chooseFreightTemplateSource = publishSource.slice(
   publishSource.indexOf("export async function chooseKeywordFreightTemplate"),
   publishSource.indexOf("function resolveSpecTemplateKeyword")
 );
+const radioOptionClickSource = publishSource.slice(
+  publishSource.indexOf("async function clickRadioOptionNearFieldLabel"),
+  publishSource.indexOf("async function isRadioOptionSelectedNearFieldLabel")
+);
 const beforeFirstFreightDropdownClick = chooseFreightTemplateSource.slice(0, chooseFreightTemplateSource.indexOf("clickTarget.click"));
 
 assert.match(
@@ -82,6 +86,16 @@ assert.doesNotMatch(
   freightTemplateOptionClickSource,
   /clickable\?*\.click\(\)/,
   "freight-template selection must not use synthetic DOM click for the critical option choice"
+);
+assert.match(
+  radioOptionClickSource,
+  /setAttribute\(markerName, "true"\)[\s\S]*page\.locator\(`\[\$\{radioOptionMarker\}="true"\]`\)\.first\(\)\.click/,
+  "shipping radio option selection must mark the field-scoped option and click it through Playwright"
+);
+assert.doesNotMatch(
+  radioOptionClickSource,
+  /candidate\.el\.click\(\)/,
+  "shipping radio option selection must not use synthetic DOM click because it can report success without updating the component state"
 );
 assert.doesNotMatch(
   freightTemplateOptionClickSource,
