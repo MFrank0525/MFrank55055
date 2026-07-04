@@ -3,6 +3,10 @@ import path from "node:path";
 import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
 import { clearCheckpoint, isStageCompleted, loadCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
 import {
+  verifyPublishedProductInDoudianList,
+  type DoudianProductListVerificationResult
+} from "../business/publish-from-spu/product-list-verification-action.js";
+import {
   evaluatePublishResult,
   shouldRetryPublishFailure
 } from "../business/publish-from-spu/publish-rules.js";
@@ -266,6 +270,29 @@ function readPublishResultSummary(resultFile: string): {
     publishClickAttempted: result.data?.browser?.publishClickAttempted,
     publishIssue: result.data?.browser?.publishIssue
   };
+}
+
+function markPublishResultListVerified(resultFile: string, verification: DoudianProductListVerificationResult): void {
+  if (!fs.existsSync(resultFile)) {
+    return;
+  }
+  const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as Record<string, unknown>;
+  result.ok = true;
+  result.status = "published";
+  result.finalVerifyStatus = "list_verified";
+  result.message = `Read-only Doudian 全部 tab full-title verification found the product in the target shop${verification.countText ? ` (${verification.countText})` : ""}.`;
+  result.listVerification = {
+    method: "doudian_all_tab_full_title_search",
+    title: verification.title,
+    shopFolder: verification.shopFolder,
+    shopName: verification.shopName,
+    countText: verification.countText,
+    matchedRows: verification.matchedRows,
+    pageUrl: verification.pageUrl,
+    screenshotFile: verification.screenshotFile,
+    verifiedAt: new Date().toISOString()
+  };
+  fs.writeFileSync(resultFile, JSON.stringify(result, null, 2) + "\n");
 }
 
 export function selectLatestFailedPublishResult<T extends { ok: boolean; finalVerifyStatus?: string; status?: string }>(
@@ -588,6 +615,121 @@ export async function publishDistributedProducts(options: {
       );
       resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
       decision = evaluatePublishResult(resultSummary);
+    }
+    let replayedAfterListVerificationNotFound = false;
+    if (!decision.safelyPublished && decision.finalVerifyStatus === "submit_accepted_unconfirmed") {
+      options.assertNotPaused?.();
+      let listVerification: DoudianProductListVerificationResult | undefined;
+      try {
+        listVerification = await verifyPublishedProductInDoudianList({
+          runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
+          shopFolder,
+          title: metadata.title || ""
+        });
+      } catch (error) {
+        const message = `Doudian list full-title verification failed after uncertain final submit: ${error instanceof Error ? error.message : String(error)}`;
+        logInfo(message);
+        options.onProgress?.(message);
+      }
+
+      if (listVerification?.found) {
+        const message = `Read-only Doudian 全部 tab full-title verification found product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+        markPublishResultListVerified(publishResult.artifacts.resultFile, listVerification);
+        publishResult = {
+          ...publishResult,
+          ok: true,
+          status: "published",
+          message
+        };
+        decision = {
+          safelyPublished: true,
+          finalVerifyStatus: "list_verified",
+          errorClass: "",
+          issue: ""
+        };
+      } else if (listVerification?.found === false) {
+        replayedAfterListVerificationNotFound = true;
+        logInfo(`Retrying publish after Doudian list verification returned no product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+        options.onProgress?.(
+          `Retrying publish after Doudian list verification returned no product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`
+        );
+        upsertPublishManifestEntry(options.runtimeDir, {
+          targetIdentity,
+          targetKey,
+          productFolder,
+          runtimeKey,
+          shopFolder,
+          watermarkNo: extractWatermarkNo(productFolder),
+          status: "pending",
+          finalVerifyStatus: "not_checked",
+          resultFile: publishResult.artifacts.resultFile,
+          message: "Doudian 全部 tab full-title verification returned no product; replaying publish once.",
+          ...productIdentityFields
+        });
+        publishResult = await runPublishFromSpuJob(
+          {
+            shopFolder,
+            productFolder,
+            mode: "run_publish_flow",
+            metadata,
+            headless: false,
+            retryOnSystemError: true
+          },
+          {
+            runId: `auto-listing-${runtimeKey}-list-verification-retry`,
+            runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
+            onProgress: (message) => {
+              const progressMessage = `${path.basename(productFolder)}: ${message}`;
+              upsertPublishManifestEntry(options.runtimeDir, {
+                targetIdentity,
+                targetKey,
+                productFolder,
+                runtimeKey,
+                shopFolder,
+                watermarkNo: extractWatermarkNo(productFolder),
+                status: "pending",
+                finalVerifyStatus: "not_checked",
+                resultFile: path.join(options.runtimeDir, "publish", runtimeKey, "result.json"),
+                message: progressMessage,
+                ...productIdentityFields
+              });
+              options.onProgress?.(progressMessage);
+            }
+          }
+        );
+        resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
+        decision = evaluatePublishResult(resultSummary);
+      }
+    }
+    if (!decision.safelyPublished && replayedAfterListVerificationNotFound && decision.finalVerifyStatus === "submit_accepted_unconfirmed") {
+      options.assertNotPaused?.();
+      try {
+        const listVerification = await verifyPublishedProductInDoudianList({
+          runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
+          shopFolder,
+          title: metadata.title || ""
+        });
+        if (listVerification.found) {
+          const message = `Read-only Doudian 全部 tab full-title verification found product after replay: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+          markPublishResultListVerified(publishResult.artifacts.resultFile, listVerification);
+          publishResult = {
+            ...publishResult,
+            ok: true,
+            status: "published",
+            message
+          };
+          decision = {
+            safelyPublished: true,
+            finalVerifyStatus: "list_verified",
+            errorClass: "",
+            issue: ""
+          };
+        }
+      } catch (error) {
+        const message = `Doudian list full-title verification failed after replay: ${error instanceof Error ? error.message : String(error)}`;
+        logInfo(message);
+        options.onProgress?.(message);
+      }
     }
 
     results.push({

@@ -200,6 +200,16 @@ assert.match(
   "Auto-listing publish jobs must pass the canonical target recordId into Doudian publish metadata"
 );
 assert.match(
+  publishSource,
+  /verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus === "submit_accepted_unconfirmed"[\s\S]*finalVerifyStatus:\s*"list_verified"/,
+  "Auto-listing publish must resolve uncertain final submits by read-only Doudian 全部 tab full-title verification before treating the target as unsafe"
+);
+assert.match(
+  publishSource,
+  /listVerification\?\.found === false[\s\S]*Retrying publish after Doudian list verification returned no product/,
+  "Auto-listing publish may only replay a final-submit-uncertain target after the Doudian 全部 tab full-title verification returns no product"
+);
+assert.match(
   publishFromSpuSource,
   /classifyAssets\(productFolder,\s*\{\s*feishuRecordId:\s*input\.metadata\?\.feishuRecordId\s*\}\)/s,
   "Doudian publish asset classification must receive the current Feishu recordId"
