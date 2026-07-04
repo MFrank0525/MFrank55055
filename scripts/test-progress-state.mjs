@@ -583,6 +583,11 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
+  /findLatestUnsafePublishManifestForResume\(\)[\s\S]*const resumeProductFolderNames[\s\S]*startStep: "published"/,
+  "AutoListingController unsafe publish resume must restart at the publish stage and must not regenerate titles"
+);
+assert.match(
+  hermesRunnerSource,
   /if \(!unsafePublishResumeNeedsWork && !publishResumeNeedsWork && \(!latestRelevantFailure \|\| path\.resolve\(latestRelevantFailure\.resultFile\) !== resultFile\)\)/,
   "AutoListingController resume must not discard a valid unsafe-publish resume job only because the stale result file was incorrectly marked successful"
 );

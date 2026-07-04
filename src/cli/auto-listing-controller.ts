@@ -2643,7 +2643,7 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
         runId: unsafeLatest.result.runId || path.basename(unsafeLatest.runtimeDir),
         input: {
           ...sourceJob.input,
-          startStep: "selling_points_loaded",
+          startStep: "published",
           endStep: "done",
           resumeSourceImagePath: task.sourceImagePath,
           resumeTaskId: task.taskId,
