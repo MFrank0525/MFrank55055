@@ -849,24 +849,11 @@ export function resolvePublishCheckBlockingFields(input: {
   filledPriceRows: number;
   freightTemplateName: string;
 }): string[] {
-  const completedFieldSet = new Set(input.completedFields);
   return input.blockingFields.filter((field) => {
     if (
       OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW &&
       (field === "白底图" || field === "主图3:4" || field.includes("白底图") || field.includes("3:4"))
     ) {
-      return false;
-    }
-    if (field === "型号规格" && completedFieldSet.has("modelSpec")) {
-      return false;
-    }
-    if ((field === "价格" || field === "现货库存") && input.filledPriceRows > 0) {
-      return false;
-    }
-    if (field === "运费模板" && input.freightTemplateName) {
-      return false;
-    }
-    if (field === "医疗器械注册证" && completedFieldSet.has("medicalDeviceCertificate")) {
       return false;
     }
     return true;

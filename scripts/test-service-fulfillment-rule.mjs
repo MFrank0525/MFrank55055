@@ -180,13 +180,13 @@ assert.deepEqual(
 
 assert.deepEqual(
   resolvePublishCheckBlockingFields({
-    blockingFields: ["白底图", "主图3:4", "型号规格"],
+    blockingFields: ["白底图", "主图3:4", "型号规格", "价格", "现货库存", "运费模板", "医疗器械注册证"],
     completedFields: ["modelSpec"],
     filledPriceRows: 4,
     freightTemplateName: "延草运费模板"
   }),
-  [],
-  "Doudian fill-check must not block on white-background or 3:4 slots because they are outside the project publish flow"
+  ["型号规格", "价格", "现货库存", "运费模板", "医疗器械注册证"],
+  "Doudian fill-check may ignore optional image slots, but must not hide hard DOM blockers using stale in-memory completion state"
 );
 
 assert.deepEqual(
