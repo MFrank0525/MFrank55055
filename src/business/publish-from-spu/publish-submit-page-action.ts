@@ -290,28 +290,34 @@ export async function runPublishCheckOnPage(
         );
         return contextText.includes("\u8fd0\u8d39\u6a21\u677f");
       });
-    const freightSelected = freightCombos.some((input) => {
-      const contextText = visibleText(
-        [input.value || "", input.parentElement?.parentElement?.textContent || "", input.closest("div")?.textContent || ""].join(" ")
-      );
-      return contextText.includes(freightKeyword);
-    });
-
-    const modelSpecFilled = Array.from(document.querySelectorAll("input"))
-      .map((el) => el as HTMLInputElement)
-      .some((input) => {
-        const rect = input.getBoundingClientRect();
-        if (rect.width <= 120 || rect.height <= 0 || input.disabled || input.readOnly) {
-          return false;
-        }
+    const normalizedBodyText = visibleText(bodyText);
+    const freightSelected =
+      normalizedBodyText.includes(freightKeyword) ||
+      freightCombos.some((input) => {
         const contextText = visibleText(
-          [input.parentElement?.parentElement?.textContent || "", input.closest("div")?.textContent || ""].join(" ")
+          [input.value || "", input.parentElement?.parentElement?.textContent || "", input.closest("div")?.textContent || ""].join(" ")
         );
-        if (!contextText.includes("\u578b\u53f7\u89c4\u683c")) {
-          return false;
-        }
-        return Boolean((input.value || "").trim());
+        return contextText.includes(freightKeyword);
       });
+
+    const priceInventoryRowsReady = spinButtons.length >= 2 && emptyPriceCount === 0 && emptyStockCount === 0;
+    const modelSpecFilled =
+      priceInventoryRowsReady ||
+      Array.from(document.querySelectorAll("input"))
+        .map((el) => el as HTMLInputElement)
+        .some((input) => {
+          const rect = input.getBoundingClientRect();
+          if (rect.width <= 120 || rect.height <= 0 || input.disabled || input.readOnly) {
+            return false;
+          }
+          const contextText = visibleText(
+            [input.parentElement?.parentElement?.textContent || "", input.closest("div")?.textContent || ""].join(" ")
+          );
+          if (!contextText.includes("\u578b\u53f7\u89c4\u683c")) {
+            return false;
+          }
+          return Boolean((input.value || "").trim());
+        });
 
     const blockingFields = [
       countSectionImages("\u4e3b\u56fe3:4") > 0 ? "\u4e3b\u56fe3:4" : "",

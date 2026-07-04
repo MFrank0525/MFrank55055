@@ -149,7 +149,8 @@ const publishActionSource = [
   fs.readFileSync("src/business/publish-from-spu/actions/graphic-info-action.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/actions/spec-price-action.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8"),
-  fs.readFileSync("src/business/publish-from-spu/actions/submit-action.ts", "utf8")
+  fs.readFileSync("src/business/publish-from-spu/actions/submit-action.ts", "utf8"),
+  fs.readFileSync("src/business/publish-from-spu/publish-submit-page-action.ts", "utf8")
 ].join("\n");
 for (const obsoleteAction of [
   "createFixedSpecTypeAndValues",
@@ -173,6 +174,16 @@ assert.match(
   publishSource,
   /readVisiblePriceInventoryRowTargets[\s\S]*fillVisiblePriceInventoryRowByTableDom/,
   "price/inventory action must read and write through the same visible table-row target model"
+);
+assert.match(
+  publishActionSource,
+  /const priceInventoryRowsReady = spinButtons\.length >= 2 && emptyPriceCount === 0 && emptyStockCount === 0;[\s\S]*const modelSpecFilled =[\s\S]*priceInventoryRowsReady \|\|/,
+  "final fill-check must accept live completed SKU price/inventory rows as spec completion evidence"
+);
+assert.match(
+  publishActionSource,
+  /normalizedBodyText\.includes\(freightKeyword\)[\s\S]*freightCombos\.some/,
+  "final fill-check must detect the selected freight template from visible dropdown text, not only input value"
 );
 assert.match(
   publishSource,
