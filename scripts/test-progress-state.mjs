@@ -210,6 +210,11 @@ assert.match(
   "Auto-listing publish may only replay a final-submit-uncertain target after the Doudian 全部 tab full-title verification returns no product"
 );
 assert.match(
+  publishSource,
+  /existingDecision\.finalVerifyStatus === "submit_accepted_unconfirmed"[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;/,
+  "Auto-listing resume must verify an existing uncertain final submit in the Doudian 全部 tab before replaying publish"
+);
+assert.match(
   publishFromSpuSource,
   /classifyAssets\(productFolder,\s*\{\s*feishuRecordId:\s*input\.metadata\?\.feishuRecordId\s*\}\)/s,
   "Doudian publish asset classification must receive the current Feishu recordId"
@@ -1264,6 +1269,23 @@ assert.deepEqual(
     issue: "Publish product button was clicked, but no submission success signal was detected."
   },
   "after the final publish click is issued without a platform success signal, recovery must not blindly submit again"
+);
+assert.deepEqual(
+  evaluatePublishResult({
+    ok: true,
+    status: "published",
+    publishClickAttempted: true,
+    publishClicked: false,
+    publishIssue: "No publish success signal was detected after clicking 发布商品.",
+    message: "Publish button click was issued; platform success signal was not observed."
+  }),
+  {
+    safelyPublished: false,
+    finalVerifyStatus: "submit_accepted_unconfirmed",
+    errorClass: "final_publish_state_uncertain",
+    issue: "No publish success signal was detected after clicking 发布商品."
+  },
+  "the browser-side no-success-signal issue must trigger Doudian 全部 tab full-title verification instead of manual review"
 );
 assert.deepEqual(
   evaluatePublishResult({

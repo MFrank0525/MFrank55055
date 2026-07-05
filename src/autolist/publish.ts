@@ -511,6 +511,66 @@ export async function publishDistributedProducts(options: {
     if (!metadata) {
       throw new Error(`Publish metadata was not built for canonical target: ${targetKey}`);
     }
+    const existingResultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
+    if (fs.existsSync(existingResultFile)) {
+      const existingDecision = evaluatePublishResult(readPublishResultSummary(existingResultFile));
+      if (!existingDecision.safelyPublished && existingDecision.finalVerifyStatus === "submit_accepted_unconfirmed") {
+        options.assertNotPaused?.();
+        const verifyingMessage = `Verifying existing uncertain final submit in Doudian 全部 tab: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+        logInfo(verifyingMessage);
+        options.onProgress?.(verifyingMessage);
+        const listVerification = await verifyPublishedProductInDoudianList({
+          runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
+          shopFolder,
+          title: metadata.title || ""
+        });
+        if (listVerification.found) {
+          const message = `Read-only Doudian 全部 tab full-title verification found existing product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+          markPublishResultListVerified(existingResultFile, listVerification);
+          results.push({
+            targetIdentity,
+            targetKey,
+            productFolder,
+            ok: true,
+            status: "published",
+            message,
+            resultFile: existingResultFile,
+            finalVerifyStatus: "list_verified",
+            errorClass: ""
+          });
+          upsertPublishManifestEntry(options.runtimeDir, {
+            targetIdentity,
+            targetKey,
+            productFolder,
+            runtimeKey,
+            shopFolder,
+            watermarkNo: extractWatermarkNo(productFolder),
+            status: "published",
+            finalVerifyStatus: "list_verified",
+            resultFile: existingResultFile,
+            message,
+            errorClass: "",
+            ...productIdentityFields
+          });
+          saveCheckpoint(path.join(options.runtimeDir, "publish", runtimeKey), [{ step: "publish_flow", status: "completed" }]);
+          failureCircuit = { signature: "", consecutive: 0, open: false };
+          continue;
+        }
+        upsertPublishManifestEntry(options.runtimeDir, {
+          targetIdentity,
+          targetKey,
+          productFolder,
+          runtimeKey,
+          shopFolder,
+          watermarkNo: extractWatermarkNo(productFolder),
+          status: "pending",
+          finalVerifyStatus: "not_checked",
+          resultFile: existingResultFile,
+          message: "Doudian 全部 tab full-title verification returned no product for existing uncertain submit; replaying publish once.",
+          ...productIdentityFields
+        });
+      }
+    }
     const startMessage = `Publishing product folder: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
     logInfo(startMessage.replace(/^Publishing/, "publishing"));
     options.onProgress?.(startMessage);

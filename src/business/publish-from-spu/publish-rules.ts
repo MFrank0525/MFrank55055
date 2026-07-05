@@ -485,6 +485,7 @@ export function classifyPublishFailure(message: string): string {
   if (
     text.includes("最终发布动作未完成") ||
     text.includes("Publishbuttonclickwasissued;platformsuccesssignalwasnotobserved") ||
+    text.includes("Nopublishsuccesssignalwasdetectedafterclicking发布商品") ||
     text.includes("Publishproductbuttonclickfailed") ||
     text.includes("Publishproductbuttonwasclicked,butnosubmissionsuccesssignalwasdetected")
   ) {
