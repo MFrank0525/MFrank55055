@@ -323,6 +323,11 @@ assert.match(
 );
 assert.match(
   hermesSupervisorSource,
+  /childMode === "resume"[\s\S]*prepareResumeJob\(\)[\s\S]*nextMode = "resume"[\s\S]*continue/,
+  "A successful resume child with pending batch work must keep resuming manifest-backed publish targets before returning to full flow"
+);
+assert.match(
+  hermesSupervisorSource,
   /latestProgressMtimeMs[\s\S]*paid-image-submissions[\s\S]*mtimeMs/,
   "supervisor watchdog must observe paid image ledger updates so accepted external image tasks are not mistaken for a stalled child"
 );

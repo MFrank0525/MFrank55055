@@ -547,6 +547,13 @@ async function main(): Promise<void> {
         batchComplete: currentBatch.batchComplete
       })
     ) {
+      if (childMode === "resume" && prepareResumeJob()) {
+        console.log("Resume child completed a manifest-backed segment; continuing resume targets before returning to full flow.");
+        nextMode = "resume";
+        childRecoveryAttempts = 0;
+        externalServiceWaitAttempts = 0;
+        continue;
+      }
       console.log("Feishu batch still has pending products after a successful child run; continuing full real flow with the locked current Feishu cache.");
       nextMode = "full";
       fullFlowReason = "same_batch_pending";

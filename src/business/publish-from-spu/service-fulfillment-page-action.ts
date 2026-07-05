@@ -175,75 +175,56 @@ async function clickRadioOptionNearFieldLabelCandidate(
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
       const isOptionTextMatch = (text: string, targetOptionText: string): boolean =>
         text === targetOptionText || text.includes(targetOptionText);
+      const isVisible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const visibleText = (el: HTMLElement): string => (isVisible(el) ? normalize(el.innerText || el.textContent || "") : "");
+      const matchesOption = (el: HTMLElement): boolean => {
+        const text = visibleText(el);
+        return Boolean(text) && targetOptionTexts.some((optionText) => isOptionTextMatch(text, optionText));
+      };
+      const radioContainers = (root: HTMLElement): HTMLElement[] =>
+        Array.from(root.querySelectorAll("label, [role='radio'], input[type='radio'], [class*='radio'], [class*='Radio']"))
+          .map((el) => (el as HTMLElement).closest("label, [role='radio'], [class*='radio'], [class*='Radio']") || el)
+          .map((el) => el as HTMLElement)
+          .filter((el, index, list) => isVisible(el) && list.indexOf(el) === index);
+      const hasMatchingOption = (node: HTMLElement): boolean => radioContainers(node).some((el) => matchesOption(el));
+      function findFieldRoot(label: HTMLElement): HTMLElement | null {
+        let node = label.parentElement;
+        while (node && node !== document.body) {
+          const text = visibleText(node);
+          if (targetFieldLabels.some((fieldLabel) => text.includes(fieldLabel)) && hasMatchingOption(node)) {
+            return node;
+          }
+          node = node.parentElement;
+        }
+        return null;
+      }
       const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
       for (const el of elements) {
         el.removeAttribute(markerName);
       }
-      const field = elements
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const text = normalize(el.innerText || el.textContent || "");
-          const matchedFieldLabel = targetFieldLabels.find((label) => text.includes(label));
-          if (!matchedFieldLabel || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-            return null;
-          }
-          const compactText = text.replace(/\*/g, "").trim();
-          return {
-            rect,
-            absTop: rect.top + window.scrollY,
-            absBottom: rect.bottom + window.scrollY,
-            absRight: rect.right + window.scrollX,
-            score:
-              (compactText === matchedFieldLabel ? 1200 : 0) +
-              (text === matchedFieldLabel || text === `*${matchedFieldLabel}` ? 1000 : 0) +
-              (text.startsWith("*") ? 200 : 0) +
-              (text.length <= matchedFieldLabel.length + 8 ? 300 : 0) +
-              (rect.left > 250 ? 500 : -500) -
-              text.length
-          };
-        })
-        .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
-      if (!field) {
-        return false;
-      }
 
-      const candidate = elements
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const text = normalize(el.innerText || el.textContent || "");
-          const matchedOptionText = targetOptionTexts.find((optionText) => isOptionTextMatch(text, optionText));
-          if (!matchedOptionText || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-            return null;
-          }
-          const absTop = rect.top + window.scrollY;
-          const absLeft = rect.left + window.scrollX;
-          if (absTop < field.absTop - 30 || absTop > field.absBottom + 90 || absLeft < field.absRight - 20) {
-            return null;
-          }
-          const label = (el.closest("label, [role='radio'], [class*='radio'], [class*='Radio']") || el) as HTMLElement;
-          const labelText = normalize(label.innerText || label.textContent || "");
-          const marker = [String(label.className || ""), label.getAttribute("role") || "", label.tagName].join(" ").toLowerCase();
-          return {
-            el: label,
-            score:
-              (labelText === matchedOptionText ? 400 : 0) +
-              (labelText.includes(matchedOptionText) ? 200 : 0) +
-              (marker.includes("radio") ? 200 : 0) -
-              Math.abs(absTop - field.absTop) -
-              Math.abs(absLeft - field.absRight) / 10
-          };
-        })
-        .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
-      if (!candidate) {
-        return false;
+      for (const label of elements) {
+        const labelText = visibleText(label).replace(/\*/g, "").trim();
+        if (!targetFieldLabels.some((fieldLabel) => labelText === fieldLabel || labelText.includes(fieldLabel))) {
+          continue;
+        }
+        const fieldRoot = findFieldRoot(label);
+        if (!fieldRoot) {
+          continue;
+        }
+        const option = radioContainers(fieldRoot).find((el) => matchesOption(el));
+        if (!option) {
+          continue;
+        }
+        option.scrollIntoView({ block: "center", inline: "center" });
+        option.setAttribute(markerName, "true");
+        return true;
       }
-      candidate.el.scrollIntoView({ block: "center", inline: "center" });
-      candidate.el.setAttribute(markerName, "true");
-      return true;
+      return false;
     },
     { fieldLabels, optionTexts, markerName: radioOptionMarker }
   );
@@ -277,76 +258,56 @@ async function isRadioOptionSelectedNearFieldLabelCandidate(
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
       const isOptionTextMatch = (text: string, targetOptionText: string): boolean =>
         text === targetOptionText || text.includes(targetOptionText);
-      const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
-      const field = elements
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const text = normalize(el.innerText || el.textContent || "");
-          const matchedFieldLabel = targetFieldLabels.find((label) => text.includes(label));
-          if (!matchedFieldLabel || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-            return null;
+      const isVisible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const visibleText = (el: HTMLElement): string => (isVisible(el) ? normalize(el.innerText || el.textContent || "") : "");
+      const matchesOption = (el: HTMLElement): boolean => {
+        const text = visibleText(el);
+        return Boolean(text) && targetOptionTexts.some((optionText) => isOptionTextMatch(text, optionText));
+      };
+      const radioContainers = (root: HTMLElement): HTMLElement[] =>
+        Array.from(root.querySelectorAll("label, [role='radio'], input[type='radio'], [class*='radio'], [class*='Radio']"))
+          .map((el) => (el as HTMLElement).closest("label, [role='radio'], [class*='radio'], [class*='Radio']") || el)
+          .map((el) => el as HTMLElement)
+          .filter((el, index, list) => isVisible(el) && list.indexOf(el) === index);
+      const hasMatchingOption = (node: HTMLElement): boolean => radioContainers(node).some((el) => matchesOption(el));
+      function findFieldRoot(label: HTMLElement): HTMLElement | null {
+        let node = label.parentElement;
+        while (node && node !== document.body) {
+          const text = visibleText(node);
+          if (targetFieldLabels.some((fieldLabel) => text.includes(fieldLabel)) && hasMatchingOption(node)) {
+            return node;
           }
-          const compactText = text.replace(/\*/g, "").trim();
-          return {
-            rect,
-            absTop: rect.top + window.scrollY,
-            absBottom: rect.bottom + window.scrollY,
-            absRight: rect.right + window.scrollX,
-            score:
-              (compactText === matchedFieldLabel ? 1200 : 0) +
-              (text === matchedFieldLabel || text === `*${matchedFieldLabel}` ? 1000 : 0) +
-              (text.startsWith("*") ? 200 : 0) +
-              (text.length <= matchedFieldLabel.length + 8 ? 300 : 0) +
-              (rect.left > 250 ? 500 : -500) -
-              text.length
-          };
-        })
-        .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
-      if (!field) {
-        return false;
+          node = node.parentElement;
+        }
+        return null;
       }
-
-      const candidates = elements
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const text = normalize(el.innerText || el.textContent || "");
-          const matchedOptionText = targetOptionTexts.find((optionText) => isOptionTextMatch(text, optionText));
-          if (!matchedOptionText || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
-            return null;
-          }
-          const absTop = rect.top + window.scrollY;
-          const absLeft = rect.left + window.scrollX;
-          if (absTop < field.absTop - 30 || absTop > field.absBottom + 90 || absLeft < field.absRight - 20) {
-            return null;
-          }
-          const label = (el.closest("label, [role='radio'], [class*='radio'], [class*='Radio']") || el) as HTMLElement;
-          const input = label.querySelector("input") as HTMLInputElement | null;
-          const marker = [
-            String(label.className || ""),
-            label.getAttribute("role") || "",
-            label.getAttribute("aria-checked") || "",
-            String(el.className || "")
-          ]
-            .join(" ")
-            .toLowerCase();
-          const selected =
-            input?.checked === true ||
-            label.getAttribute("aria-checked") === "true" ||
-            /\bchecked\b|selected|active/.test(marker);
-          return {
-            selected,
-            score:
-              (marker.includes("radio") ? 200 : 0) -
-              Math.abs(absTop - field.absTop) -
-              Math.abs(absLeft - field.absRight) / 10
-          };
-        })
-        .filter((candidate): candidate is { selected: boolean; score: number } => Boolean(candidate))
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-      return candidates.some((candidate) => candidate.selected === true);
+      const isSelected = (el: HTMLElement): boolean => {
+        const input = (el.matches("input[type='radio']") ? el : el.querySelector("input[type='radio']")) as HTMLInputElement | null;
+        const marker = [
+          String(el.className || ""),
+          el.getAttribute("role") || "",
+          el.getAttribute("aria-checked") || "",
+          String(el.querySelector("[class*='checked'], [class*='Checked']")?.className || "")
+        ].join(" ").toLowerCase();
+        return input?.checked === true || el.getAttribute("aria-checked") === "true" || /\bchecked\b|selected|active/.test(marker);
+      };
+      const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
+      for (const label of elements) {
+        const labelText = visibleText(label).replace(/\*/g, "").trim();
+        if (!targetFieldLabels.some((fieldLabel) => labelText === fieldLabel || labelText.includes(fieldLabel))) {
+          continue;
+        }
+        const fieldRoot = findFieldRoot(label);
+        if (!fieldRoot) {
+          continue;
+        }
+        return radioContainers(fieldRoot).some((el) => matchesOption(el) && isSelected(el));
+      }
+      return false;
     },
     { fieldLabels, optionTexts }
   );

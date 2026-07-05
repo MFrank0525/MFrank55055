@@ -124,13 +124,31 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /return candidates\.some\(\(candidate\) => candidate\.selected === true\)/,
-  "shipping-time readback must accept any selected valid option instead of inspecting only the highest-scored unselected option"
+  /return radioContainers\(fieldRoot\)\.some\(\(el\) => matchesOption\(el\) && isSelected\(el\)\)/,
+  "shipping-time readback must accept any selected valid option inside the parsed field root"
 );
 assert.match(
   publishSource,
   /async function ensureRadioOptionNearFieldLabelCandidates[\s\S]*for \(let attempt = 0; attempt < 3; attempt \+= 1\)[\s\S]*isRadioOptionSelectedNearFieldLabelCandidate[\s\S]*clickRadioOptionNearFieldLabelCandidate/,
   "shipping radio selection must retry candidate label/option pairs with readback instead of failing after one exact lookup"
+);
+assert.match(
+  radioOptionClickSource,
+  /function findFieldRoot[\s\S]*label\.parentElement[\s\S]*hasMatchingOption\(node\)/,
+  "shipping radio clicks must resolve the field root from the label DOM ancestry instead of ranked global candidates"
+);
+assert.doesNotMatch(
+  radioOptionClickSource,
+  /score|sort\(/,
+  "shipping radio clicks must not use scoring or sorted global guesses"
+);
+assert.doesNotMatch(
+  publishSource.slice(
+    publishSource.indexOf("async function isRadioOptionSelectedNearFieldLabelCandidate"),
+    publishSource.indexOf("async function ensureRadioOptionNearFieldLabel")
+  ),
+  /score|sort\(/,
+  "shipping radio readback must parse the field DOM structure without scoring"
 );
 assert.match(
   publishSource,
