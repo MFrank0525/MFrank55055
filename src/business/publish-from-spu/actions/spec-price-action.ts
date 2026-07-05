@@ -88,10 +88,13 @@ export async function runSpecPriceAction(
   }
 
   await deps.assertBasicPublishCompletionOnPage(page, input.runtimeDir, input.categoryContext.basicMetadata, "before_price_inventory_module");
-  const shippingBeforePriceRule = await deps.applyShippingBeforePriceInventoryOnPage(page);
+  const shippingBeforePriceRule = await deps.applyShippingBeforePriceInventoryOnPage(page, input.runtimeDir);
   if (!shippingBeforePriceRule.passed) {
     stages.push({ step: "apply_shipping_before_price_inventory", status: "failed" });
     throw new Error(`Sequential publish flow stopped: 价格库存发货前置模块未完成。${shippingBeforePriceRule.issue}`);
+  }
+  if (shippingBeforePriceRule.screenshotFile) {
+    screenshotFiles.push(shippingBeforePriceRule.screenshotFile);
   }
   configuredFields.push("shippingMode", "shippingTime");
   stages.push({ step: "apply_shipping_before_price_inventory", status: "completed" });

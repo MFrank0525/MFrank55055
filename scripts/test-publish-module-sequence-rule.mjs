@@ -109,10 +109,10 @@ assert.match(
 const specPriceActionSource = sliceFunction("runSpecPriceAction", actionSources.join("\n"));
 assert.match(
   specPriceActionSource,
-  /applyShippingBeforePriceInventoryOnPage\(page\)/,
+  /applyShippingBeforePriceInventoryOnPage\(page(?:, input\.runtimeDir)?\)/,
   "price-inventory action must apply shipping mode/time for every category before filling price rows"
 );
-const shippingBeforePriceStart = specPriceActionSource.indexOf("applyShippingBeforePriceInventoryOnPage(page)");
+const shippingBeforePriceStart = specPriceActionSource.search(/applyShippingBeforePriceInventoryOnPage\(page(?:, input\.runtimeDir)?\)/);
 const priceFillStart = specPriceActionSource.indexOf("applyPriceInventoryOnPage(", shippingBeforePriceStart);
 assert.notEqual(shippingBeforePriceStart, -1, "price-inventory shipping precondition stage not found");
 assert.notEqual(priceFillStart, -1, "price-inventory fill stage not found after shipping precondition");
@@ -122,7 +122,7 @@ assert.ok(
 );
 assert.doesNotMatch(
   specPriceActionSource.slice(0, shippingBeforePriceStart),
-  /input\.categoryContext\.productCategory === "保健食品"[\s\S]*applyShippingBeforePriceInventoryOnPage\(page\)/,
+  /input\.categoryContext\.productCategory === "保健食品"[\s\S]*applyShippingBeforePriceInventoryOnPage\(page(?:, input\.runtimeDir)?\)/,
   "shipping-before-price precondition must not be limited to health-food products"
 );
 assert.notEqual(publishBasicLoop, -1, "publish flow basic-info retry loop not found");

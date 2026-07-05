@@ -186,8 +186,8 @@ async function clickRadioOptionNearFieldLabelCandidate(
         return Boolean(text) && targetOptionTexts.some((optionText) => isOptionTextMatch(text, optionText));
       };
       const radioContainers = (root: HTMLElement): HTMLElement[] =>
-        Array.from(root.querySelectorAll("label, [role='radio'], input[type='radio'], [class*='radio'], [class*='Radio']"))
-          .map((el) => (el as HTMLElement).closest("label, [role='radio'], [class*='radio'], [class*='Radio']") || el)
+        Array.from(root.querySelectorAll("label, [role='radio'], input[type='radio']"))
+          .map((el) => (el as HTMLElement).closest("label, [role='radio']") || el)
           .map((el) => el as HTMLElement)
           .filter((el, index, list) => isVisible(el) && list.indexOf(el) === index);
       const hasMatchingOption = (node: HTMLElement): boolean => radioContainers(node).some((el) => matchesOption(el));
@@ -269,8 +269,8 @@ async function isRadioOptionSelectedNearFieldLabelCandidate(
         return Boolean(text) && targetOptionTexts.some((optionText) => isOptionTextMatch(text, optionText));
       };
       const radioContainers = (root: HTMLElement): HTMLElement[] =>
-        Array.from(root.querySelectorAll("label, [role='radio'], input[type='radio'], [class*='radio'], [class*='Radio']"))
-          .map((el) => (el as HTMLElement).closest("label, [role='radio'], [class*='radio'], [class*='Radio']") || el)
+        Array.from(root.querySelectorAll("label, [role='radio'], input[type='radio']"))
+          .map((el) => (el as HTMLElement).closest("label, [role='radio']") || el)
           .map((el) => el as HTMLElement)
           .filter((el, index, list) => isVisible(el) && list.indexOf(el) === index);
       const hasMatchingOption = (node: HTMLElement): boolean => radioContainers(node).some((el) => matchesOption(el));
@@ -400,7 +400,7 @@ export async function applyHealthFoodShippingBeforeSpecOnPage(page: Page): Promi
   return rule;
 }
 
-export async function applyShippingBeforePriceInventoryOnPage(page: Page): Promise<PublishRuleCheck> {
+export async function applyShippingBeforePriceInventoryOnPage(page: Page, runtimeDir?: string): Promise<PublishRuleCheck & { screenshotFile?: string }> {
   await ensurePublishSectionTab(page, "\u4ef7\u683c\u5e93\u5b58");
   await scrollLabelIntoView(page, "\u53d1\u8d27\u6a21\u5f0f").catch(() => false);
   const rule = await applyShippingSelectionOnPage(page);
@@ -410,7 +410,9 @@ export async function applyShippingBeforePriceInventoryOnPage(page: Page): Promi
       issue: `Price-inventory shipping precondition failed. ${rule.issue}`
     };
   }
-  return rule;
+  await scrollLabelIntoView(page, "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4").catch(() => false);
+  const screenshotFile = runtimeDir ? await savePageScreenshot(page, runtimeDir, "publish-page-shipping-48-selected.png").catch(() => "") : "";
+  return { ...rule, screenshotFile: screenshotFile || undefined };
 }
 
 export async function applyFixedPublishSettings(

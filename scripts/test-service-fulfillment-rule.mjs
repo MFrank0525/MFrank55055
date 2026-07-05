@@ -148,12 +148,30 @@ assert.doesNotMatch(
   "shipping radio clicks must not use scoring or sorted global guesses"
 );
 assert.doesNotMatch(
+  radioOptionClickSource,
+  /\[class\*=['"]radio['"]\]|\[class\*=['"]Radio['"]\]/,
+  "shipping radio clicks must not treat radio-group containers as selectable options"
+);
+assert.doesNotMatch(
   publishSource.slice(
     publishSource.indexOf("async function isRadioOptionSelectedNearFieldLabelCandidate"),
     publishSource.indexOf("async function ensureRadioOptionNearFieldLabel")
   ),
   /score|sort\(/,
   "shipping radio readback must parse the field DOM structure without scoring"
+);
+assert.doesNotMatch(
+  publishSource.slice(
+    publishSource.indexOf("async function isRadioOptionSelectedNearFieldLabelCandidate"),
+    publishSource.indexOf("async function ensureRadioOptionNearFieldLabel")
+  ),
+  /\[class\*=['"]radio['"]\]|\[class\*=['"]Radio['"]\]/,
+  "shipping radio readback must not let a checked sibling inside a radio group satisfy the 48-hour option"
+);
+assert.match(
+  publishSource,
+  /applyShippingBeforePriceInventoryOnPage\(page: Page, runtimeDir\?: string\)[\s\S]*publish-page-shipping-48-selected\.png/,
+  "price-inventory shipping precondition must save evidence after 48-hour DOM readback"
 );
 assert.match(
   publishSource,
