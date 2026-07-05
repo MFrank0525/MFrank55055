@@ -119,8 +119,13 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /const SHIPPING_TIME_OPTION_TEXT_CANDIDATES[\s\S]*"48\\u5c0f\\u65f6"[\s\S]*"48\\u5c0f\\u65f6\\u5185\\u53d1\\u8d27"[\s\S]*"\\u6b21\\u65e5\\u53d1"/,
-  "shipping-time selection must support option text variants and the platform default 次日发"
+  /const SHIPPING_TIME_OPTION_TEXT_CANDIDATES\s*=\s*\["48\\u5c0f\\u65f6", "48\\u5c0f\\u65f6\\u5185\\u53d1\\u8d27"\]/,
+  "shipping-time selection must only accept the required 48-hour shipping options"
+);
+assert.doesNotMatch(
+  publishSource,
+  /SHIPPING_TIME_OPTION_TEXT_CANDIDATES[\s\S]*"\\u6b21\\u65e5\\u53d1"|SHIPPING_TIME_OPTION_TEXT_CANDIDATES[\s\S]*"\\u5f53\\u65e5\\u53d1"/,
+  "shipping-time selection must not treat 次日发 or 当日发 as valid"
 );
 assert.match(
   publishSource,

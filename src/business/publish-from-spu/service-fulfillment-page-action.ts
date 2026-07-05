@@ -154,7 +154,7 @@ const SHIPPING_TIME_FIELD_LABEL_CANDIDATES = [
   "\u53d1\u8d27\u65f6\u95f4",
   "\u627f\u8bfa\u53d1\u8d27\u65f6\u95f4"
 ];
-const SHIPPING_TIME_OPTION_TEXT_CANDIDATES = ["48\u5c0f\u65f6", "48\u5c0f\u65f6\u5185\u53d1\u8d27", "\u6b21\u65e5\u53d1", "\u5f53\u65e5\u53d1"];
+const SHIPPING_TIME_OPTION_TEXT_CANDIDATES = ["48\u5c0f\u65f6", "48\u5c0f\u65f6\u5185\u53d1\u8d27"];
 
 function isOptionTextMatch(text: string, targetOptionText: string): boolean {
   return text === targetOptionText || text.includes(targetOptionText);
