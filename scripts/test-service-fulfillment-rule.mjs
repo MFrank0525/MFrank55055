@@ -114,6 +114,26 @@ assert.match(
 );
 assert.match(
   publishSource,
+  /const SHIPPING_TIME_FIELD_LABEL_CANDIDATES[\s\S]*"\\u73b0\\u8d27\\u53d1\\u8d27\\u65f6\\u95f4"[\s\S]*"\\u53d1\\u8d27\\u65f6\\u95f4"[\s\S]*"\\u627f\\u8bfa\\u53d1\\u8d27\\u65f6\\u95f4"/,
+  "shipping-time selection must support Doudian label variants instead of only 现货发货时间"
+);
+assert.match(
+  publishSource,
+  /const SHIPPING_TIME_OPTION_TEXT_CANDIDATES[\s\S]*"48\\u5c0f\\u65f6"[\s\S]*"48\\u5c0f\\u65f6\\u5185\\u53d1\\u8d27"/,
+  "shipping-time selection must support option text variants such as 48小时内发货"
+);
+assert.match(
+  publishSource,
+  /async function ensureRadioOptionNearFieldLabelCandidates[\s\S]*for \(let attempt = 0; attempt < 3; attempt \+= 1\)[\s\S]*isRadioOptionSelectedNearFieldLabelCandidate[\s\S]*clickRadioOptionNearFieldLabelCandidate/,
+  "shipping radio selection must retry candidate label/option pairs with readback instead of failing after one exact lookup"
+);
+assert.match(
+  publishSource,
+  /function isOptionTextMatch[\s\S]*text\.includes\(targetOptionText\)/,
+  "shipping radio option matching must allow longer Doudian labels that include the requested value"
+);
+assert.match(
+  publishSource,
   /export async function applyFixedSpecsOnPage[\s\S]*ensurePublishSectionTab\(page, "\\u4ef7\\u683c\\u5e93\\u5b58"\)[\s\S]*scrollLabelIntoView\(page, "\\u5546\\u54c1\\u89c4\\u683c"\)/,
   "spec setup must position by the 商品规格 label instead of scrolling past the price-inventory module"
 );

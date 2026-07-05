@@ -120,6 +120,8 @@ function isDeterministicDetailQualificationFailure(message: string): boolean {
   );
 }
 
+function isRetryablePreSubmitShippingPreconditionFailure(message: string): boolean { return /价格库存发货前置模块未完成|Price-inventory shipping precondition failed/i.test(message) && /Missing price-inventory precondition fields: (?:shippingMode|shippingTime|shippingMode, shippingTime)/i.test(message); }
+
 function isRetryablePublishPageFailure(message: string): boolean {
   if (/Doudian login (?:is )?required|抖店登录/i.test(message)) {
     return false;
@@ -128,7 +130,7 @@ function isRetryablePublishPageFailure(message: string): boolean {
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
     (/基础信息模块未完成|Basic info gate failed|input not found on publish page|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|page context was lost|Execution context was destroyed|Target closed/i.test(
       message
-    ) || isDeterministicDetailQualificationFailure(message))
+    ) || isDeterministicDetailQualificationFailure(message) || isRetryablePreSubmitShippingPreconditionFailure(message))
   );
 }
 
@@ -154,7 +156,7 @@ function isSafeManifestBackedPublishResumeFailure(message: string): boolean {
     isRetryablePublishPageFailure(message) &&
     (/基础信息模块未完成|Basic info gate failed|input not found on publish page|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete/i.test(
       message
-    ) || isDeterministicDetailQualificationFailure(message))
+    ) || isDeterministicDetailQualificationFailure(message) || isRetryablePreSubmitShippingPreconditionFailure(message))
   );
 }
 

@@ -323,8 +323,13 @@ assert.match(
 );
 assert.match(
   hermesSupervisorSource,
+  /latestProgressMtimeMs[\s\S]*paid-image-submissions[\s\S]*mtimeMs/,
+  "supervisor watchdog must observe paid image ledger updates so accepted external image tasks are not mistaken for a stalled child"
+);
+assert.match(
+  hermesSupervisorSource,
   /shouldRefreshAutoListingChildProgressSeenAt/,
-  "supervisor watchdog must not treat repeated provider queue heartbeats as business progress"
+  "supervisor watchdog must still classify visible progress messages before deciding whether to refresh progress time"
 );
 assert.equal(
   shouldRefreshAutoListingChildProgressSeenAt({
@@ -3823,6 +3828,38 @@ assert.equal(
   }),
   true,
   "AutoListingController resume children killed by the no-progress watchdog must automatically continue the locked current batch"
+);
+const doudianShippingTimePreconditionFailure =
+  "failed at published: Sequential publish flow stopped: \u4ef7\u683c\u5e93\u5b58\u53d1\u8d27\u524d\u7f6e\u6a21\u5757\u672a\u5b8c\u6210\u3002Price-inventory shipping precondition failed. Missing price-inventory precondition fields: shippingTime";
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: doudianShippingTimePreconditionFailure,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "shipping-time pre-submit detection failures must remain project-owned and self-recoverable"
+);
+assert.equal(
+  resolveSupervisorRecoveryChildMode(doudianShippingTimePreconditionFailure),
+  "resume",
+  "shipping-time pre-submit detection failures must resume from the manifest instead of rebuilding the whole product"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: doudianShippingTimePreconditionFailure,
+    activeStep: "published",
+    activeMessage: "Publish failed: product-1 (shop-1)",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "AutoListingController must not stop when a pre-submit shipping-time readback can be retried safely"
 );
 const videosBase64QueuedWatchdogMessage =
   "child made no progress before watchdog timeout during main_images_generated: Prompt 4/5: Image 4: videos-base64 task task_1bRTM2GdZUb3T status queued 0.";

@@ -147,11 +147,34 @@ function configuredFieldsFromServiceFulfillmentState(state: ServiceFulfillmentSt
   ].filter(Boolean);
 }
 
+const SHIPPING_MODE_FIELD_LABEL_CANDIDATES = ["\u53d1\u8d27\u6a21\u5f0f"];
+const SHIPPING_MODE_OPTION_TEXT_CANDIDATES = ["\u73b0\u8d27"];
+const SHIPPING_TIME_FIELD_LABEL_CANDIDATES = [
+  "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4",
+  "\u53d1\u8d27\u65f6\u95f4",
+  "\u627f\u8bfa\u53d1\u8d27\u65f6\u95f4"
+];
+const SHIPPING_TIME_OPTION_TEXT_CANDIDATES = ["48\u5c0f\u65f6", "48\u5c0f\u65f6\u5185\u53d1\u8d27"];
+
+function isOptionTextMatch(text: string, targetOptionText: string): boolean {
+  return text === targetOptionText || text.includes(targetOptionText);
+}
+
 async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, optionText: string): Promise<boolean> {
+  return clickRadioOptionNearFieldLabelCandidate(page, [fieldLabel], [optionText]);
+}
+
+async function clickRadioOptionNearFieldLabelCandidate(
+  page: Page,
+  fieldLabels: string[],
+  optionTexts: string[]
+): Promise<boolean> {
   const radioOptionMarker = `data-auto-listing-radio-option-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const marked = await page.evaluate(
-    ({ fieldLabel: targetFieldLabel, optionText: targetOptionText, markerName }) => {
+    ({ fieldLabels: targetFieldLabels, optionTexts: targetOptionTexts, markerName }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const isOptionTextMatch = (text: string, targetOptionText: string): boolean =>
+        text === targetOptionText || text.includes(targetOptionText);
       const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
       for (const el of elements) {
         el.removeAttribute(markerName);
@@ -161,17 +184,21 @@ async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, op
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
           const text = normalize(el.innerText || el.textContent || "");
-          if (!text || !text.includes(targetFieldLabel) || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          const matchedFieldLabel = targetFieldLabels.find((label) => text.includes(label));
+          if (!matchedFieldLabel || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
             return null;
           }
+          const compactText = text.replace(/\*/g, "").trim();
           return {
             rect,
             absTop: rect.top + window.scrollY,
             absBottom: rect.bottom + window.scrollY,
             absRight: rect.right + window.scrollX,
             score:
-              (text === targetFieldLabel || text === `*${targetFieldLabel}` ? 1000 : 0) +
+              (compactText === matchedFieldLabel ? 1200 : 0) +
+              (text === matchedFieldLabel || text === `*${matchedFieldLabel}` ? 1000 : 0) +
               (text.startsWith("*") ? 200 : 0) +
+              (text.length <= matchedFieldLabel.length + 8 ? 300 : 0) +
               (rect.left > 250 ? 500 : -500) -
               text.length
           };
@@ -187,7 +214,8 @@ async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, op
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
           const text = normalize(el.innerText || el.textContent || "");
-          if (text !== targetOptionText || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          const matchedOptionText = targetOptionTexts.find((optionText) => isOptionTextMatch(text, optionText));
+          if (!matchedOptionText || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
             return null;
           }
           const absTop = rect.top + window.scrollY;
@@ -195,13 +223,14 @@ async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, op
           if (absTop < field.absTop - 30 || absTop > field.absBottom + 90 || absLeft < field.absRight - 20) {
             return null;
           }
-          const label = (el.closest("label") || el) as HTMLElement;
+          const label = (el.closest("label, [role='radio'], [class*='radio'], [class*='Radio']") || el) as HTMLElement;
           const labelText = normalize(label.innerText || label.textContent || "");
           const marker = [String(label.className || ""), label.getAttribute("role") || "", label.tagName].join(" ").toLowerCase();
           return {
             el: label,
             score:
-              (labelText === targetOptionText ? 300 : 0) +
+              (labelText === matchedOptionText ? 400 : 0) +
+              (labelText.includes(matchedOptionText) ? 200 : 0) +
               (marker.includes("radio") ? 200 : 0) -
               Math.abs(absTop - field.absTop) -
               Math.abs(absLeft - field.absRight) / 10
@@ -216,7 +245,7 @@ async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, op
       candidate.el.setAttribute(markerName, "true");
       return true;
     },
-    { fieldLabel, optionText, markerName: radioOptionMarker }
+    { fieldLabels, optionTexts, markerName: radioOptionMarker }
   );
   if (!marked) {
     return false;
@@ -235,26 +264,40 @@ async function clickRadioOptionNearFieldLabel(page: Page, fieldLabel: string, op
 }
 
 async function isRadioOptionSelectedNearFieldLabel(page: Page, fieldLabel: string, optionText: string): Promise<boolean> {
+  return isRadioOptionSelectedNearFieldLabelCandidate(page, [fieldLabel], [optionText]);
+}
+
+async function isRadioOptionSelectedNearFieldLabelCandidate(
+  page: Page,
+  fieldLabels: string[],
+  optionTexts: string[]
+): Promise<boolean> {
   return page.evaluate(
-    ({ fieldLabel: targetFieldLabel, optionText: targetOptionText }) => {
+    ({ fieldLabels: targetFieldLabels, optionTexts: targetOptionTexts }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const isOptionTextMatch = (text: string, targetOptionText: string): boolean =>
+        text === targetOptionText || text.includes(targetOptionText);
       const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
       const field = elements
         .map((el) => {
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
           const text = normalize(el.innerText || el.textContent || "");
-          if (!text || !text.includes(targetFieldLabel) || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          const matchedFieldLabel = targetFieldLabels.find((label) => text.includes(label));
+          if (!matchedFieldLabel || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
             return null;
           }
+          const compactText = text.replace(/\*/g, "").trim();
           return {
             rect,
             absTop: rect.top + window.scrollY,
             absBottom: rect.bottom + window.scrollY,
             absRight: rect.right + window.scrollX,
             score:
-              (text === targetFieldLabel || text === `*${targetFieldLabel}` ? 1000 : 0) +
+              (compactText === matchedFieldLabel ? 1200 : 0) +
+              (text === matchedFieldLabel || text === `*${matchedFieldLabel}` ? 1000 : 0) +
               (text.startsWith("*") ? 200 : 0) +
+              (text.length <= matchedFieldLabel.length + 8 ? 300 : 0) +
               (rect.left > 250 ? 500 : -500) -
               text.length
           };
@@ -270,7 +313,8 @@ async function isRadioOptionSelectedNearFieldLabel(page: Page, fieldLabel: strin
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
           const text = normalize(el.innerText || el.textContent || "");
-          if (text !== targetOptionText || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
+          const matchedOptionText = targetOptionTexts.find((optionText) => isOptionTextMatch(text, optionText));
+          if (!matchedOptionText || rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
             return null;
           }
           const absTop = rect.top + window.scrollY;
@@ -278,7 +322,7 @@ async function isRadioOptionSelectedNearFieldLabel(page: Page, fieldLabel: strin
           if (absTop < field.absTop - 30 || absTop > field.absBottom + 90 || absLeft < field.absRight - 20) {
             return null;
           }
-          const label = (el.closest("label") || el) as HTMLElement;
+          const label = (el.closest("label, [role='radio'], [class*='radio'], [class*='Radio']") || el) as HTMLElement;
           const input = label.querySelector("input") as HTMLInputElement | null;
           const marker = [
             String(label.className || ""),
@@ -304,26 +348,42 @@ async function isRadioOptionSelectedNearFieldLabel(page: Page, fieldLabel: strin
         .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
       return candidate?.selected === true;
     },
-    { fieldLabel, optionText }
+    { fieldLabels, optionTexts }
   );
 }
 
 async function ensureRadioOptionNearFieldLabel(page: Page, fieldLabel: string, optionText: string): Promise<boolean> {
-  if (await isRadioOptionSelectedNearFieldLabel(page, fieldLabel, optionText).catch(() => false)) {
-    return true;
+  return ensureRadioOptionNearFieldLabelCandidates(page, [fieldLabel], [optionText]);
+}
+
+async function ensureRadioOptionNearFieldLabelCandidates(
+  page: Page,
+  fieldLabels: string[],
+  optionTexts: string[]
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await isRadioOptionSelectedNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false)) {
+      return true;
+    }
+    if (await clickRadioOptionNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false)) {
+      await page.waitForTimeout(500);
+    }
+    if (await isRadioOptionSelectedNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false)) {
+      return true;
+    }
+    await dismissTransientOverlays(page).catch(() => {});
+    await scrollPublishSectionContentIntoView(page, "\u4ef7\u683c\u5e93\u5b58").catch(() => false);
+    await page.waitForTimeout(300);
   }
-  if (await clickRadioOptionNearFieldLabel(page, fieldLabel, optionText).catch(() => false)) {
-    await page.waitForTimeout(500);
-  }
-  return isRadioOptionSelectedNearFieldLabel(page, fieldLabel, optionText).catch(() => false);
+  return false;
 }
 
 async function readServiceFulfillmentState(page: Page, freightTemplateName: string): Promise<ServiceFulfillmentState> {
   const shippingModeSelected =
-    (await isRadioOptionSelectedNearFieldLabel(page, "\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27").catch(() => false)) ||
+    (await isRadioOptionSelectedNearFieldLabelCandidate(page, SHIPPING_MODE_FIELD_LABEL_CANDIDATES, SHIPPING_MODE_OPTION_TEXT_CANDIDATES).catch(() => false)) ||
     (await isRadioSelectedByLabel(page, "\u73b0\u8d27").catch(() => false));
   const shippingTimeSelected =
-    (await isRadioOptionSelectedNearFieldLabel(page, "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "48\u5c0f\u65f6").catch(() => false)) ||
+    (await isRadioOptionSelectedNearFieldLabelCandidate(page, SHIPPING_TIME_FIELD_LABEL_CANDIDATES, SHIPPING_TIME_OPTION_TEXT_CANDIDATES).catch(() => false)) ||
     (await isRadioSelectedByLabel(page, "48\u5c0f\u65f6").catch(() => false));
   const productStatusSelected =
     (await isRadioOptionSelectedNearFieldLabel(page, "\u5546\u54c1\u72b6\u6001", "\u4e0a\u67b6").catch(() => false)) ||
@@ -344,8 +404,8 @@ async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
   freightTemplateName: string;
   serviceState: ServiceFulfillmentState;
 }> {
-  await ensureRadioOptionNearFieldLabel(page, "\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27");
-  await ensureRadioOptionNearFieldLabel(page, "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "48\u5c0f\u65f6");
+  await ensureRadioOptionNearFieldLabelCandidates(page, SHIPPING_MODE_FIELD_LABEL_CANDIDATES, SHIPPING_MODE_OPTION_TEXT_CANDIDATES);
+  await ensureRadioOptionNearFieldLabelCandidates(page, SHIPPING_TIME_FIELD_LABEL_CANDIDATES, SHIPPING_TIME_OPTION_TEXT_CANDIDATES);
   await ensureServiceSectionReady(page);
 
   const freightTemplateName = await chooseKeywordFreightTemplate(page, FIXED_FREIGHT_TEMPLATE_KEYWORD);
@@ -362,8 +422,9 @@ async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
 }
 
 async function applyShippingSelectionOnPage(page: Page): Promise<PublishRuleCheck> {
-  const shippingModeSelected = await ensureRadioOptionNearFieldLabel(page, "\u53d1\u8d27\u6a21\u5f0f", "\u73b0\u8d27");
-  const shippingTimeSelected = await ensureRadioOptionNearFieldLabel(page, "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4", "48\u5c0f\u65f6");
+  const shippingModeSelected = await ensureRadioOptionNearFieldLabelCandidates(page, SHIPPING_MODE_FIELD_LABEL_CANDIDATES, SHIPPING_MODE_OPTION_TEXT_CANDIDATES);
+  await scrollLabelIntoView(page, "\u73b0\u8d27\u53d1\u8d27\u65f6\u95f4").catch(() => false);
+  const shippingTimeSelected = await ensureRadioOptionNearFieldLabelCandidates(page, SHIPPING_TIME_FIELD_LABEL_CANDIDATES, SHIPPING_TIME_OPTION_TEXT_CANDIDATES);
   return evaluateShippingBeforePriceInventoryCompletion({ shippingModeSelected, shippingTimeSelected });
 }
 

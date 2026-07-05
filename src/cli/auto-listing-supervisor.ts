@@ -88,36 +88,48 @@ function sleep(ms: number): Promise<void> {
 
 function latestProgressMtimeMs(): number {
   const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
-  if (!fs.existsSync(runsDir)) {
-    return 0;
-  }
   let latest = 0;
-  for (const runId of fs.readdirSync(runsDir)) {
-    const runtimeDir = path.join(runsDir, runId);
-    if (!fs.statSync(runtimeDir).isDirectory()) {
-      continue;
-    }
-    for (const fileName of ["state.json", "events.ndjson", "result.json", "publish-manifest.json"]) {
-      const file = path.join(runtimeDir, fileName);
-      if (fs.existsSync(file)) {
-        latest = Math.max(latest, fs.statSync(file).mtimeMs);
+  if (fs.existsSync(runsDir)) {
+    for (const runId of fs.readdirSync(runsDir)) {
+      const runtimeDir = path.join(runsDir, runId);
+      if (!fs.statSync(runtimeDir).isDirectory()) {
+        continue;
       }
-    }
-    const publishDir = path.join(runtimeDir, "publish");
-    const pendingDirs = fs.existsSync(publishDir) ? [publishDir] : [];
-    while (pendingDirs.length > 0) {
-      const currentDir = pendingDirs.pop()!;
-      for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
-        const file = path.join(currentDir, entry.name);
-        if (entry.isDirectory()) {
-          pendingDirs.push(file);
-          continue;
-        }
-        const relativePath = path.relative(runtimeDir, file);
-        if (isAutoListingControllerProgressArtifactRelativePath(relativePath)) {
+      for (const fileName of ["state.json", "events.ndjson", "result.json", "publish-manifest.json"]) {
+        const file = path.join(runtimeDir, fileName);
+        if (fs.existsSync(file)) {
           latest = Math.max(latest, fs.statSync(file).mtimeMs);
         }
       }
+      const publishDir = path.join(runtimeDir, "publish");
+      const pendingDirs = fs.existsSync(publishDir) ? [publishDir] : [];
+      while (pendingDirs.length > 0) {
+        const currentDir = pendingDirs.pop()!;
+        for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+          const file = path.join(currentDir, entry.name);
+          if (entry.isDirectory()) {
+            pendingDirs.push(file);
+            continue;
+          }
+          const relativePath = path.relative(runtimeDir, file);
+          if (isAutoListingControllerProgressArtifactRelativePath(relativePath)) {
+            latest = Math.max(latest, fs.statSync(file).mtimeMs);
+          }
+        }
+      }
+    }
+  }
+  const paidImageLedgerDir = path.resolve(rootDir, "data/auto-listing/paid-image-submissions");
+  const ledgerDirs = fs.existsSync(paidImageLedgerDir) ? [paidImageLedgerDir] : [];
+  while (ledgerDirs.length > 0) {
+    const currentDir = ledgerDirs.pop()!;
+    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+      const file = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        ledgerDirs.push(file);
+        continue;
+      }
+      latest = Math.max(latest, fs.statSync(file).mtimeMs);
     }
   }
   return latest;
