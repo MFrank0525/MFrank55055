@@ -148,6 +148,9 @@ export function resolvePendingFeishuProductSourceImagesFromRecords(input: Pendin
     if (sourceImage && processedImages.has(path.resolve(sourceImage))) {
       return;
     }
+    if (record.recordId && Array.from(processedImages).some((filePath) => filePath.includes(`-${record.recordId}-白底图-`))) {
+      return;
+    }
     if (!sourceImage) {
       throw new Error(
         `Feishu product row ${index + 1} (${record.recordId || "unknown"}) has no downloaded white background image.`

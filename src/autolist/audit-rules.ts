@@ -182,7 +182,10 @@ export function collectFeishuProductAssetFiles(records: FeishuProductRecord[]): 
 }
 
 function isRecordProcessed(record: FeishuProductRecord, processedImages: Set<string>): boolean {
-  return localFiles(record.whiteBackgroundImages || []).some((filePath) => processedImages.has(filePath));
+  if (localFiles(record.whiteBackgroundImages || []).some((filePath) => processedImages.has(filePath))) {
+    return true;
+  }
+  return Boolean(record.recordId && Array.from(processedImages).some((filePath) => filePath.includes(`-${record.recordId}-白底图-`)));
 }
 
 function issue(
@@ -295,6 +298,7 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
   for (const [index, record] of input.records.entries()) {
     const ownerRecordId = record.recordId || `row-${index + 1}`;
     const rowLabel = `row ${index + 1}${record.recordId ? ` (${record.recordId})` : ""}`;
+    const processed = isRecordProcessed(record, processedImages);
     const whiteImages = localFiles(record.whiteBackgroundImages || []);
     const qualificationImages = localFiles(record.qualificationImages || []);
     declaredWhiteImageCount += whiteImages.length;
@@ -315,12 +319,11 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
       errors
     });
 
-    if (whiteImages.length === 0) {
+    if (whiteImages.length === 0 && !processed) {
       errors.push(issue("error", "white_image_not_declared", `Feishu ${rowLabel} has no downloaded white background image.`, record.recordId));
       continue;
     }
 
-    const processed = isRecordProcessed(record, processedImages);
     if (processed) {
       processedRecordCount += 1;
       for (const filePath of whiteImages) {

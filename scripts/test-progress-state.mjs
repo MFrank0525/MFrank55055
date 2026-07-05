@@ -65,6 +65,7 @@ import {
   shouldSuppressTerminalFailureBehindNewerProgress,
   compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
+import { shouldRefreshFeishuAssetsToCandidateCache } from "../dist/src/autolist/feishu-refresh-rules.js";
 import {
   shouldFailAutoListingControllerStatusForFeishuCacheInvalid,
   shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid
@@ -639,6 +640,11 @@ assert.match(
   hermesRunnerSource,
   /batchFingerprint: selectedBatchFingerprint/,
   "Controller jobs must persist the exact selected Feishu batch fingerprint"
+);
+assert.match(
+  hermesSupervisorSource,
+  /shouldRefreshFeishuAssetsToCandidateCache[\s\S]*feishu-products\.refresh-candidate\.json[\s\S]*copyFileSync/,
+  "AutoListingSupervisor post-completion Feishu refresh must write a candidate cache and only promote it after validation"
 );
 assert.match(
   hermesRunnerSource,
@@ -1790,6 +1796,42 @@ assert.deepEqual(batchProgress, {
   pendingSourceImages: ["/work/input/auto-listing/feishu-images/product-3.png"],
   batchComplete: false
 });
+const completedBatchProgressWithoutLocalAssets = summarizeFeishuBatchProgress({
+  records: [
+    record("recv-done-1", ""),
+    record("recv-done-2", "")
+  ],
+  processedImages: [
+    "/work/input/auto-listing/feishu-images/批文-产品-recv-done-1-白底图-01-a.png",
+    "/work/input/auto-listing/feishu-images/批文-产品-recv-done-2-白底图-01-b.png"
+  ]
+});
+assert.deepEqual(
+  completedBatchProgressWithoutLocalAssets,
+  {
+    recordCount: 2,
+    processedRecordCount: 2,
+    pendingRecordCount: 0,
+    pendingSourceImages: [],
+    batchComplete: true
+  },
+  "Completed Feishu records must stay completed when post-completion refresh cleanup removed local source asset declarations"
+);
+
+const completedContinuityWithoutLocalAssets = auditAutoListingContinuity({
+  records: [record("recv-done-1", ""), record("recv-done-2", "")],
+  processedImages: [
+    "/work/input/auto-listing/feishu-images/批文-产品-recv-done-1-白底图-01-a.png",
+    "/work/input/auto-listing/feishu-images/批文-产品-recv-done-2-白底图-01-b.png"
+  ],
+  existingFiles: [],
+  discoveredRunImageCount: 0
+});
+assert.equal(
+  completedContinuityWithoutLocalAssets.ok,
+  true,
+  "Continuity audit must not fail a completed record only because its downloaded source asset declaration was cleaned after completion"
+);
 
 const pendingFeishuSourceImages = resolvePendingFeishuProductSourceImagesFromRecords({
   records: [
@@ -1800,6 +1842,15 @@ const pendingFeishuSourceImages = resolvePendingFeishuProductSourceImagesFromRec
   fileExists: (filePath) => filePath.endsWith("product-2.png")
 });
 assert.deepEqual(pendingFeishuSourceImages, [path.resolve("/work/input/auto-listing/feishu-images/product-2.png")]);
+assert.deepEqual(
+  resolvePendingFeishuProductSourceImagesFromRecords({
+    records: [record("recv-done-1", "")],
+    processedImages: ["/work/input/auto-listing/feishu-images/批文-产品-recv-done-1-白底图-01-a.png"],
+    fileExists: () => false
+  }),
+  [],
+  "Pending source resolution must not reopen completed records when only the local source asset declaration is missing"
+);
 
 assert.throws(
   () =>
@@ -1929,6 +1980,16 @@ assert.equal(
     refreshedBatchComplete: true
   }),
   false
+);
+assert.equal(
+  shouldRefreshFeishuAssetsToCandidateCache({ currentBatchComplete: true }),
+  true,
+  "A post-completion Feishu refresh must write a candidate cache so invalid next records cannot overwrite the completed batch cache"
+);
+assert.equal(
+  shouldRefreshFeishuAssetsToCandidateCache({ currentBatchComplete: false }),
+  false,
+  "An in-progress batch refresh may still update the main cache"
 );
 assert.equal(
   shouldRefreshFeishuAssetsBeforeFullFlow({

@@ -18,6 +18,7 @@ import {
   shouldRefreshFeishuAssetsBeforeFullFlow,
   type FullFlowContinuationReason
 } from "../autolist/batch-continuation-rules.js";
+import { shouldRefreshFeishuAssetsToCandidateCache } from "../autolist/feishu-refresh-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { findSharedFeishuWhiteBackgroundLocalFile, loadFeishuProductRecords } from "../autolist/feishu-products.js";
@@ -362,9 +363,15 @@ function loadFeishuEnv(configFile: string): NodeJS.ProcessEnv {
   };
 }
 
-function runFeishuAssetsRefresh(): number | null {
+const feishuProductDataFile = path.resolve(rootDir, "data/feishu/products.json");
+const feishuRefreshCandidateFile = path.resolve(rootDir, "data/auto-listing/control/feishu-products.refresh-candidate.json");
+
+function runFeishuAssetsRefresh(options: { currentBatchComplete?: boolean } = {}): { status: number | null; outFile: string } {
   migrateLegacyProcessedManifestForCurrentCache();
   console.log("\n== Auto-listing child: refresh-feishu-assets ==");
+  const outFile = shouldRefreshFeishuAssetsToCandidateCache({ currentBatchComplete: options.currentBatchComplete })
+    ? feishuRefreshCandidateFile
+    : feishuProductDataFile;
   const result = spawnSync("npm", [
     "run",
     "feishu:assets",
@@ -372,7 +379,7 @@ function runFeishuAssetsRefresh(): number | null {
     "--config",
     "./input/feishu-bitable.config.json",
     "--out",
-    "./data/feishu/products.json",
+    path.relative(rootDir, outFile),
     "--cleanup-stale-assets"
   ], {
     cwd: rootDir,
@@ -382,7 +389,7 @@ function runFeishuAssetsRefresh(): number | null {
   if (result.error) {
     throw result.error;
   }
-  return result.status;
+  return { status: result.status, outFile };
 }
 
 function migrateLegacyProcessedManifestForCurrentCache(): void {
@@ -590,10 +597,14 @@ async function main(): Promise<void> {
 
     if (exitCode === 0 && currentBatch.batchComplete) {
       cleanupCompletedBatchArtifacts(currentBatch.fingerprint);
-      const refreshExitCode = runFeishuAssetsRefresh();
-      if (refreshExitCode !== 0) {
-        process.exitCode = refreshExitCode ?? 1;
+      const refresh = runFeishuAssetsRefresh({ currentBatchComplete: currentBatch.batchComplete });
+      if (refresh.status !== 0) {
+        console.log("Feishu refresh candidate is invalid after completed batch; preserving completed batch cache.");
+        process.exitCode = 0;
         return;
+      }
+      if (path.resolve(refresh.outFile) !== feishuProductDataFile) {
+        fs.copyFileSync(refresh.outFile, feishuProductDataFile);
       }
       const refreshedBatch = readBatchProgress();
       if (shouldContinueFeishuAfterBatchRefresh({
