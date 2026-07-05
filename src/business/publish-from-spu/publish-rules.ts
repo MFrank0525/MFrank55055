@@ -516,7 +516,14 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("freshcreatepage") || text.includes("空白") || text.includes("0/60")) {
     return "fresh_create_after_submit";
   }
-  if (text.includes("必填") || text.includes("请填写") || text.includes("不能为空") || text.includes("校验未通过")) {
+  if (
+    text.includes("必填") ||
+    text.includes("请填写") ||
+    text.includes("不能为空") ||
+    text.includes("校验未通过") ||
+    text.includes("校验发货模式失败") ||
+    text.includes("需在已下架操作上架")
+  ) {
     return "validation_blocked";
   }
   if (text.includes("主图") || text.includes("白底图") || text.includes("3:4") || text.includes("详情")) {

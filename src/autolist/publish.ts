@@ -242,14 +242,16 @@ function wasPublishCompleted(runtimeDir: string): boolean {
   }
 }
 
-function readPublishResultSummary(resultFile: string): {
+type PublishResultSummary = {
   ok?: boolean;
   status?: string;
   message?: string;
   publishClicked?: boolean;
   publishClickAttempted?: boolean;
   publishIssue?: string;
-} {
+};
+
+function readPublishResultSummary(resultFile: string): PublishResultSummary {
   const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as {
     ok?: boolean;
     status?: string;
@@ -270,6 +272,16 @@ function readPublishResultSummary(resultFile: string): {
     publishClickAttempted: result.data?.browser?.publishClickAttempted,
     publishIssue: result.data?.browser?.publishIssue
   };
+}
+
+function requiresPostSubmitListVerification(
+  decision: ReturnType<typeof evaluatePublishResult>,
+  summary: PublishResultSummary
+): boolean {
+  return (
+    !decision.safelyPublished &&
+    (decision.finalVerifyStatus === "submit_accepted_unconfirmed" || summary.publishClickAttempted === true)
+  );
 }
 
 function markPublishResultListVerified(resultFile: string, verification: DoudianProductListVerificationResult): void {
@@ -513,8 +525,9 @@ export async function publishDistributedProducts(options: {
     }
     const existingResultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
     if (fs.existsSync(existingResultFile)) {
-      const existingDecision = evaluatePublishResult(readPublishResultSummary(existingResultFile));
-      if (!existingDecision.safelyPublished && existingDecision.finalVerifyStatus === "submit_accepted_unconfirmed") {
+      const existingSummary = readPublishResultSummary(existingResultFile);
+      const existingDecision = evaluatePublishResult(existingSummary);
+      if (requiresPostSubmitListVerification(existingDecision, existingSummary)) {
         options.assertNotPaused?.();
         const verifyingMessage = `Verifying existing uncertain final submit in Doudian 全部 tab: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
         logInfo(verifyingMessage);
@@ -677,7 +690,7 @@ export async function publishDistributedProducts(options: {
       decision = evaluatePublishResult(resultSummary);
     }
     let replayedAfterListVerificationNotFound = false;
-    if (!decision.safelyPublished && decision.finalVerifyStatus === "submit_accepted_unconfirmed") {
+    if (requiresPostSubmitListVerification(decision, resultSummary)) {
       options.assertNotPaused?.();
       let listVerification: DoudianProductListVerificationResult | undefined;
       try {
@@ -761,7 +774,7 @@ export async function publishDistributedProducts(options: {
         decision = evaluatePublishResult(resultSummary);
       }
     }
-    if (!decision.safelyPublished && replayedAfterListVerificationNotFound && decision.finalVerifyStatus === "submit_accepted_unconfirmed") {
+    if (!decision.safelyPublished && replayedAfterListVerificationNotFound && requiresPostSubmitListVerification(decision, resultSummary)) {
       options.assertNotPaused?.();
       try {
         const listVerification = await verifyPublishedProductInDoudianList({

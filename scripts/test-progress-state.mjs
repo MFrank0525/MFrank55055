@@ -206,8 +206,8 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus === "submit_accepted_unconfirmed"[\s\S]*finalVerifyStatus:\s*"list_verified"/,
-  "Auto-listing publish must resolve uncertain final submits by read-only Doudian 全部 tab full-title verification before treating the target as unsafe"
+  /requiresPostSubmitListVerification[\s\S]*publishClickAttempted === true[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"/,
+  "Auto-listing publish must resolve any post-submit unverified result by read-only Doudian 全部 tab full-title verification before treating the target as unsafe"
 );
 assert.match(
   publishSource,
@@ -216,8 +216,8 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /existingDecision\.finalVerifyStatus === "submit_accepted_unconfirmed"[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;/,
-  "Auto-listing resume must verify an existing uncertain final submit in the Doudian 全部 tab before replaying publish"
+  /requiresPostSubmitListVerification\(existingDecision,\s*existingSummary\)[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;/,
+  "Auto-listing resume must verify an existing post-submit unverified result in the Doudian 全部 tab before replaying publish"
 );
 assert.match(
   publishFromSpuSource,
@@ -1306,6 +1306,23 @@ assert.deepEqual(
     issue: "No publish success signal was detected after clicking 发布商品."
   },
   "the browser-side no-success-signal issue must trigger Doudian 全部 tab full-title verification instead of manual review"
+);
+assert.deepEqual(
+  evaluatePublishResult({
+    ok: true,
+    status: "published",
+    publishClickAttempted: true,
+    publishClicked: false,
+    publishIssue: "详看链接去查看1.操作ID:2026070518112889F05C47D0559EC9EC8D2.校验发货模式失败 | 需在“已下架”操作上架",
+    message: "Publish button click was issued; platform success signal was not observed."
+  }),
+  {
+    safelyPublished: false,
+    finalVerifyStatus: "needs_manual_review",
+    errorClass: "validation_blocked",
+    issue: "详看链接去查看1.操作ID:2026070518112889F05C47D0559EC9EC8D2.校验发货模式失败 | 需在“已下架”操作上架"
+  },
+  "platform validation text after a publish click is still post-submit unverified and must be handled by the publish layer's full-title verification"
 );
 assert.deepEqual(
   evaluatePublishResult({
