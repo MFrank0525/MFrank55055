@@ -65,6 +65,10 @@ import {
   shouldSuppressTerminalFailureBehindNewerProgress,
   compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
+import {
+  shouldFailAutoListingControllerStatusForFeishuCacheInvalid,
+  shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid
+} from "../dist/src/autolist/controller-cache-status-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { hasSharedFeishuWhiteBackgroundLocalFile, resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
 import { appendProcessedImages, clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
@@ -2958,6 +2962,39 @@ assert.equal(
   }),
   "completed",
   "Controller status without an active control job must still report the completed current Feishu batch"
+);
+assert.equal(
+  shouldFailAutoListingControllerStatusForFeishuCacheInvalid({
+    feishuCacheInvalid: true,
+    idleStatus: "completed"
+  }),
+  false,
+  "A post-completion Feishu refresh validation failure must not override a completed current batch status"
+);
+assert.equal(
+  shouldFailAutoListingControllerStatusForFeishuCacheInvalid({
+    feishuCacheInvalid: true,
+    idleStatus: "idle",
+    latestResultOk: true
+  }),
+  false,
+  "A completed latest result must remain completed when a post-completion Feishu refresh cannot produce a valid cache"
+);
+assert.equal(
+  shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid({
+    feishuCacheInvalid: true,
+    latestResultOk: true
+  }),
+  true,
+  "A successful latest result must preserve completed status when the only later failure is Feishu refresh validation"
+);
+assert.equal(
+  shouldFailAutoListingControllerStatusForFeishuCacheInvalid({
+    feishuCacheInvalid: true,
+    idleStatus: "pending_products"
+  }),
+  true,
+  "An incomplete current batch must still fail fast when the refreshed Feishu cache is invalid"
 );
 assert.equal(
   resolveAutoListingControllerIdleStatus({

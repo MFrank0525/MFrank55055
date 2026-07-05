@@ -2,46 +2,28 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  isAutoListingControllerChildProcessCommand,
-  isAutoListingDirectRunProcessCommand,
-  isAutoListingControllerSupervisorProcessCommand,
-  isAutoListingControllerRunningProcessConfirmed,
-  isExternalMainImageRawReuseMessage,
-  resolveAutoListingControllerEffectiveProgressTimestamp,
-  resolveAutoListingControllerFeishuBatchDisplayCounts,
-  resolveAutoListingControllerFeishuProgressDisplayMode,
-  resolveAutoListingControllerProgressAgeSeconds,
-  resolveAutoListingControllerRuntimeStatus,
-  resolveAutoListingControllerIdleStatus,
-  resolveAutoListingControllerDryRunStartDecision,
-  resolveAutoListingControllerStartAfterFeishuRefresh,
-  resolveAutoListingControllerLaunchPolicy,
-  type AutoListingControllerLaunchIntent,
-  selectAutoListingControllerActiveRunIdFromLogLines,
-  selectAutoListingControllerLatestResultFileForJobStatus,
-  selectAutoListingControllerStatusResultFile,
-  selectAutoListingControllerStatusRuntimeDir,
-  resolveAutoListingControllerRealtimeProgressSignal,
-  resolveAutoListingControllerPublishGroupProgress,
-  resolveAutoListingControllerPaidImageRecordId,
-  compactAutoListingTerminalFailureMessage,
-  resolveAutoListingControllerHermesStatusPayload,
-  shouldClearPauseSignalOnAutoListingControllerStart,
-  shouldExposePublishProgressInAutoListingControllerStatus,
-  shouldExposeHistoricalRuntimeForCurrentFeishuBatch,
-  shouldPreferActiveTaskStateSummary,
-  shouldResumeHistoricalFailureForCurrentFeishuBatch,
-  shouldResumeInterruptedTaskInPlace,
-  shouldSuppressHistoricalResultInAutoListingControllerStatus,
-  shouldSuppressStateCurrentTaskInAutoListingControllerStatus,
-  shouldSuppressTerminalFailureBehindNewerProgress,
-  shouldTerminateRecordedAutoListingControllerProcessGroup,
-  shouldUseExpectedResultFileInRunningStatus,
-  summarizeAutoListingControllerImageGenerationEvents,
-  formatAutoListingControllerExternalServiceWaitSummary,
-  formatAutoListingControllerCompactStatusText,
-  selectAutoListingControllerFailedResumeCandidate
+  compactAutoListingTerminalFailureMessage, formatAutoListingControllerCompactStatusText,
+  formatAutoListingControllerExternalServiceWaitSummary, isAutoListingControllerChildProcessCommand,
+  isAutoListingControllerRunningProcessConfirmed, isAutoListingControllerSupervisorProcessCommand,
+  isAutoListingDirectRunProcessCommand, isExternalMainImageRawReuseMessage,
+  resolveAutoListingControllerDryRunStartDecision, resolveAutoListingControllerEffectiveProgressTimestamp,
+  resolveAutoListingControllerFeishuBatchDisplayCounts, resolveAutoListingControllerFeishuProgressDisplayMode,
+  resolveAutoListingControllerHermesStatusPayload, resolveAutoListingControllerIdleStatus,
+  resolveAutoListingControllerLaunchPolicy, resolveAutoListingControllerPaidImageRecordId,
+  resolveAutoListingControllerProgressAgeSeconds, resolveAutoListingControllerPublishGroupProgress,
+  resolveAutoListingControllerRealtimeProgressSignal, resolveAutoListingControllerRuntimeStatus,
+  resolveAutoListingControllerStartAfterFeishuRefresh, selectAutoListingControllerActiveRunIdFromLogLines,
+  selectAutoListingControllerFailedResumeCandidate, selectAutoListingControllerLatestResultFileForJobStatus,
+  selectAutoListingControllerStatusResultFile, selectAutoListingControllerStatusRuntimeDir,
+  shouldClearPauseSignalOnAutoListingControllerStart, shouldExposeHistoricalRuntimeForCurrentFeishuBatch,
+  shouldExposePublishProgressInAutoListingControllerStatus, shouldPreferActiveTaskStateSummary,
+  shouldResumeHistoricalFailureForCurrentFeishuBatch, shouldResumeInterruptedTaskInPlace,
+  shouldSuppressHistoricalResultInAutoListingControllerStatus, shouldSuppressStateCurrentTaskInAutoListingControllerStatus,
+  shouldSuppressTerminalFailureBehindNewerProgress, shouldTerminateRecordedAutoListingControllerProcessGroup,
+  shouldUseExpectedResultFileInRunningStatus, summarizeAutoListingControllerImageGenerationEvents,
+  type AutoListingControllerLaunchIntent
 } from "../autolist/batch-continuation-rules.js";
+import { shouldFailAutoListingControllerStatusForFeishuCacheInvalid, shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid } from "../autolist/controller-cache-status-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
@@ -1494,7 +1476,24 @@ function existingStatus(): Record<string, unknown> {
     const feishuProgressReliable =
       !(latestResult?.ok === true && idleStatus === "pending_products" && Number(feishuProgress?.processedRecordCount || 0) < latestResultDoneTaskCount);
     const feishuCacheInvalid = feishuProgress?.cacheValid === false;
-    const status = feishuCacheInvalid ? "failed" : activePublishRunning ? "running" : idleStatus;
+    const failForFeishuCacheInvalid = shouldFailAutoListingControllerStatusForFeishuCacheInvalid({
+      feishuCacheInvalid,
+      idleStatus,
+      latestResultOk: typeof historicalResult?.ok === "boolean" ? historicalResult.ok : undefined,
+      latestResultStatus: typeof historicalResult?.status === "string" ? historicalResult.status : undefined
+    });
+    const preserveCompletedForFeishuCacheInvalid = shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid({
+      feishuCacheInvalid,
+      latestResultOk: typeof historicalResult?.ok === "boolean" ? historicalResult.ok : undefined,
+      latestResultStatus: typeof historicalResult?.status === "string" ? historicalResult.status : undefined
+    });
+    const status = failForFeishuCacheInvalid
+      ? "failed"
+      : activePublishRunning
+        ? "running"
+        : preserveCompletedForFeishuCacheInvalid
+          ? "completed"
+          : idleStatus;
     const interrupted = status === "pause_requested" ? findLatestInterruptedStateForResume() : undefined;
     const activePublishState = activePublishRunning ? summarizeState(publishRuntimeDir) : undefined;
     const interruptedState = activePublishState || summarizeState(interrupted?.runtimeDir);
@@ -1568,8 +1567,8 @@ function existingStatus(): Record<string, unknown> {
       summary:
         activePublishRunning
           ? publishProgress?.progressText || "手动恢复发布正在运行。"
-          : feishuCacheInvalid
-          ? String(feishuProgress.validationIssue || "飞书缓存校验失败，开始上架前必须修复当前批次数据。")
+          : failForFeishuCacheInvalid
+          ? String(feishuProgress?.validationIssue || "飞书缓存校验失败，开始上架前必须修复当前批次数据。")
           : status === "pause_requested"
           ? formatPauseSignalSummary(pauseSignal)
           : status === "completed"
