@@ -119,8 +119,13 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /const SHIPPING_TIME_OPTION_TEXT_CANDIDATES[\s\S]*"48\\u5c0f\\u65f6"[\s\S]*"48\\u5c0f\\u65f6\\u5185\\u53d1\\u8d27"/,
-  "shipping-time selection must support option text variants such as 48小时内发货"
+  /const SHIPPING_TIME_OPTION_TEXT_CANDIDATES[\s\S]*"48\\u5c0f\\u65f6"[\s\S]*"48\\u5c0f\\u65f6\\u5185\\u53d1\\u8d27"[\s\S]*"\\u6b21\\u65e5\\u53d1"/,
+  "shipping-time selection must support option text variants and the platform default 次日发"
+);
+assert.match(
+  publishSource,
+  /return candidates\.some\(\(candidate\) => candidate\.selected === true\)/,
+  "shipping-time readback must accept any selected valid option instead of inspecting only the highest-scored unselected option"
 );
 assert.match(
   publishSource,

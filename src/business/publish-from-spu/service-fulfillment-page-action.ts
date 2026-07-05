@@ -154,7 +154,7 @@ const SHIPPING_TIME_FIELD_LABEL_CANDIDATES = [
   "\u53d1\u8d27\u65f6\u95f4",
   "\u627f\u8bfa\u53d1\u8d27\u65f6\u95f4"
 ];
-const SHIPPING_TIME_OPTION_TEXT_CANDIDATES = ["48\u5c0f\u65f6", "48\u5c0f\u65f6\u5185\u53d1\u8d27"];
+const SHIPPING_TIME_OPTION_TEXT_CANDIDATES = ["48\u5c0f\u65f6", "48\u5c0f\u65f6\u5185\u53d1\u8d27", "\u6b21\u65e5\u53d1", "\u5f53\u65e5\u53d1"];
 
 function isOptionTextMatch(text: string, targetOptionText: string): boolean {
   return text === targetOptionText || text.includes(targetOptionText);
@@ -308,7 +308,7 @@ async function isRadioOptionSelectedNearFieldLabelCandidate(
         return false;
       }
 
-      const candidate = elements
+      const candidates = elements
         .map((el) => {
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
@@ -344,9 +344,9 @@ async function isRadioOptionSelectedNearFieldLabelCandidate(
               Math.abs(absLeft - field.absRight) / 10
           };
         })
-        .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
-      return candidate?.selected === true;
+        .filter((candidate): candidate is { selected: boolean; score: number } => Boolean(candidate))
+        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+      return candidates.some((candidate) => candidate.selected === true);
     },
     { fieldLabels, optionTexts }
   );
