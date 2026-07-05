@@ -4,6 +4,7 @@ import {
   SAFE_PUBLISH_FINAL_VERIFY_STATUSES,
   BATCH_COMPLETION_FINAL_VERIFY_STATUSES
 } from "./publish-manifest.js";
+import { getProductCategoryPlan } from "./product-category.js";
 import type { ImageTaskState } from "./types.js";
 
 function taskHasSafePublishArtifact(task: ImageTaskState, expectedPublishCount: number): boolean {
@@ -34,6 +35,16 @@ function manifestHasSafePublishCoverage(
   return entries.filter((entry) => isManifestEntryAcceptedForBatchCompletionForIdentity(entry, identity)).length >= expectedPublishCount;
 }
 
+function resolveExpectedPublishCount(task: ImageTaskState, identity: PublishProductIdentity): number {
+  const artifactCount = task.shopDistributionArtifact?.distributedFolders?.length || task.generatedProductFolders.length;
+  const productCategory = identity.productCategory || task.feishuProductRecord?.productCategory;
+  if (!productCategory) {
+    return artifactCount;
+  }
+  const categoryPlan = getProductCategoryPlan(productCategory);
+  return Math.max(artifactCount, categoryPlan.shopCodes.length * categoryPlan.imagesPerShop);
+}
+
 export function isProductFullyProcessed(input: {
   task: ImageTaskState;
   publishManifestEntries?: PublishManifestEntry[];
@@ -42,8 +53,7 @@ export function isProductFullyProcessed(input: {
   if (input.task.status !== "cleaned" && input.task.status !== "done") {
     return false;
   }
-  const expectedPublishCount =
-    input.task.shopDistributionArtifact?.distributedFolders?.length || input.task.generatedProductFolders.length;
+  const expectedPublishCount = resolveExpectedPublishCount(input.task, input.productIdentity);
   if (expectedPublishCount <= 0) {
     return false;
   }

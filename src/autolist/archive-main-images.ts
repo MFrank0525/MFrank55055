@@ -75,15 +75,26 @@ function resolveUniqueArchiveDir(baseDir: string): string {
   throw new Error(`Archive target already exists and no unique suffix was available: ${baseDir}`);
 }
 
-function findCompleteProductArchive(options: {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function findCompleteProductArchive(options: {
   archiveRootDir: string;
-  productFolderName: string;
+  productFolderName?: string;
+  productNames?: string[];
   expectedImageCount: number;
 }): string[] {
   if (!fs.existsSync(options.archiveRootDir) || options.expectedImageCount <= 0) {
     return [];
   }
-  const archiveDirPattern = new RegExp(`^\\d{12}${options.productFolderName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:-\\d{2})?$`);
+  const productNames = [...new Set([options.productFolderName || "", ...(options.productNames || [])]
+    .map((item) => sanitizeFileName(item).trim())
+    .filter(Boolean))];
+  if (!productNames.length) {
+    return [];
+  }
+  const archiveDirPattern = new RegExp(`^\\d{12}(?:${productNames.map(escapeRegExp).join("|")})(?:-\\d{2})?$`);
   const candidates = fs
     .readdirSync(options.archiveRootDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && archiveDirPattern.test(entry.name))
@@ -121,7 +132,7 @@ export function archiveUnwatermarkedMainImages(options: {
     options.expectedImageCount && currentRawFiles.length < options.expectedImageCount
       ? findCompleteProductArchive({
           archiveRootDir,
-          productFolderName,
+          productNames: [productFolderName],
           expectedImageCount: options.expectedImageCount
         })
       : [];

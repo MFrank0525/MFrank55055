@@ -4052,6 +4052,66 @@ assert.equal(
   }),
   true
 );
+assert.equal(
+  isProductFullyProcessed({
+    task: {
+      taskId: "image-resume-one-target",
+      sequenceNo: 1,
+      sourceImagePath: "/work/input/current.png",
+      sourceImageName: "current.png",
+      status: "done",
+      lastUpdatedAt: new Date().toISOString(),
+      generatedProductFolders: ["/work/shop/product-1"],
+      notes: [],
+      feishuProductRecord: {
+        recordId: "record-001",
+        userCognitionName: "医用面部补水喷雾",
+        genericName: "医用透明质酸钠液体敷料",
+        brand: "延草纲目",
+        spu: "鄂械注准20232144654",
+        sellingPointText: "测试卖点",
+        deepseekPromptText: "测试提示词",
+        mainImageInstructionText: "测试主图指令",
+        positivePromptText: "测试正向提示词",
+        negativePromptText: "测试反向提示词",
+        titleKeywordText: "医用面部补水喷雾",
+        titleSuffixText: "延草纲目",
+        productPriceText: "149,139,89.9,79.9",
+        shortTitle: "面部补水喷雾",
+        productCategory: "医疗器械",
+        whiteBackgroundImages: [],
+        qualificationImages: [],
+        rawFields: {}
+      },
+      shopDistributionArtifact: {
+        distributedFolders: ["/work/shop/product-1"],
+        simulated: false
+      }
+    },
+    productIdentity: {
+      sourceImagePath: "/work/input/current.png",
+      recordId: "record-001",
+      productCategory: "医疗器械"
+    },
+    publishManifestEntries: [
+      {
+        productFolder: "/work/shop/product-1",
+        runtimeKey: "shop__product-1",
+        shopFolder: "/work/shop",
+        watermarkNo: 1,
+        sourceImagePath: "/work/input/current.png",
+        recordId: "record-001",
+        productCategory: "医疗器械",
+        status: "published",
+        finalVerifyStatus: "publish_signal_confirmed",
+        message: "ok",
+        updatedAt: new Date().toISOString()
+      }
+    ]
+  }),
+  false,
+  "A one-target publish-stage resume must not mark a medical-device Feishu product fully processed before all 20 planned targets are accepted."
+);
 const acceptedSubmitFolders = Array.from({ length: 20 }, (_, index) => `/work/shop/accepted-submit-product-${index + 1}`);
 assert.equal(
   isProductFullyProcessed({

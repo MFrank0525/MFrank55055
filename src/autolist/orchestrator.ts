@@ -528,6 +528,13 @@ async function executeTaskChain(
         feishuRecordId: current.feishuProductRecord?.recordId,
         feishuBatchFingerprint,
         paidImageSubmissionLedgerDir,
+        archiveMainImageDir,
+        archiveProductNames: [
+          current.feishuProductRecord?.shortTitle || "",
+          current.feishuProductRecord?.userCognitionName || "",
+          current.feishuProductRecord?.genericName || "",
+          current.sellingPointArtifact?.brandedGenericName || ""
+        ],
         simulateOnly,
         onProgress: (message) => {
           appendEvent(eventFile, createEvent("info", step, message, current.taskId));

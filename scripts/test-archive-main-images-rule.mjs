@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { archiveUnwatermarkedMainImages, resolveArchiveProductName } from "../dist/src/autolist/archive-main-images.js";
+import {
+  archiveUnwatermarkedMainImages,
+  findCompleteProductArchive,
+  resolveArchiveProductName
+} from "../dist/src/autolist/archive-main-images.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "archive-main-images-"));
 const archiveRoot = path.join(tmp, "archive");
@@ -65,3 +69,20 @@ assert.ok(path.basename(path.dirname(archived[0])).endsWith(shortTitle));
 assert.equal(path.basename(archived[0]), `${shortTitle}无水印主图01.png`);
 assert.equal(fs.readFileSync(archived[0], "utf8"), "archive-1");
 assert.equal(fs.readFileSync(archived[19], "utf8"), "archive-20");
+
+const shortTitleArchive = path.join(archiveRoot, "202607050948JGB透明质酸钠补水喷雾");
+fs.mkdirSync(shortTitleArchive, { recursive: true });
+for (let index = 1; index <= 20; index += 1) {
+  fs.writeFileSync(
+    path.join(shortTitleArchive, `JGB透明质酸钠补水喷雾无水印主图${String(index).padStart(2, "0")}.png`),
+    `short-title-archive-${index}`
+  );
+}
+const archiveByShortTitleAlias = findCompleteProductArchive({
+  archiveRootDir: archiveRoot,
+  productNames: ["医用透明质酸钠液体敷料", "JGB透明质酸钠补水喷雾"],
+  expectedImageCount: 20
+});
+assert.equal(archiveByShortTitleAlias.length, 20);
+assert.equal(path.basename(path.dirname(archiveByShortTitleAlias[0])), "202607050948JGB透明质酸钠补水喷雾");
+assert.equal(fs.readFileSync(archiveByShortTitleAlias[19], "utf8"), "short-title-archive-20");
