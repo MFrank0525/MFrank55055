@@ -1,5 +1,5 @@
-export const QUALIFICATION_IMAGE_PLATFORM_LIMIT = 5000;
-export const QUALIFICATION_IMAGE_TARGET_LONGEST_EDGE = 4900;
+export const QUALIFICATION_IMAGE_PLATFORM_LIMIT = 1999;
+export const QUALIFICATION_IMAGE_TARGET_LONGEST_EDGE = 1900;
 
 export type QualificationImageResizeDecision = {
   action: "reuse" | "resize";

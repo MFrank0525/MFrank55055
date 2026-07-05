@@ -21,30 +21,35 @@ const {
 
 assert.deepEqual(
   resolveQualificationImageResize({ width: 5534, height: 4141 }),
-  { action: "resize", targetWidth: 4900, targetHeight: 3666 }
+  { action: "resize", targetWidth: 1900, targetHeight: 1421 }
 );
 assert.deepEqual(
   resolveQualificationImageResize({ width: 1655, height: 2338 }),
-  { action: "reuse", targetWidth: 1655, targetHeight: 2338 }
+  { action: "resize", targetWidth: 1344, targetHeight: 1900 }
 );
 assert.deepEqual(
   resolveQualificationImageResize({ width: 5000, height: 3200 }),
-  { action: "reuse", targetWidth: 5000, targetHeight: 3200 }
+  { action: "resize", targetWidth: 1900, targetHeight: 1216 }
+);
+assert.deepEqual(
+  resolveQualificationImageResize({ width: 1721, height: 2435 }),
+  { action: "resize", targetWidth: 1342, targetHeight: 1900 },
+  "medical-device certificate images above the platform <2000px height limit must be normalized before upload"
 );
 assert.throws(
   () => resolveQualificationImageResize({ width: 0, height: 4141 }),
   /invalid qualification image dimensions/i
 );
 assert.deepEqual(
-  verifyNormalizedQualificationImage({ width: 4900, height: 3666, targetWidth: 4900, targetHeight: 3666 }),
+  verifyNormalizedQualificationImage({ width: 1900, height: 1421, targetWidth: 1900, targetHeight: 1421 }),
   { passed: true, issue: "" }
 );
 assert.match(
-  verifyNormalizedQualificationImage({ width: 5001, height: 3666, targetWidth: 4900, targetHeight: 3666 }).issue,
+  verifyNormalizedQualificationImage({ width: 2000, height: 1421, targetWidth: 1900, targetHeight: 1421 }).issue,
   /exceeded target dimensions/i
 );
 assert.match(
-  verifyNormalizedQualificationImage({ width: 4900, height: 3665, targetWidth: 4900, targetHeight: 3666 }).issue,
+  verifyNormalizedQualificationImage({ width: 1900, height: 1420, targetWidth: 1900, targetHeight: 1421 }).issue,
   /did not match requested dimensions/i
 );
 
@@ -82,12 +87,12 @@ try {
 
   assert.equal(prepared.files.length, 3);
   assert.equal(prepared.entries[0].action, "resize");
-  assert.deepEqual(prepared.entries[0].outputDimensions, { width: 4900, height: 3666 });
+  assert.deepEqual(prepared.entries[0].outputDimensions, { width: 1900, height: 1421 });
   assert.notEqual(prepared.files[0], oversizedPng);
-  assert.deepEqual(prepared.entries[1].outputDimensions, { width: 4900, height: 2450 });
+  assert.deepEqual(prepared.entries[1].outputDimensions, { width: 1900, height: 950 });
   assert.notEqual(prepared.files[1], oversizedJpeg);
-  assert.equal(prepared.entries[2].action, "reuse");
-  assert.equal(prepared.files[2], compliantPng);
+  assert.equal(prepared.entries[2].action, "resize");
+  assert.notEqual(prepared.files[2], compliantPng);
   for (const [file, originalHash] of sourceHashes) {
     assert.equal(hashFile(file), originalHash, `source image must remain unchanged: ${path.basename(file)}`);
   }
