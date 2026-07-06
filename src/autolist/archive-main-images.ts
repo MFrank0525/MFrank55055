@@ -39,18 +39,6 @@ function listImageFilesRecursive(dir: string): string[] {
   return collected.sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
 
-function listImageFilesDirect(dir: string): string[] {
-  if (!dir || !fs.existsSync(dir)) {
-    return [];
-  }
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => path.join(dir, entry.name))
-    .filter(isImageFile)
-    .sort((a, b) => a.localeCompare(b, "zh-CN"));
-}
-
 function archiveTimestamp(date = new Date()): string {
   const pad = (value: number): string => String(value).padStart(2, "0");
   return [
@@ -73,40 +61,6 @@ function resolveUniqueArchiveDir(baseDir: string): string {
     }
   }
   throw new Error(`Archive target already exists and no unique suffix was available: ${baseDir}`);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-export function findCompleteProductArchive(options: {
-  archiveRootDir: string;
-  productFolderName?: string;
-  productNames?: string[];
-  expectedImageCount: number;
-}): string[] {
-  if (!fs.existsSync(options.archiveRootDir) || options.expectedImageCount <= 0) {
-    return [];
-  }
-  const productNames = [...new Set([options.productFolderName || "", ...(options.productNames || [])]
-    .map((item) => sanitizeFileName(item).trim())
-    .filter(Boolean))];
-  if (!productNames.length) {
-    return [];
-  }
-  const archiveDirPattern = new RegExp(`^\\d{12}(?:${productNames.map(escapeRegExp).join("|")})(?:-\\d{2})?$`);
-  const candidates = fs
-    .readdirSync(options.archiveRootDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && archiveDirPattern.test(entry.name))
-    .map((entry) => path.join(options.archiveRootDir, entry.name))
-    .map((dir) => ({
-      dir,
-      files: listImageFilesDirect(dir),
-      mtimeMs: fs.statSync(dir).mtimeMs
-    }))
-    .filter((candidate) => candidate.files.length >= options.expectedImageCount)
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
-  return candidates[0]?.files.slice(0, options.expectedImageCount) || [];
 }
 
 export function archiveUnwatermarkedMainImages(options: {
