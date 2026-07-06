@@ -86,6 +86,11 @@ export function archiveUnwatermarkedMainImages(options: {
   if (!rawFiles.length) {
     return [];
   }
+  if (!options.simulateOnly && options.expectedImageCount && rawFiles.length !== options.expectedImageCount) {
+    throw new Error(
+      `Archive guard failed: expected ${options.expectedImageCount} current unwatermarked main image(s), got ${rawFiles.length}.`
+    );
+  }
 
   if (!options.simulateOnly) {
     fs.mkdirSync(targetDir, { recursive: true });

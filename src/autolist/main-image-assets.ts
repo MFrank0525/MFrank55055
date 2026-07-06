@@ -2085,7 +2085,6 @@ export async function generateMainImageAssets(options: {
   feishuBatchFingerprint?: string;
   paidImageSubmissionLedgerDir?: string;
   archiveMainImageDir?: string;
-  archiveProductNames?: string[];
   simulateOnly: boolean;
   onProgress?: (message: string) => void;
 }): Promise<MainImageArtifact> {

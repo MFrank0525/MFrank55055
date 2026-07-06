@@ -10,8 +10,8 @@ import {
 const archiveMainImagesSource = fs.readFileSync("src/autolist/archive-main-images.ts", "utf8");
 assert.doesNotMatch(
   archiveMainImagesSource,
-  /findCompleteProductArchive|archiveDirPattern|productNames\?:/,
-  "Archive rules must not retain name-matched historical main image lookup; archives are write-only evidence, not generation or cleanup input."
+  /findCompleteProductArchive|archiveDirPattern|productNames\?:|archiveProductNames/,
+  "Archive rules must not retain name-matched historical main image lookup or alias inputs; archives are write-only evidence, not generation or cleanup input."
 );
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "archive-main-images-"));
@@ -51,7 +51,7 @@ for (let roundIndex = 1; roundIndex <= 4; roundIndex += 1) {
   }
 }
 
-const archived = archiveUnwatermarkedMainImages({
+const incompleteArchiveInput = {
   mainImageArtifact: {
     promptFile: path.join(tmp, "prompts.txt"),
     generatedFiles: rawFiles.map((rawImageFile, index) => ({
@@ -68,6 +68,17 @@ const archived = archiveUnwatermarkedMainImages({
   rawImageSearchDir: taskDir,
   expectedImageCount: 20,
   simulateOnly: false
+};
+
+assert.throws(
+  () => archiveUnwatermarkedMainImages(incompleteArchiveInput),
+  /expected 20 current unwatermarked main image\(s\), got 15/,
+  "Archiving must fail closed when current raw images are incomplete instead of silently archiving a partial set."
+);
+
+const archived = archiveUnwatermarkedMainImages({
+  ...incompleteArchiveInput,
+  expectedImageCount: 15
 });
 
 assert.equal(archived.length, 15);
