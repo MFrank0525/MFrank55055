@@ -64,11 +64,11 @@ const archived = archiveUnwatermarkedMainImages({
   simulateOnly: false
 });
 
-assert.equal(archived.length, 20);
+assert.equal(archived.length, 15);
 assert.ok(path.basename(path.dirname(archived[0])).endsWith(shortTitle));
 assert.equal(path.basename(archived[0]), `${shortTitle}无水印主图01.png`);
-assert.equal(fs.readFileSync(archived[0], "utf8"), "archive-1");
-assert.equal(fs.readFileSync(archived[19], "utf8"), "archive-20");
+assert.equal(fs.readFileSync(archived[0], "utf8"), "raw-1-1");
+assert.equal(fs.readFileSync(archived[14], "utf8"), "raw-4-3");
 
 const shortTitleArchive = path.join(archiveRoot, "202607050948JGB透明质酸钠补水喷雾");
 fs.mkdirSync(shortTitleArchive, { recursive: true });

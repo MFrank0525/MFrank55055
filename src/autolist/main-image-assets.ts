@@ -20,7 +20,6 @@ import {
   resolvePaidImageFixedSlotRecovery
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
-import { findCompleteProductArchive } from "./archive-main-images.js";
 import { readManualTextBlock } from "./operation-manual.js";
 import {
   initializePaidImageProductLedger,
@@ -2006,52 +2005,6 @@ function finalizeProductFolders(
   return generatedFiles;
 }
 
-function seedArchivedRawMainImages(options: {
-  taskDir: string;
-  archiveRootDir?: string;
-  productNames: string[];
-  promptCount: number;
-  imagesPerPrompt: number;
-  onProgress?: (message: string) => void;
-}): number {
-  if (!options.archiveRootDir) {
-    return 0;
-  }
-  const totalExpectedImageCount = options.promptCount * options.imagesPerPrompt;
-  const archiveFiles = findCompleteProductArchive({
-    archiveRootDir: options.archiveRootDir,
-    productNames: options.productNames,
-    expectedImageCount: totalExpectedImageCount
-  });
-  if (archiveFiles.length < totalExpectedImageCount) {
-    return 0;
-  }
-
-  let copied = 0;
-  for (let index = 0; index < totalExpectedImageCount; index += 1) {
-    const promptIndex = Math.floor(index / options.imagesPerPrompt);
-    const localIndex = (index % options.imagesPerPrompt) + 1;
-    const sourceFile = archiveFiles[index];
-    const rawDir = path.join(
-      options.taskDir,
-      "main-image-" + String(promptIndex + 1).padStart(2, "0"),
-      "openai-compatible",
-      "raw"
-    );
-    fs.mkdirSync(rawDir, { recursive: true });
-    const targetFile = path.join(rawDir, `generated-${String(localIndex).padStart(2, "0")}${path.extname(sourceFile) || ".png"}`);
-    if (fs.existsSync(targetFile) && fs.statSync(targetFile).size > 0) {
-      continue;
-    }
-    fs.copyFileSync(sourceFile, targetFile);
-    copied += 1;
-  }
-  if (copied > 0) {
-    options.onProgress?.(`Reused ${copied} archived unwatermarked main image(s) without calling image generation.`);
-  }
-  return copied;
-}
-
 function buildSimulatedFiles(options: {
   taskDir: string;
   shopFolders: Array<{ shopFolder: string; watermarkText: string }>;
@@ -2168,18 +2121,6 @@ export async function generateMainImageAssets(options: {
       `Reused ${reuseSeed.copiedRawImageCount} current-product raw main image(s) from ${reuseSeed.sourceTaskDir || "previous task"}.`
     );
   }
-  seedArchivedRawMainImages({
-    taskDir,
-    archiveRootDir: options.archiveMainImageDir,
-    productNames: [
-      productName,
-      ...(options.archiveProductNames || [])
-    ],
-    promptCount,
-    imagesPerPrompt: options.mainImageExpectedCount,
-    onProgress: options.onProgress
-  });
-
   if (options.simulateOnly) {
     return {
       promptFile,

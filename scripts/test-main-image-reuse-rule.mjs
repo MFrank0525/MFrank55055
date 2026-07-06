@@ -4,6 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { seedCurrentProductMainImageReuse } from "../dist/src/autolist/main-image-assets.js";
 
+const mainImageAssetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
+assert.doesNotMatch(
+  mainImageAssetsSource,
+  /seedArchivedRawMainImages\(\s*\{/,
+  "Real main image generation must not seed raw images from name-matched historical archives; only current batch/record/task artifacts may resume."
+);
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "main-image-reuse-"));
 const sourceImagePath = path.join(tmp, "input", "row-7.png");
 fs.mkdirSync(path.dirname(sourceImagePath), { recursive: true });

@@ -127,16 +127,7 @@ export function archiveUnwatermarkedMainImages(options: {
   const recoveredRawFiles = artifactRawFiles.length
     ? []
     : listImageFilesRecursive(options.rawImageSearchDir || "").filter(isGeneratedRawMainImage);
-  const currentRawFiles = artifactRawFiles.length ? artifactRawFiles : recoveredRawFiles;
-  const archiveRecoveredFiles =
-    options.expectedImageCount && currentRawFiles.length < options.expectedImageCount
-      ? findCompleteProductArchive({
-          archiveRootDir,
-          productNames: [productFolderName],
-          expectedImageCount: options.expectedImageCount
-        })
-      : [];
-  const rawFiles = archiveRecoveredFiles.length ? archiveRecoveredFiles : currentRawFiles;
+  const rawFiles = artifactRawFiles.length ? artifactRawFiles : recoveredRawFiles;
 
   if (!rawFiles.length) {
     return [];
