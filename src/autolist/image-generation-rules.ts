@@ -113,15 +113,25 @@ export interface ImageGenerationEndpointProbeEvaluation {
 export function providerExplicitlyProvesNoPaidTaskAccepted(status: number, responseText: string): boolean {
   return (
     [400, 401, 403, 404, 405, 422].includes(status) ||
+    submitFailureResponseProvesNoPaidTaskAccepted(responseText) ||
     /invalid request|validation failed|unsupported parameter|unknown parameter|authentication failed|unauthorized|forbidden/i.test(
       responseText
     )
   );
 }
 
+function submitFailureResponseProvesNoPaidTaskAccepted(message: string): boolean {
+  return (
+    /fail_to_fetch_task/i.test(message) &&
+    /model_not_found|No available channel|no available channel|没有可用.*通道|无可用.*通道/i.test(message)
+  );
+}
+
 export function submitTransportFailureProvesNoPaidTaskAccepted(message: string): boolean {
-  return /fetch failed|failed to fetch|network.*failed|ECONNRESET before response|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|request exceeded hard deadline|AbortError|aborted/i.test(
-    message
+  return (
+    /fetch failed|failed to fetch|network.*failed|ECONNRESET before response|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|request exceeded hard deadline|AbortError|aborted/i.test(
+      message
+    ) || submitFailureResponseProvesNoPaidTaskAccepted(message)
   );
 }
 

@@ -460,6 +460,24 @@ assert.deepEqual(
   autoNoAcceptanceRetry.record.audit.map((entry) => entry.state),
   ["reserved", "ambiguous", "failed_before_acceptance", "reserved"]
 );
+reservePaidImageSlot({
+  productDir: autoRetryProduct.productDir,
+  slot: 2,
+  requestDigest: "request-7",
+  promptDigest: "prompt-7",
+  owner: ownerA
+});
+recordPaidImageAmbiguous({
+  productDir: autoRetryProduct.productDir,
+  slot: 2,
+  reason:
+    'HTTP 503: {"code":"fail_to_fetch_task","message":"{\\"error\\":{\\"code\\":\\"model_not_found\\",\\"message\\":\\"No available channel for model gpt-image-2 under group default\\"}}","data":null}'
+});
+assert.equal(
+  resolvePaidImageSlotAction({ productDir: autoRetryProduct.productDir, slot: 2 }).action,
+  "retry_failed_before_acceptance",
+  "model channel fail_to_fetch_task responses without task ids must auto-reconcile to no-acceptance"
+);
 
 const ambiguousSubmittedReservation = reservePaidImageSlot({
   productDir,

@@ -311,6 +311,13 @@ assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(429, "rate limited"), false);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(502, "upstream error"), false);
+assert.equal(
+  providerExplicitlyProvesNoPaidTaskAccepted(
+    503,
+    '{"code":"fail_to_fetch_task","message":"{\\"error\\":{\\"code\\":\\"model_not_found\\",\\"message\\":\\"No available channel for model gpt-image-2 under group default\\"}}","data":null}'
+  ),
+  true
+);
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("fetch failed"), true);
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("image generation request exceeded hard deadline 1830000ms"), true);
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("ECONNRESET before response"), true);
