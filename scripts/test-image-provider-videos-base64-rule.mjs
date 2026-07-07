@@ -39,6 +39,7 @@ assert.equal(example.apiUrl.endsWith("/v1/videos"), true);
 assert.equal(example.size, "1024x1024");
 assert.equal(example.videoMetadata.aspect_ratio, "1:1");
 assert.equal(example.submitConcurrency, 2);
+assert.equal(example.maxPollMs, 180000);
 assert.equal(
   shouldKeepPaidImagePolicyCompatiblePrompt({
     failureReason: 'provider task failed: {"message":"失败了超时 请重试","code":"upstream_error"}',

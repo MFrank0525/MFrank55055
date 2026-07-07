@@ -56,9 +56,70 @@ assert.throws(
   () => initializePaidImageProductLedger({ ...identity, sourceImageDigest: "source-conflict" }),
   /ledger identity conflict/i
 );
+const emptyProviderMigrated = initializePaidImageProductLedger({ ...identity, providerIdentity: "provider-conflict" });
+assert.equal(emptyProviderMigrated.providerIdentity, "provider-conflict");
+const providerMigrationRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-provider-migration-"));
+const failedBeforeProviderA = initializePaidImageProductLedger({
+  ...identity,
+  rootDir: providerMigrationRoot,
+  batchFingerprint: "batch-provider-migration",
+  recordId: "record-provider-migration",
+  providerIdentity: "provider-a"
+});
+reservePaidImageSlot({
+  productDir: failedBeforeProviderA.productDir,
+  slot: 1,
+  requestDigest: "provider-migration-request",
+  promptDigest: "provider-migration-prompt",
+  owner: ownerA
+});
+recordPaidImageFailedBeforeAcceptance({
+  productDir: failedBeforeProviderA.productDir,
+  slot: 1,
+  reason: "fetch failed"
+});
+const failedBeforeProviderB = initializePaidImageProductLedger({
+  ...identity,
+  rootDir: providerMigrationRoot,
+  batchFingerprint: "batch-provider-migration",
+  recordId: "record-provider-migration",
+  providerIdentity: "provider-b"
+});
+assert.equal(
+  failedBeforeProviderB.providerIdentity,
+  "provider-b",
+  "provider changes after no-acceptance failures must not block safe retry"
+);
+const submittedProviderLocked = initializePaidImageProductLedger({
+  ...identity,
+  rootDir: providerMigrationRoot,
+  batchFingerprint: "batch-provider-locked",
+  recordId: "record-provider-locked",
+  providerIdentity: "provider-a"
+});
+reservePaidImageSlot({
+  productDir: submittedProviderLocked.productDir,
+  slot: 1,
+  requestDigest: "provider-locked-request",
+  promptDigest: "provider-locked-prompt",
+  owner: ownerA
+});
+recordPaidImageSubmitted({
+  productDir: submittedProviderLocked.productDir,
+  slot: 1,
+  providerTaskId: "task_provider_locked"
+});
 assert.throws(
-  () => initializePaidImageProductLedger({ ...identity, providerIdentity: "provider-conflict" }),
-  /ledger identity conflict/i
+  () =>
+    initializePaidImageProductLedger({
+      ...identity,
+      rootDir: providerMigrationRoot,
+      batchFingerprint: "batch-provider-locked",
+      recordId: "record-provider-locked",
+      providerIdentity: "provider-b"
+    }),
+  /ledger identity conflict/i,
+  "provider changes must remain blocked once a paid task id exists"
 );
 assert.throws(
   () => initializePaidImageProductLedger({ ...identity, expectedSlotCount: 19 }),

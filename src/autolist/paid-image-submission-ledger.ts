@@ -549,6 +549,20 @@ function readProductLedger(productDir: string): PaidImageProductLedger {
   return { ...ledger, productDir };
 }
 
+function productLedgerHasAcceptedOrActivePaidSlots(productDir: string, expectedSlotCount: number): boolean {
+  for (let slot = 1; slot <= expectedSlotCount; slot += 1) {
+    const file = slotFile(productDir, slot);
+    if (!fs.existsSync(file)) {
+      continue;
+    }
+    const record = validateSlotRecord(readSlotJson(file), slot);
+    if (record.state !== "failed_before_acceptance") {
+      return true;
+    }
+  }
+  return false;
+}
+
 function validateSlotRange(productDir: string, slot: number): PaidImageProductLedger {
   const ledger = readProductLedger(productDir);
   if (!Number.isInteger(slot) || slot < 1 || slot > ledger.expectedSlotCount) {
@@ -720,7 +734,18 @@ export function initializePaidImageProductLedger(input: InitializePaidImageProdu
     if (!fs.existsSync(file)) {
       atomicWriteJson(file, created);
     }
-    const existing = validateProductLedger(readJson(file), input);
+    let existing = validateProductLedger(readJson(file));
+    const onlyProviderChanged =
+      existing.batchFingerprint === input.batchFingerprint &&
+      existing.recordId === input.recordId &&
+      existing.expectedSlotCount === input.expectedSlotCount &&
+      existing.sourceImageDigest === input.sourceImageDigest &&
+      existing.providerIdentity !== input.providerIdentity;
+    if (onlyProviderChanged && !productLedgerHasAcceptedOrActivePaidSlots(productDir, existing.expectedSlotCount)) {
+      existing = { ...existing, providerIdentity: input.providerIdentity };
+      atomicWriteJson(file, existing);
+    }
+    existing = validateProductLedger(readJson(file), input);
     return { ...existing, productDir };
   } finally {
     releaseExclusiveLock(lockFile, lockMetadata);
