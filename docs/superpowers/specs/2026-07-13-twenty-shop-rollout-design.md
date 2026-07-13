@@ -8,15 +8,15 @@
 
 | 需求 | 实现位置 | 验证证据 | 交付状态 |
 | --- | --- | --- | --- |
-| 20 家店铺使用用户指定顺序 | `src/autolist/shop-rules.ts` | 店铺规则测试、规则审计 | 待实现 |
-| 医疗器械 20 店 × 1 | `src/autolist/product-category.ts` | 类目规则测试、代表性模拟 | 待实现 |
-| 保健食品 20 店 × 1 | `src/autolist/product-category.ts` | 类目规则测试、代表性模拟 | 待实现 |
-| 非处方药前 10 店 × 2 | `src/autolist/product-category.ts` | 类目规则测试、代表性模拟 | 待实现 |
-| 每类每条飞书产品始终 20 个目标 | 店铺分配规则与深度审计规则 | 三类分配断言、身份与清单审计 | 待实现 |
-| 新增店铺操作真实跑通但不发布 | 独立只读店铺巡检动作与 CLI | 20 店巡检 JSON 证据 | 待实现 |
-| 动作层和规则层分离 | 店铺规则、巡检规则、浏览器动作、CLI 编排分别落文件 | 模块边界测试 | 待实现 |
-| 矛盾审计和规则审计 | 文档规则源、深度审计、残留文本扫描 | 两次独立审计报告 | 待实现 |
-| 审计无误后推送 GitHub | Git 提交与推送流程 | 干净状态、远端提交一致 | 待实现 |
+| 20 家店铺使用用户指定顺序 | `src/autolist/shop-rules.ts` | `test-shop-category-rules.mjs`、两次真实巡检 | 已验证 |
+| 医疗器械 20 店 × 1 | `src/autolist/product-category.ts` | 类目规则测试、代表性模拟 | 已验证 |
+| 保健食品 20 店 × 1 | `src/autolist/product-category.ts` | 类目规则测试、主图分配测试 | 已验证 |
+| 非处方药前 10 店 × 2 | `src/autolist/product-category.ts` | 类目规则测试、主图分配测试 | 已验证 |
+| 每类每条飞书产品始终 20 个目标 | 店铺分配规则与深度审计规则 | 三类闭合断言、`rules:check` | 已验证 |
+| 新增店铺操作真实跑通但不发布 | 独立只读店铺巡检动作与 CLI | 两份 20 店巡检 JSON 证据 | 已验证 |
+| 动作层和规则层分离 | 店铺规则、巡检规则、浏览器动作、CLI 编排分别落文件 | `test-shop-access-module-boundaries.mjs` | 已验证 |
+| 矛盾审计和规则审计 | 文档规则源、深度审计、残留文本扫描 | `rules:check`、通用深审计 contradictions 维度 | 已验证 |
+| 审计无误后推送 GitHub | Git 提交与推送流程 | 干净状态、远端提交一致 | 待最终推送 |
 
 ## 规范店铺目录
 
@@ -113,3 +113,10 @@
 - 每条产品仍生成 5 份提示词、20 张主图和 20 条标题。
 - 标题、价格库存、资质、发布页面动作、恢复身份和清理规则保持不变。
 - 本次不真实上架任何产品，不调用付费生图路径。
+
+## 2026-07-13 验证记录
+
+- `npm run build`、`npm run rules:check`、`npm run doctor`、`npm run doctor:feishu`、`npm run doctor:auto-listing`、`npm run doctor:all`、`npm run simulate:representative` 均通过。
+- 飞书 `fields` 和 `check` 只读调用通过，当前字段映射有效。
+- 抖店只读巡检 `20260713-171102` 与 `20260713-171751` 均完成 01–20 全序列，独立证据校验结果均为 `ok=true`；两份报告均记录 `publishAttempted=false`、`formMutationAttempted=false`。
+- 通用 `audit:auto-listing -- --json` 的 rules、contradictions、identities、recovery、sideEffects、artifacts、residue 七个维度通过；runtime 维度仍忠实报告 2026-07-07 历史真实控制任务为 `failed`。本次遵守“不真实上架”的范围，不启动真实发布覆盖该历史状态，也不删除其失败证据；该历史状态不属于 20 店规则或只读店铺操作审计的失败。
