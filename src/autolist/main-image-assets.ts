@@ -24,7 +24,6 @@ import { readManualTextBlock } from "./operation-manual.js";
 import {
   initializePaidImageProductLedger,
   expireSubmittedPaidImageQueue,
-  migrateLegacyPaidImageProductLedgers,
   paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
@@ -930,29 +929,6 @@ async function generateWithOpenAiCompatibleProvider(options: {
           sourceImageDigest: sha256File(options.sourceImagePath)
         })
       : undefined;
-  if (videosBase64Ledger && options.paidImageLedger) {
-    const relativeProductDir = path.relative(options.paidImageLedger.rootDir, videosBase64Ledger.productDir);
-    const legacyRunsRoot = path.join(path.dirname(options.paidImageLedger.rootDir), "runs");
-    const legacyProductDirs = fs.existsSync(legacyRunsRoot)
-      ? fs.readdirSync(legacyRunsRoot, { withFileTypes: true }).flatMap((runEntry) => {
-          const tasksRoot = path.join(legacyRunsRoot, runEntry.name, "tasks");
-          if (!runEntry.isDirectory() || !fs.existsSync(tasksRoot)) {
-            return [];
-          }
-          return fs.readdirSync(tasksRoot, { withFileTypes: true })
-            .filter((taskEntry) => taskEntry.isDirectory())
-            .map((taskEntry) => path.join(tasksRoot, taskEntry.name, "paid-image-ledger", relativeProductDir));
-        })
-      : [];
-    const migrated = migrateLegacyPaidImageProductLedgers({
-      productDir: videosBase64Ledger.productDir,
-      legacyProductDirs
-    });
-    if (migrated > 0) {
-      options.onProgress?.(`Imported ${migrated} paid image slot(s) from legacy runtime ledgers.`);
-    }
-  }
-
   const fetchMediaGenerateStatus = async (taskId: string): Promise<{ response: Response; text: string }> => {
     const statusUrl = new URL(resolveMediaGenerateStatusUrl(config.apiUrl, config.statusUrl));
     statusUrl.searchParams.set("task_id", taskId);

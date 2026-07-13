@@ -22,8 +22,13 @@ assert.match(auditCliSource, /auditRuntimeControllerConsistency/);
 assert.match(auditCliSource, /controllerRuntimeAudit\.evidence/);
 assert.match(
   auditCliSource,
-  /latestRunState\(resolved\.runtimeRootDir, resolved\.simulateOnly, batchFingerprint\)/,
-  "Deep audit must select runtime evidence only from the exact current Feishu batch"
+  /latestRunState\(resolved\.runtimeRootDir, resolved\.simulateOnly, batchFingerprint, businessRuleFingerprint\)/,
+  "Deep audit must select runtime evidence only from the exact current Feishu batch and business rules"
+);
+assert.match(
+  auditCliSource,
+  /state\.businessRuleFingerprint === currentBusinessRuleFingerprint/,
+  "Historical run state from obsolete shop/category rules must be isolated from the current audit"
 );
 assert.match(
   auditCliSource,

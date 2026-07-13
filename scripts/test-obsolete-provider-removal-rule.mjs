@@ -53,6 +53,21 @@ for (const token of [removedChatProvider, removedImageModule, removedImageCli]) 
   assert.equal(packageJson.toLowerCase().includes(token), false, `obsolete package entry remains: ${token}`);
 }
 
+const paidLedgerSource = fs.readFileSync("src/autolist/paid-image-submission-ledger.ts", "utf8");
+const mainImageSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
+for (const source of [paidLedgerSource, mainImageSource]) {
+  assert.equal(
+    source.includes("migrateLegacyPaidImageProductLedgers"),
+    false,
+    "paid-image recovery must use only the centralized ledger, never historical runtime ledgers"
+  );
+}
+assert.equal(
+  mainImageSource.includes('path.dirname(options.paidImageLedger.rootDir), "runs"'),
+  false,
+  "image generation must not scan previous run directories for billing state"
+);
+
 const operationalFiles = [
   ".gitignore",
   "README.md",

@@ -10,7 +10,7 @@ import { generateMainImageAssets } from "./main-image-assets.js";
 import { archiveUnwatermarkedMainImages, resolveArchiveProductName } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
 import { auditMainImageGeneration, collectFeishuProductAssetFiles, summarizeFeishuBatchProgress } from "./audit-rules.js";
-import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "./feishu-batch-rules.js";
+import { buildFeishuBatchFingerprint } from "./feishu-batch-rules.js";
 import {
   loadFeishuProductRecords,
   loadFeishuProductRuntimeRecord,
@@ -45,6 +45,10 @@ import type {
   AutoListingTaskError,
   ImageTaskState
 } from "./types.js";
+import {
+  buildAutoListingBusinessRuleFingerprint,
+  canResumeAutoListingArtifacts
+} from "./business-rule-fingerprint.js";
 import { normalizeAutoListingStep } from "./types.js";
 
 interface ManualReadRecord {
@@ -878,18 +882,18 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     resolved.input.feishuProductDataFile && fs.existsSync(resolved.input.feishuProductDataFile)
       ? buildFeishuBatchFingerprint(loadFeishuProductRecords(resolved.input.feishuProductDataFile))
       : undefined;
+  const businessRuleFingerprint = buildAutoListingBusinessRuleFingerprint();
   const feishuProductRecords =
     resolved.input.feishuProductDataFile && fs.existsSync(resolved.input.feishuProductDataFile)
       ? loadFeishuProductRecords(resolved.input.feishuProductDataFile)
       : [];
-  if (
-    resolved.input.resumeSourceImagePath &&
-    !canResumeFeishuBatchArtifacts({
-      currentBatchFingerprint: feishuBatchFingerprint,
-      resumeBatchFingerprint: resolved.input.feishuBatchFingerprint
-    })
-  ) {
-    throw new Error("Resume job Feishu batch fingerprint is missing or does not match the current Feishu batch.");
+  if (resolved.input.resumeSourceImagePath && !canResumeAutoListingArtifacts({
+    currentBatchFingerprint: feishuBatchFingerprint,
+    resumeBatchFingerprint: resolved.input.feishuBatchFingerprint,
+    currentBusinessRuleFingerprint: businessRuleFingerprint,
+    resumeBusinessRuleFingerprint: resolved.input.businessRuleFingerprint
+  })) {
+    throw new Error("Resume job batch or business-rule fingerprint is missing or does not match current rules.");
   }
   const discoveredImages =
     resolved.input.resumeSourceImagePath
@@ -927,6 +931,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
     ok: false,
     runId,
     feishuBatchFingerprint,
+    businessRuleFingerprint,
     startedAt,
     finishedAt: startedAt,
     runtimeDir: resolved.runtimeDir,
@@ -946,7 +951,8 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
 
   const state: AutoListingRunState = {
     ...applyResumeTaskId(createRunState(runId, effectiveImages), resolved.input.resumeTaskId),
-    feishuBatchFingerprint
+    feishuBatchFingerprint,
+    businessRuleFingerprint
   };
   result.tasks = state.tasks;
   const manualReadMap = new Map<string, ManualReadRecord>();

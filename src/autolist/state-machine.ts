@@ -17,6 +17,7 @@ export function createRunState(runId: string, imagePaths: string[]): AutoListing
   const timestamp = nowIso();
   return {
     runId,
+    businessRuleFingerprint: "",
     startedAt: timestamp,
     lastUpdatedAt: timestamp,
     status: "running",

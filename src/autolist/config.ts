@@ -72,6 +72,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     resumeTaskId: input.resumeTaskId || "",
     resumeProductFolderNames: input.resumeProductFolderNames || [],
     feishuBatchFingerprint: input.feishuBatchFingerprint || "",
+    businessRuleFingerprint: input.businessRuleFingerprint || "",
     simulateOnly: input.simulateOnly ?? true,
     clearTestOutputsBeforeRun: input.clearTestOutputsBeforeRun ?? false,
     startStep,

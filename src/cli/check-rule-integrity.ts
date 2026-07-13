@@ -23,7 +23,7 @@ function collectExistingFiles(rootDir: string, relativeDirs: string[]): string[]
 function assertNoMaintenanceResidue(): void {
   const rootDir = process.cwd();
   const targets = selectMaintenanceResidueTargets({
-    filePaths: collectExistingFiles(rootDir, ["scripts", "input/auto-listing"])
+    filePaths: collectExistingFiles(rootDir, ["scripts", "input/auto-listing", "docs/superpowers"])
   });
   if (targets.length) {
     throw new Error(

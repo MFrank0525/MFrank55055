@@ -453,7 +453,7 @@ assert.match(
 );
 assert.match(
   auditAutoListingSource,
-  /preflight\.json[\s\S]*simulateOnly[\s\S]*latestRunState\(resolved\.runtimeRootDir, resolved\.simulateOnly, batchFingerprint\)/,
+  /preflight\.json[\s\S]*simulateOnly[\s\S]*latestRunState\(resolved\.runtimeRootDir, resolved\.simulateOnly, batchFingerprint, businessRuleFingerprint\)/,
   "Real auto-listing audits must ignore simulated verification runs when selecting the latest run state"
 );
 assert.match(
@@ -498,8 +498,8 @@ assert.match(
 );
 assert.match(
   orchestratorSource,
-  /canResumeFeishuBatchArtifacts/,
-  "The orchestrator must independently reject stale or unscoped resume jobs before using their artifacts"
+  /canResumeAutoListingArtifacts/,
+  "The orchestrator must independently reject resume jobs outside the current batch or business rules"
 );
 assert.match(
   orchestratorSource,

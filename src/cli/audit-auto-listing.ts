@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { auditAutoListingContinuity, auditCompletedBatchResidue, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
+import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
 import { auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
 import { imageServiceWaitCeilingMs } from "../autolist/image-generation-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
@@ -25,6 +26,7 @@ interface ControllerJobFile {
   status?: "running" | "completed" | "failed";
   pid?: number;
   batchFingerprint?: string;
+  businessRuleFingerprint?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -129,7 +131,8 @@ function runMatchesAuditMode(stateFile: string, simulateOnly: boolean): boolean 
 function latestRunState(
   runtimeRootDir: string,
   simulateOnly: boolean,
-  currentBatchFingerprint: string
+  currentBatchFingerprint: string,
+  currentBusinessRuleFingerprint: string
 ): AutoListingRunState | undefined {
   const root = path.resolve(runtimeRootDir);
   if (!fs.existsSync(root)) {
@@ -156,7 +159,10 @@ function latestRunState(
     }
     try {
       const state = readJson<AutoListingRunState>(stateFile.filePath);
-      if (state.feishuBatchFingerprint === currentBatchFingerprint) {
+      if (
+        state.feishuBatchFingerprint === currentBatchFingerprint &&
+        state.businessRuleFingerprint === currentBusinessRuleFingerprint
+      ) {
         return state;
       }
     } catch {
@@ -284,7 +290,8 @@ async function main(): Promise<void> {
     });
   }
   const batchFingerprint = buildFeishuBatchFingerprint(records);
-  const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly, batchFingerprint);
+  const businessRuleFingerprint = buildAutoListingBusinessRuleFingerprint();
+  const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly, batchFingerprint, businessRuleFingerprint);
   const effectiveProcessedImageManifest = resolveProcessedImageManifestForAudit({
     defaultProcessedImageManifest: resolved.processedImageManifest,
     runtimeRootDir: resolved.runtimeRootDir,
@@ -305,7 +312,7 @@ async function main(): Promise<void> {
   const controllerMatchesCurrentBatch = canResumeFeishuBatchArtifacts({
     currentBatchFingerprint: batchFingerprint,
     resumeBatchFingerprint: controllerJob?.batchFingerprint
-  });
+  }) && controllerJob?.businessRuleFingerprint === businessRuleFingerprint;
   const activeControllerRunning = controllerProcessAlive && controllerMatchesCurrentBatch;
   const expectedDiscoveredRunImageCount =
     discoveredRunImageCount !== undefined && activeControllerRunning && controllerJob.mode === "resume-real-job"
@@ -314,6 +321,19 @@ async function main(): Promise<void> {
   const latestRuntimeDir = state?.runId ? path.join(resolved.runtimeRootDir, state.runId) : resolved.runtimeRootDir;
   let manifest = { generatedAt: new Date().toISOString(), entries: [] as ReturnType<typeof loadPublishManifest>["entries"] };
   const runtimeErrors: DeepAuditIssue[] = [];
+  const invalidBusinessRuleRunDirs = fs.existsSync(resolved.runtimeRootDir)
+    ? fs.readdirSync(resolved.runtimeRootDir, { withFileTypes: true }).filter((entry) => {
+        if (!entry.isDirectory()) return false;
+        const runState = readOptionalJson<AutoListingRunState>(path.join(resolved.runtimeRootDir, entry.name, "state.json"));
+        return Boolean(runState && runState.businessRuleFingerprint !== businessRuleFingerprint);
+      })
+    : [];
+  if (invalidBusinessRuleRunDirs.length > 0) {
+    runtimeErrors.push({
+      code: "runtime_business_rule_fingerprint_mismatch",
+      message: `${invalidBusinessRuleRunDirs.length} runtime directories were produced under obsolete business rules.`
+    });
+  }
   if (controllerProcessAlive && !controllerMatchesCurrentBatch) {
     runtimeErrors.push({
       code: "controller_process_batch_fingerprint_mismatch",

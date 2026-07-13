@@ -30,6 +30,38 @@ function assertSafeCleanupTarget(target: string): void {
   }
 }
 
+export interface MaintenanceCleanupResult {
+  selectedPaths: string[];
+  removedPaths: string[];
+  applied: boolean;
+}
+
+export function cleanupMaintenanceResidue(options: {
+  targets: string[];
+  apply: boolean;
+  workspaceRoot?: string;
+}): MaintenanceCleanupResult {
+  const workspaceRoot = path.resolve(options.workspaceRoot || process.cwd());
+  const selectedPaths = Array.from(new Set(options.targets.filter(Boolean).map((target) => path.resolve(target))));
+  const removedPaths: string[] = [];
+
+  for (const target of selectedPaths) {
+    const relative = path.relative(workspaceRoot, target);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error(`Refusing unsafe maintenance cleanup target outside workspace: ${target}`);
+    }
+    assertSafeCleanupTarget(target);
+    if (!options.apply || !fs.existsSync(target)) {
+      continue;
+    }
+    const stat = fs.statSync(target);
+    fs.rmSync(target, stat.isDirectory() ? { recursive: true, force: true } : { force: true });
+    removedPaths.push(target);
+  }
+
+  return { selectedPaths, removedPaths, applied: options.apply };
+}
+
 function collectTitleDirTargets(titleDir?: string): string[] {
   if (!titleDir || !fs.existsSync(titleDir)) {
     return [];

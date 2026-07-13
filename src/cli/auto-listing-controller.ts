@@ -26,6 +26,8 @@ import {
 import { shouldFailAutoListingControllerStatusForFeishuCacheInvalid, shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid } from "../autolist/controller-cache-status-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
+import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
+import { removeInvalidRuntimeArtifactDirs } from "../autolist/runtime-artifact-lifecycle.js";
 import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
@@ -62,6 +64,7 @@ interface RunnerJob {
   mode: "full-real-flow" | "resume-real-job";
   status: ControllerJobStatus;
   batchFingerprint?: string;
+  businessRuleFingerprint?: string;
   finishedAt?: string;
 }
 
@@ -100,6 +103,7 @@ interface AutoListingJobFile {
     resumeTaskId?: string;
     resumeProductFolderNames?: string[];
     feishuBatchFingerprint?: string;
+    businessRuleFingerprint?: string;
     feishuProductDataFile?: string;
     processedImageManifest?: string;
     paidImageSubmissionLedgerDir?: string;
@@ -118,6 +122,7 @@ interface AutoListingJobFile {
 interface AutoListingResultFile {
   ok?: boolean;
   feishuBatchFingerprint?: string;
+  businessRuleFingerprint?: string;
   status?: string;
   runId?: string;
   runtimeDir?: string;
@@ -158,6 +163,7 @@ interface AutoListingResultFile {
 interface AutoListingStateFile {
   runId?: string;
   feishuBatchFingerprint?: string;
+  businessRuleFingerprint?: string;
   status?: string;
   tasks?: Array<{
     taskId?: string;
@@ -1183,22 +1189,6 @@ function clearCurrentBatchPaidImageLedger(): boolean {
   return removePaidImageBatchLedger(ledgerRoot, fingerprint);
 }
 
-function readRuntimeBatchFingerprint(runtimeDir: string): string | undefined {
-  for (const file of [path.join(runtimeDir, "result.json"), path.join(runtimeDir, "state.json")]) {
-    const parsed = readJsonFile<AutoListingResultFile & AutoListingStateFile>(file);
-    const fingerprint =
-      typeof parsed?.feishuBatchFingerprint === "string"
-        ? parsed.feishuBatchFingerprint
-        : typeof (parsed as { batchFingerprint?: string } | undefined)?.batchFingerprint === "string"
-          ? (parsed as { batchFingerprint?: string }).batchFingerprint
-          : undefined;
-    if (fingerprint) {
-      return fingerprint;
-    }
-  }
-  return undefined;
-}
-
 function cleanupNonCurrentBatchResidue(currentBatchFingerprint: string): string[] {
   const removed: string[] = [];
   if (!currentBatchFingerprint) {
@@ -1216,25 +1206,18 @@ function cleanupNonCurrentBatchResidue(currentBatchFingerprint: string): string[
   }
 
   const resumeJob = readJsonFile<AutoListingJobFile>(resumeJobFile);
-  if (resumeJob?.input?.feishuBatchFingerprint && resumeJob.input.feishuBatchFingerprint !== currentBatchFingerprint) {
+  const currentBusinessRuleFingerprint = buildAutoListingBusinessRuleFingerprint();
+  if (
+    resumeJob?.input &&
+    (resumeJob.input.feishuBatchFingerprint !== currentBatchFingerprint ||
+      resumeJob.input.businessRuleFingerprint !== currentBusinessRuleFingerprint)
+  ) {
     fs.rmSync(resumeJobFile, { force: true });
     removed.push(resumeJobFile);
   }
 
   const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
-  if (fs.existsSync(runsDir)) {
-    for (const entry of fs.readdirSync(runsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-      const runtimeDir = path.join(runsDir, entry.name);
-      const runtimeBatchFingerprint = readRuntimeBatchFingerprint(runtimeDir);
-      if (runtimeBatchFingerprint && runtimeBatchFingerprint !== currentBatchFingerprint) {
-        fs.rmSync(runtimeDir, { recursive: true, force: true });
-        removed.push(runtimeDir);
-      }
-    }
-  }
+  removed.push(...removeInvalidRuntimeArtifactDirs({ runsDir, currentBatchFingerprint, currentBusinessRuleFingerprint }));
 
   const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   const ledgerRoot = path.resolve(
@@ -2109,6 +2092,10 @@ function formatStartText(result: Record<string, unknown>): string {
 
 function shouldResumeCurrentFailure(): boolean {
   const resumeJob = readJsonFile<AutoListingJobFile>(resumeJobFile);
+  if (resumeJob?.input?.businessRuleFingerprint !== buildAutoListingBusinessRuleFingerprint()) {
+    fs.rmSync(resumeJobFile, { force: true });
+    return false;
+  }
   const startStep = resumeJob?.input?.startStep || resumeJob?.startStep;
   if (!startStep || startStep === "done") {
     return false;
@@ -2460,6 +2447,9 @@ function findLatestInterruptedStateForResume(): {
   }> = [];
   for (const stateFile of listStateFilesNewestFirst()) {
     const state = readJsonFile<AutoListingStateFile>(stateFile);
+    if (state?.businessRuleFingerprint !== buildAutoListingBusinessRuleFingerprint()) {
+      continue;
+    }
     const runtimeDir = path.dirname(stateFile);
     const task = (state?.tasks || []).find((item) => item.status !== "done" && item.status !== "cleaned" && item.status !== "failed");
     if (!state || !task?.sourceImagePath) {
@@ -2516,7 +2506,12 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
   }> = [];
   for (const resultFile of listResultFilesNewestFirst()) {
     const result = readJsonFile<AutoListingResultFile>(resultFile);
-    if (!result || result.ok === true || result.status === "success") {
+    if (
+      !result ||
+      result.businessRuleFingerprint !== buildAutoListingBusinessRuleFingerprint() ||
+      result.ok === true ||
+      result.status === "success"
+    ) {
       continue;
     }
     const failedTask = (result.tasks || []).find((task) => task.status === "failed" || task.error);
@@ -2598,6 +2593,7 @@ function writeResumeJobFromInterruptedState(
       resumeTaskId: interrupted.task.taskId,
       resumeProductFolderNames,
       feishuBatchFingerprint: interrupted.state.feishuBatchFingerprint,
+      businessRuleFingerprint: interrupted.state.businessRuleFingerprint,
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
     }
@@ -2626,7 +2622,7 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
   }
 
   const unsafeLatest = findLatestUnsafePublishManifestForResume();
-  if (unsafeLatest) {
+  if (unsafeLatest?.result.businessRuleFingerprint === buildAutoListingBusinessRuleFingerprint()) {
     const sourceImagePath = unsafeLatest.unsafeEntries[0]?.sourceImagePath;
     const task = (unsafeLatest.result.tasks || []).find((item) =>
       sourceImagePath && item.sourceImagePath && path.resolve(rootDir, item.sourceImagePath) === path.resolve(rootDir, sourceImagePath)
@@ -2648,6 +2644,7 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
           resumeTaskId: task.taskId,
           resumeProductFolderNames,
           feishuBatchFingerprint: unsafeLatest.result.feishuBatchFingerprint,
+          businessRuleFingerprint: unsafeLatest.result.businessRuleFingerprint,
           maxImagesPerRun: 1,
           clearTestOutputsBeforeRun: false
         }
@@ -2694,6 +2691,7 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
       resumeTaskId: failedTask.taskId,
       resumeProductFolderNames,
       feishuBatchFingerprint: latest.result.feishuBatchFingerprint,
+      businessRuleFingerprint: latest.result.businessRuleFingerprint,
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
     }
@@ -2925,7 +2923,8 @@ async function start(
     expectedResultFile: selected.expectedResultFile,
     mode: selected.mode,
     status: "running",
-    batchFingerprint: selectedBatchFingerprint
+    batchFingerprint: selectedBatchFingerprint,
+    businessRuleFingerprint: buildAutoListingBusinessRuleFingerprint()
   };
   atomicWriteJson(jobFile, job);
   const result = {
