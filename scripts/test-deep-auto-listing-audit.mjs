@@ -109,6 +109,19 @@ const contradictionAudit = auditRuleContradictions({
 assert.equal(contradictionAudit.ok, false);
 assert.equal(contradictionAudit.errors[0].code, "title_count_rule_contradiction");
 
+const currentShopRuleText = fs.readFileSync("docs/auto-listing/steps/09-shop-distribution.md", "utf8");
+const currentCategoryPlanAudit = auditRuleContradictions({
+  categoryPlans: [
+    { category: "医疗器械", titleCount: 20, shopCount: 20, promptCount: 5 },
+    { category: "非处方药", titleCount: 20, shopCount: 10, promptCount: 5 },
+    { category: "保健食品", titleCount: 20, shopCount: 20, promptCount: 5 }
+  ],
+  titleRuleText: "医疗器械：20 条标题；非处方药：20 条标题；保健食品：20 条标题",
+  shopRuleText: currentShopRuleText,
+  promptRuleText: "医疗器械：5 段提示词；非处方药：5 段提示词；保健食品：5 段提示词"
+});
+assert.equal(currentCategoryPlanAudit.ok, true, currentCategoryPlanAudit.errors.map((item) => item.message).join("\n"));
+
 const imageWaitContradictionAudit = auditRuleContradictions({
   categoryPlans: [{ category: "医疗器械", titleCount: 20, shopCount: 10, promptCount: 5 }],
   titleRuleText: "医疗器械：20 条标题",

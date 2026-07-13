@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {
   getProductCategoryPlan,
   getShopSpecs,
@@ -35,6 +36,15 @@ assert.deepEqual(
   allShopNames,
   "global shop order must match the publishing order"
 );
+
+const publishRuleText = fs.readFileSync("docs/auto-listing/steps/10-publish.md", "utf8");
+let previousShopRuleIndex = -1;
+for (const [index, shopName] of allShopNames.entries()) {
+  const expectedRuleText = `${String(index + 1).padStart(2, "0")} ${shopName}`;
+  const currentShopRuleIndex = publishRuleText.indexOf(expectedRuleText);
+  assert.ok(currentShopRuleIndex > previousShopRuleIndex, `publish rule must list ${expectedRuleText} in canonical order`);
+  previousShopRuleIndex = currentShopRuleIndex;
+}
 
 assert.deepEqual(getProductCategoryPlan("医疗器械").shopCodes, allShopCodes);
 assert.equal(getProductCategoryPlan("医疗器械").promptCount, 5);
