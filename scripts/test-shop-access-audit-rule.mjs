@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { getShopSpecs } from "../dist/src/autolist/product-category.js";
 import { validateShopAccessAuditReport } from "../dist/src/autolist/shop-access-audit-rules.js";
+import { runShopAccessAudit } from "../dist/src/business/shop-access-audit.js";
 
 const shops = getShopSpecs();
 
@@ -65,5 +69,54 @@ const formSideEffect = structuredClone(passing);
 formSideEffect.sideEffects.formMutationAttempted = true;
 assert.equal(validateShopAccessAuditReport(formSideEffect).ok, false);
 assert.match(validateShopAccessAuditReport(formSideEffect).errors.join("\n"), /form/i);
+
+function deterministicNow() {
+  let tick = 0;
+  return () => new Date(Date.UTC(2026, 6, 13, 0, 0, tick++));
+}
+
+const successRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "shop-access-success-"));
+const successCalls = [];
+const successReport = await runShopAccessAudit({
+  runtimeDir: successRuntimeDir,
+  dependencies: {
+    openPage: async () => ({ fake: true }),
+    ensureShopContext: async (_page, _runtimeDir, shopFolder) => {
+      successCalls.push(path.basename(shopFolder));
+      return shops.find((shop) => path.basename(shopFolder).startsWith(shop.shopCode))?.watermarkText || "";
+    },
+    now: deterministicNow()
+  }
+});
+assert.deepEqual(successCalls, shops.map((shop) => `${shop.shopCode}${shop.watermarkText}`));
+assert.equal(successReport.status, "passed");
+assert.equal(successReport.entries.length, 20);
+assert.deepEqual(validateShopAccessAuditReport(successReport), { ok: true, errors: [] });
+assert.deepEqual(JSON.parse(fs.readFileSync(successReport.resultFile, "utf8")), successReport);
+
+const failureRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "shop-access-failure-"));
+const failureCalls = [];
+const failureReport = await runShopAccessAudit({
+  runtimeDir: failureRuntimeDir,
+  dependencies: {
+    openPage: async () => ({ fake: true }),
+    ensureShopContext: async (_page, _runtimeDir, shopFolder) => {
+      const code = path.basename(shopFolder).slice(0, 2);
+      failureCalls.push(code);
+      if (code === "07") {
+        throw new Error("Shop switch failed: target shop not found in selector for 延草纲目基础营养专卖店");
+      }
+      return shops.find((shop) => shop.shopCode === code)?.watermarkText || "";
+    },
+    now: deterministicNow()
+  }
+});
+assert.deepEqual(failureCalls, ["01", "02", "03", "04", "05", "06", "07"]);
+assert.equal(failureReport.status, "failed");
+assert.equal(failureReport.entries.length, 7);
+assert.equal(failureReport.entries.at(-1)?.passed, false);
+assert.equal(failureReport.failure?.shopCode, "07");
+assert.equal(failureReport.failure?.errorClass, "shop_not_found");
+assert.deepEqual(JSON.parse(fs.readFileSync(failureReport.resultFile, "utf8")), failureReport);
 
 console.log("shop access audit rules passed");

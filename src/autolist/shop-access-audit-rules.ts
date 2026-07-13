@@ -42,6 +42,10 @@ function normalizeShopName(value: string): string {
   return value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
 }
 
+export function shopAccessNamesMatch(actualShopName: string, expectedShopName: string): boolean {
+  return normalizeShopName(actualShopName) === normalizeShopName(expectedShopName);
+}
+
 export function validateShopAccessAuditReport(
   report: ShopAccessAuditReport,
   expected: readonly ShopSpec[] = getShopSpecs()
@@ -79,12 +83,12 @@ export function validateShopAccessAuditReport(
         `Shop access audit expected shop mismatch at sequence ${index + 1}: actual=${entry.shopCode}; expected=${expectedShop.shopCode}.`
       );
     }
-    if (normalizeShopName(entry.expectedShopName) !== normalizeShopName(expectedShop.watermarkText)) {
+    if (!shopAccessNamesMatch(entry.expectedShopName, expectedShop.watermarkText)) {
       errors.push(
         `Shop access audit expected name mismatch for ${expectedShop.shopCode}: report=${entry.expectedShopName}; expected=${expectedShop.watermarkText}.`
       );
     }
-    if (normalizeShopName(entry.actualShopName) !== normalizeShopName(expectedShop.watermarkText)) {
+    if (!shopAccessNamesMatch(entry.actualShopName, expectedShop.watermarkText)) {
       errors.push(
         `Shop access audit actual name mismatch for ${expectedShop.shopCode}: actual=${entry.actualShopName}; expected=${expectedShop.watermarkText}.`
       );
