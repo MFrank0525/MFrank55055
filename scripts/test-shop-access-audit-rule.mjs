@@ -119,4 +119,14 @@ assert.equal(failureReport.failure?.shopCode, "07");
 assert.equal(failureReport.failure?.errorClass, "shop_not_found");
 assert.deepEqual(JSON.parse(fs.readFileSync(failureReport.resultFile, "utf8")), failureReport);
 
+const cliSource = fs.readFileSync("src/cli/audit-shop-access.ts", "utf8");
+assert.match(cliSource, /--runtime-root/, "shop access audit CLI must support an explicit runtime evidence root");
+assert.match(cliSource, /runShopAccessAudit/, "shop access audit CLI must invoke the dedicated read-only orchestrator");
+assert.match(cliSource, /process\.exitCode\s*=\s*1/, "shop access audit CLI must fail closed with a nonzero exit code");
+assert.match(cliSource, /JSON\.stringify/, "shop access audit CLI must expose machine-readable evidence");
+assert.ok(!cliSource.includes("--allow-publish"), "shop access audit CLI must not accept a publishing authorization flag");
+
+const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+assert.match(packageJson.scripts["audit:shop-access"], /audit-shop-access\.js --json/);
+
 console.log("shop access audit rules passed");
