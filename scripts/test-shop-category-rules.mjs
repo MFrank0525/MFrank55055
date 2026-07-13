@@ -46,6 +46,24 @@ for (const [index, shopName] of allShopNames.entries()) {
   previousShopRuleIndex = currentShopRuleIndex;
 }
 
+const trackedShopFolders = fs
+  .readdirSync("input/auto-listing/shops", { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort((left, right) => left.localeCompare(right, "zh-CN"));
+assert.deepEqual(
+  trackedShopFolders,
+  getShopSpecs().map((shop) => `${shop.shopCode}${shop.watermarkText}`),
+  "tracked shop folders must match the canonical code/name catalog exactly"
+);
+
+const doctorSource = fs.readFileSync("src/cli/doctor.ts", "utf8");
+assert.match(
+  doctorSource,
+  /const expectedName = `\$\{shop\.shopCode\}\$\{shop\.watermarkText\}`/,
+  "doctor must validate the exact canonical shop folder name instead of only its numeric prefix"
+);
+
 assert.deepEqual(getProductCategoryPlan("医疗器械").shopCodes, allShopCodes);
 assert.equal(getProductCategoryPlan("医疗器械").promptCount, 5);
 assert.equal(getProductCategoryPlan("医疗器械").titleCount, 20);

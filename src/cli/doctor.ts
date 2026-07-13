@@ -235,9 +235,16 @@ function checkAutoListingShopFolders(): CheckResult {
     .readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
-  const missing = getShopSpecs().map((shop) => shop.shopCode).filter((code) => !existing.some((name) => name.startsWith(code)));
+  const missing = getShopSpecs().filter((shop) => {
+    const expectedName = `${shop.shopCode}${shop.watermarkText}`;
+    return !existing.includes(expectedName);
+  });
   if (missing.length > 0) {
-    return { name: "auto-listing shop folders", ok: false, detail: `missing shop code(s): ${missing.join(", ")}` };
+    return {
+      name: "auto-listing shop folders",
+      ok: false,
+      detail: `missing canonical shop folder(s): ${missing.map((shop) => `${shop.shopCode}${shop.watermarkText}`).join(", ")}`
+    };
   }
   return { name: "auto-listing shop folders", ok: true, detail: root };
 }
