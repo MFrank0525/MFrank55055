@@ -7,6 +7,8 @@ import { writeFeishuPromptWordFiles } from "../dist/src/autolist/deepseek-word-d
 import { getProductCategoryPlan, getShopSpecs } from "../dist/src/autolist/product-category.js";
 
 const fixturePng = fs.readFileSync("input/fixed-main-images/辅助图02.png");
+const twentyShopCodes = Array.from({ length: 20 }, (_, index) => String(index + 1).padStart(2, "0"));
+const otcShopCodes = twentyShopCodes.slice(0, 10).flatMap((code) => [code, code]);
 
 function prepareShopRoot(tmp) {
   const shopRoot = path.join(tmp, "shops");
@@ -48,14 +50,21 @@ assert.equal(medical.generatedFiles.length, 20);
 assert.ok(medical.generatedFiles.every((item) => path.basename(item.productFolder).includes("record-医疗器械")));
 assert.deepEqual(
   medical.generatedFiles.map((item) => path.basename(item.shopFolder).slice(0, 2)),
-  ["01", "01", "02", "02", "03", "03", "04", "04", "05", "05", "06", "06", "07", "07", "08", "08", "09", "09", "10", "10"]
+  twentyShopCodes
+);
+
+const healthFood = await runSimulatedCategory("保健食品");
+assert.equal(healthFood.generatedFiles.length, 20);
+assert.deepEqual(
+  healthFood.generatedFiles.map((item) => path.basename(item.shopFolder).slice(0, 2)),
+  twentyShopCodes
 );
 
 const otc = await runSimulatedCategory("非处方药");
 assert.equal(otc.generatedFiles.length, 20);
 assert.deepEqual(
   otc.generatedFiles.map((item) => path.basename(item.shopFolder).slice(0, 2)),
-  ["01", "01", "01", "01", "02", "02", "02", "02", "03", "03", "03", "03", "04", "04", "04", "04", "05", "05", "05", "05"]
+  otcShopCodes
 );
 
 async function runRecoveredRawCategory(category) {
@@ -133,34 +142,13 @@ const recovered = await runRecoveredRawCategory("医疗器械");
 assert.equal(recovered.generatedFiles.length, 20);
 assert.deepEqual(
   recovered.generatedFiles.map((item) => path.basename(item.shopFolder).slice(0, 2)),
-  ["01", "01", "02", "02", "03", "03", "04", "04", "05", "05", "06", "06", "07", "07", "08", "08", "09", "09", "10", "10"]
+  twentyShopCodes
 );
 assert.deepEqual(
   recovered.generatedFiles.map(
     (item) => getShopSpecs().find((shop) => path.basename(item.imageFile).includes(shop.watermarkText))?.watermarkText || ""
   ),
-  [
-    "延草纲目大药房专营店",
-    "延草纲目大药房专营店",
-    "延草纲目药品专营店",
-    "延草纲目药品专营店",
-    "延草纲目个护保健专营店",
-    "延草纲目个护保健专营店",
-    "延草纲目康复理疗专营店",
-    "延草纲目康复理疗专营店",
-    "延草纲目医疗保健专营店",
-    "延草纲目医疗保健专营店",
-    "延草纲目理疗器械旗舰店",
-    "延草纲目理疗器械旗舰店",
-    "延草纲目健康护理专营店",
-    "延草纲目健康护理专营店",
-    "延草纲目家庭护理专营店",
-    "延草纲目家庭护理专营店",
-    "延草纲目中医保健专营店",
-    "延草纲目中医保健专营店",
-    "延草纲目养生器械专营店",
-    "延草纲目养生器械专营店"
-  ]
+  getShopSpecs().map((shop) => shop.watermarkText)
 );
 
 assert.deepEqual(resolveOpenAiCompatibleGeneratedImageIndex({ imageIndexOffset: 1, localImageIndex: 1 }), {
