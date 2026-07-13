@@ -11,12 +11,24 @@ const allShopNames = [
   "延草纲目个护保健专营店",
   "延草纲目康复理疗专营店",
   "延草纲目医疗保健专营店",
+  "延草纲目滋补专卖店",
+  "延草纲目基础营养专卖店",
+  "延草纲目身体护理专卖店",
+  "延草纲目保健用品专卖店",
+  "延草纲目营养膳食专卖店",
   "延草纲目理疗器械旗舰店",
   "延草纲目健康护理专营店",
   "延草纲目家庭护理专营店",
   "延草纲目中医保健专营店",
-  "延草纲目养生器械专营店"
+  "延草纲目养生器械专营店",
+  "延草纲目特医食品专营店",
+  "延草纲目美体器械专卖店",
+  "延草纲目护肤专卖店",
+  "延草纲目体外检测专卖店",
+  "延草纲目防护用品专卖店"
 ];
+
+const allShopCodes = Array.from({ length: 20 }, (_, index) => String(index + 1).padStart(2, "0"));
 
 assert.deepEqual(
   getShopSpecs().map((item) => item.watermarkText),
@@ -24,20 +36,25 @@ assert.deepEqual(
   "global shop order must match the publishing order"
 );
 
-assert.deepEqual(getProductCategoryPlan("医疗器械").shopCodes, ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]);
+assert.deepEqual(getProductCategoryPlan("医疗器械").shopCodes, allShopCodes);
 assert.equal(getProductCategoryPlan("医疗器械").promptCount, 5);
 assert.equal(getProductCategoryPlan("医疗器械").titleCount, 20);
-assert.equal(getProductCategoryPlan("医疗器械").imagesPerShop, 2);
+assert.equal(getProductCategoryPlan("医疗器械").imagesPerShop, 1);
 
-assert.deepEqual(getProductCategoryPlan("保健食品").shopCodes, ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]);
+assert.deepEqual(getProductCategoryPlan("保健食品").shopCodes, allShopCodes);
 assert.equal(getProductCategoryPlan("保健食品").promptCount, 5);
 assert.equal(getProductCategoryPlan("保健食品").titleCount, 20);
-assert.equal(getProductCategoryPlan("保健食品").imagesPerShop, 2);
+assert.equal(getProductCategoryPlan("保健食品").imagesPerShop, 1);
 
-assert.deepEqual(getProductCategoryPlan("非处方药").shopCodes, ["01", "02", "03", "04", "05"]);
+assert.deepEqual(getProductCategoryPlan("非处方药").shopCodes, allShopCodes.slice(0, 10));
 assert.equal(getProductCategoryPlan("非处方药").promptCount, 5);
 assert.equal(getProductCategoryPlan("非处方药").titleCount, 20);
-assert.equal(getProductCategoryPlan("非处方药").imagesPerShop, 4);
+assert.equal(getProductCategoryPlan("非处方药").imagesPerShop, 2);
+
+for (const category of ["医疗器械", "非处方药", "保健食品"]) {
+  const plan = getProductCategoryPlan(category);
+  assert.equal(plan.shopCodes.length * plan.imagesPerShop, 20, `${category} must resolve to exactly 20 publish targets`);
+}
 
 const medicalAssignments = resolveMainImageShopAssignments({
   shopCodes: getProductCategoryPlan("医疗器械").shopCodes,
@@ -45,8 +62,7 @@ const medicalAssignments = resolveMainImageShopAssignments({
   totalImageCount: 20
 });
 assert.equal(medicalAssignments.length, 20);
-assert.deepEqual(medicalAssignments.slice(0, 5).map((item) => item.shopCode), ["01", "01", "02", "02", "03"]);
-assert.deepEqual(medicalAssignments.slice(-4).map((item) => item.shopCode), ["09", "09", "10", "10"]);
+assert.deepEqual(medicalAssignments.map((item) => item.shopCode), allShopCodes);
 
 const otcAssignments = resolveMainImageShopAssignments({
   shopCodes: getProductCategoryPlan("非处方药").shopCodes,
@@ -54,7 +70,9 @@ const otcAssignments = resolveMainImageShopAssignments({
   totalImageCount: 20
 });
 assert.equal(otcAssignments.length, 20);
-assert.deepEqual(otcAssignments.slice(0, 8).map((item) => item.shopCode), ["01", "01", "01", "01", "02", "02", "02", "02"]);
-assert.deepEqual(otcAssignments.slice(-4).map((item) => item.shopCode), ["05", "05", "05", "05"]);
+assert.deepEqual(
+  otcAssignments.map((item) => item.shopCode),
+  allShopCodes.slice(0, 10).flatMap((code) => [code, code])
+);
 
 console.log("shop category rules passed");

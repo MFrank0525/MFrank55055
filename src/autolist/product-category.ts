@@ -1,5 +1,6 @@
 import path from "node:path";
 import {
+  getOrderedShopCodes,
   getShopSpecs,
   resolveMainImageShopAssignments,
   type ShopImageAssignment,
@@ -19,36 +20,59 @@ export interface ProductCategoryPlan {
 }
 
 const DEFAULT_CATEGORY: ProductCategory = "医疗器械";
+const PUBLISH_TARGETS_PER_PRODUCT = 20;
 
 const CATEGORY_PLANS: Record<ProductCategory, ProductCategoryPlan> = {
   医疗器械: {
     category: "医疗器械",
-    shopCodes: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"],
+    shopCodes: getOrderedShopCodes(),
     promptCount: 5,
     titleCount: 20,
-    imagesPerShop: 2,
+    imagesPerShop: 1,
     titleRule: "medical_device",
     titleCharacterCount: 58
   },
   非处方药: {
     category: "非处方药",
-    shopCodes: ["01", "02", "03", "04", "05"],
+    shopCodes: getOrderedShopCodes(10),
     promptCount: 5,
     titleCount: 20,
-    imagesPerShop: 4,
+    imagesPerShop: 2,
     titleRule: "otc_drug",
     titleCharacterCount: 58
   },
   保健食品: {
     category: "保健食品",
-    shopCodes: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"],
+    shopCodes: getOrderedShopCodes(),
     promptCount: 5,
     titleCount: 20,
-    imagesPerShop: 2,
+    imagesPerShop: 1,
     titleRule: "health_food",
     titleCharacterCount: 28
   }
 };
+
+function assertCategoryPlanClosure(plans: Record<ProductCategory, ProductCategoryPlan>): void {
+  const knownShopCodes = new Set(getOrderedShopCodes());
+  for (const plan of Object.values(plans)) {
+    const uniqueShopCodes = new Set(plan.shopCodes);
+    if (uniqueShopCodes.size !== plan.shopCodes.length) {
+      throw new Error(`Product category plan ${plan.category} contains duplicate shop codes.`);
+    }
+    const unknownShopCodes = plan.shopCodes.filter((shopCode) => !knownShopCodes.has(shopCode));
+    if (unknownShopCodes.length > 0) {
+      throw new Error(`Product category plan ${plan.category} contains unknown shop codes: ${unknownShopCodes.join(", ")}.`);
+    }
+    const targetCount = plan.shopCodes.length * plan.imagesPerShop;
+    if (targetCount !== PUBLISH_TARGETS_PER_PRODUCT) {
+      throw new Error(
+        `Product category plan ${plan.category} must resolve to ${PUBLISH_TARGETS_PER_PRODUCT} targets, got ${targetCount}.`
+      );
+    }
+  }
+}
+
+assertCategoryPlanClosure(CATEGORY_PLANS);
 
 export function normalizeProductCategory(value: string | undefined): ProductCategory {
   const normalized = String(value || "").replace(/\s+/g, "").trim();
