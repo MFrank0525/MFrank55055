@@ -3024,6 +3024,27 @@ for (const safeFinancialSubstring of [
     `visual wording containing a financial substring must remain retryable: ${safeFinancialSubstring}`
   );
 }
+for (const unsafeLimitReason of [
+  "limit exceeded",
+  "account limit exceeded",
+  "monthly limit reached",
+  "insufficient funds",
+  "limit_exceeded",
+  "insufficient_funds"
+]) {
+  assert.equal(
+    shouldResumeFeishuBatchAfterRetryableChildFailure({
+      exitCode: 1,
+      batchComplete: false,
+      retryableFailureMessage:
+        `failed at main_images_generated: videos-base64 task task_limit failed: ${unsafeLimitReason}`,
+      recoveryAttempts: 0,
+      maxRecoveryAttempts: 12
+    }),
+    false,
+    `explicit limit/funds failure must stop supervisor recovery: ${unsafeLimitReason}`
+  );
+}
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
     exitCode: 1,

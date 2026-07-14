@@ -280,7 +280,9 @@ export function isUnsafePaidImageReplayReason(reason: string): boolean {
   return (
     (!providerProvedNoAcceptance && isPaidImageSubmitStageUncertaintyReason(reason)) ||
     authorizationFailure ||
-    /\busage limit(?: exceeded| reached)?\b/i.test(normalizedReason) ||
+    /\busage limit(?: exceeded| reached)?\b|\blimit (?:exceeded|reached)\b|\binsufficient funds\b/i.test(
+      normalizedReason
+    ) ||
     financialFailure
   );
 }

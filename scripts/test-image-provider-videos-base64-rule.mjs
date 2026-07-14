@@ -1111,7 +1111,13 @@ for (const unsafeFinancialReason of [
   "provider task failed: quota exceeded",
   "provider task failed: billing account disabled",
   "provider task failed: payment required",
-  "provider task failed: rate limit exceeded"
+  "provider task failed: rate limit exceeded",
+  "provider task failed: limit exceeded",
+  "provider task failed: account limit exceeded",
+  "provider task failed: monthly limit reached",
+  "provider task failed: insufficient funds",
+  "provider task failed: limit_exceeded",
+  "provider task failed: insufficient_funds"
 ]) {
   assert.equal(
     isUnsafePaidImageReplayReason(unsafeFinancialReason),
@@ -1521,6 +1527,11 @@ for (const [label, failedPayload, expectedReason] of [
       diagnostics: { Error: { Code: "invalid_api_key", error_description: "authentication failed" } }
     },
     "provider task failed: unknown error"
+  ],
+  [
+    "limit-code",
+    { status: "failed", code: "limit_exceeded", message: "account limit exceeded" },
+    'provider task failed: {"code":"limit_exceeded","message":"account limit exceeded"}'
   ]
 ]) {
   const recordId = `unsafe-api-key-${label}-record`;
@@ -1579,7 +1590,7 @@ for (const [label, failedPayload, expectedReason] of [
           throw error;
         }
       },
-      /invalid.api.key|unknown error|not safe to replay|paid submission safety block/i
+      /invalid.api.key|unknown error|limit exceeded|not safe to replay|paid submission safety block/i
     );
   } finally {
     globalThis.fetch = originalFetch;
