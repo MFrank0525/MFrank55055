@@ -230,6 +230,12 @@ export function isAcceptedPaidImageTaskTimeoutReason(reason: string): boolean {
   return /task_timeout|timeout|timed out|did not finish within|queued\/pending beyond|超时/i.test(reason);
 }
 
+function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
+  return /submit(?: transport)? failed|submit response (?:was )?not JSON|submit response.*(?:missing|without).*task id|videos-base64 response did not include task id|submit.*ambiguous|ambiguous.*submit/i.test(
+    reason
+  );
+}
+
 export function resolvePaidImageProviderTimeoutRetry(input: {
   failureReason: string;
   audit: Array<{ state?: string; at?: string; reason?: string }>;
@@ -277,7 +283,8 @@ export function resolvePaidImageFixedSlotRecovery(input: {
 } {
   const failureReason = input.failureReason || "";
   const unsafeReplay =
-    /submit response was ambiguous|permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
+    isPaidImageSubmitStageUncertaintyReason(failureReason) ||
+    /permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
       failureReason
     );
   const explicitAcceptedTaskTimeout = isAcceptedPaidImageTaskTimeoutReason(failureReason);

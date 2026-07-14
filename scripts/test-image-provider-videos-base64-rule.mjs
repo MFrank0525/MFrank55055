@@ -114,7 +114,10 @@ for (const failureReason of [
   "provider task failed: invalid image",
   "provider task failed: permission denied",
   "provider task failed: insufficient balance",
-  "submit response was ambiguous after timeout"
+  "submit response was ambiguous after timeout",
+  "videos-base64 submit failed with HTTP 504: upstream request timeout",
+  "videos-base64 submit response was not JSON: timeout",
+  'videos-base64 response did not include task id: {"message":"timeout"}'
 ]) {
   assert.deepEqual(
     resolvePaidImageFixedSlotRecovery({
