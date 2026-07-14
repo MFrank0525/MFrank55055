@@ -131,11 +131,18 @@ export function auditCurrentPaidImageLedgers(
   const validLedgerRecordIds = new Set<string>();
   const expectedByEntryName = new Map<string, { record: FeishuProductRecord; pending: boolean }>();
   const expectedByCanonicalRecordId = new Map<string, string>();
-  for (const record of input.records) {
-    if (!record.recordId) continue;
-    const productDir = paidImageProductLedgerDir(input.rootDir, input.batchFingerprint, record.recordId);
+  for (const [recordIndex, record] of input.records.entries()) {
+    const runtimeRecordId: unknown = record.recordId;
+    if (typeof runtimeRecordId !== "string" || !runtimeRecordId.trim()) {
+      resolutionErrors.push({
+        code: "paid_image_expected_record_identity_invalid",
+        message: `Current Feishu record at index ${recordIndex} has an invalid paid image recordId; expected a non-empty string.`
+      });
+      continue;
+    }
+    const productDir = paidImageProductLedgerDir(input.rootDir, input.batchFingerprint, runtimeRecordId);
     const entryName = path.basename(productDir);
-    const canonicalRecordId = record.recordId.trim();
+    const canonicalRecordId = runtimeRecordId.trim();
     if (expectedByCanonicalRecordId.has(canonicalRecordId)) {
       resolutionErrors.push({
         code: "paid_image_expected_record_identity_duplicate",

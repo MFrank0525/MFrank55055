@@ -562,6 +562,27 @@ const cleanDirectoryFixtureAudit = auditLedgerDirectoryFixture(cleanDirectoryFix
 assert.equal(cleanDirectoryFixtureAudit.generation.ok, true, "a canonical current batch ledger fixture must pass");
 assert.deepEqual(cleanDirectoryFixtureAudit.existingLedgerRecordIds, ["record-clean"]);
 
+for (const malformedRecordId of ["   ", 12345]) {
+  const malformedCurrentIdentityRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "paid-image-audit-malformed-current-identity-")
+  );
+  let malformedCurrentIdentityAudit;
+  assert.doesNotThrow(() => {
+    malformedCurrentIdentityAudit = auditLedgerDirectoryFixture(malformedCurrentIdentityRoot, [
+      { recordId: malformedRecordId, whiteBackgroundImages: [{ localFile: "/fixtures/malformed-identity.png" }] }
+    ]);
+  }, "malformed runtime Feishu record identity must become audit evidence instead of escaping");
+  assert.equal(malformedCurrentIdentityAudit.generation.ok, false);
+  assert.equal(
+    malformedCurrentIdentityAudit.artifacts.errors.some(
+      (issue) => issue.code === "paid_image_expected_record_identity_invalid"
+    ),
+    true
+  );
+  assert.deepEqual(malformedCurrentIdentityAudit.existingLedgerRecordIds, []);
+  fs.rmSync(malformedCurrentIdentityRoot, { recursive: true, force: true });
+}
+
 const duplicateCurrentFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-duplicate-current-"));
 createPaidAuditLedger("record-duplicate-current", 20, 0, 20, duplicateCurrentFixtureRoot);
 const duplicateCurrentFixtureAudit = auditLedgerDirectoryFixture(duplicateCurrentFixtureRoot, [
@@ -767,7 +788,7 @@ assert.match(
 );
 assert.match(
   paidImageAuditSource,
-  /paidImageProductLedgerDir\(input\.rootDir, input\.batchFingerprint, record\.recordId\)/,
+  /paidImageProductLedgerDir\(input\.rootDir, input\.batchFingerprint, runtimeRecordId\)/,
   "Deep audit must resolve a paid-image ledger from the exact current batch and pending Feishu record identity"
 );
 assert.match(
