@@ -552,12 +552,17 @@ async function downloadGeneratedImage(url: string, targetFile: string, apiKey: s
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw normalizeImageGenerationError("Image download failed with HTTP " + response.status + ": " + (text || response.statusText));
+      const safeDownloadText = sanitizeImageGenerationProviderErrorText(text, response.statusText);
+      throw normalizeImageGenerationError("Image download failed with HTTP " + response.status + ": " + safeDownloadText);
     }
     const buffer = Buffer.from(await response.arrayBuffer());
     fs.writeFileSync(targetFile, buffer);
   } catch (error) {
-    throw normalizeImageGenerationError("Image download failed: " + (error instanceof Error ? error.message : String(error)));
+    const safeErrorText = sanitizeImageGenerationProviderErrorText(
+      error instanceof Error ? error.message : String(error),
+      "unknown download error"
+    );
+    throw normalizeImageGenerationError("Image download failed: " + safeErrorText);
   } finally {
     clearTimeout(timer);
   }
@@ -1115,7 +1120,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
             reason: "submit response was not JSON"
           });
         }
-        throw new Error("videos-base64 submit response was not JSON: " + text.slice(0, 500));
+        const safeSubmitText = sanitizeImageGenerationProviderErrorText(text, "empty response");
+        throw new Error("videos-base64 submit response was not JSON: " + safeSubmitText.slice(0, 500));
       }
       taskId = extractVideosBase64TaskId(submitPayload);
       if (videosBase64Ledger) {
@@ -1154,7 +1160,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
         try {
           parsedStatusPayload = JSON.parse(statusText);
         } catch {
-          throw new Error("videos-base64 status response was not JSON: " + statusText.slice(0, 500));
+          const safeStatusText = sanitizeImageGenerationProviderErrorText(statusText, "empty response");
+          throw new Error("videos-base64 status response was not JSON: " + safeStatusText.slice(0, 500));
         }
         const status = parsedStatusPayload?.status ?? parsedStatusPayload?.data?.status ?? "pending";
         const progress = parsedStatusPayload?.progress ?? parsedStatusPayload?.data?.progress ?? "";
@@ -1199,8 +1206,9 @@ async function generateWithOpenAiCompatibleProvider(options: {
       const contentResponse = await fetchVideosBase64TaskWithTransportRetries(taskId, true, absoluteImageIndex, "content");
       if (!contentResponse.ok) {
         const contentError = await contentResponse.text().catch(() => "");
+        const safeContentError = sanitizeImageGenerationProviderErrorText(contentError, contentResponse.statusText);
         throw normalizeImageGenerationError(
-          "videos-base64 content download failed with HTTP " + contentResponse.status + ": " + (contentError || contentResponse.statusText)
+          "videos-base64 content download failed with HTTP " + contentResponse.status + ": " + safeContentError
         );
       }
       const contentType = contentResponse.headers.get("content-type") || "";

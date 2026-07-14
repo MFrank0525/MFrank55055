@@ -3006,6 +3006,24 @@ assert.equal(
   true,
   "content forbidden by policy must remain a bounded fixed-slot provider retry"
 );
+for (const safeFinancialSubstring of [
+  "white balance adjustment failed",
+  "unbalanced dimensions",
+  "accreditation watermark rejected"
+]) {
+  assert.equal(
+    shouldResumeFeishuBatchAfterRetryableChildFailure({
+      exitCode: 1,
+      batchComplete: false,
+      retryableFailureMessage:
+        `failed at main_images_generated: videos-base64 task task_visual failed: ${safeFinancialSubstring}`,
+      recoveryAttempts: 0,
+      maxRecoveryAttempts: 12
+    }),
+    true,
+    `visual wording containing a financial substring must remain retryable: ${safeFinancialSubstring}`
+  );
+}
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
     exitCode: 1,

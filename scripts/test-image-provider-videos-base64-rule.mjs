@@ -870,6 +870,119 @@ assert.equal(
   "unsafe failed_after_acceptance evidence must remain byte-for-byte unchanged after restart"
 );
 
+async function captureProviderFailure(label, fetchImpl) {
+  const runtimeDir = path.join(unsafeRestartRoot, `${label}-runtime`);
+  const ledgerRoot = path.join(unsafeRestartRoot, `${label}-ledger`);
+  let failure;
+  globalThis.fetch = fetchImpl;
+  try {
+    await assert.rejects(async () => {
+      try {
+        return await generateMainImageAssets({
+          runtimeDir,
+          taskId: "image-001",
+          shopRootDir: unsafeRestartShopRoot,
+          sourceImagePath: unsafeRestartSourceImage,
+          sellingPointText: "test product",
+          brandedGenericName: "test product",
+          wordFiles: [unsafeRestartPromptFile],
+          imageGenerationProvider: "openai-compatible",
+          imageGenerationConfigFile: unsafeRestartConfigFile,
+          mainImageExpectedCount: 1,
+          mainImageCountStrategy: "exact",
+          promptCount: 1,
+          shopCodes: ["01"],
+          imagesPerShop: 1,
+          feishuRecordId: `${label}-record`,
+          feishuBatchFingerprint: `${label}-batch`,
+          paidImageSubmissionLedgerDir: ledgerRoot,
+          simulateOnly: false
+        });
+      } catch (error) {
+        failure = error;
+        throw error;
+      }
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  return { failureText: String(failure?.message || failure), runtimeText: readTextTree(runtimeDir) };
+}
+
+const downloadFailure = await captureProviderFailure("download-http-secret", async (url, init) => {
+  if (init?.method === "POST") {
+    return new Response(JSON.stringify({ id: "download-http-secret-task" }), { status: 200 });
+  }
+  if (String(url).endsWith("/download-http-secret-task")) {
+    return new Response(
+      JSON.stringify({
+        id: "download-http-secret-task",
+        status: "completed",
+        result_url: "https://cdn.example/result.png?signature=download-signed-secret"
+      }),
+      { status: 200 }
+    );
+  }
+  if (String(url).startsWith("https://cdn.example/result.png")) {
+    return new Response(
+      "download denied: api key download-secret-token; signed URL https://cdn.example/private?sig=download-body-secret",
+      { status: 403, statusText: "Forbidden" }
+    );
+  }
+  throw new Error(`unexpected download failure transport: ${url}`);
+});
+assert.match(downloadFailure.failureText, /Image download failed.*HTTP 403.*download denied/i);
+assert.doesNotMatch(downloadFailure.failureText, /download-secret-token|download-(?:signed|body)-secret/);
+assert.doesNotMatch(downloadFailure.runtimeText, /download-secret-token|download-(?:signed|body)-secret/);
+
+const contentFailure = await captureProviderFailure("content-http-secret", async (url, init) => {
+  if (init?.method === "POST") {
+    return new Response(JSON.stringify({ id: "content-http-secret-task" }), { status: 200 });
+  }
+  if (String(url).endsWith("/content-http-secret-task/content")) {
+    return new Response(
+      "content denied: api key content-secret-token; signed URL https://cdn.example/private?sig=content-signed-secret",
+      { status: 403, statusText: "Forbidden" }
+    );
+  }
+  if (String(url).endsWith("/content-http-secret-task")) {
+    return new Response(JSON.stringify({ id: "content-http-secret-task", status: "completed" }), { status: 200 });
+  }
+  throw new Error(`unexpected content failure transport: ${url}`);
+});
+assert.match(contentFailure.failureText, /content download failed.*HTTP 403.*content denied/i);
+assert.doesNotMatch(contentFailure.failureText, /content-secret-token|content-signed-secret/);
+assert.doesNotMatch(contentFailure.runtimeText, /content-secret-token|content-signed-secret/);
+
+const malformedSubmitFailure = await captureProviderFailure("malformed-submit-secret", async (_url, init) => {
+  if (init?.method === "POST") {
+    return new Response(
+      "authentication failed: api key malformed-submit-token https://signed.example/submit?sig=malformed-submit-signed",
+      { status: 200 }
+    );
+  }
+  throw new Error("malformed submit must fail before status transport");
+});
+assert.match(malformedSubmitFailure.failureText, /submit response was not JSON.*authentication failed/i);
+assert.doesNotMatch(malformedSubmitFailure.failureText, /malformed-submit-token|malformed-submit-signed/);
+assert.doesNotMatch(malformedSubmitFailure.runtimeText, /malformed-submit-token|malformed-submit-signed/);
+
+const malformedStatusFailure = await captureProviderFailure("malformed-status-secret", async (url, init) => {
+  if (init?.method === "POST") {
+    return new Response(JSON.stringify({ id: "malformed-status-secret-task" }), { status: 200 });
+  }
+  if (String(url).endsWith("/malformed-status-secret-task")) {
+    return new Response(
+      "authentication failed: api key malformed-status-token https://signed.example/status?sig=malformed-status-signed",
+      { status: 200 }
+    );
+  }
+  throw new Error(`unexpected malformed status transport: ${url}`);
+});
+assert.match(malformedStatusFailure.failureText, /status response was not JSON.*authentication failed/i);
+assert.doesNotMatch(malformedStatusFailure.failureText, /malformed-status-token|malformed-status-signed/);
+assert.doesNotMatch(malformedStatusFailure.runtimeText, /malformed-status-token|malformed-status-signed/);
+
 const policyRestartLedgerRoot = path.join(unsafeRestartRoot, "policy-retry-ledger");
 const policyRestartLedger = initializePaidImageProductLedger({
   rootDir: policyRestartLedgerRoot,
@@ -981,6 +1094,31 @@ for (const [reason, expectedUnsafe] of [
 ]) {
   assert.equal(isUnsafePaidImageReplayReason(reason), expectedUnsafe, `paid replay safety mismatch: ${reason}`);
 }
+for (const safeFinancialSubstring of [
+  "provider task failed: white balance adjustment failed",
+  "provider task failed: unbalanced dimensions",
+  "provider task failed: accreditation watermark rejected"
+]) {
+  assert.equal(
+    isUnsafePaidImageReplayReason(safeFinancialSubstring),
+    false,
+    `non-financial substring must remain bounded retryable: ${safeFinancialSubstring}`
+  );
+}
+for (const unsafeFinancialReason of [
+  "provider task failed: insufficient balance",
+  "provider task failed: insufficient credit",
+  "provider task failed: quota exceeded",
+  "provider task failed: billing account disabled",
+  "provider task failed: payment required",
+  "provider task failed: rate limit exceeded"
+]) {
+  assert.equal(
+    isUnsafePaidImageReplayReason(unsafeFinancialReason),
+    true,
+    `explicit financial failure must be non-replayable: ${unsafeFinancialReason}`
+  );
+}
 assert.equal(
   isUnsafePaidImageReplayPayload({
     status: "failed",
@@ -1031,10 +1169,44 @@ assert.equal(
   true,
   "unknown-container node budget exhaustion must fail closed"
 );
+let evidenceGetterReads = 0;
+const getterBudgetPayload = {};
+for (let index = 0; index < 200; index += 1) {
+  Object.defineProperty(getterBudgetPayload, `diagnostic${index}`, {
+    enumerable: true,
+    get() {
+      evidenceGetterReads += 1;
+      return { note: `benign ${index}` };
+    }
+  });
+}
+assert.equal(isUnsafePaidImageReplayPayload(getterBudgetPayload), true);
+assert.ok(
+  evidenceGetterReads <= 128,
+  `evidence traversal must stop reading getters at its node budget; reads=${evidenceGetterReads}`
+);
 assert.equal(
   isUnsafePaidImageReplayPayload({ diagnostics: { note: "small benign diagnostic" }, status: "failed" }),
   false,
   "small fully inspected unknown-container diagnostics must not become unsafe"
+);
+assert.equal(
+  isUnsafePaidImageReplayPayload({
+    status: "failed",
+    diagnostics: { Error: { Code: "invalid_api_key", error_description: "authentication failed" } }
+  }),
+  true,
+  "structured unsafe evidence keys and aliases must be matched case-insensitively"
+);
+assert.equal(
+  isUnsafePaidImageReplayPayload({ status: 401, error_description: "provider rejected credentials" }),
+  true,
+  "numeric 401 status evidence must be non-replayable"
+);
+assert.equal(
+  isUnsafePaidImageReplayPayload({ data: { Status: 403, Message: "request rejected" } }),
+  true,
+  "nested numeric 403 status evidence must be non-replayable"
 );
 
 const unsafeBeforeLedgerRoot = path.join(unsafeRestartRoot, "unsafe-before-ledger");
@@ -1327,10 +1499,11 @@ assert.equal(unsafeTerminalSlot.state, "failed_after_acceptance");
 assert.match(unsafeTerminalSlot.reason, /insufficient.quota/i);
 assert.match(unsafeTerminalSlot.reason, /insufficient balance/i);
 
-for (const [label, failedPayload] of [
+for (const [label, failedPayload, expectedReason] of [
   [
     "top-level",
-    { status: "failed", code: "invalid_api_key", message: "api key test-only-key" }
+    { status: "failed", code: "invalid_api_key", message: "api key test-only-key" },
+    "[redacted]"
   ],
   [
     "nested",
@@ -1338,7 +1511,16 @@ for (const [label, failedPayload] of [
       status: "failed",
       diagnostics: "x".repeat(3000),
       data: { error: { code: "invalid_api_key", message: "invalid api key sk-nested-secret-value" } }
-    }
+    },
+    "[redacted]"
+  ],
+  [
+    "aliases",
+    {
+      status: "failed",
+      diagnostics: { Error: { Code: "invalid_api_key", error_description: "authentication failed" } }
+    },
+    "provider task failed: unknown error"
   ]
 ]) {
   const recordId = `unsafe-api-key-${label}-record`;
@@ -1397,7 +1579,7 @@ for (const [label, failedPayload] of [
           throw error;
         }
       },
-      /invalid.api.key|not safe to replay|paid submission safety block/i
+      /invalid.api.key|unknown error|not safe to replay|paid submission safety block/i
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -1409,7 +1591,7 @@ for (const [label, failedPayload] of [
   assert.equal(parsedSlot.state, "failed_after_acceptance");
   assert.equal(parsedSlot.replayDisposition, "non_replayable");
   assert.equal(parsedSlot.audit.at(-1)?.replayDisposition, "non_replayable");
-  assert.equal(parsedSlot.reason, "[redacted]");
+  assert.equal(parsedSlot.reason, expectedReason);
   const secretTokenPattern = /test-only-key|sk-nested-secret-value/;
   assert.doesNotMatch(slotAfterInitialFailure, secretTokenPattern);
   assert.doesNotMatch(String(initialFailure?.message || initialFailure), secretTokenPattern);

@@ -269,12 +269,19 @@ export function isUnsafePaidImageReplayReason(reason: string): boolean {
     /HTTP\s*(?:401|403)\b|invalid api key|api key invalid|authentication failed|authentication error|unauthenticated|unauthorized|permission denied|access forbidden|upstream forbidden/i.test(
       normalizedReason
     );
+  const visualNonFinancialContext = /\bwhite balance\b|\bunbalanced\b|\baccreditation watermark\b/i.test(normalizedReason);
+  const balanceOrQuotaFailure =
+    !visualNonFinancialContext &&
+    /\binsufficient\s+(?:account\s+)?(?:balance|credit|quota)\b|\b(?:balance|credit|quota)\b(?:\s+\w+){0,3}\s+(?:insufficient|exceeded|exhausted|depleted)\b|\bquota\s+(?:limit\s+)?(?:exceeded|exhausted|depleted)\b/i.test(
+      normalizedReason
+    );
+  const financialFailure =
+    balanceOrQuotaFailure || /\bbilling\b|\bpayment required\b|\brate limit\b|余额|欠费|充值/i.test(normalizedReason);
   return (
     (!providerProvedNoAcceptance && isPaidImageSubmitStageUncertaintyReason(reason)) ||
     authorizationFailure ||
-    /usage limit|rate limit|limit exceeded|payment required|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
-      normalizedReason
-    )
+    /\busage limit(?: exceeded| reached)?\b/i.test(normalizedReason) ||
+    financialFailure
   );
 }
 
@@ -288,7 +295,9 @@ export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
     "state",
     "data",
     "detail",
-    "details"
+    "details",
+    "description",
+    "errordescription"
   ]);
   const evidence: string[] = [];
   let visitedNodes = 0;
@@ -303,14 +312,23 @@ export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
       return;
     }
     if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      if (evidenceKeys.has(key)) {
-        evidence.push(String(value));
+      const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (evidenceKeys.has(normalizedKey)) {
+        evidence.push(
+          (normalizedKey === "status" || normalizedKey === "state") && (value === 401 || value === 403)
+            ? `HTTP ${value}`
+            : String(value)
+        );
       }
       return;
     }
     if (Array.isArray(value)) {
-      for (const item of value) {
-        visit(item, depth + 1, key);
+      for (let index = 0; index < value.length; index += 1) {
+        if (depth + 1 > 8 || visitedNodes >= 128) {
+          traversalIncomplete = true;
+          break;
+        }
+        visit(value[index], depth + 1, key);
       }
       return;
     }
@@ -319,8 +337,15 @@ export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
       if (prototype !== Object.prototype && prototype !== null) {
         return;
       }
-      for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-        visit(nestedValue, depth + 1, nestedKey);
+      for (const nestedKey in value as Record<string, unknown>) {
+        if (!Object.prototype.hasOwnProperty.call(value, nestedKey)) {
+          continue;
+        }
+        if (depth + 1 > 8 || visitedNodes >= 128) {
+          traversalIncomplete = true;
+          break;
+        }
+        visit((value as Record<string, unknown>)[nestedKey], depth + 1, nestedKey);
       }
     }
   };
