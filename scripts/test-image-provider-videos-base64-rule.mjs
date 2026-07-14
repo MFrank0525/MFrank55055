@@ -828,41 +828,67 @@ recordPaidImageFailedAfterAcceptance({
   providerResponse: { id: "unsafe-restart-provider-task", status: "failed", message: "insufficient balance" }
 });
 const unsafeSlotFile = path.join(unsafeRestartLedger.productDir, "slots", "01.json");
+const legacyUnsafeSignedUrl =
+  "https://legacy-unsafe-replay.example/detail?sig=legacy-replay-signature&token=legacy-replay-token";
+const legacyUnsafeFailureReason = `${unsafeFailureReason}; details ${legacyUnsafeSignedUrl}`;
+const legacyUnsafeSlot = JSON.parse(fs.readFileSync(unsafeSlotFile, "utf8"));
+legacyUnsafeSlot.reason = legacyUnsafeFailureReason;
+legacyUnsafeSlot.audit.at(-1).reason = legacyUnsafeFailureReason;
+fs.writeFileSync(unsafeSlotFile, JSON.stringify(legacyUnsafeSlot, null, 2) + "\n", "utf8");
 const unsafeSlotBeforeRestart = fs.readFileSync(unsafeSlotFile, "utf8");
 const originalFetch = globalThis.fetch;
 let unsafeRestartTransportCalls = 0;
+let unsafeRestartFailure;
+const unsafeRestartRuntimeDir = path.join(unsafeRestartRoot, "second-process-runtime");
 globalThis.fetch = async () => {
   unsafeRestartTransportCalls += 1;
   throw new Error("unsafe restart must fail closed before submission transport");
 };
 try {
   await assert.rejects(
-    () => generateMainImageAssets({
-      runtimeDir: path.join(unsafeRestartRoot, "second-process-runtime"),
-      taskId: "image-001",
-      shopRootDir: unsafeRestartShopRoot,
-      sourceImagePath: unsafeRestartSourceImage,
-      sellingPointText: "test product",
-      brandedGenericName: "test product",
-      wordFiles: [unsafeRestartPromptFile],
-      imageGenerationProvider: "openai-compatible",
-      imageGenerationConfigFile: unsafeRestartConfigFile,
-      mainImageExpectedCount: 1,
-      mainImageCountStrategy: "exact",
-      promptCount: 1,
-      shopCodes: ["01"],
-      imagesPerShop: 1,
-      feishuRecordId: "unsafe-restart-record",
-      feishuBatchFingerprint: "unsafe-restart-batch",
-      paidImageSubmissionLedgerDir: unsafeRestartLedgerRoot,
-      simulateOnly: false
-    }),
+    async () => {
+      try {
+        return await generateMainImageAssets({
+          runtimeDir: unsafeRestartRuntimeDir,
+          taskId: "image-001",
+          shopRootDir: unsafeRestartShopRoot,
+          sourceImagePath: unsafeRestartSourceImage,
+          sellingPointText: "test product",
+          brandedGenericName: "test product",
+          wordFiles: [unsafeRestartPromptFile],
+          imageGenerationProvider: "openai-compatible",
+          imageGenerationConfigFile: unsafeRestartConfigFile,
+          mainImageExpectedCount: 1,
+          mainImageCountStrategy: "exact",
+          promptCount: 1,
+          shopCodes: ["01"],
+          imagesPerShop: 1,
+          feishuRecordId: "unsafe-restart-record",
+          feishuBatchFingerprint: "unsafe-restart-batch",
+          paidImageSubmissionLedgerDir: unsafeRestartLedgerRoot,
+          simulateOnly: false
+        });
+      } catch (error) {
+        unsafeRestartFailure = error;
+        throw error;
+      }
+    },
     /insufficient balance/i,
     "a restarted process must propagate an unsafe paid failure before reserving or submitting"
   );
 } finally {
   globalThis.fetch = originalFetch;
 }
+const unsafeRestartFailureText = String(unsafeRestartFailure?.message || unsafeRestartFailure);
+assert.match(unsafeRestartFailureText, /insufficient balance/i);
+assert.doesNotMatch(
+  unsafeRestartFailureText,
+  /https:\/\/legacy-unsafe-replay\.example|legacy-replay-signature|legacy-replay-token/
+);
+assert.doesNotMatch(
+  readTextTree(unsafeRestartRuntimeDir),
+  /https:\/\/legacy-unsafe-replay\.example|legacy-replay-signature|legacy-replay-token/
+);
 assert.equal(unsafeRestartTransportCalls, 0, "unsafe paid failure replay must not call submission transport after restart");
 assert.equal(
   fs.readFileSync(unsafeSlotFile, "utf8"),

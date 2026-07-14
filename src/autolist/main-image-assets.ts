@@ -956,8 +956,12 @@ async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action !== "missing" &&
           (persistedNonReplayable || isUnsafePaidImageReplayReason(failedRetryReason))
         ) {
+          const safeFailedRetryReason = sanitizeImageGenerationProviderErrorText(
+            failedRetryReason,
+            "unknown retry failure"
+          );
           throw normalizeImageGenerationError(
-            `paid image slot ${ledgerSlot} is not safe to replay: ${failedRetryReason || "unknown retry failure"}`
+            `paid image slot ${ledgerSlot} is not safe to replay: ${safeFailedRetryReason}`
           );
         }
         const failedAfterAcceptanceReason =
