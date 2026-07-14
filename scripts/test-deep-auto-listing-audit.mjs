@@ -10,6 +10,8 @@ import {
 import { auditCurrentPaidImageLedgers } from "../dist/src/autolist/paid-image-audit.js";
 import {
   initializePaidImageProductLedger,
+  paidImageBatchLedgerDir,
+  paidImageProductLedgerDir,
   recordPaidImageCompleted,
   recordPaidImageFailedAfterAcceptance,
   recordPaidImageSubmitted,
@@ -287,10 +289,17 @@ const paidAuditBatch = "current-feishu-batch";
 const fixtureResultSource = path.join(paidAuditFixtureRoot, "generated.png");
 fs.writeFileSync(fixtureResultSource, "verified-generated-image", "utf8");
 
-function createPaidAuditLedger(recordId, completedCount, failedAfterAcceptanceCount, expectedSlotCount = 20) {
+function createPaidAuditLedger(
+  recordId,
+  completedCount,
+  failedAfterAcceptanceCount,
+  expectedSlotCount = 20,
+  rootDir = paidAuditFixtureRoot,
+  batchFingerprint = paidAuditBatch
+) {
   const ledger = initializePaidImageProductLedger({
-    rootDir: paidAuditFixtureRoot,
-    batchFingerprint: paidAuditBatch,
+    rootDir,
+    batchFingerprint,
     recordId,
     expectedSlotCount,
     providerIdentity: "provider",
@@ -528,6 +537,161 @@ for (const tamper of ["recordId", "batchFingerprint"]) {
   assert.equal(tamperedAudit.generation.errors.some((issue) => issue.code === "paid_image_ledger_invalid"), true);
   assert.deepEqual(tamperedAudit.existingLedgerRecordIds, []);
 }
+
+function auditLedgerDirectoryFixture(rootDir, records) {
+  return auditCurrentPaidImageLedgers({
+    records,
+    processedImages: [],
+    rootDir,
+    batchFingerprint: paidAuditBatch,
+    completedGeneration: {
+      ok: true,
+      summary: { auditedTaskCount: 0, expectedImageCount: 0, generatedImageCount: 0 },
+      errors: [],
+      warnings: []
+    },
+    completedProducts: []
+  });
+}
+
+const cleanDirectoryFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-clean-"));
+createPaidAuditLedger("record-clean", 20, 0, 20, cleanDirectoryFixtureRoot);
+const cleanDirectoryFixtureAudit = auditLedgerDirectoryFixture(cleanDirectoryFixtureRoot, [
+  { recordId: "record-clean", whiteBackgroundImages: [{ localFile: "/fixtures/clean.png" }] }
+]);
+assert.equal(cleanDirectoryFixtureAudit.generation.ok, true, "a canonical current batch ledger fixture must pass");
+assert.deepEqual(cleanDirectoryFixtureAudit.existingLedgerRecordIds, ["record-clean"]);
+
+const malformedExtraFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-malformed-extra-"));
+createPaidAuditLedger("record-expected", 20, 0, 20, malformedExtraFixtureRoot);
+const malformedExtraDir = path.join(paidImageBatchLedgerDir(malformedExtraFixtureRoot, paidAuditBatch), "rogue-extra");
+fs.mkdirSync(path.join(malformedExtraDir, "slots"), { recursive: true });
+fs.writeFileSync(path.join(malformedExtraDir, "product.json"), "{malformed", "utf8");
+const malformedExtraFixtureAudit = auditLedgerDirectoryFixture(malformedExtraFixtureRoot, [
+  { recordId: "record-expected", whiteBackgroundImages: [{ localFile: "/fixtures/expected.png" }] }
+]);
+assert.equal(malformedExtraFixtureAudit.generation.ok, false, "a rogue malformed extra directory must fail closed");
+assert.equal(
+  malformedExtraFixtureAudit.artifacts.errors.some((issue) => issue.code === "paid_image_ledger_unexpected_entry"),
+  true
+);
+assert.equal(
+  malformedExtraFixtureAudit.artifacts.errors.some((issue) => issue.code === "paid_image_ledger_invalid"),
+  true,
+  "the rogue product.json artifact error must be surfaced"
+);
+
+const orphanFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-orphan-"));
+createPaidAuditLedger("record-expected", 20, 0, 20, orphanFixtureRoot);
+createPaidAuditLedger("record-orphan", 20, 0, 20, orphanFixtureRoot);
+const orphanFixtureAudit = auditLedgerDirectoryFixture(orphanFixtureRoot, [
+  { recordId: "record-expected", whiteBackgroundImages: [{ localFile: "/fixtures/expected.png" }] }
+]);
+assert.equal(orphanFixtureAudit.generation.ok, false, "a valid ledger for a non-current record must fail closed");
+assert.equal(
+  orphanFixtureAudit.artifacts.errors.some((issue) => issue.code === "paid_image_ledger_unexpected_entry"),
+  true
+);
+
+const duplicateIdentityFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-duplicate-"));
+createPaidAuditLedger("record-duplicate-ledger", 0, 0, 20, duplicateIdentityFixtureRoot);
+const duplicateIdentityBatchDir = paidImageBatchLedgerDir(duplicateIdentityFixtureRoot, paidAuditBatch);
+const duplicateIdentityCanonicalDir = paidImageProductLedgerDir(
+  duplicateIdentityFixtureRoot,
+  paidAuditBatch,
+  "record-duplicate-ledger"
+);
+fs.cpSync(duplicateIdentityCanonicalDir, path.join(duplicateIdentityBatchDir, "duplicate-record-alias"), {
+  recursive: true
+});
+const duplicateIdentityFixtureAudit = auditLedgerDirectoryFixture(duplicateIdentityFixtureRoot, [
+  { recordId: "record-duplicate-ledger", whiteBackgroundImages: [{ localFile: "/fixtures/duplicate.png" }] }
+]);
+assert.equal(duplicateIdentityFixtureAudit.generation.ok, false);
+assert.equal(
+  duplicateIdentityFixtureAudit.artifacts.errors.some(
+    (issue) => issue.code === "paid_image_ledger_record_identity_duplicate"
+  ),
+  true,
+  "two batch entries claiming one canonical record identity must fail closed"
+);
+
+const misnamedFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-misnamed-"));
+const misnamedLedger = createPaidAuditLedger("record-misnamed", 20, 0, 20, misnamedFixtureRoot);
+const misnamedDir = path.join(path.dirname(misnamedLedger.productDir), "misnamed-current-record");
+fs.renameSync(misnamedLedger.productDir, misnamedDir);
+const misnamedFixtureAudit = auditLedgerDirectoryFixture(misnamedFixtureRoot, [
+  { recordId: "record-misnamed", whiteBackgroundImages: [{ localFile: "/fixtures/misnamed.png" }] }
+]);
+assert.equal(misnamedFixtureAudit.generation.ok, false, "a current ledger at a noncanonical path must fail closed");
+assert.equal(
+  misnamedFixtureAudit.artifacts.errors.some((issue) => issue.code === "paid_image_ledger_missing_expected_entry"),
+  true
+);
+
+const symlinkFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-symlink-"));
+const outsideLedgerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-outside-"));
+const outsideLedger = createPaidAuditLedger("record-link", 20, 0, 20, outsideLedgerRoot);
+const symlinkProductDir = paidImageProductLedgerDir(symlinkFixtureRoot, paidAuditBatch, "record-link");
+fs.mkdirSync(path.dirname(symlinkProductDir), { recursive: true });
+let symlinkFixtureCreated = false;
+try {
+  fs.symlinkSync(outsideLedger.productDir, symlinkProductDir, "dir");
+  symlinkFixtureCreated = true;
+} catch (error) {
+  if (!["EPERM", "EACCES", "ENOSYS"].includes(error?.code)) throw error;
+}
+if (symlinkFixtureCreated) {
+  const symlinkFixtureAudit = auditLedgerDirectoryFixture(symlinkFixtureRoot, [
+    { recordId: "record-link", whiteBackgroundImages: [{ localFile: "/fixtures/link.png" }] }
+  ]);
+  assert.equal(symlinkFixtureAudit.generation.ok, false, "a symlinked product ledger directory must fail closed");
+  assert.equal(
+    symlinkFixtureAudit.artifacts.errors.some((issue) => issue.code === "paid_image_ledger_path_invalid"),
+    true
+  );
+  assert.equal(
+    symlinkFixtureAudit.artifacts.evidence.some((item) => item.includes(outsideLedger.productDir)),
+    false,
+    "audit evidence must not reveal or traverse the symlink target"
+  );
+}
+
+const productAliasFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-product-alias-"));
+const productAliasLedger = createPaidAuditLedger("record-product-alias", 0, 0, 20, productAliasFixtureRoot);
+const outsideProductFile = path.join(outsideLedgerRoot, "outside-product.json");
+fs.renameSync(path.join(productAliasLedger.productDir, "product.json"), outsideProductFile);
+let productAliasCreated = false;
+try {
+  fs.symlinkSync(outsideProductFile, path.join(productAliasLedger.productDir, "product.json"), "file");
+  productAliasCreated = true;
+} catch (error) {
+  if (!["EPERM", "EACCES", "ENOSYS"].includes(error?.code)) throw error;
+}
+if (productAliasCreated) {
+  const productAliasFixtureAudit = auditLedgerDirectoryFixture(productAliasFixtureRoot, [
+    { recordId: "record-product-alias", whiteBackgroundImages: [{ localFile: "/fixtures/product-alias.png" }] }
+  ]);
+  assert.equal(productAliasFixtureAudit.generation.ok, false);
+  assert.equal(
+    productAliasFixtureAudit.artifacts.errors.some((issue) => issue.code === "paid_image_ledger_path_invalid"),
+    true,
+    "a symlinked product.json must be rejected before reading its target"
+  );
+}
+
+for (const fixtureRoot of [
+  cleanDirectoryFixtureRoot,
+  malformedExtraFixtureRoot,
+  orphanFixtureRoot,
+  duplicateIdentityFixtureRoot,
+  misnamedFixtureRoot,
+  symlinkFixtureRoot,
+  productAliasFixtureRoot,
+  outsideLedgerRoot
+]) {
+  fs.rmSync(fixtureRoot, { recursive: true, force: true });
+}
 fs.rmSync(paidAuditFixtureRoot, { recursive: true, force: true });
 
 const controllerFailureAudit = auditRuntimeControllerConsistency({
@@ -546,12 +710,17 @@ assert.match(auditCliSource, /auditRuntimeControllerConsistency/);
 assert.match(auditCliSource, /controllerRuntimeAudit\.evidence/);
 assert.match(
   paidImageAuditSource,
+  /paidImageBatchLedgerDir/,
+  "Deep audit must enumerate the exact current paid-image batch ledger directory"
+);
+assert.match(
+  paidImageAuditSource,
   /paidImageProductLedgerDir\(input\.rootDir, input\.batchFingerprint, record\.recordId\)/,
   "Deep audit must resolve a paid-image ledger from the exact current batch and pending Feishu record identity"
 );
 assert.match(
   paidImageAuditSource,
-  /summarizePaidImageProductLedger\(productDir,\s*"audit",\s*\{[\s\S]*batchFingerprint:\s*input\.batchFingerprint,[\s\S]*recordId:\s*record\.recordId[\s\S]*\}\)/,
+  /summarizePaidImageProductLedger\(productDir,\s*"audit",\s*\{[\s\S]*batchFingerprint:\s*input\.batchFingerprint,[\s\S]*recordId:\s*expected\.record\.recordId[\s\S]*\}\)/,
   "Deep audit must call the authoritative summarizer with the exact current batch and record identity"
 );
 assert.match(
