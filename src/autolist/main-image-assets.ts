@@ -1416,7 +1416,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       }
     }
     taskId = taskId || extractVideosBase64TaskId(submitPayload);
-    const maxPollMs = resolveVideosBase64AcceptedTaskPollCeilingMs(config.maxPollMs);
+    const maxPollMs = resolveVideosBase64AcceptedTaskPollCeilingMs(config.acceptedQueueStaleMs ?? config.maxPollMs);
     const pollIntervalMs = Math.min(maxPollMs, Math.max(1000, config.pollIntervalMs || 10000));
     const startedAt = acceptedTaskStartedAt ?? Date.now();
     const observation = await observeVideosBase64AcceptedTask<any>({

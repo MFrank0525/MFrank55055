@@ -293,25 +293,55 @@ function includesCountRule(text: string, category: string, count: number, unit: 
   return normalized.includes(`${category}：${count}${unit}`) || normalized.includes(`${category}:${count}${unit}`);
 }
 
-function includesOperationalImageWaitRule(text: string, ceilingMs: number): boolean {
-  const minutes = Math.floor(ceilingMs / 60000);
-  const normalized = text.replace(/\s+/g, "");
-  const hasCeiling = normalized.includes(`${minutes}分钟`);
-  const hasOperationalMeaning = normalized.includes("外部服务等待") &&
-    (normalized.includes("退避") || normalized.includes("慢服务") || normalized.includes("操作"));
-  const rejectsPaidResubmission = new RegExp(`(?:${minutes}分钟)[\\s\\S]*(?:不得|不能|禁止)[\\s\\S]*重新提交`).test(normalized);
-  return hasCeiling && hasOperationalMeaning && rejectsPaidResubmission;
+function timingRuleStatements(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ""))
+    .filter(Boolean);
 }
 
-function includesAcceptedTaskObservationRule(text: string, ceilingMs: number): boolean {
+function hasExplicitPaidTimingConflict(statements: string[], operationalCeilingMs: number): boolean {
+  const operationalMinutes = Math.floor(operationalCeilingMs / 60000);
+  return statements.some((statement) => {
+    const concernsPaidTask = statement.includes("付费任务");
+    const concernsAcceptedPaidTask = statement.includes("已受理") && concernsPaidTask;
+    const claimsOperationalCeiling = statement.includes(`${operationalMinutes}分钟`);
+    const claimsObservationCeiling = /观察上限(?:为|是)?\d+分钟/.test(statement);
+    const resubmits = statement.includes("重新提交");
+    const rejectsResubmission = /(?:不得|不能|禁止)[^。；]*重新提交/.test(statement);
+    return claimsOperationalCeiling && (
+      (concernsAcceptedPaidTask && claimsObservationCeiling) ||
+      (concernsPaidTask && resubmits && !rejectsResubmission)
+    );
+  });
+}
+
+function includesOperationalImageWaitRule(text: string, ceilingMs: number): boolean {
   const minutes = Math.floor(ceilingMs / 60000);
-  const normalized = text.replace(/\s+/g, "");
-  const hasAcceptedTask = normalized.includes("已受理") && normalized.includes("任务");
-  const hasObservationCeiling =
-    normalized.includes(`观察上限${minutes}分钟`) ||
-    new RegExp(`${minutes}分钟[\\s\\S]*观察上限`).test(normalized);
-  const hasFinalQuery = new RegExp(`${minutes}分钟[\\s\\S]*最终状态查询`).test(normalized);
-  return hasAcceptedTask && hasObservationCeiling && hasFinalQuery;
+  const statements = timingRuleStatements(text);
+  if (hasExplicitPaidTimingConflict(statements, ceilingMs)) return false;
+  return statements.some((statement) =>
+    statement.includes(`${minutes}分钟`) &&
+    statement.includes("操作层外部服务等待") &&
+    statement.includes("退避") &&
+    statement.includes("慢服务阈值") &&
+    /(?:不得|不能|禁止)[^。；]*重新提交付费任务/.test(statement)
+  );
+}
+
+function includesAcceptedTaskObservationRule(text: string, ceilingMs: number, operationalCeilingMs: number): boolean {
+  const minutes = Math.floor(ceilingMs / 60000);
+  const statements = timingRuleStatements(text);
+  if (hasExplicitPaidTimingConflict(statements, operationalCeilingMs)) return false;
+  return statements.some((statement) => {
+    const hasAcceptedPaidTask = statement.includes("已受理") && statement.includes("付费任务");
+    const hasSameTaskIdentity = /同一(?:task|任务)ID/i.test(statement);
+    const hasObservationCeiling =
+      new RegExp(`观察上限(?:为|是)?${minutes}分钟`).test(statement) ||
+      new RegExp(`${minutes}分钟[^。；]*观察上限`).test(statement);
+    const hasFinalQuery = new RegExp(`${minutes}分钟[^。；]*最终状态查询`).test(statement);
+    return hasAcceptedPaidTask && hasSameTaskIdentity && hasObservationCeiling && hasFinalQuery;
+  });
 }
 
 export function auditRuleContradictions(input: {
@@ -353,13 +383,14 @@ export function auditRuleContradictions(input: {
   }
   if (Number.isFinite(input.videosBase64AcceptedTaskPollCeilingMs || NaN)) {
     const ceilingMs = Number(input.videosBase64AcceptedTaskPollCeilingMs);
-    if (input.imageRuleText !== undefined && !includesAcceptedTaskObservationRule(input.imageRuleText, ceilingMs)) {
+    const operationalCeilingMs = Number(input.imageWaitCeilingMs || 3 * 60 * 1000);
+    if (input.imageRuleText !== undefined && !includesAcceptedTaskObservationRule(input.imageRuleText, ceilingMs, operationalCeilingMs)) {
       errors.push({
         code: "main_image_accepted_task_poll_rule_contradiction",
         message: `Main image rule source does not reflect accepted paid-task observation ceiling ${ceilingMs}ms and its final status query.`
       });
     }
-    if (input.stabilityRuleText !== undefined && !includesAcceptedTaskObservationRule(input.stabilityRuleText, ceilingMs)) {
+    if (input.stabilityRuleText !== undefined && !includesAcceptedTaskObservationRule(input.stabilityRuleText, ceilingMs, operationalCeilingMs)) {
       errors.push({
         code: "stability_accepted_task_poll_rule_contradiction",
         message: `Stability checklist does not reflect accepted paid-task observation ceiling ${ceilingMs}ms and its final status query.`

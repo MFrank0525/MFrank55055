@@ -426,8 +426,8 @@ assert.match(
 );
 assert.match(
   source,
-  /resolveVideosBase64AcceptedTaskPollCeilingMs\(config\.maxPollMs\)/,
-  "accepted videos-base64 polling must use the fixed 30-minute ceiling"
+  /resolveVideosBase64AcceptedTaskPollCeilingMs\(config\.acceptedQueueStaleMs\s*\?\?\s*config\.maxPollMs\)/,
+  "acceptedQueueStaleMs must be read as the compatibility input before the fixed 30-minute safety normalization"
 );
 const pollBranchStart = source.indexOf('if (slotAction.action === "poll")');
 const pollTaskAssignment = source.indexOf("taskId = slotAction.providerTaskId", pollBranchStart);
@@ -566,20 +566,22 @@ assert.match(ruleDoc, /failed_after_acceptance.*固定 slot.*允许.*重试/s);
 assert.match(ruleDoc, /没有取得 task ID.*没有供应商响应摘要.*fetch failed.*no-acceptance/s);
 assert.match(ruleDoc, /no-acceptance.*failed_before_acceptance.*重试同一固定 slot/s);
 assert.match(ruleDoc, /failed_after_acceptance.*只补同一固定 slot/s);
-assert.match(
-  ruleDoc,
-  /3\s*分钟.*外部服务等待.*不得.*重新提交/s,
-  "Three minutes must be documented only as operational external-service waiting and must not authorize paid resubmission"
+const ruleDocStatements = ruleDoc.split(/\r?\n/).map((line) => line.replace(/\s+/g, ""));
+const stabilityStatements = stabilityChecklist.split(/\r?\n/).map((line) => line.replace(/\s+/g, ""));
+assert.equal(
+  ruleDocStatements.some((line) => /3分钟.*操作层外部服务等待.*退避.*慢服务阈值.*不得.*重新提交付费任务/.test(line)),
+  true,
+  "The operational three-minute semantics must coexist in one bounded rule statement"
 );
-assert.match(
-  ruleDoc,
-  /30\s*分钟.*已受理.*任务.*观察上限/s,
-  "Accepted paid tasks must have a documented 30-minute observation ceiling"
+assert.equal(
+  ruleDocStatements.some((line) => /30分钟.*已受理付费任务.*观察上限.*30分钟.*最终状态查询/.test(line)),
+  true,
+  "The accepted-task observation ceiling and final query must coexist in one bounded rule statement"
 );
-assert.match(
-  stabilityChecklist,
-  /30\s*分钟.*最终状态查询/s,
-  "The stability checklist must require the final provider status query at 30 minutes"
+assert.equal(
+  stabilityStatements.some((line) => /已受理付费任务.*观察上限.*30分钟.*30分钟.*最终状态查询/.test(line)),
+  true,
+  "The checklist must keep the accepted-task ceiling and final query in one bounded statement"
 );
 assert.match(
   ruleDoc,

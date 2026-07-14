@@ -707,11 +707,11 @@ assert.equal(
   true
 );
 
-const correctDualThresholdSource = [
-  "外部服务等待最多 3 分钟；这是操作等待、退避和慢服务阈值，不得授权重新提交付费任务。",
-  "videos-base64 已受理付费任务使用同一任务 ID，观察上限 30 分钟。",
-  "供应商明确成功或失败立即退出；达到 30 分钟执行最终状态查询，只有仍为 queued/pending 才可标记 stale 并重试同一固定 slot，completed slot 永不重新生成。"
-].join("\n");
+const canonicalOperationalTimingStatement =
+  "3 分钟是操作层外部服务等待、退避和慢服务阈值，不得据此重新提交付费任务。";
+const canonicalAcceptedTimingStatement =
+  "videos-base64 已受理付费任务使用同一任务 ID，固定观察上限 30 分钟；到达 30 分钟必须执行最终状态查询。";
+const correctDualThresholdSource = [canonicalOperationalTimingStatement, canonicalAcceptedTimingStatement].join("\n");
 const correctDualThresholdAudit = auditRuleContradictions({
   categoryPlans: [],
   titleRuleText: "",
@@ -727,5 +727,61 @@ assert.deepEqual(correctDualThresholdAudit.evidence.slice(-2), [
   "imageServiceWaitCeilingMs=180000",
   "videosBase64AcceptedTaskPollCeilingMs=1800000"
 ]);
+
+const scatteredContradictionSource = [
+  "已受理付费任务观察上限为 3 分钟，随后重新提交。",
+  "外部服务等待。",
+  "不得重新提交。",
+  "30 分钟。",
+  "最终状态查询。"
+].join("\n");
+const scatteredContradictionAudit = auditRuleContradictions({
+  categoryPlans: [],
+  titleRuleText: "",
+  shopRuleText: "",
+  promptRuleText: "",
+  imageRuleText: scatteredContradictionSource,
+  imageWaitCeilingMs: 3 * 60 * 1000,
+  videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+});
+assert.deepEqual(scatteredContradictionAudit.errors.map((item) => item.code), [
+  "main_image_wait_rule_contradiction",
+  "main_image_accepted_task_poll_rule_contradiction"
+]);
+
+const conflictingCanonicalAudit = auditRuleContradictions({
+  categoryPlans: [],
+  titleRuleText: "",
+  shopRuleText: "",
+  promptRuleText: "",
+  imageRuleText: [
+    canonicalOperationalTimingStatement,
+    canonicalAcceptedTimingStatement,
+    "已受理付费任务观察上限为 3 分钟，随后重新提交。"
+  ].join("\n"),
+  imageWaitCeilingMs: 3 * 60 * 1000,
+  videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+});
+assert.equal(conflictingCanonicalAudit.ok, false, "An explicit conflicting statement must override canonical positive clauses");
+assert.deepEqual(conflictingCanonicalAudit.errors.map((item) => item.code), [
+  "main_image_wait_rule_contradiction",
+  "main_image_accepted_task_poll_rule_contradiction"
+]);
+
+const paidResubmissionAuthorizationAudit = auditRuleContradictions({
+  categoryPlans: [],
+  titleRuleText: "",
+  shopRuleText: "",
+  promptRuleText: "",
+  imageRuleText: [
+    canonicalOperationalTimingStatement,
+    canonicalAcceptedTimingStatement,
+    "等待 3 分钟后允许重新提交付费任务。"
+  ].join("\n"),
+  imageWaitCeilingMs: 3 * 60 * 1000,
+  videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+});
+assert.equal(paidResubmissionAuthorizationAudit.ok, false, "Three minutes must never authorize paid resubmission");
+assert.equal(paidResubmissionAuthorizationAudit.errors[0]?.code, "main_image_wait_rule_contradiction");
 
 console.log("deep auto-listing audit rules passed");
