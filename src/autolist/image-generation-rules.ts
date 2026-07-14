@@ -259,6 +259,17 @@ function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
   );
 }
 
+export function isUnsafePaidImageReplayReason(reason: string): boolean {
+  const normalizedReason = (reason || "").replace(/[_-]+/g, " ");
+  const providerProvedNoAcceptance = /fail to fetch task/i.test(normalizedReason);
+  return (
+    (!providerProvedNoAcceptance && isPaidImageSubmitStageUncertaintyReason(reason)) ||
+    /invalid api key|api key invalid|authentication failed|authentication error|unauthenticated|unauthorized|permission denied|access forbidden|forbidden|usage limit|rate limit|limit exceeded|payment required|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
+      normalizedReason
+    )
+  );
+}
+
 export function resolvePaidImageProviderTimeoutRetry(input: {
   failureReason: string;
   audit: Array<{ state?: string; at?: string; reason?: string }>;
@@ -305,12 +316,7 @@ export function resolvePaidImageFixedSlotRecovery(input: {
   deferMs: number;
 } {
   const failureReason = input.failureReason || "";
-  const normalizedFailureReason = failureReason.replace(/[_-]+/g, " ");
-  const unsafeReplay =
-    isPaidImageSubmitStageUncertaintyReason(failureReason) ||
-    /invalid api key|api key invalid|authentication failed|authentication error|unauthenticated|usage limit exceeded|payment required|permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
-      normalizedFailureReason
-    );
+  const unsafeReplay = isUnsafePaidImageReplayReason(failureReason);
   const explicitAcceptedTaskTimeout = isAcceptedPaidImageTaskTimeoutReason(failureReason);
   if (!explicitAcceptedTaskTimeout || unsafeReplay) {
     return { action: "bubble", usePolicyCompatiblePrompt: false, deferMs: 0 };

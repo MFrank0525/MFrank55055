@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  buildImageEditPromptFromWord,
+  generateMainImageAssets,
   observeVideosBase64AcceptedTask,
   resolveLatestSubmittedPaidImageAuditTimestampMs,
   shouldAllowPaidImagePolicyCompatibilityIdentityTransition,
@@ -28,8 +30,12 @@ import {
   recordPaidImageFailedAfterAcceptance,
   reconcileAmbiguousPaidImageNoAcceptance,
   recordPaidImageSubmitted,
-  reservePaidImageSlot
+  reservePaidImageSlot,
+  sha256File,
+  sha256Text
 } from "../dist/src/autolist/paid-image-submission-ledger.js";
+import { writeSimpleWordDocument } from "../dist/src/autolist/docx-lite.js";
+import { getShopSpecs } from "../dist/src/autolist/shop-rules.js";
 
 const source = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 const configSource = fs.readFileSync("src/autolist/config.ts", "utf8");
@@ -732,6 +738,225 @@ assert.deepEqual(summarizeVideosBase64PaidResumePlan(product.productDir, [1, 2, 
   pollSlots: [],
   blockedSlots: []
 });
+
+const unsafeRestartRoot = fs.mkdtempSync(path.join(os.tmpdir(), "videos-base64-unsafe-restart-"));
+const unsafeRestartLedgerRoot = path.join(unsafeRestartRoot, "ledger");
+const unsafeRestartSourceImage = path.join(unsafeRestartRoot, "source.png");
+const unsafeRestartConfigFile = path.join(unsafeRestartRoot, "image-generation.json");
+const unsafeRestartPromptFile = path.join(unsafeRestartRoot, "prompt.docx");
+const unsafeRestartShopRoot = path.join(unsafeRestartRoot, "shops");
+const unsafeRestartConfig = {
+  provider: "openai-compatible",
+  apiUrl: "https://provider.example/v1/videos",
+  apiKey: "test-only-key",
+  model: "gpt-image-2",
+  mode: "videos-base64",
+  size: "1024x1024"
+};
+const unsafeRestartPromptParagraphs = [
+  "main instruction",
+  "selling points",
+  "DeepSeek prompt",
+  "positive prompt",
+  "negative prompt"
+];
+fs.writeFileSync(unsafeRestartSourceImage, "source-image-bytes");
+fs.writeFileSync(unsafeRestartConfigFile, JSON.stringify(unsafeRestartConfig));
+writeSimpleWordDocument(unsafeRestartPromptFile, unsafeRestartPromptParagraphs);
+for (const shop of getShopSpecs()) {
+  fs.mkdirSync(path.join(unsafeRestartShopRoot, `${shop.shopCode}${shop.watermarkText}`), { recursive: true });
+}
+const unsafeRestartLedger = initializePaidImageProductLedger({
+  rootDir: unsafeRestartLedgerRoot,
+  batchFingerprint: "unsafe-restart-batch",
+  recordId: "unsafe-restart-record",
+  expectedSlotCount: 1,
+  providerIdentity: sha256Text(JSON.stringify({
+    apiUrl: unsafeRestartConfig.apiUrl,
+    statusUrl: "",
+    model: unsafeRestartConfig.model,
+    mode: unsafeRestartConfig.mode,
+    size: unsafeRestartConfig.size,
+    videoMetadata: {},
+    requestExtra: {}
+  })),
+  sourceImageDigest: sha256File(unsafeRestartSourceImage)
+});
+const unsafeRestartPromptText = buildImageEditPromptFromWord({
+  paragraphs: unsafeRestartPromptParagraphs,
+  promptWordFile: unsafeRestartPromptFile
+});
+const unsafeRestartRequestBody = JSON.stringify({
+  model: unsafeRestartConfig.model,
+  prompt: unsafeRestartPromptText,
+  metadata: {
+    aspect_ratio: "1:1",
+    size: unsafeRestartConfig.size,
+    urls: [`data:image/png;base64,${fs.readFileSync(unsafeRestartSourceImage).toString("base64")}`]
+  }
+});
+reservePaidImageSlot({
+  productDir: unsafeRestartLedger.productDir,
+  slot: 1,
+  requestDigest: sha256Text(unsafeRestartRequestBody),
+  promptDigest: sha256Text(unsafeRestartPromptText),
+  owner: { runId: "first-process", taskId: "image-001" }
+});
+recordPaidImageSubmitted({
+  productDir: unsafeRestartLedger.productDir,
+  slot: 1,
+  providerTaskId: "unsafe-restart-provider-task"
+});
+const unsafeFailureReason = "provider task failed during image generation: insufficient balance";
+recordPaidImageFailedAfterAcceptance({
+  productDir: unsafeRestartLedger.productDir,
+  slot: 1,
+  providerTaskId: "unsafe-restart-provider-task",
+  reason: unsafeFailureReason,
+  providerResponse: { id: "unsafe-restart-provider-task", status: "failed", message: "insufficient balance" }
+});
+const unsafeSlotFile = path.join(unsafeRestartLedger.productDir, "slots", "01.json");
+const unsafeSlotBeforeRestart = fs.readFileSync(unsafeSlotFile, "utf8");
+const originalFetch = globalThis.fetch;
+let unsafeRestartTransportCalls = 0;
+globalThis.fetch = async () => {
+  unsafeRestartTransportCalls += 1;
+  throw new Error("unsafe restart must fail closed before submission transport");
+};
+try {
+  await assert.rejects(
+    () => generateMainImageAssets({
+      runtimeDir: path.join(unsafeRestartRoot, "second-process-runtime"),
+      taskId: "image-001",
+      shopRootDir: unsafeRestartShopRoot,
+      sourceImagePath: unsafeRestartSourceImage,
+      sellingPointText: "test product",
+      brandedGenericName: "test product",
+      wordFiles: [unsafeRestartPromptFile],
+      imageGenerationProvider: "openai-compatible",
+      imageGenerationConfigFile: unsafeRestartConfigFile,
+      mainImageExpectedCount: 1,
+      mainImageCountStrategy: "exact",
+      promptCount: 1,
+      shopCodes: ["01"],
+      imagesPerShop: 1,
+      feishuRecordId: "unsafe-restart-record",
+      feishuBatchFingerprint: "unsafe-restart-batch",
+      paidImageSubmissionLedgerDir: unsafeRestartLedgerRoot,
+      simulateOnly: false
+    }),
+    /insufficient balance/i,
+    "a restarted process must propagate an unsafe paid failure before reserving or submitting"
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.equal(unsafeRestartTransportCalls, 0, "unsafe paid failure replay must not call submission transport after restart");
+assert.equal(
+  fs.readFileSync(unsafeSlotFile, "utf8"),
+  unsafeSlotBeforeRestart,
+  "unsafe failed_after_acceptance evidence must remain byte-for-byte unchanged after restart"
+);
+
+const policyRestartLedgerRoot = path.join(unsafeRestartRoot, "policy-retry-ledger");
+const policyRestartLedger = initializePaidImageProductLedger({
+  rootDir: policyRestartLedgerRoot,
+  batchFingerprint: "policy-restart-batch",
+  recordId: "policy-restart-record",
+  expectedSlotCount: 2,
+  providerIdentity: unsafeRestartLedger.providerIdentity,
+  sourceImageDigest: sha256File(unsafeRestartSourceImage)
+});
+const completedPng = path.join(unsafeRestartRoot, "completed.png");
+fs.writeFileSync(
+  completedPng,
+  Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64")
+);
+for (const slot of [1, 2]) {
+  reservePaidImageSlot({
+    productDir: policyRestartLedger.productDir,
+    slot,
+    requestDigest: sha256Text(unsafeRestartRequestBody),
+    promptDigest: sha256Text(unsafeRestartPromptText),
+    owner: { runId: "policy-first-process", taskId: "image-001" }
+  });
+  recordPaidImageSubmitted({
+    productDir: policyRestartLedger.productDir,
+    slot,
+    providerTaskId: `policy-original-task-${slot}`
+  });
+}
+recordPaidImageCompleted({
+  productDir: policyRestartLedger.productDir,
+  slot: 1,
+  providerTaskId: "policy-original-task-1",
+  sourceFile: completedPng
+});
+recordPaidImageFailedAfterAcceptance({
+  productDir: policyRestartLedger.productDir,
+  slot: 2,
+  providerTaskId: "policy-original-task-2",
+  reason: 'provider task failed: {"code":"upstream_error","message":"content policy violation"}',
+  providerResponse: { id: "policy-original-task-2", status: "failed", code: "upstream_error" }
+});
+const completedSlotFile = path.join(policyRestartLedger.productDir, "slots", "01.json");
+const completedSlotBeforeRestart = fs.readFileSync(completedSlotFile, "utf8");
+let policyRestartSubmitCalls = 0;
+globalThis.fetch = async (url, init) => {
+  if (init?.method === "POST") {
+    policyRestartSubmitCalls += 1;
+    return new Response(JSON.stringify({ id: "policy-retry-task-2" }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  }
+  if (String(url).endsWith("/policy-retry-task-2")) {
+    return new Response(JSON.stringify({
+      id: "policy-retry-task-2",
+      status: "completed",
+      result_url: "https://provider.example/policy-retry-result.png"
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  if (String(url) === "https://provider.example/policy-retry-result.png") {
+    return new Response(fs.readFileSync(completedPng), { status: 200, headers: { "content-type": "image/png" } });
+  }
+  throw new Error(`unexpected policy restart transport: ${url}`);
+};
+try {
+  await generateMainImageAssets({
+    runtimeDir: path.join(unsafeRestartRoot, "policy-second-process-runtime"),
+    taskId: "image-001",
+    shopRootDir: unsafeRestartShopRoot,
+    sourceImagePath: unsafeRestartSourceImage,
+    sellingPointText: "test product",
+    brandedGenericName: "test product",
+    wordFiles: [unsafeRestartPromptFile],
+    imageGenerationProvider: "openai-compatible",
+    imageGenerationConfigFile: unsafeRestartConfigFile,
+    mainImageExpectedCount: 2,
+    mainImageCountStrategy: "exact",
+    promptCount: 1,
+    shopCodes: ["01"],
+    imagesPerShop: 2,
+    feishuRecordId: "policy-restart-record",
+    feishuBatchFingerprint: "policy-restart-batch",
+    paidImageSubmissionLedgerDir: policyRestartLedgerRoot,
+    simulateOnly: false
+  });
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.equal(policyRestartSubmitCalls, 1, "restart must resubmit exactly the failed content-policy slot");
+assert.equal(
+  fs.readFileSync(completedSlotFile, "utf8"),
+  completedSlotBeforeRestart,
+  "content-policy restart must leave an already completed slot unchanged"
+);
+assert.equal(
+  JSON.parse(fs.readFileSync(path.join(policyRestartLedger.productDir, "slots", "02.json"), "utf8")).state,
+  "completed",
+  "the bounded content-policy retry must complete only its failed fixed slot"
+);
 
 const providerFailedProduct = initializePaidImageProductLedger({
   rootDir: path.join(tmp, "provider-failed-ledger"),

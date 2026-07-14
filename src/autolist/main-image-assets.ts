@@ -15,6 +15,7 @@ import {
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   providerExplicitlyProvesNoPaidTaskAccepted,
+  isUnsafePaidImageReplayReason,
   submitTransportFailureProvesNoPaidTaskAccepted,
   shouldRetryImageGenerationWithPolicyPrompt,
   shouldKeepPaidImagePolicyCompatiblePrompt,
@@ -933,6 +934,11 @@ async function generateWithOpenAiCompatibleProvider(options: {
         if (fixedSlotRecovery.action === "defer_to_supervisor") {
           throw normalizeImageGenerationError(
             `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${fixedSlotRecovery.deferMs}ms.`
+          );
+        }
+        if (fixedSlotRecovery.action === "bubble" && isUnsafePaidImageReplayReason(failedAfterAcceptanceReason)) {
+          throw normalizeImageGenerationError(
+            `paid image slot ${ledgerSlot} is not safe to replay: ${failedAfterAcceptanceReason || "unknown failure after acceptance"}`
           );
         }
         const keepPolicyCompatiblePrompt =

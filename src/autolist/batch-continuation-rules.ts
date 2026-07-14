@@ -1,5 +1,5 @@
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
-import { imageServiceWaitCeilingMs } from "./image-generation-rules.js";
+import { imageServiceWaitCeilingMs, isUnsafePaidImageReplayReason } from "./image-generation-rules.js";
 import { isPaidImageAcceptedTaskHeartbeatText } from "./paid-image-wait-rules.js";
 
 export type FeishuBatchContinuationInput = {
@@ -74,6 +74,7 @@ function isRetryableVideosBase64AcceptedQueueWait(message: string): boolean {
 export function isRetryableExternalServiceAvailabilityFailure(message: string): boolean {
   if (
     isPaidImageSubmissionSafetyBlock(message) ||
+    isUnsafePaidImageReplayReason(message) ||
     /upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(message)
   ) {
     return false;
@@ -165,6 +166,7 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
   const retryableFailureMessage = input.retryableFailureMessage || "";
   if (
     input.exitCode === 0 || input.batchComplete ||
+    isUnsafePaidImageReplayReason(retryableFailureMessage) ||
     isPaidImageSubmissionSafetyBlock(retryableFailureMessage) ||
     /upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(retryableFailureMessage)
   ) {

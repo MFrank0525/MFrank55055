@@ -2970,6 +2970,30 @@ assert.equal(
   }),
   true
 );
+for (const unsafePaidReplayReason of [
+  "failed at main_images_generated: Image generation failed: insufficient balance",
+  "failed at main_images_generated: Image generation failed: billing account disabled",
+  "failed at main_images_generated: Image generation failed: invalid_api_key",
+  "failed at main_images_generated: Image generation failed: authentication failed",
+  "failed at main_images_generated: Image generation failed: unauthorized",
+  "failed at main_images_generated: Image generation failed: permission denied",
+  "failed at main_images_generated: Image generation failed: quota exceeded",
+  "failed at main_images_generated: Image generation failed: usage limit exceeded",
+  "failed at main_images_generated: Image generation submission timed out before task id was received",
+  "failed at main_images_generated: Image generation response did not include task id"
+]) {
+  assert.equal(
+    shouldResumeFeishuBatchAfterRetryableChildFailure({
+      exitCode: 1,
+      batchComplete: false,
+      retryableFailureMessage: unsafePaidReplayReason,
+      recoveryAttempts: 0,
+      maxRecoveryAttempts: 12
+    }),
+    false,
+    `unsafe paid failure must not be replayed by supervisor broad fallbacks: ${unsafePaidReplayReason}`
+  );
+}
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
     exitCode: 1,
