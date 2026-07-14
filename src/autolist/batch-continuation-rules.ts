@@ -1,5 +1,8 @@
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
-import { imageServiceWaitCeilingMs } from "./image-generation-rules.js";
+import {
+  imageServiceWaitCeilingMs,
+  videosBase64AcceptedTaskPollCeilingMs
+} from "./image-generation-rules.js";
 
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
@@ -351,20 +354,14 @@ export type AutoListingControllerChildStallTimeoutInput = {
 };
 
 export function resolveAutoListingControllerChildStallTimeoutMs(input: AutoListingControllerChildStallTimeoutInput): number {
-  const defaultTimeoutMs = Math.max(180000, input.defaultTimeoutMs);
-  const activeText = `${input.activeStep || ""} ${input.activeMessage || ""}`;
+  const configuredTimeoutMs = input.defaultTimeoutMs;
   if (
-    /main_images_generated/i.test(activeText) &&
-    /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(activeText)
+    /main_images_generated/i.test(input.activeStep || "") &&
+    /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(input.activeMessage || "")
   ) {
-    return Math.min(defaultTimeoutMs, imageServiceWaitCeilingMs);
+    return Math.max(configuredTimeoutMs, videosBase64AcceptedTaskPollCeilingMs);
   }
-  if (
-    /published|Publishing product folder|Retrying publish|Publish failed|page_context_lost|browser_remote_debugging_unavailable/i.test(activeText)
-  ) {
-    return Math.min(defaultTimeoutMs, 4 * 60 * 1000);
-  }
-  return defaultTimeoutMs;
+  return configuredTimeoutMs;
 }
 
 export function shouldRefreshAutoListingChildProgressSeenAt(input: {
@@ -911,6 +908,7 @@ export type AutoListingControllerCompactStatusTextInput = {
   activeItemName?: string;
   imageGenerationProgress?: string;
   mainImageCompleted?: number;
+  mainImageExpected?: number;
   latestProgress?: string;
   publishSafelyPublished?: number;
   publishTotal?: number;
@@ -1172,7 +1170,7 @@ function normalizeAutoListingControllerStatusLabel(status?: string): string {
   if (status === "paused") return "已暂停";
   if (status === "failed") return "失败";
   if (status === "completed") return "完成";
-  if (status === "external_service_wait") return "等待图片服务";
+  if (status === "external_service_wait") return "等待生图服务";
   if (status === "pending_products") return "待继续";
   if (status === "idle") return "空闲";
   return status || "未知";
@@ -1422,6 +1420,7 @@ export function formatAutoListingControllerExternalServiceWaitSummary(input: {
 
 export function formatAutoListingControllerCompactStatusText(input: AutoListingControllerCompactStatusTextInput): string {
   const productTotal = input.publishProductTotal ?? 20;
+  const mainImageTotal = input.mainImageExpected ?? productTotal;
   const fallbackProductIndex = (input.publishSafelyPublished || 0) + (input.publishFailed ? 1 : 0) || 1;
   const productIndex = Math.max(1, Math.min(productTotal, input.publishProductIndex ?? fallbackProductIndex));
   const shopTotal = input.publishShopTotal ?? Math.max(1, Math.ceil(productTotal / 2));
@@ -1448,11 +1447,11 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const preferPublishProgress = shouldPreferAutoListingControllerPublishProgress(input);
   const mainImageProgressIndex =
     input.mainImageCompleted === undefined
-      ? resolveAutoListingControllerMainImageProgressIndex(input.imageGenerationProgress, productTotal)
-      : Math.max(0, Math.min(productTotal, input.mainImageCompleted));
+      ? resolveAutoListingControllerMainImageProgressIndex(input.imageGenerationProgress, mainImageTotal)
+      : Math.max(0, Math.min(mainImageTotal, input.mainImageCompleted));
   const lines = [
     !preferPublishProgress && input.imageGenerationProgress
-      ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${input.mainImageCompleted === undefined ? "提交槽位" : "主图"} ${mainImageProgressIndex}/${productTotal}｜${feishuLabel}`
+      ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${input.mainImageCompleted === undefined ? "提交槽位" : "主图"} ${mainImageProgressIndex}/${mainImageTotal}｜${feishuLabel}`
       : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜发布 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}${input.publishReviewWatermarkNo ? `｜待复核 水印${input.publishReviewWatermarkNo}` : ""}｜${feishuLabel}`
   ];
 

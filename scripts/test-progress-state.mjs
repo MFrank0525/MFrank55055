@@ -1516,7 +1516,8 @@ assert.equal(
     activeStep: "published",
     activeMessage: "Retrying publish for 延草纲目医用面部冷敷贴水印03 (02延草纲目药品专营店): page_context_lost; attempt 1"
   }),
-  4 * 60 * 1000
+  12 * 60 * 1000,
+  "Non-image steps must retain the configured supervisor stall timeout"
 );
 assert.equal(
   resolveAutoListingControllerChildStallTimeoutMs({
@@ -1532,8 +1533,17 @@ assert.equal(
     activeStep: "main_images_generated",
     activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_queued status queued 0."
   }),
-  3 * 60 * 1000,
-  "The supervisor must let the provider's three-minute accepted-task poll deadline finish before declaring a queue stall"
+  30 * 60 * 1000,
+  "The supervisor must let an accepted queued task reach its fixed thirty-minute observation ceiling"
+);
+assert.equal(
+  resolveAutoListingControllerChildStallTimeoutMs({
+    defaultTimeoutMs: 12 * 60 * 1000,
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_pending status pending 0."
+  }),
+  30 * 60 * 1000,
+  "The supervisor must let an accepted pending task reach its fixed thirty-minute observation ceiling"
 );
 
 const alreadyInTargetShop = evaluateShopSwitchMenuState({
@@ -3762,6 +3772,28 @@ const compactExternalWait = formatAutoListingControllerCompactStatusText({
 });
 assert.match(compactExternalWait, /19分31秒后/);
 assert.doesNotMatch(compactExternalWait, /staged 4 image/);
+const activePaidLedgerWait = {
+  expectedSlotCount: 20,
+  missing: 0,
+  reserved: 0,
+  submitted: 3,
+  completed: 17,
+  failedBeforeAcceptance: 0,
+  failedAfterAcceptance: 0,
+  ambiguous: 0
+};
+const compactActivePaidLedgerWait = formatAutoListingControllerCompactStatusText({
+  status: "external_service_wait",
+  summary: "等待生图服务恢复后自动继续查询已接受任务。",
+  imageGenerationProgress: "Prompt 5/5: Image 4: videos-base64 task task_active status pending 0.",
+  mainImageCompleted: activePaidLedgerWait.completed,
+  mainImageExpected: activePaidLedgerWait.expectedSlotCount,
+  feishuCompleted: 0,
+  feishuTotal: 1
+});
+assert.match(compactActivePaidLedgerWait, /主图 17\/20/);
+assert.match(compactActivePaidLedgerWait, /等待生图服务/);
+assert.doesNotMatch(compactActivePaidLedgerWait, /主图 20\/20/);
 const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
 const paidImageSafetyBlockWithHtml =
   "paid submission safety block: paid image ledger has ambiguous=20, reserved=0; original: videos-base64 submit failed with HTTP 502: " +

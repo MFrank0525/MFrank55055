@@ -2006,6 +2006,8 @@ function formatStatusText(status: Record<string, unknown>): string {
       shouldExposeImageGenerationProgress && typeof paidImageProgress?.completed === "number"
         ? Number(paidImageProgress.completed)
         : undefined,
+    mainImageExpected:
+      shouldExposeImageGenerationProgress && typeof paidImageProgress?.expectedSlotCount === "number" ? Number(paidImageProgress.expectedSlotCount) : undefined,
     publishSafelyPublished: Number(progress?.safelyPublished ?? 0),
     publishTotal: progress?.total === undefined ? undefined : Number(progress.total),
     publishFailed: Number(progress?.failed ?? 0),
