@@ -1195,6 +1195,12 @@ assertMalformedSlotRejected("top-level-reason-secret", (record) => (record.reaso
 assertMalformedSlotRejected("top-level-reason-sk-secret", (record) => (record.reason = `sk-${"A".repeat(24)}`));
 assertMalformedSlotRejected("top-level-reason-control", (record) => (record.reason = "unsafe\u0000control"));
 assertMalformedSlotRejected("top-level-reason-oversize", (record) => (record.reason = "A".repeat(501)));
+assertMalformedSlotRejected("top-level-reason-token", (record) => (record.reason = "token=standalone-token-value"));
+assertMalformedSlotRejected("top-level-reason-cookie", (record) => (record.reason = "cookie=standalone-cookie-value"));
+assertMalformedSlotRejected(
+  "top-level-reason-signature",
+  (record) => (record.reason = "signature=standalone-signature-value")
+);
 
 const legacyUrlProduct = initializePaidImageProductLedger({
   ...identity,

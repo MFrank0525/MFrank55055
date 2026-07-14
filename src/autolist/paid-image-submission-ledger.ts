@@ -602,15 +602,11 @@ function validateSlotRange(productDir: string, slot: number): PaidImageProductLe
 }
 
 function isValidLegacyPersistedText(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length <= 500 &&
-    !/[\u0000-\u001f\u007f]/.test(value) &&
-    !/data:[^;,]+;base64,|bearer\s|authorization|api(?:[_-\s]?key)|access[_-]?token|secret|\bsk-[A-Za-z0-9_-]{12,}\b/i.test(
-      value
-    ) &&
-    !(value.length >= 128 && /^[A-Za-z0-9+/_=-]+$/.test(value))
-  );
+  if (typeof value !== "string" || value.length > 500 || /[\u0000-\u001f\u007f]/.test(value)) {
+    return false;
+  }
+  const urlExempted = value.replace(/https?:\/\/[^\s"',}]+/gi, "[legacy url]");
+  return sanitizeCurrentPersistedText(urlExempted) === urlExempted;
 }
 
 function isValidOwner(value: unknown): value is PaidImageSlotOwner {
@@ -719,7 +715,7 @@ function assertSlotIdentity(record: PaidImageSlotRecord, requestDigest: string, 
   }
 }
 
-function cleanText(value: string): string {
+function sanitizeCurrentPersistedText(value: string): string {
   const redacted = value
     .replace(
       /(authorization|bearer|api(?:[-_\s]?key)|secret|token|cookie|sig|signature)(["'\s:=]+)([^&"'\s,}]+)/gi,
@@ -727,10 +723,19 @@ function cleanText(value: string): string {
     )
     .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "[redacted api key]")
     .replace(/https?:\/\/[^\s"',}]+/gi, "[redacted url]");
-  if (!isValidLegacyPersistedText(redacted)) {
+  if (
+    redacted.length > 500 ||
+    /[\u0000-\u001f\u007f]/.test(redacted) ||
+    /data:[^;,]+;base64,|bearer\s|authorization|api(?:[_-\s]?key)|access[_-]?token|secret/i.test(redacted) ||
+    (redacted.length >= 128 && /^[A-Za-z0-9+/_=-]+$/.test(redacted))
+  ) {
     return "[redacted]";
   }
   return redacted;
+}
+
+function cleanText(value: string): string {
+  return sanitizeCurrentPersistedText(value);
 }
 
 function providerResponseSummary(value: unknown): Record<string, unknown> | undefined {
