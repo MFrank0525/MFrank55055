@@ -1,5 +1,6 @@
 const RULE_ITEM_START = /^\s*(?:[-*+]\s+|\d+(?:\.\d+)*[.)]\s+)/u;
 const HEADING = /^\s*#{1,6}\s+/u;
+const TABLE_ROW = /^\s*\|.*\|\s*$/u;
 
 function normalizeRuleItem(text) {
   return text.replace(RULE_ITEM_START, "").replace(/\s+/gu, " ").trim();
@@ -17,27 +18,34 @@ function hasRequestContext(text) {
   return /request(?:\s+(?:body|payload|parameters?))?|请求(?:体|参数)?|生图请求|provider\s+request/iu.test(text);
 }
 
-function hasExplicitNegation(text) {
-  return /禁止|不得|不允许|不可|严禁|不能|不应|不(?:导入|迁移|扫描|提供|使用|支持|更换|切换|替换|自动)|must\s+not|never|do\s+not|does\s+not|should\s+not|cannot|can't|not\s+(?:be\s+)?(?:replaceable|pluggable|switchable)|no\s+(?:automatic|legacy|alternate)/iu.test(
-    text
-  );
-}
-
 function splitClauses(text) {
   return text
-    .split(/(?:[；;。！？!?，,]|\s+(?:but|however)\s+|但(?:是)?)/iu)
+    .split(/(?:\||[；;。！？!?，,]|\s+(?:and|but|while|whereas|however|yet)\s+|而|但(?:是)?|并且|同时)/iu)
     .map((clause) => clause.trim())
     .filter(Boolean);
+}
+
+function isLocallyNegated(text, matchIndex) {
+  const localText = text.slice(Math.max(0, matchIndex - 64), matchIndex);
+  const matchNeighborhood = text.slice(Math.max(0, matchIndex - 8), matchIndex + 20);
+  if (/non-?replaceable/iu.test(matchNeighborhood)) {
+    return true;
+  }
+  return /(?:禁止|不得|不允许|不可|严禁|不能|不应|不(?:导入|迁移|扫描|提供|使用|支持|更换|切换|替换|自动))[^；;。！？!?，,|]{0,40}$|不\s*$|(?:must\s+not|never|do\s+not|does\s+not|should\s+not|cannot|can't|not\s+(?:be\s+)?|no\s+(?:automatic|legacy|alternate))[^.;,|]{0,48}$/iu.test(
+    localText
+  );
 }
 
 export function splitMarkdownRuleItems(markdown) {
   const items = [];
   let current = "";
   let sectionContext = "";
+  let itemSubjectContext = "";
+  let tableSubjectContext = "";
   const flush = () => {
     const text = normalizeRuleItem(current);
     if (text) {
-      const contextText = `${sectionContext} ${text}`.trim();
+      const contextText = `${sectionContext} ${itemSubjectContext} ${text}`.trim();
       const itemContext = {
         image: hasImageContext(contextText),
         provider: hasProviderContext(contextText),
@@ -50,19 +58,35 @@ export function splitMarkdownRuleItems(markdown) {
       });
     }
     current = "";
+    itemSubjectContext = "";
   };
 
   for (const rawLine of String(markdown).split(/\r?\n/u)) {
     const line = rawLine.trim();
     if (HEADING.test(line)) {
       flush();
+      tableSubjectContext = "";
       sectionContext = line.replace(HEADING, "").trim();
       continue;
     }
     if (!line || line.startsWith("```")) {
       flush();
+      tableSubjectContext = "";
       continue;
     }
+    if (TABLE_ROW.test(rawLine)) {
+      flush();
+      const rowText = rawLine.replace(/^\s*\||\|\s*$/gu, "").trim();
+      const separatorRow = /^(?:\s*:?-+:?\s*\|?)+$/u.test(rowText);
+      if (!separatorRow && !tableSubjectContext && (hasImageContext(rowText) || hasProviderContext(rowText))) {
+        tableSubjectContext = rowText;
+      }
+      itemSubjectContext = tableSubjectContext;
+      current = rawLine;
+      flush();
+      continue;
+    }
+    tableSubjectContext = "";
     if (RULE_ITEM_START.test(rawLine)) {
       flush();
       current = rawLine;
@@ -78,20 +102,20 @@ export function splitMarkdownRuleItems(markdown) {
   return items;
 }
 
-function isPositiveProviderChange(clause, context) {
+function matchPositiveProviderChange(clause, context) {
   const providerMentioned = context.provider || hasProviderContext(clause);
   if (!providerMentioned) {
-    return false;
+    return undefined;
   }
   const positiveChange =
-    /可替换|可插拔|可切换|支持(?:更换|切换|替换)|允许(?:更换|切换|替换)|可以(?:更换|切换|替换)|(?:更换|切换|替换)\s*(?:图片|主图|生图)?\s*(?:provider|模型)|replaceable|pluggable|switchable|can\s+(?:change|switch|replace)|may\s+(?:change|switch|replace)|supports?\s+(?:changing|switching|replacing)/iu.test(
+    /可替换|可插拔|可切换|支持(?:更换|切换|替换)|允许(?:更换|切换|替换)|可以(?:更换|切换|替换)|(?:更换|切换|替换)\s*(?:图片|主图|生图)?\s*(?:provider|模型)|replaceable|pluggable|switchable|can\s+(?:change|switch|replace)|may\s+(?:change|switch|replace)|supports?\s+(?:changing|switching|replacing)/iu.exec(
       clause
     );
   if (!positiveChange) {
-    return false;
+    return undefined;
   }
   const explicitlyNonImage = /标题|title\s+provider|飞书|Feishu|浏览器|browser|data\s+source|数据源/iu.test(clause);
-  return context.image || hasImageContext(clause) || !explicitlyNonImage;
+  return context.image || hasImageContext(clause) || !explicitlyNonImage ? positiveChange : undefined;
 }
 
 function finding(label, item, clause) {
@@ -103,42 +127,42 @@ export function findObsoleteProviderContradictions(markdown) {
   for (const item of splitMarkdownRuleItems(markdown)) {
     for (const clause of item.clauses) {
       const text = clause.text;
-      if (hasExplicitNegation(text)) {
-        continue;
-      }
-      if (/\bmode["'`]?\s*(?:=|:)\s*["'`]?edits\b/iu.test(text)) {
+      const modeMatch = /\bmode["'`]?\s*(?:=|:)\s*["'`]?edits\b/iu.exec(text);
+      if (modeMatch && !isLocallyNegated(text, modeMatch.index)) {
         findings.push(finding("obsolete image-edit mode", item, clause));
       }
-      if (/\bquery_result\b/iu.test(text)) {
+      const queryResultMatch = /\bquery_result\b/iu.exec(text);
+      if (queryResultMatch && !isLocallyNegated(text, queryResultMatch.index)) {
         findings.push(finding("legacy query_result artifact", item, clause));
       }
-      if (/\bfail_reason\b/iu.test(text)) {
+      const failReasonMatch = /\bfail_reason\b/iu.exec(text);
+      if (failReasonMatch && !isLocallyNegated(text, failReasonMatch.index)) {
         findings.push(finding("legacy fail_reason artifact", item, clause));
       }
-      if (/\bimagePath\b/iu.test(text)) {
+      const imagePathMatch = /\bimagePath\b/iu.exec(text);
+      if (imagePathMatch && !isLocallyNegated(text, imagePathMatch.index)) {
         findings.push(finding("legacy imagePath request field", item, clause));
       }
-      if (
-        clause.context.request &&
-        /(?<!metadata\.)\b["'`]?size["'`]?\s*(?:=|:)/iu.test(text)
-      ) {
+      const sizeMatch = /(?<!metadata\.)\b["'`]?size["'`]?\s*(?:=|:)/iu.exec(text);
+      if (clause.context.request && sizeMatch && !isLocallyNegated(text, sizeMatch.index)) {
         findings.push(finding("legacy top-level size request field", item, clause));
       }
-      if (
-        /自动重复提交|自动重提|automatically\s+(?:repeat(?:ed|ing)?\s+submissions?|re-?submit)|automatic\s+repeated\s+(?:paid\s+)?submission/iu.test(
+      const repeatedSubmissionMatch =
+        /自动重复提交|自动重提|automatically\s+(?:repeat(?:ed|ing)?\s+submissions?|re-?submit)|automatic\s+repeated\s+(?:paid\s+)?submission/iu.exec(
           text
-        )
-      ) {
+        );
+      if (repeatedSubmissionMatch && !isLocallyNegated(text, repeatedSubmissionMatch.index)) {
         findings.push(finding("automatic repeated paid submission", item, clause));
       }
-      if (isPositiveProviderChange(text, clause.context)) {
+      const providerChangeMatch = matchPositiveProviderChange(text, clause.context);
+      if (providerChangeMatch && !isLocallyNegated(text, providerChangeMatch.index)) {
         findings.push(finding("replaceable paid-image provider wording", item, clause));
       }
-      if (
-        /(?:迁移|导入)[^\n]{0,80}(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)|(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)[^\n]{0,80}(?:迁移|导入)|migrat(?:e|ion)[^\n]{0,120}(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger|(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger[^\n]{0,120}migrat/iu.test(
+      const migrationMatch =
+        /(?:迁移|导入)[^\n]{0,80}(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)|(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)[^\n]{0,80}(?:迁移|导入)|migrat(?:e|ion)[^\n]{0,120}(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger|(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger[^\n]{0,120}migrat/iu.exec(
           text
-        )
-      ) {
+        );
+      if (migrationMatch && !isLocallyNegated(text, migrationMatch.index)) {
         findings.push(finding("historical paid-ledger migration instruction", item, clause));
       }
     }

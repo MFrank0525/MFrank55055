@@ -92,6 +92,8 @@ for (const fixture of [
   "- 禁止自动重复提交付费任务。",
   "- 禁止主图 provider 切换。",
   "- The image provider must not be replaceable.",
+  "- The image provider is non-replaceable.",
+  "- The image provider is nonreplaceable.",
   "- 禁止使用 query_result 或 fail_reason。",
   "- 严禁迁移历史付费账本。",
   "- Image request must not use ImagePath.",
@@ -126,6 +128,27 @@ assert.equal(
   ),
   true,
   "a prohibition in one clause must not mask a positive contradiction in another clause"
+);
+assert.equal(
+  findObsoleteProviderContradictions("- Image request must not use imagePath and uses mode=edits.").some(
+    (finding) => finding.label === "obsolete image-edit mode"
+  ),
+  true,
+  "a negated imagePath predicate must not mask a positive edits-mode predicate"
+);
+assert.equal(
+  findObsoleteProviderContradictions("- 主图 provider 不使用旧接口而支持更换 provider。").some(
+    (finding) => finding.label === "replaceable paid-image provider wording"
+  ),
+  true,
+  "a negated old-interface predicate must not mask positive provider replaceability"
+);
+assert.equal(
+  findObsoleteProviderContradictions(
+    "| 主图 provider 规则 |\n| --- |\n| 不得切换 |\n| 可替换 |"
+  ).some((finding) => finding.label === "replaceable paid-image provider wording"),
+  true,
+  "a prohibited table row must not mask a separate replaceable-provider row"
 );
 
 for (const file of activeProviderFiles) {
