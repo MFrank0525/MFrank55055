@@ -3,7 +3,7 @@ import path from "node:path";
 import { auditAutoListingContinuity, auditCompletedBatchResidue, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
-import { auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
+import { aggregatePaidImageLedgerGeneration, auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
 import { imageServiceWaitCeilingMs } from "../autolist/image-generation-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
@@ -11,7 +11,7 @@ import { loadPublishManifest } from "../autolist/publish-manifest.js";
 import { extractWatermarkNo } from "../autolist/publish-manifest.js";
 import { buildPublishTargetIdentity, publishTargetKey } from "../autolist/publish-identity.js";
 import { getProductCategoryPlan, shopCodeFromFolder, type ProductCategory } from "../autolist/product-category.js";
-import { paidImageBatchLedgerDir } from "../autolist/paid-image-submission-ledger.js";
+import { paidImageBatchLedgerDir, paidImageProductLedgerDir, summarizePaidImageProductLedger } from "../autolist/paid-image-submission-ledger.js";
 import type { AutoListingJobFile, AutoListingRunResult, AutoListingRunState } from "../autolist/types.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
@@ -356,12 +356,55 @@ async function main(): Promise<void> {
     records,
     processedImages
   });
-  const generation = auditMainImageGeneration({
+  const completedGeneration = auditMainImageGeneration({
     tasks: state?.tasks || [],
     existingFiles,
     expectedImagesPerPrompt: resolved.mainImageExpectedCount,
     simulateOnly: resolved.simulateOnly
   });
+  const pendingSourceImages = new Set(feishuBatch.pendingSourceImages.map((filePath) => path.resolve(filePath)));
+  const currentPaidLedgers: Array<{
+    recordId: string;
+    summary: ReturnType<typeof summarizePaidImageProductLedger>;
+  }> = [];
+  const paidLedgerResolutionErrors: DeepAuditIssue[] = [];
+  for (const record of records) {
+    const isCurrentPendingRecord = (record.whiteBackgroundImages || [])
+      .map((image) => image.localFile)
+      .filter((filePath): filePath is string => Boolean(filePath))
+      .map((filePath) => path.resolve(filePath))
+      .some((filePath) => pendingSourceImages.has(filePath));
+    if (!record.recordId || !isCurrentPendingRecord) continue;
+    const productLedgerDir = paidImageProductLedgerDir(
+      resolved.paidImageSubmissionLedgerDir,
+      batchFingerprint,
+      record.recordId
+    );
+    if (!fs.existsSync(productLedgerDir)) continue;
+    try {
+      currentPaidLedgers.push({
+        recordId: record.recordId,
+        summary: summarizePaidImageProductLedger(productLedgerDir)
+      });
+    } catch (error) {
+      paidLedgerResolutionErrors.push({
+        code: "paid_image_ledger_invalid",
+        message: `Paid image ledger for ${record.recordId} is invalid: ${error instanceof Error ? error.message : String(error)}`
+      });
+    }
+  }
+  const paidLedgerGeneration = aggregatePaidImageLedgerGeneration({
+    completedGeneration: completedGeneration.summary,
+    completedRecordIds: (state?.tasks || [])
+      .filter((task) => Boolean(task.mainImageArtifact))
+      .map((task) => task.feishuProductRecord?.recordId || "")
+      .filter(Boolean),
+    currentLedgers: currentPaidLedgers
+  });
+  const generation = {
+    ...completedGeneration,
+    summary: paidLedgerGeneration.summary
+  };
   const publish = auditPublishCoverage({
     tasks: state?.tasks || [],
     manifestEntries: manifest.entries,
@@ -437,7 +480,9 @@ async function main(): Promise<void> {
     issues.map((issue) => ({ code: issue.code, message: issue.message }));
   const artifactErrors = [
     ...toDeepIssues(generation.errors),
-    ...toDeepIssues(publish.errors)
+    ...toDeepIssues(publish.errors),
+    ...paidLedgerResolutionErrors,
+    ...paidLedgerGeneration.audits.flatMap((audit) => audit.errors)
   ];
   if (resolved.simulateOnly && (state?.tasks.length || 0) === 0) {
     artifactErrors.push({ code: "simulation_not_representative", message: "Zero-task simulation does not exercise the business workflow." });
@@ -461,7 +506,20 @@ async function main(): Promise<void> {
         .map((entry) => ({ code: "publish_submit_unconfirmed", message: `Manual platform review required: ${entry.targetKey || entry.productFolder}` })),
       evidence: [`unconfirmed=${manifest.entries.filter((entry) => entry.finalVerifyStatus === "submit_accepted_unconfirmed").length}`]
     },
-    artifacts: { errors: artifactErrors, warnings: [...toDeepIssues(generation.warnings), ...toDeepIssues(publish.warnings)], evidence: identityAudit.evidence },
+    artifacts: {
+      errors: artifactErrors,
+      warnings: [
+        ...toDeepIssues(generation.warnings),
+        ...toDeepIssues(publish.warnings),
+        ...paidLedgerGeneration.audits.flatMap((audit) => audit.warnings)
+      ],
+      evidence: [
+        ...identityAudit.evidence,
+        ...currentPaidLedgers.flatMap((ledger, index) =>
+          paidLedgerGeneration.audits[index].evidence.map((item) => `paidImageLedger:${ledger.recordId}:${item}`)
+        )
+      ]
+    },
     residue: {
       errors: [...toDeepIssues(residue.errors), ...toDeepIssues(intermediateResidue.errors)],
       warnings: [...toDeepIssues(residue.warnings), ...toDeepIssues(intermediateResidue.warnings)],

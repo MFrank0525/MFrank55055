@@ -28,6 +28,71 @@ export interface DeepAuditDimension extends DeepAuditDimensionInput {
   ok: boolean;
 }
 
+export interface PaidImageLedgerArtifactInput {
+  expectedSlotCount: number;
+  completed: number;
+  missing: number;
+  reserved: number;
+  submitted: number;
+  failedBeforeAcceptance: number;
+  failedAfterAcceptance: number;
+  ambiguous: number;
+}
+
+export function auditPaidImageLedgerArtifacts(
+  input: PaidImageLedgerArtifactInput
+): { ok: boolean; errors: DeepAuditIssue[]; warnings: DeepAuditIssue[]; evidence: string[] } {
+  const errors: DeepAuditIssue[] = [];
+  if (input.completed < input.expectedSlotCount) {
+    errors.push({
+      code: "paid_image_slots_incomplete",
+      message: `Paid image ledger completed ${input.completed}/${input.expectedSlotCount} expected slots.`,
+      count: input.expectedSlotCount - input.completed
+    });
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings: [],
+    evidence: [
+      `expected=${input.expectedSlotCount}`,
+      `completed=${input.completed}`,
+      `missing=${input.missing}`,
+      `reserved=${input.reserved}`,
+      `submitted=${input.submitted}`,
+      `failedBeforeAcceptance=${input.failedBeforeAcceptance}`,
+      `failedAfterAcceptance=${input.failedAfterAcceptance}`,
+      `ambiguous=${input.ambiguous}`
+    ]
+  };
+}
+
+export function aggregatePaidImageLedgerGeneration(input: {
+  completedGeneration: {
+    auditedTaskCount: number;
+    expectedImageCount: number;
+    generatedImageCount: number;
+  };
+  completedRecordIds: string[];
+  currentLedgers: Array<{ recordId: string; summary: PaidImageLedgerArtifactInput }>;
+}): {
+  summary: { auditedTaskCount: number; expectedImageCount: number; generatedImageCount: number };
+  includedRecordIds: string[];
+  audits: Array<ReturnType<typeof auditPaidImageLedgerArtifacts>>;
+} {
+  const completedRecordIds = new Set(input.completedRecordIds);
+  const includedLedgers = input.currentLedgers.filter((ledger) => !completedRecordIds.has(ledger.recordId));
+  return {
+    summary: {
+      auditedTaskCount: input.completedGeneration.auditedTaskCount + includedLedgers.length,
+      expectedImageCount: input.completedGeneration.expectedImageCount + includedLedgers.reduce((total, ledger) => total + ledger.summary.expectedSlotCount, 0),
+      generatedImageCount: input.completedGeneration.generatedImageCount + includedLedgers.reduce((total, ledger) => total + ledger.summary.completed, 0)
+    },
+    includedRecordIds: includedLedgers.map((ledger) => ledger.recordId),
+    audits: input.currentLedgers.map((ledger) => auditPaidImageLedgerArtifacts(ledger.summary))
+  };
+}
+
 export function runDeepAuditRules(
   input: Record<DeepAuditDimensionName, DeepAuditDimensionInput>
 ): { ok: boolean; dimensions: DeepAuditDimension[] } {
