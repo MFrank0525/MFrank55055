@@ -27,8 +27,17 @@ export function resolveOpenAiCompatibleImageMode(
     throw new Error("OpenAI-compatible image generation requires mode videos-base64 and a valid /v1/videos apiUrl.");
   }
   const pathname = endpoint.pathname;
-  if (configuredMode !== "videos-base64" || pathname !== "/v1/videos" || endpoint.search || endpoint.hash) {
-    throw new Error("OpenAI-compatible image generation requires mode videos-base64 and apiUrl ending exactly in /v1/videos.");
+  if (
+    configuredMode !== "videos-base64" ||
+    (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") ||
+    !endpoint.hostname ||
+    endpoint.username ||
+    endpoint.password ||
+    pathname !== "/v1/videos" ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
+    throw new Error("OpenAI-compatible image generation requires mode videos-base64 and a credential-free http(s) apiUrl ending exactly in /v1/videos.");
   }
   return "videos-base64";
 }

@@ -25,6 +25,7 @@ type DoctorMode = "base" | "publish" | "auto-listing" | "feishu" | "all";
 interface DoctorOptions {
   requireImageGeneration: boolean;
   imageGenerationProvider: unknown;
+  imageGenerationProviderSupplied: boolean;
   imageGenerationConfigFile: string;
 }
 
@@ -170,6 +171,7 @@ function parseOptions(argv: string[]): DoctorOptions {
   return {
     requireImageGeneration: argv.includes("--require-image-generation"),
     imageGenerationProvider: providerIndex >= 0 ? argv[providerIndex + 1] : undefined,
+    imageGenerationProviderSupplied: providerIndex >= 0,
     imageGenerationConfigFile:
       configIndex >= 0 ? argv[configIndex + 1] || "input/image-generation.config.json" : "input/image-generation.config.json"
   };
@@ -310,23 +312,25 @@ function checkAutoListingJobFiles(): CheckResult[] {
 }
 
 function autoListingChecks(options: DoctorOptions): CheckResult[] {
-  let providerCheck: CheckResult;
-  try {
-    requireOpenAiCompatibleImageProvider(options.imageGenerationProvider, "Doctor CLI");
-    providerCheck = {
-      name: "image generation provider selection",
-      ok: true,
-      detail: "openai-compatible"
-    };
-  } catch (error) {
-    providerCheck = {
-      name: "image generation provider selection",
-      ok: false,
-      detail: error instanceof Error ? error.message : String(error)
-    };
+  const providerChecks: CheckResult[] = [];
+  if (options.requireImageGeneration || options.imageGenerationProviderSupplied) {
+    try {
+      requireOpenAiCompatibleImageProvider(options.imageGenerationProvider, "Doctor CLI");
+      providerChecks.push({
+        name: "image generation provider selection",
+        ok: true,
+        detail: "openai-compatible"
+      });
+    } catch (error) {
+      providerChecks.push({
+        name: "image generation provider selection",
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
   return [
-  providerCheck,
+  ...providerChecks,
   checkCommand("Python Pillow", getPythonCommand(), ["-c", "import PIL; print(PIL.__version__)"]),
   ...(options.requireImageGeneration
     ? [checkOpenAiCompatibleImageGenerationConfig(options.imageGenerationConfigFile, true)]

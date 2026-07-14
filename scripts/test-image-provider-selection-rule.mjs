@@ -58,6 +58,16 @@ assert.equal(resolveImageGenerationProvider("openai-compatible", true, "Simulati
 assert.equal(requireOpenAiCompatibleImageProvider("openai-compatible", "Paid provider test"), "openai-compatible");
 
 try {
+  const informationalDoctor = runNode([
+    "dist/src/cli/doctor.js",
+    "--auto-listing"
+  ]);
+  assert.doesNotMatch(
+    informationalDoctor.output,
+    /FAIL image generation provider selection:/i,
+    "informational auto-listing doctor must not require a CLI provider selection"
+  );
+
   const missingCliProvider = runNode([
     "dist/src/cli/doctor.js",
     "--auto-listing",
@@ -148,6 +158,15 @@ try {
     simulateOnly: true,
     imageGenerationProvider: "none"
   }, process.cwd()));
+  const canonicalHttpConfigFile = writeConfig("canonical-http.json", {
+    ...canonicalConfig,
+    apiUrl: "http://provider.example/v1/videos"
+  });
+  assert.doesNotThrow(() => assertAutoListingControllerImageGenerationContract({
+    simulateOnly: false,
+    imageGenerationProvider: "openai-compatible",
+    imageGenerationConfigFile: canonicalHttpConfigFile
+  }, process.cwd()));
   const canonicalDoctor = runNode([
     "dist/src/cli/doctor.js",
     "--auto-listing",
@@ -168,7 +187,11 @@ try {
     ["wrong-endpoint", { ...canonicalConfig, apiUrl: "https://provider.example/v1/images" }],
     ["missing-mode", { ...canonicalConfig, mode: undefined }],
     ["missing-model", { ...canonicalConfig, model: undefined }],
-    ["wrong-model", { ...canonicalConfig, model: "other-model" }]
+    ["wrong-model", { ...canonicalConfig, model: "other-model" }],
+    ["hosted-file-url", { ...canonicalConfig, apiUrl: "file://localhost/v1/videos" }],
+    ["hostless-file-url", { ...canonicalConfig, apiUrl: "file:///v1/videos" }],
+    ["ftp-url", { ...canonicalConfig, apiUrl: "ftp://provider.example/v1/videos" }],
+    ["credential-url", { ...canonicalConfig, apiUrl: "https://user:password@provider.example/v1/videos" }]
   ]) {
     const invalidConfigFile = writeConfig(`${name}.json`, invalidConfig);
     const invalidConfigDoctor = runNode([

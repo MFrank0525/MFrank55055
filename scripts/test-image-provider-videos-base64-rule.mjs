@@ -622,6 +622,26 @@ assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("videos-base64 task 
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 180000);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 60000), 180000);
 assert.equal(resolveOpenAiCompatibleImageMode("videos-base64", "https://relay.example/v1/videos"), "videos-base64");
+assert.equal(resolveOpenAiCompatibleImageMode("videos-base64", "http://relay.example/v1/videos"), "videos-base64");
+const invalidEndpointUrls = [
+  "file://localhost/v1/videos",
+  "file:///v1/videos",
+  "ftp://relay.example/v1/videos",
+  "https://user:password@relay.example/v1/videos"
+];
+const unexpectedlyAcceptedEndpoints = invalidEndpointUrls.filter((apiUrl) => {
+  try {
+    resolveOpenAiCompatibleImageMode("videos-base64", apiUrl);
+    return true;
+  } catch {
+    return false;
+  }
+});
+assert.deepEqual(
+  unexpectedlyAcceptedEndpoints,
+  [],
+  "image generation endpoint must use credential-free http(s) with a nonempty hostname"
+);
 for (const [mode, apiUrl] of [
   [undefined, "https://relay.example/v1/videos"],
   ["edits", "https://relay.example/v1/videos"],
@@ -634,7 +654,7 @@ for (const [mode, apiUrl] of [
   assert.throws(
     () => resolveOpenAiCompatibleImageMode(mode, apiUrl),
     /videos-base64.*\/v1\/videos/i,
-    `obsolete provider config must fail closed: ${mode} ${apiUrl}`
+    `invalid provider config must fail closed: ${mode} ${apiUrl}`
   );
 }
 assert.equal(resolveVideosBase64SubmitConcurrency(undefined), 2);
