@@ -369,10 +369,14 @@ async function main(): Promise<void> {
     rootDir: resolved.paidImageSubmissionLedgerDir,
     batchFingerprint,
     completedGeneration,
-    completedRecordIds: (state?.tasks || [])
+    completedProducts: (state?.tasks || [])
       .filter((task) => Boolean(task.mainImageArtifact))
-      .map((task) => task.feishuProductRecord?.recordId || "")
-      .filter(Boolean)
+      .map((task) => ({
+        recordId: task.feishuProductRecord?.recordId,
+        expectedImageCount:
+          getProductCategoryPlan(task.feishuProductRecord?.productCategory).promptCount * resolved.mainImageExpectedCount,
+        generatedImageCount: task.mainImageArtifact?.generatedFiles.length || 0
+      }))
   });
   const generation = currentPaidImageAudit.generation;
   const publish = auditPublishCoverage({

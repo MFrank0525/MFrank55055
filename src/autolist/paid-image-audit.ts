@@ -19,7 +19,11 @@ export interface CurrentPaidImageLedgerAuditInput {
   rootDir: string;
   batchFingerprint: string;
   completedGeneration: MainImageGenerationAuditResult;
-  completedRecordIds: string[];
+  completedProducts: Array<{
+    recordId?: string;
+    expectedImageCount: number;
+    generatedImageCount: number;
+  }>;
 }
 
 export interface CurrentPaidImageLedgerAuditResult {
@@ -55,6 +59,7 @@ export function auditCurrentPaidImageLedgers(
   }> = [];
   const resolutionErrors: DeepAuditIssue[] = [];
   const seenRecordIds = new Set<string>();
+  const validLedgerRecordIds = new Set<string>();
 
   for (const record of input.records) {
     if (!record.recordId || seenRecordIds.has(record.recordId) || !recordIsPending(record, processedImages)) continue;
@@ -62,16 +67,33 @@ export function auditCurrentPaidImageLedgers(
     const productDir = paidImageProductLedgerDir(input.rootDir, input.batchFingerprint, record.recordId);
     if (!fs.existsSync(productDir)) continue;
     try {
-      const inspected = summarizePaidImageProductLedger(productDir, "audit");
+      const inspected = summarizePaidImageProductLedger(productDir, "audit", {
+        batchFingerprint: input.batchFingerprint,
+        recordId: record.recordId
+      });
       currentLedgers.push({
         recordId: record.recordId,
         summary: inspected.summary
       });
+      validLedgerRecordIds.add(record.recordId);
       resolutionErrors.push(...inspected.errors.map((issue) => ({
         code: "paid_image_completed_result_invalid",
         message: `Paid image ledger for ${record.recordId} has invalid completed artifact evidence: ${issue.message}`
       })));
     } catch (error) {
+      currentLedgers.push({
+        recordId: record.recordId,
+        summary: {
+          expectedSlotCount: 20,
+          completed: 0,
+          missing: 20,
+          reserved: 0,
+          submitted: 0,
+          failedBeforeAcceptance: 0,
+          failedAfterAcceptance: 0,
+          ambiguous: 0
+        }
+      });
       resolutionErrors.push({
         code: "paid_image_ledger_invalid",
         message: `Paid image ledger for ${record.recordId} is invalid: ${error instanceof Error ? error.message : String(error)}`
@@ -80,11 +102,14 @@ export function auditCurrentPaidImageLedgers(
   }
 
   const aggregated = aggregatePaidImageLedgerGeneration({
-    completedGeneration: input.completedGeneration.summary,
-    completedRecordIds: input.completedRecordIds,
+    completedProducts: input.completedProducts,
     currentLedgers
   });
-  const ledgerErrors = [...resolutionErrors, ...aggregated.audits.flatMap((audit) => audit.errors)];
+  const ledgerErrors = [
+    ...resolutionErrors,
+    ...aggregated.errors,
+    ...aggregated.audits.flatMap((audit) => audit.errors)
+  ];
   const ledgerWarnings = aggregated.audits.flatMap((audit) => audit.warnings);
   const evidence = [
     ...resolutionErrors.map((issue) => `paidImageLedger:invalid:${issue.message}`),
@@ -108,7 +133,10 @@ export function auditCurrentPaidImageLedgers(
       ]
     },
     artifacts: { errors: ledgerErrors, warnings: ledgerWarnings, evidence },
-    existingLedgerRecordIds: currentLedgers.map((ledger) => ledger.recordId),
+    existingLedgerRecordIds: currentLedgers
+      .map((ledger) => ledger.recordId)
+      .filter((recordId) => validLedgerRecordIds.has(recordId)),
     includedLedgerRecordIds: aggregated.includedRecordIds
+      .filter((recordId) => validLedgerRecordIds.has(recordId))
   };
 }

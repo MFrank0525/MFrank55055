@@ -88,27 +88,51 @@ export function auditPaidImageLedgerArtifacts(
 }
 
 export function aggregatePaidImageLedgerGeneration(input: {
-  completedGeneration: {
-    auditedTaskCount: number;
+  completedProducts: Array<{
+    recordId?: string;
     expectedImageCount: number;
     generatedImageCount: number;
-  };
-  completedRecordIds: string[];
+  }>;
   currentLedgers: Array<{ recordId: string; summary: PaidImageLedgerArtifactInput }>;
 }): {
   summary: { auditedTaskCount: number; expectedImageCount: number; generatedImageCount: number };
   includedRecordIds: string[];
+  completedRecordIds: string[];
+  errors: DeepAuditIssue[];
   audits: Array<ReturnType<typeof auditPaidImageLedgerArtifacts>>;
 } {
-  const completedRecordIds = new Set(input.completedRecordIds);
+  const completedRecordIds = new Set<string>();
+  const completedProducts: typeof input.completedProducts = [];
+  const errors: DeepAuditIssue[] = [];
+  for (const product of input.completedProducts) {
+    const recordId = product.recordId?.trim();
+    if (!recordId) {
+      errors.push({
+        code: "paid_image_completed_record_identity_missing",
+        message: "Completed main-image artifact is missing its Feishu record identity."
+      });
+      continue;
+    }
+    if (completedRecordIds.has(recordId)) {
+      errors.push({
+        code: "paid_image_completed_record_identity_duplicate",
+        message: `Completed main-image artifacts duplicate Feishu record identity ${recordId}.`
+      });
+      continue;
+    }
+    completedRecordIds.add(recordId);
+    completedProducts.push({ ...product, recordId });
+  }
   const includedLedgers = input.currentLedgers.filter((ledger) => !completedRecordIds.has(ledger.recordId));
   return {
     summary: {
-      auditedTaskCount: input.completedGeneration.auditedTaskCount + includedLedgers.length,
-      expectedImageCount: input.completedGeneration.expectedImageCount + includedLedgers.reduce((total, ledger) => total + ledger.summary.expectedSlotCount, 0),
-      generatedImageCount: input.completedGeneration.generatedImageCount + includedLedgers.reduce((total, ledger) => total + ledger.summary.completed, 0)
+      auditedTaskCount: completedProducts.length + includedLedgers.length,
+      expectedImageCount: completedProducts.reduce((total, product) => total + product.expectedImageCount, 0) + includedLedgers.reduce((total, ledger) => total + ledger.summary.expectedSlotCount, 0),
+      generatedImageCount: completedProducts.reduce((total, product) => total + product.generatedImageCount, 0) + includedLedgers.reduce((total, ledger) => total + ledger.summary.completed, 0)
     },
     includedRecordIds: includedLedgers.map((ledger) => ledger.recordId),
+    completedRecordIds: [...completedRecordIds],
+    errors,
     audits: input.currentLedgers.map((ledger) => auditPaidImageLedgerArtifacts(ledger.summary))
   };
 }

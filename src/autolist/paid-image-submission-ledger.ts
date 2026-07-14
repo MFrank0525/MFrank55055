@@ -76,6 +76,11 @@ export interface PaidImageLedgerAuditInspection {
   errors: PaidImageLedgerArtifactIntegrityIssue[];
 }
 
+export interface PaidImageLedgerExpectedIdentity {
+  batchFingerprint: string;
+  recordId: string;
+}
+
 export type PaidImageSlotAction =
   | { action: "submit"; record: PaidImageSlotRecord }
   | { action: "poll"; record: PaidImageSlotRecord; providerTaskId: string }
@@ -553,8 +558,17 @@ function validateProductLedger(value: unknown, expected?: InitializePaidImagePro
   return ledger;
 }
 
-function readProductLedger(productDir: string): PaidImageProductLedger {
+function readProductLedger(
+  productDir: string,
+  expectedIdentity?: PaidImageLedgerExpectedIdentity
+): PaidImageProductLedger {
   const ledger = validateProductLedger(readJson(productFile(productDir)));
+  if (
+    expectedIdentity &&
+    (ledger.batchFingerprint !== expectedIdentity.batchFingerprint || ledger.recordId !== expectedIdentity.recordId)
+  ) {
+    throw new Error("paid image product ledger identity conflict");
+  }
   return { ...ledger, productDir };
 }
 
@@ -1121,8 +1135,11 @@ export function expireSubmittedPaidImageQueue(input: ExpireSubmittedPaidImageQue
   });
 }
 
-function scanPaidImageProductLedger(productDir: string): PaidImageLedgerAuditInspection {
-  const product = readProductLedger(productDir);
+function scanPaidImageProductLedger(
+  productDir: string,
+  expectedIdentity?: PaidImageLedgerExpectedIdentity
+): PaidImageLedgerAuditInspection {
+  const product = readProductLedger(productDir, expectedIdentity);
   const summary: PaidImageLedgerSummary = {
     expectedSlotCount: product.expectedSlotCount,
     missing: product.expectedSlotCount,
@@ -1162,11 +1179,22 @@ function scanPaidImageProductLedger(productDir: string): PaidImageLedgerAuditIns
     } else if (record.state === "completed") {
       let resultIsValid = false;
       try {
+        const resultsDir = path.join(path.resolve(productDir), "results");
+        const canonicalResultFile = path.join(resultsDir, `${String(record.slot).padStart(2, "0")}.png`);
+        const resultsStat = fs.lstatSync(resultsDir);
+        const resultStat = fs.lstatSync(canonicalResultFile);
+        const realProductDir = fs.realpathSync(path.resolve(productDir));
+        const realResultsDir = fs.realpathSync(resultsDir);
         resultIsValid = Boolean(
-          record.resultFile &&
+          record.resultFile === canonicalResultFile &&
+          resultsStat.isDirectory() &&
+          !resultsStat.isSymbolicLink() &&
+          resultStat.isFile() &&
+          !resultStat.isSymbolicLink() &&
+          realResultsDir === path.join(realProductDir, "results") &&
+          fs.realpathSync(canonicalResultFile) === path.join(realResultsDir, `${String(record.slot).padStart(2, "0")}.png`) &&
           record.resultDigest &&
-          fs.existsSync(record.resultFile) &&
-          sha256File(record.resultFile) === record.resultDigest
+          sha256File(canonicalResultFile) === record.resultDigest
         );
       } catch {
         resultIsValid = false;
@@ -1193,9 +1221,15 @@ export function summarizePaidImageProductLedger(productDir: string): PaidImageLe
 export function summarizePaidImageProductLedger(productDir: string, mode: "audit"): PaidImageLedgerAuditInspection;
 export function summarizePaidImageProductLedger(
   productDir: string,
-  mode?: "audit"
+  mode: "audit",
+  expectedIdentity: PaidImageLedgerExpectedIdentity
+): PaidImageLedgerAuditInspection;
+export function summarizePaidImageProductLedger(
+  productDir: string,
+  mode?: "audit",
+  expectedIdentity?: PaidImageLedgerExpectedIdentity
 ): PaidImageLedgerSummary | PaidImageLedgerAuditInspection {
-  const inspected = scanPaidImageProductLedger(productDir);
+  const inspected = scanPaidImageProductLedger(productDir, expectedIdentity);
   if (mode === "audit") {
     return inspected;
   }

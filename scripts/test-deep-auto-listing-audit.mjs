@@ -97,12 +97,9 @@ function completePaidLedgerAuditInput() {
 }
 
 const aggregatedPaidGeneration = aggregatePaidImageLedgerGeneration({
-  completedGeneration: {
-    auditedTaskCount: 1,
-    expectedImageCount: 20,
-    generatedImageCount: 20
-  },
-  completedRecordIds: ["record-completed"],
+  completedProducts: [
+    { recordId: "record-completed", expectedImageCount: 20, generatedImageCount: 20 }
+  ],
   currentLedgers: [
     {
       recordId: "record-failed-current",
@@ -138,12 +135,43 @@ assert.deepEqual(aggregatedPaidGeneration.summary, {
   generatedImageCount: 37
 });
 assert.deepEqual(aggregatedPaidGeneration.includedRecordIds, ["record-failed-current"]);
+assert.deepEqual(aggregatedPaidGeneration.errors, []);
 assert.equal(aggregatedPaidGeneration.audits[0]?.errors[0]?.code, "paid_image_slots_incomplete");
 assert.equal(
   aggregatedPaidGeneration.includedRecordIds.includes("record-never-entered-paid-generation"),
   false,
   "A record with no ledger must contribute nothing"
 );
+
+const missingCompletedIdentity = aggregatePaidImageLedgerGeneration({
+  completedProducts: [
+    { recordId: "", expectedImageCount: 20, generatedImageCount: 20 }
+  ],
+  currentLedgers: [{
+    recordId: "record-current",
+    summary: completePaidLedgerAuditInput()
+  }]
+});
+assert.deepEqual(missingCompletedIdentity.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.equal(missingCompletedIdentity.errors[0]?.code, "paid_image_completed_record_identity_missing");
+
+const duplicateCompletedIdentity = aggregatePaidImageLedgerGeneration({
+  completedProducts: [
+    { recordId: "record-duplicate", expectedImageCount: 20, generatedImageCount: 20 },
+    { recordId: "record-duplicate", expectedImageCount: 20, generatedImageCount: 20 }
+  ],
+  currentLedgers: []
+});
+assert.deepEqual(duplicateCompletedIdentity.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.equal(duplicateCompletedIdentity.errors[0]?.code, "paid_image_completed_record_identity_duplicate");
 
 const paidAuditFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-deep-audit-"));
 const paidAuditBatch = "current-feishu-batch";
@@ -208,7 +236,9 @@ const behavioralPaidAudit = auditCurrentPaidImageLedgers({
     errors: [],
     warnings: []
   },
-  completedRecordIds: ["record-completed"]
+  completedProducts: [
+    { recordId: "record-completed", expectedImageCount: 20, generatedImageCount: 20 }
+  ]
 });
 assert.equal(behavioralPaidAudit.generation.ok, false);
 assert.deepEqual(behavioralPaidAudit.generation.summary, {
@@ -253,7 +283,7 @@ const corruptedPaidAudit = auditCurrentPaidImageLedgers({
     errors: [],
     warnings: []
   },
-  completedRecordIds: []
+  completedProducts: []
 });
 assert.equal(corruptedPaidAudit.generation.ok, false);
 assert.deepEqual(corruptedPaidAudit.generation.summary, {
@@ -285,7 +315,7 @@ const unsupportedTenSlotAudit = auditCurrentPaidImageLedgers({
     errors: [],
     warnings: []
   },
-  completedRecordIds: []
+  completedProducts: []
 });
 assert.equal(unsupportedTenSlotAudit.generation.ok, false);
 assert.deepEqual(unsupportedTenSlotAudit.generation.summary, {
@@ -307,6 +337,88 @@ assert.equal(runDeepAuditRules({
   artifacts: unsupportedTenSlotAudit.artifacts,
   residue: { errors: [], warnings: [], evidence: [] }
 }).ok, false);
+
+const missingCompletedIdentityCoreAudit = auditCurrentPaidImageLedgers({
+  records: [{ recordId: "record-completed", whiteBackgroundImages: [{ localFile: "/fixtures/current-complete.png" }] }],
+  processedImages: [],
+  rootDir: paidAuditFixtureRoot,
+  batchFingerprint: paidAuditBatch,
+  completedGeneration: {
+    ok: true,
+    summary: { auditedTaskCount: 1, expectedImageCount: 20, generatedImageCount: 20 },
+    errors: [],
+    warnings: []
+  },
+  completedProducts: [{ recordId: "", expectedImageCount: 20, generatedImageCount: 20 }]
+});
+assert.equal(missingCompletedIdentityCoreAudit.generation.ok, false);
+assert.deepEqual(missingCompletedIdentityCoreAudit.generation.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.equal(
+  missingCompletedIdentityCoreAudit.artifacts.errors.some(
+    (issue) => issue.code === "paid_image_completed_record_identity_missing"
+  ),
+  true
+);
+
+const duplicateCompletedIdentityCoreAudit = auditCurrentPaidImageLedgers({
+  records: [],
+  processedImages: [],
+  rootDir: paidAuditFixtureRoot,
+  batchFingerprint: paidAuditBatch,
+  completedGeneration: {
+    ok: true,
+    summary: { auditedTaskCount: 2, expectedImageCount: 40, generatedImageCount: 40 },
+    errors: [],
+    warnings: []
+  },
+  completedProducts: [
+    { recordId: "record-duplicate", expectedImageCount: 20, generatedImageCount: 20 },
+    { recordId: "record-duplicate", expectedImageCount: 20, generatedImageCount: 20 }
+  ]
+});
+assert.equal(duplicateCompletedIdentityCoreAudit.generation.ok, false);
+assert.deepEqual(duplicateCompletedIdentityCoreAudit.generation.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.equal(
+  duplicateCompletedIdentityCoreAudit.artifacts.errors.some(
+    (issue) => issue.code === "paid_image_completed_record_identity_duplicate"
+  ),
+  true
+);
+
+for (const tamper of ["recordId", "batchFingerprint"]) {
+  const requestedRecordId = `record-tampered-${tamper}`;
+  const tamperedLedger = createPaidAuditLedger(requestedRecordId, 20, 0);
+  const productFile = path.join(tamperedLedger.productDir, "product.json");
+  const productJson = JSON.parse(fs.readFileSync(productFile, "utf8"));
+  productJson[tamper] = `wrong-${tamper}`;
+  fs.writeFileSync(productFile, JSON.stringify(productJson, null, 2) + "\n", "utf8");
+  const tamperedAudit = auditCurrentPaidImageLedgers({
+    records: [{ recordId: requestedRecordId, whiteBackgroundImages: [{ localFile: `/fixtures/${tamper}.png` }] }],
+    processedImages: [],
+    rootDir: paidAuditFixtureRoot,
+    batchFingerprint: paidAuditBatch,
+    completedGeneration: {
+      ok: true,
+      summary: { auditedTaskCount: 0, expectedImageCount: 0, generatedImageCount: 0 },
+      errors: [],
+      warnings: []
+    },
+    completedProducts: []
+  });
+  assert.equal(tamperedAudit.generation.ok, false);
+  assert.equal(tamperedAudit.generation.summary.expectedImageCount, 20);
+  assert.equal(tamperedAudit.generation.summary.generatedImageCount, 0);
+  assert.equal(tamperedAudit.generation.errors.some((issue) => issue.code === "paid_image_ledger_invalid"), true);
+  assert.deepEqual(tamperedAudit.existingLedgerRecordIds, []);
+}
 fs.rmSync(paidAuditFixtureRoot, { recursive: true, force: true });
 
 const controllerFailureAudit = auditRuntimeControllerConsistency({
@@ -330,8 +442,8 @@ assert.match(
 );
 assert.match(
   paidImageAuditSource,
-  /summarizePaidImageProductLedger\(productDir,\s*"audit"\)/,
-  "Deep audit must call the authoritative project ledger summarizer in verified audit mode"
+  /summarizePaidImageProductLedger\(productDir,\s*"audit",\s*\{[\s\S]*batchFingerprint:\s*input\.batchFingerprint,[\s\S]*recordId:\s*record\.recordId[\s\S]*\}\)/,
+  "Deep audit must call the authoritative summarizer with the exact current batch and record identity"
 );
 assert.match(
   paidImageAuditSource,

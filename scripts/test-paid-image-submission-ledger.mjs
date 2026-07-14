@@ -899,6 +899,66 @@ assert.equal(
   "a completed slot with an existing SHA-256-matching result counts as generated"
 );
 
+const completedSlotFile = path.join(productDir, "slots", "01.json");
+const canonicalCompletedSlotText = fs.readFileSync(completedSlotFile, "utf8");
+const externalCompletedSlot = JSON.parse(canonicalCompletedSlotText);
+externalCompletedSlot.resultFile = resultSource;
+fs.writeFileSync(completedSlotFile, JSON.stringify(externalCompletedSlot, null, 2) + "\n", "utf8");
+assert.deepEqual(
+  inspectPaidImageProductLedgerForAudit(productDir).errors.map((issue) => issue.code),
+  ["completed_result_missing_or_invalid"],
+  "an external same-digest result path must not count as a completed product artifact"
+);
+fs.writeFileSync(completedSlotFile, canonicalCompletedSlotText, "utf8");
+const escapingCompletedSlot = JSON.parse(canonicalCompletedSlotText);
+escapingCompletedSlot.resultFile = `${productDir}/results/../results/01.png`;
+fs.writeFileSync(completedSlotFile, JSON.stringify(escapingCompletedSlot, null, 2) + "\n", "utf8");
+assert.deepEqual(
+  inspectPaidImageProductLedgerForAudit(productDir).errors.map((issue) => issue.code),
+  ["completed_result_missing_or_invalid"],
+  "a result path containing parent traversal must not count even when it resolves to the canonical file"
+);
+fs.writeFileSync(completedSlotFile, canonicalCompletedSlotText, "utf8");
+
+const canonicalResultBackup = `${completedResultFile}.real`;
+fs.renameSync(completedResultFile, canonicalResultBackup);
+let fileSymlinkSupported = true;
+try {
+  fs.symlinkSync(canonicalResultBackup, completedResultFile, "file");
+} catch (error) {
+  if (!["EPERM", "EACCES", "ENOTSUP"].includes(error.code)) throw error;
+  fileSymlinkSupported = false;
+}
+if (fileSymlinkSupported) {
+  assert.deepEqual(
+    inspectPaidImageProductLedgerForAudit(productDir).errors.map((issue) => issue.code),
+    ["completed_result_missing_or_invalid"],
+    "a symlinked completed result must not count"
+  );
+  fs.unlinkSync(completedResultFile);
+}
+fs.renameSync(canonicalResultBackup, completedResultFile);
+
+const canonicalResultsDir = path.join(productDir, "results");
+const canonicalResultsDirBackup = path.join(productDir, "results-real");
+fs.renameSync(canonicalResultsDir, canonicalResultsDirBackup);
+let directorySymlinkSupported = true;
+try {
+  fs.symlinkSync(canonicalResultsDirBackup, canonicalResultsDir, "dir");
+} catch (error) {
+  if (!["EPERM", "EACCES", "ENOTSUP"].includes(error.code)) throw error;
+  directorySymlinkSupported = false;
+}
+if (directorySymlinkSupported) {
+  assert.deepEqual(
+    inspectPaidImageProductLedgerForAudit(productDir).errors.map((issue) => issue.code),
+    ["completed_result_missing_or_invalid"],
+    "a symlinked results directory must not count completed artifacts"
+  );
+  fs.unlinkSync(canonicalResultsDir);
+}
+fs.renameSync(canonicalResultsDirBackup, canonicalResultsDir);
+
 const ledgerText = fs
   .readdirSync(path.join(productDir, "slots"))
   .map((file) => fs.readFileSync(path.join(productDir, "slots", file), "utf8"))
