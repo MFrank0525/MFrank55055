@@ -82,6 +82,20 @@ assert.equal(
   false,
   "a rule item with provider contradictions must not satisfy the canonical contract"
 );
+assert.equal(
+  hasCanonicalProviderRuleItem(
+    "- 主图唯一 provider 是 Foo；OpenAI-compatible provider 已禁用；模型固定为 gpt-image-2；模式固定为 videos-base64；接口精确为 /v1/videos；禁止其他 provider 或替代入口。"
+  ),
+  false,
+  "a wrong sole provider plus a disabled canonical provider must not accumulate into a valid contract"
+);
+assert.equal(
+  hasCanonicalProviderRuleItem(
+    "- 主图唯一 provider 是 OpenAI-compatible；模型固定为 gpt-image-2；模式固定为 videos-base64；接口精确为 /v1/videos；禁止其他 provider 或替代入口；模型不得为 gpt-image-2。"
+  ),
+  false,
+  "a local negation of a canonical field must invalidate an otherwise affirmative contract"
+);
 const artifactPersistenceRuleItem =
   "- 每个 slot 的 provider task ID、提交响应 response-XX.json 和状态响应 response-XX-status-N.json 必须持久化。";
 const scatteredArtifactKeywords = [
@@ -165,6 +179,13 @@ assert.equal(
   ),
   false,
   "prior English screenshot persistence must not persist a listed artifact set"
+);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- provider task ID、提交响应 response-XX.json 和状态响应 response-XX-status-N.json 均必须持久化；provider task ID 不得持久化。"
+  ),
+  false,
+  "a negative duplicate for one required artifact must invalidate the whole persistence item"
 );
 
 function readTextTree(rootDir) {

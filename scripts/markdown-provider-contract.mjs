@@ -15,7 +15,7 @@ function hasProviderContext(text) {
 }
 
 function hasRequestContext(text) {
-  return /request(?:\s+(?:body|payload|parameters?))?|\b(?:payload|input)\b|请求(?:体|参数)?|输入(?:体|参数|图)?|生图请求|provider\s+request/iu.test(text);
+  return /\brequest(?:\s+(?:body|payload|parameters?))?\b|\bpayload\b|请求体|请求参数/iu.test(text);
 }
 
 function splitClauses(text) {
@@ -202,7 +202,7 @@ export function findObsoleteProviderContradictions(markdown) {
         text,
         item.text,
         /付费(?:图片|生图)?(?:任务|请求)|paid[- ]image\s+(?:request|task)|paid\s+image\s+(?:request|task)/iu,
-        /自动(?:循环|重复)提交|自动重提|自动(?:重放|回放)|automatically\s+(?:repeat(?:ed|ing)?\s+submissions?|re-?submit(?:ted)?|replayed)|auto(?:matically)?\s+replay(?:ed)?|automatic\s+repeated\s+(?:paid\s+)?submission/iu
+        /自动(?:循环|重复|再次|重新)提交|自动重提|自动(?:重放|回放)|automatically\s+(?:repeat(?:ed|ing)?\s+submissions?|re-?submit(?:ted)?|submit(?:s|ted|ting)?\s+again|replayed)|auto(?:matically)?\s+replay(?:ed)?|automatic\s+repeated\s+(?:paid\s+)?submission/iu
       );
       for (const match of affirmativeMatches(text, paidImageReplayMatches)) {
         findings.push(finding("automatic repeated paid submission", item, clause));
@@ -210,12 +210,16 @@ export function findObsoleteProviderContradictions(markdown) {
       for (const match of affirmativeMatches(text, matchPositiveProviderChanges(text, clause.context))) {
         findings.push(finding("replaceable paid-image provider wording", item, clause));
       }
-      const historicalLedgerMatches = topicActionMatches(
-        text,
-        item.text,
-        /(?:历史|旧)[^；;。！？!?，,|]{0,80}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)|(?:付费账本|paid[- ]image[- ]ledger)[^；;。！？!?，,|]{0,80}(?:历史|旧|historical|legacy)[^；;。！？!?，,|]{0,24}runtime|(?:historical|legacy)[^.;,|]{0,80}(?:paid[- ]image|runtime)[- ]ledger|paid[- ]image[- ]ledger[^.;,|]{0,80}(?:historical|legacy)[^.;,|]{0,24}runtime/iu,
-        /(?:支持|supports?)[^；;。！？!?，,|]{0,80}(?:迁移|导入|兼容|migrat(?:e|ion)|import|compatib(?:le|ility))|迁移|导入|兼容|migrat(?:e|ion)|import|compatib(?:le|ility)/iu
-      );
+      const ledgerContext = text;
+      const historicalLedgerTopic =
+        /付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger/iu.test(ledgerContext) &&
+        /历史|旧|historical|legacy/iu.test(ledgerContext);
+      const historicalLedgerMatches = historicalLedgerTopic
+        ? findAllMatches(
+            text,
+            /(?:支持|supports?)[^；;。！？!?，,|]{0,80}(?:迁移|导入|兼容|migrat(?:e|ion)|import|compatib(?:le|ility))|迁移|导入|兼容|migrat(?:e|ion)|import|compatib(?:le|ility)/iu
+          )
+        : [];
       for (const match of affirmativeMatches(text, historicalLedgerMatches)) {
         findings.push(finding("historical paid-ledger migration instruction", item, clause));
       }
@@ -226,19 +230,51 @@ export function findObsoleteProviderContradictions(markdown) {
 
 export function hasCanonicalProviderRuleItem(markdown) {
   return splitMarkdownRuleItems(markdown).some(({ text, context }) => {
-    const soleProvider =
-      /(?:唯一(?:有效)?(?:的)?|仅限|只允许|sole|only|exclusive)[^，,；;。]{0,24}(?:provider|模型|模式|路径|接口|contract)|(?:provider|模型|模式|路径|接口|contract)[^，,；;。]{0,24}(?:唯一|仅限|只允许|sole|only|exclusive)/iu.test(
-        text
-      );
+    const affirmative = (pattern) => affirmativeMatches(text, findAllMatches(text, pattern)).length > 0;
+    const soleProviderAssignments = affirmativeMatches(
+      text,
+      findAllMatches(
+        text,
+        /(?:主图|生图|图片|图像)?\s*(?:唯一(?:有效)?(?:的)?|仅限|只允许)\s*(?:provider(?:\s+family)?|供应商)\s*(?:是|为|=)\s*`?([\p{L}\p{N}._-]+)`?|(?:sole|only|exclusive)\s+(?:(?:main[- ]?)?image\s+)?provider(?:\s+family)?\s*(?:is|=|:)\s*`?([\p{L}\p{N}._-]+)`?/iu
+      )
+    );
+    const soleProviderValues = soleProviderAssignments.map((match) => match[1] || match[2]);
+    const soleCanonicalProvider = soleProviderValues.some(
+      (provider) => provider.toLowerCase() === "openai-compatible"
+    );
+    const canonicalModel = affirmative(
+      /(?:模型|model)\s*(?:固定)?\s*(?:是|为|=|:)\s*`?gpt-image-2`?/iu
+    );
+    const canonicalMode = affirmative(
+      /(?:模式|mode)\s*(?:固定)?\s*(?:是|为|=|:)\s*`?videos-base64`?/iu
+    );
+    const canonicalEndpoint = affirmative(
+      /(?:接口|路径|endpoint|path)\s*(?:必须)?\s*(?:精确)?\s*(?:是|为|=|:)\s*`?\/v1\/videos`?/iu
+    );
+    const alternativesForbidden = affirmative(
+      /不存在(?:任何)?(?:其他|替代)(?:的)?\s*(?:provider|供应商|兼容入口)|禁止(?:任何)?(?:其他|替代)(?:的)?\s*(?:provider|供应商|兼容入口)|(?:no|without)\s+(?:other|alternate|alternative)\s+(?:image\s+)?(?:provider|endpoint|entry)|(?:other|alternate|alternative)\s+(?:image\s+)?(?:providers?|endpoints?|entries)\s+(?:are\s+)?forbidden/iu
+    );
+    const wrongSoleProvider = soleProviderValues.some(
+      (provider) => provider.toLowerCase() !== "openai-compatible"
+    );
+    const canonicalComponentDisabled = /(?:OpenAI-compatible|gpt-image-2|videos-base64|\/v1\/videos)[^，,；;。]{0,24}(?:已?禁用|停用|不可用|disabled|deactivated|not\s+(?:enabled|used|allowed))|(?:不使用|不得使用|禁止使用|must\s+not\s+use|do\s+not\s+use)[^，,；;。]{0,24}(?:OpenAI-compatible|gpt-image-2|videos-base64|\/v1\/videos)/iu.test(
+      text
+    );
+    const canonicalFieldNegated = /(?:provider|供应商|模型|model|模式|mode|接口|路径|endpoint|path)[^，,；;。]{0,20}(?:不(?:得|能|可|应|允许)?(?:再)?(?:是|为|使用|启用)?|禁止(?:使用|设为)?|(?:is|are|must|should|can)?\s*not\s+(?:be|use|allow)?|cannot|can't)[^，,；;。]{0,20}(?:OpenAI-compatible|gpt-image-2|videos-base64|\/v1\/videos)/iu.test(
+      text
+    );
     const noContradiction = findObsoleteProviderContradictions(text).length === 0;
     return (
       context.image &&
-      soleProvider &&
-      noContradiction &&
-      /OpenAI-compatible/iu.test(text) &&
-      /gpt-image-2/iu.test(text) &&
-      /videos-base64/iu.test(text) &&
-      /\/v1\/videos/iu.test(text)
+      soleCanonicalProvider &&
+      canonicalModel &&
+      canonicalMode &&
+      canonicalEndpoint &&
+      alternativesForbidden &&
+      !wrongSoleProvider &&
+      !canonicalComponentDisabled &&
+      !canonicalFieldNegated &&
+      noContradiction
     );
   });
 }
@@ -259,9 +295,10 @@ function hasOnlySyntacticTail(text) {
   return residue.length === 0;
 }
 
+const ARTIFACT_PERSISTENCE_ACTION = /持久(?:化)?|落盘|保存|persist(?:ed|ence)?|sav(?:e|ed)|writ(?:e|ten)/iu;
+
 function clausePersistsArtifactClasses(clause, artifactPatterns) {
-  const persistencePattern = /持久(?:化)?|落盘|保存|persist(?:ed|ence)?|sav(?:e|ed)|writ(?:e|ten)/iu;
-  const actions = findAllMatches(clause, persistencePattern);
+  const actions = findAllMatches(clause, ARTIFACT_PERSISTENCE_ACTION);
   const positiveActions = affirmativeMatches(clause, actions);
   if (actions.length === 0 || positiveActions.length !== actions.length) {
     return false;
@@ -283,6 +320,14 @@ function clausePersistsArtifactClasses(clause, artifactPatterns) {
   });
 }
 
+function clauseNegatesArtifactPersistence(clause, artifactPatterns) {
+  if (!artifactPatterns.some((artifactPattern) => artifactPattern.test(clause))) {
+    return false;
+  }
+  const actions = findAllMatches(clause, ARTIFACT_PERSISTENCE_ACTION);
+  return affirmativeMatches(clause, actions).length < actions.length;
+}
+
 export function hasProviderArtifactPersistenceRuleItem(markdown) {
   return splitMarkdownRuleItems(markdown).some(({ text }) => {
     const artifactClasses = [
@@ -291,6 +336,9 @@ export function hasProviderArtifactPersistenceRuleItem(markdown) {
       /response-XX-status-N\.json/iu
     ];
     const clauses = splitArtifactSemanticClauses(text);
+    if (clauses.some((clause) => clauseNegatesArtifactPersistence(clause, artifactClasses))) {
+      return false;
+    }
     const completeListClause = clauses.some(
       (clause) => clausePersistsArtifactClasses(clause, artifactClasses)
     );

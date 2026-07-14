@@ -109,7 +109,8 @@ for (const fixture of [
   "- Paid-image ledger must not support import from a historical runtime.",
   "- Image request must not use ImagePath.",
   "- 生图请求固定发送 metadata.size: 1024x1024。",
-  "- The downloaded image path is /tmp/result.png."
+  "- The downloaded image path is /tmp/result.png.",
+  "- Image input processing stores imagePath before normalization."
 ]) {
   assert.deepEqual(findObsoleteProviderContradictions(fixture), [], `valid rule item must remain allowed: ${fixture}`);
 }
@@ -138,7 +139,11 @@ for (const [fixture, expectedLabel] of [
   ["- 主图 provider 可更换。", "replaceable paid-image provider wording"],
   ["- The image provider is interchangeable.", "replaceable paid-image provider wording"],
   ["- 付费账本支持从历史 runtime 导入。", "historical paid-ledger migration instruction"],
-  ["- Paid-image ledger supports import from a historical runtime.", "historical paid-ledger migration instruction"]
+  ["- Paid-image ledger supports import from a historical runtime.", "historical paid-ledger migration instruction"],
+  ["- Paid-image ledger import from historical runs is supported.", "historical paid-ledger migration instruction"],
+  ["- Historical runs support importing the paid-image ledger.", "historical paid-ledger migration instruction"],
+  ["- 付费任务失败后自动再次提交。", "automatic repeated paid submission"],
+  ["- After failure, the paid-image task automatically submits again.", "automatic repeated paid submission"]
 ]) {
   assert.equal(
     findObsoleteProviderContradictions(fixture).some((finding) => finding.label === expectedLabel),
