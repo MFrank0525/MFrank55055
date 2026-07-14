@@ -20,6 +20,7 @@ import {
   resolveVideosBase64AcceptedTaskPollCeilingMs,
   resolveVideosBase64SubmitTimeoutMs,
   shouldKeepPaidImagePolicyCompatiblePrompt,
+  isUnsafePaidImageReplayPayload,
   isUnsafePaidImageReplayReason,
   resolvePaidImageProviderTimeoutRetry,
   resolvePaidImageFixedSlotRecovery
@@ -972,6 +973,26 @@ for (const [reason, expectedUnsafe] of [
 ]) {
   assert.equal(isUnsafePaidImageReplayReason(reason), expectedUnsafe, `paid replay safety mismatch: ${reason}`);
 }
+assert.equal(
+  isUnsafePaidImageReplayPayload({
+    status: "failed",
+    errors: [
+      ...Array.from({ length: 140 }, (_, index) => ({ message: `benign diagnostic ${index}` })),
+      { code: "invalid_api_key", message: "authentication failed" }
+    ]
+  }),
+  true,
+  "evidence traversal must fail closed when the node budget is exceeded before unsafe evidence"
+);
+let depthBudgetPayload = { code: "invalid_api_key", message: "authentication failed" };
+for (let depth = 0; depth < 12; depth += 1) {
+  depthBudgetPayload = { error: depthBudgetPayload };
+}
+assert.equal(
+  isUnsafePaidImageReplayPayload({ status: "failed", error: depthBudgetPayload }),
+  true,
+  "evidence traversal must fail closed when the depth budget is exceeded before unsafe evidence"
+);
 
 const unsafeBeforeLedgerRoot = path.join(unsafeRestartRoot, "unsafe-before-ledger");
 const unsafeBeforeLedger = initializePaidImageProductLedger({

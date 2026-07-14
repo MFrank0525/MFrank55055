@@ -289,8 +289,10 @@ export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
   ]);
   const evidence: string[] = [];
   let visitedNodes = 0;
+  let traversalIncomplete = false;
   const visit = (value: unknown, depth: number, key: string): void => {
     if (depth > 8 || visitedNodes >= 128) {
+      traversalIncomplete = true;
       return;
     }
     visitedNodes += 1;
@@ -318,7 +320,7 @@ export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
     }
   };
   visit(payload, 0, "data");
-  return isUnsafePaidImageReplayReason(evidence.join("\n"));
+  return traversalIncomplete || isUnsafePaidImageReplayReason(evidence.join("\n"));
 }
 
 export function resolvePaidImageProviderTimeoutRetry(input: {
