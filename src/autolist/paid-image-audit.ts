@@ -8,8 +8,9 @@ import {
   type DeepAuditIssue
 } from "./deep-audit-rules.js";
 import {
-  inspectPaidImageProductLedgerForAudit,
-  paidImageProductLedgerDir
+  paidImageProductLedgerDir,
+  summarizePaidImageProductLedger,
+  type PaidImageLedgerSummary
 } from "./paid-image-submission-ledger.js";
 
 export interface CurrentPaidImageLedgerAuditInput {
@@ -50,7 +51,7 @@ export function auditCurrentPaidImageLedgers(
   const processedImages = new Set([...input.processedImages].filter(Boolean).map((filePath) => path.resolve(filePath)));
   const currentLedgers: Array<{
     recordId: string;
-    summary: ReturnType<typeof inspectPaidImageProductLedgerForAudit>["summary"];
+    summary: PaidImageLedgerSummary;
   }> = [];
   const resolutionErrors: DeepAuditIssue[] = [];
   const seenRecordIds = new Set<string>();
@@ -61,7 +62,7 @@ export function auditCurrentPaidImageLedgers(
     const productDir = paidImageProductLedgerDir(input.rootDir, input.batchFingerprint, record.recordId);
     if (!fs.existsSync(productDir)) continue;
     try {
-      const inspected = inspectPaidImageProductLedgerForAudit(productDir);
+      const inspected = summarizePaidImageProductLedger(productDir, "audit");
       currentLedgers.push({
         recordId: record.recordId,
         summary: inspected.summary

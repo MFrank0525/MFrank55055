@@ -71,6 +71,11 @@ export interface PaidImageLedgerArtifactIntegrityIssue {
   message: string;
 }
 
+export interface PaidImageLedgerAuditInspection {
+  summary: PaidImageLedgerSummary;
+  errors: PaidImageLedgerArtifactIntegrityIssue[];
+}
+
 export type PaidImageSlotAction =
   | { action: "submit"; record: PaidImageSlotRecord }
   | { action: "poll"; record: PaidImageSlotRecord; providerTaskId: string }
@@ -1116,10 +1121,7 @@ export function expireSubmittedPaidImageQueue(input: ExpireSubmittedPaidImageQue
   });
 }
 
-export function inspectPaidImageProductLedgerForAudit(productDir: string): {
-  summary: PaidImageLedgerSummary;
-  errors: PaidImageLedgerArtifactIntegrityIssue[];
-} {
+function scanPaidImageProductLedger(productDir: string): PaidImageLedgerAuditInspection {
   const product = readProductLedger(productDir);
   const summary: PaidImageLedgerSummary = {
     expectedSlotCount: product.expectedSlotCount,
@@ -1187,10 +1189,22 @@ export function inspectPaidImageProductLedgerForAudit(productDir: string): {
   return { summary, errors };
 }
 
-export function summarizePaidImageProductLedger(productDir: string): PaidImageLedgerSummary {
-  const inspected = inspectPaidImageProductLedgerForAudit(productDir);
+export function summarizePaidImageProductLedger(productDir: string): PaidImageLedgerSummary;
+export function summarizePaidImageProductLedger(productDir: string, mode: "audit"): PaidImageLedgerAuditInspection;
+export function summarizePaidImageProductLedger(
+  productDir: string,
+  mode?: "audit"
+): PaidImageLedgerSummary | PaidImageLedgerAuditInspection {
+  const inspected = scanPaidImageProductLedger(productDir);
+  if (mode === "audit") {
+    return inspected;
+  }
   if (inspected.errors.length > 0) {
     throw new Error(inspected.errors[0].message);
   }
   return inspected.summary;
+}
+
+export function inspectPaidImageProductLedgerForAudit(productDir: string): PaidImageLedgerAuditInspection {
+  return summarizePaidImageProductLedger(productDir, "audit");
 }

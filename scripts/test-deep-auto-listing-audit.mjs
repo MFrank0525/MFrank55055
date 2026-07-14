@@ -61,6 +61,16 @@ const completePaidLedgerAudit = auditPaidImageLedgerArtifacts({
 assert.equal(completePaidLedgerAudit.ok, true);
 assert.deepEqual(completePaidLedgerAudit.errors, []);
 
+for (const unsupportedExpectedCount of [10, 0]) {
+  const unsupportedExpectedAudit = auditPaidImageLedgerArtifacts({
+    ...completePaidLedgerAuditInput(),
+    expectedSlotCount: unsupportedExpectedCount,
+    completed: unsupportedExpectedCount
+  });
+  assert.equal(unsupportedExpectedAudit.ok, false);
+  assert.equal(unsupportedExpectedAudit.errors[0]?.code, "paid_image_ledger_summary_inconsistent");
+}
+
 for (const inconsistentSummary of [
   { ...completePaidLedgerAuditInput(), completed: 20, ambiguous: 1 },
   { ...completePaidLedgerAuditInput(), completed: 20, reserved: 1 },
@@ -140,12 +150,12 @@ const paidAuditBatch = "current-feishu-batch";
 const fixtureResultSource = path.join(paidAuditFixtureRoot, "generated.png");
 fs.writeFileSync(fixtureResultSource, "verified-generated-image", "utf8");
 
-function createPaidAuditLedger(recordId, completedCount, failedAfterAcceptanceCount) {
+function createPaidAuditLedger(recordId, completedCount, failedAfterAcceptanceCount, expectedSlotCount = 20) {
   const ledger = initializePaidImageProductLedger({
     rootDir: paidAuditFixtureRoot,
     batchFingerprint: paidAuditBatch,
     recordId,
-    expectedSlotCount: 20,
+    expectedSlotCount,
     providerIdentity: "provider",
     sourceImageDigest: sha256Text(`source:${recordId}`)
   });
@@ -261,6 +271,42 @@ assert.equal(
   true,
   "a corrupt completed result must not count as generated"
 );
+createPaidAuditLedger("record-unsupported-ten-slot", 10, 0, 10);
+const unsupportedTenSlotAudit = auditCurrentPaidImageLedgers({
+  records: [
+    { recordId: "record-unsupported-ten-slot", whiteBackgroundImages: [{ localFile: "/fixtures/ten-slot.png" }] }
+  ],
+  processedImages: [],
+  rootDir: paidAuditFixtureRoot,
+  batchFingerprint: paidAuditBatch,
+  completedGeneration: {
+    ok: true,
+    summary: { auditedTaskCount: 0, expectedImageCount: 0, generatedImageCount: 0 },
+    errors: [],
+    warnings: []
+  },
+  completedRecordIds: []
+});
+assert.equal(unsupportedTenSlotAudit.generation.ok, false);
+assert.deepEqual(unsupportedTenSlotAudit.generation.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 10,
+  generatedImageCount: 10
+});
+assert.equal(
+  unsupportedTenSlotAudit.artifacts.errors.some((issue) => issue.code === "paid_image_ledger_summary_inconsistent"),
+  true
+);
+assert.equal(runDeepAuditRules({
+  rules: { errors: [], warnings: [], evidence: [] },
+  contradictions: { errors: [], warnings: [], evidence: [] },
+  runtime: { errors: [], warnings: [], evidence: [] },
+  identities: { errors: [], warnings: [], evidence: [] },
+  recovery: { errors: [], warnings: [], evidence: [] },
+  sideEffects: { errors: [], warnings: [], evidence: [] },
+  artifacts: unsupportedTenSlotAudit.artifacts,
+  residue: { errors: [], warnings: [], evidence: [] }
+}).ok, false);
 fs.rmSync(paidAuditFixtureRoot, { recursive: true, force: true });
 
 const controllerFailureAudit = auditRuntimeControllerConsistency({
@@ -284,8 +330,8 @@ assert.match(
 );
 assert.match(
   paidImageAuditSource,
-  /inspectPaidImageProductLedgerForAudit\(productDir\)/,
-  "Deep audit must use the project ledger summarizer instead of parsing paid slot files ad hoc"
+  /summarizePaidImageProductLedger\(productDir,\s*"audit"\)/,
+  "Deep audit must call the authoritative project ledger summarizer in verified audit mode"
 );
 assert.match(
   paidImageAuditSource,

@@ -53,8 +53,7 @@ export function auditPaidImageLedgerArtifacts(
     input.ambiguous
   ];
   const summaryIsConsistent =
-    Number.isInteger(input.expectedSlotCount) &&
-    input.expectedSlotCount >= 0 &&
+    input.expectedSlotCount === 20 &&
     stateCounts.every((count) => Number.isInteger(count) && count >= 0) &&
     input.completed <= input.expectedSlotCount &&
     stateCounts.reduce((total, count) => total + count, 0) === input.expectedSlotCount;
