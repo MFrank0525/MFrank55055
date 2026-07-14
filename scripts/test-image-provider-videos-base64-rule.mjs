@@ -625,6 +625,8 @@ assert.equal(resolveOpenAiCompatibleImageMode("videos-base64", "https://relay.ex
 for (const [mode, apiUrl] of [
   [undefined, "https://relay.example/v1/videos"],
   ["edits", "https://relay.example/v1/videos"],
+  ["videos-base64", "https://relay.example/v1/videos/"],
+  ["videos-base64", "https://relay.example/v1/videos///"],
   ["media-generate", "https://relay.example/v1/media/generate"],
   ["generations", "https://relay.example/v1/images/generations"],
   ["videos-base64", "https://relay.example/v1/images/edits"]

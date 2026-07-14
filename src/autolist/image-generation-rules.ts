@@ -26,7 +26,7 @@ export function resolveOpenAiCompatibleImageMode(
   } catch {
     throw new Error("OpenAI-compatible image generation requires mode videos-base64 and a valid /v1/videos apiUrl.");
   }
-  const pathname = endpoint.pathname.replace(/\/+$/, "");
+  const pathname = endpoint.pathname;
   if (configuredMode !== "videos-base64" || pathname !== "/v1/videos" || endpoint.search || endpoint.hash) {
     throw new Error("OpenAI-compatible image generation requires mode videos-base64 and apiUrl ending exactly in /v1/videos.");
   }
