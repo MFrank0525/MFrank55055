@@ -1214,6 +1214,24 @@ assert.equal(
   true,
   "nested numeric 403 status evidence must be non-replayable"
 );
+for (const payload of [
+  { Code: 401 },
+  { diagnostics: { error_code: 403 } },
+  { data: { Status_Code: 401 } }
+]) {
+  assert.equal(
+    isUnsafePaidImageReplayPayload(payload),
+    true,
+    `numeric authorization code alias must be non-replayable: ${JSON.stringify(payload)}`
+  );
+}
+for (const payload of [{ code: 200 }, { error_code: 500 }, { status_code: 429 }]) {
+  assert.equal(
+    isUnsafePaidImageReplayPayload(payload),
+    false,
+    `arbitrary numeric code evidence must remain replayable: ${JSON.stringify(payload)}`
+  );
+}
 
 const unsafeBeforeLedgerRoot = path.join(unsafeRestartRoot, "unsafe-before-ledger");
 const unsafeBeforeLedger = initializePaidImageProductLedger({
@@ -1327,6 +1345,53 @@ assert.doesNotMatch(readTextTree(submitHttpRuntimeDir), new RegExp(submitHttpSec
 const submitHttpLedgerText = readTextTree(submitHttpLedgerRoot);
 assert.match(submitHttpLedgerText, /non_replayable/);
 assert.doesNotMatch(submitHttpLedgerText, new RegExp(submitHttpSecret));
+
+const submitSignedUrlLedgerRoot = path.join(unsafeRestartRoot, "submit-signed-url-ledger");
+const submitSignedUrlRuntimeDir = path.join(unsafeRestartRoot, "submit-signed-url-runtime");
+const submitSignedUrl =
+  "https://provider.example/help?sig=ledger-signed-value&token=ledger-query-value";
+let submitSignedUrlCalls = 0;
+globalThis.fetch = async () => {
+  submitSignedUrlCalls += 1;
+  return new Response(
+    JSON.stringify({ code: "request_rejected", message: `details ${submitSignedUrl}` }),
+    { status: 401, statusText: "Unauthorized" }
+  );
+};
+try {
+  await assert.rejects(
+    () => generateMainImageAssets({
+      runtimeDir: submitSignedUrlRuntimeDir,
+      taskId: "image-001",
+      shopRootDir: unsafeRestartShopRoot,
+      sourceImagePath: unsafeRestartSourceImage,
+      sellingPointText: "test product",
+      brandedGenericName: "test product",
+      wordFiles: [unsafeRestartPromptFile],
+      imageGenerationProvider: "openai-compatible",
+      imageGenerationConfigFile: unsafeRestartConfigFile,
+      mainImageExpectedCount: 1,
+      mainImageCountStrategy: "exact",
+      promptCount: 1,
+      shopCodes: ["01"],
+      imagesPerShop: 1,
+      feishuRecordId: "submit-signed-url-record",
+      feishuBatchFingerprint: "submit-signed-url-batch",
+      paidImageSubmissionLedgerDir: submitSignedUrlLedgerRoot,
+      simulateOnly: false
+    }),
+    /HTTP 401/i
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.equal(submitSignedUrlCalls, 1, "submit HTTP rejection must stop after its single paid POST");
+const submitSignedUrlLedgerText = readTextTree(submitSignedUrlLedgerRoot);
+assert.match(submitSignedUrlLedgerText, /HTTP 401/, "safe HTTP status context must remain in the ledger");
+assert.match(submitSignedUrlLedgerText, /non_replayable/);
+assert.doesNotMatch(submitSignedUrlLedgerText, /https:\/\/provider\.example/);
+assert.doesNotMatch(submitSignedUrlLedgerText, /ledger-signed-value/);
+assert.doesNotMatch(submitSignedUrlLedgerText, /ledger-query-value/);
 
 const statusHttpLedgerRoot = path.join(unsafeRestartRoot, "status-http-ledger");
 const statusHttpRuntimeDir = path.join(unsafeRestartRoot, "status-http-runtime");
@@ -1532,6 +1597,11 @@ for (const [label, failedPayload, expectedReason] of [
     "limit-code",
     { status: "failed", code: "limit_exceeded", message: "account limit exceeded" },
     'provider task failed: {"code":"limit_exceeded","message":"account limit exceeded"}'
+  ],
+  [
+    "numeric-auth-code",
+    { status: "failed", diagnostics: { Error: { error_code: 401, Message: "request rejected" } } },
+    "provider task failed: unknown error"
   ]
 ]) {
   const recordId = `unsafe-api-key-${label}-record`;

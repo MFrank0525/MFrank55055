@@ -712,14 +712,21 @@ function assertSlotIdentity(record: PaidImageSlotRecord, requestDigest: string, 
 }
 
 function cleanText(value: string): string {
+  const redacted = value
+    .replace(
+      /(authorization|bearer|api(?:[-_\s]?key)|secret|token|cookie|sig|signature)(["'\s:=]+)([^&"'\s,}]+)/gi,
+      "$1$2[redacted]"
+    )
+    .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "[redacted api key]")
+    .replace(/https?:\/\/[^\s"',}]+/gi, "[redacted url]");
   if (
-    value.length > 500 ||
-    /data:[^;,]+;base64,|bearer\s|authorization|api(?:[_-\s]?key)|access[_-]?token|secret/i.test(value) ||
-    (value.length >= 128 && /^[A-Za-z0-9+/_=-]+$/.test(value))
+    redacted.length > 500 ||
+    /data:[^;,]+;base64,|bearer\s|authorization|api(?:[_-\s]?key)|access[_-]?token|secret/i.test(redacted) ||
+    (redacted.length >= 128 && /^[A-Za-z0-9+/_=-]+$/.test(redacted))
   ) {
     return "[redacted]";
   }
-  return value;
+  return redacted;
 }
 
 function providerResponseSummary(value: unknown): Record<string, unknown> | undefined {

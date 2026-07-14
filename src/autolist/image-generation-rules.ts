@@ -290,10 +290,12 @@ export function isUnsafePaidImageReplayReason(reason: string): boolean {
 export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
   const evidenceKeys = new Set([
     "code",
+    "errorcode",
     "message",
     "error",
     "errors",
     "status",
+    "statuscode",
     "state",
     "data",
     "detail",
@@ -301,6 +303,7 @@ export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
     "description",
     "errordescription"
   ]);
+  const numericAuthorizationKeys = new Set(["status", "state", "code", "errorcode", "statuscode"]);
   const evidence: string[] = [];
   let visitedNodes = 0;
   let traversalIncomplete = false;
@@ -317,7 +320,7 @@ export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
       const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
       if (evidenceKeys.has(normalizedKey)) {
         evidence.push(
-          (normalizedKey === "status" || normalizedKey === "state") && (value === 401 || value === 403)
+          numericAuthorizationKeys.has(normalizedKey) && (value === 401 || value === 403)
             ? `HTTP ${value}`
             : String(value)
         );

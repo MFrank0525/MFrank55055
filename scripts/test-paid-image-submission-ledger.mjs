@@ -332,6 +332,7 @@ const submitted = recordPaidImageSubmitted({
   providerResponse: {
     id: "provider-task-1",
     status: "submitted",
+    code: "details https://provider.example/result?sig=summary-signed-value&token=summary-token-value",
     message: "A".repeat(2000),
     error: "data:image/png;base64," + "B".repeat(2000),
     token: "token-must-not-be-written",
@@ -346,6 +347,8 @@ assert.ok(
 );
 fs.fsyncSync = originalFsyncSync;
 assert.equal(submitted.state, "submitted");
+assert.equal(submitted.providerResponseSummary?.code, "details [redacted url]");
+assert.doesNotMatch(JSON.stringify(submitted.providerResponseSummary), /provider\.example|summary-signed-value|summary-token-value/);
 assert.equal(resolvePaidImageSlotAction({ productDir, slot: 1 }).action, "poll");
 assert.equal(resolvePaidImageSlotAction({ productDir, slot: 1 }).providerTaskId, "provider-task-1");
 assert.throws(
