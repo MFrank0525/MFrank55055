@@ -68,6 +68,20 @@ assert.equal(
   false,
   "scattered canonical-provider keywords must not satisfy one bounded rule item"
 );
+assert.equal(
+  hasCanonicalProviderRuleItem(
+    "- 主图使用唯一文件名；provider 是 OpenAI-compatible，模型 gpt-image-2，模式 videos-base64，路径 /v1/videos。"
+  ),
+  false,
+  "generic filename uniqueness must not satisfy sole-provider semantics"
+);
+assert.equal(
+  hasCanonicalProviderRuleItem(
+    "- 主图唯一 provider 是 OpenAI-compatible，模型 gpt-image-2，模式 videos-base64，路径 /v1/videos，但 provider 可更换。"
+  ),
+  false,
+  "a rule item with provider contradictions must not satisfy the canonical contract"
+);
 const artifactPersistenceRuleItem =
   "- 每个 slot 的 provider task ID、提交响应 response-XX.json 和状态响应 response-XX-status-N.json 必须持久化。";
 const scatteredArtifactKeywords = [
@@ -81,6 +95,27 @@ assert.equal(
   hasProviderArtifactPersistenceRuleItem(scatteredArtifactKeywords),
   false,
   "scattered artifact keywords must not satisfy one bounded persistence rule item"
+);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- provider task ID 不保存，提交响应 response-XX.json 和状态响应 response-XX-status-N.json 必须持久化。"
+  ),
+  false,
+  "a negated task-ID persistence predicate must fail the artifact contract"
+);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- provider task ID 必须保存，response-XX.json 和 response-XX-status-N.json must not be persisted."
+  ),
+  false,
+  "negated response persistence must fail the artifact contract"
+);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- provider task ID、response-XX.json、response-XX-status-N.json 仅列出；截图必须保存。"
+  ),
+  false,
+  "persistence of an unrelated artifact must not satisfy the provider artifact contract"
 );
 
 function readTextTree(rootDir) {

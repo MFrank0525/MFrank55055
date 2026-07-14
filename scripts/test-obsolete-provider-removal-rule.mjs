@@ -103,6 +103,10 @@ for (const fixture of [
   "- 不得兼容旧付费账本。",
   "- Paid-image request must not auto replay after failure.",
   "- The image provider cannot use an alternate model.",
+  "- 本地归档变量 imagePath 只用于记录文件路径。",
+  '- Image request body uses {"metadata":{"size":"1024x1024"}}.',
+  "- 付费账本不得支持从历史 runtime 导入。",
+  "- Paid-image ledger must not support import from a historical runtime.",
   "- Image request must not use ImagePath.",
   "- 生图请求固定发送 metadata.size: 1024x1024。",
   "- The downloaded image path is /tmp/result.png."
@@ -128,7 +132,13 @@ for (const [fixture, expectedLabel] of [
   ["- Paid-image request is automatically replayed after failure.", "automatic repeated paid submission"],
   ["- 主图允许使用另一 provider。", "replaceable paid-image provider wording"],
   ["- 主图可改用其他模型。", "replaceable paid-image provider wording"],
-  ["- The image provider can use an alternate model.", "replaceable paid-image provider wording"]
+  ["- The image provider can use an alternate model.", "replaceable paid-image provider wording"],
+  ["- Image request input uses imagePath for the reference image.", "legacy imagePath request field"],
+  ['- Image request body uses {"size":"1024x1024"}.', "legacy top-level size request field"],
+  ["- 主图 provider 可更换。", "replaceable paid-image provider wording"],
+  ["- The image provider is interchangeable.", "replaceable paid-image provider wording"],
+  ["- 付费账本支持从历史 runtime 导入。", "historical paid-ledger migration instruction"],
+  ["- Paid-image ledger supports import from a historical runtime.", "historical paid-ledger migration instruction"]
 ]) {
   assert.equal(
     findObsoleteProviderContradictions(fixture).some((finding) => finding.label === expectedLabel),

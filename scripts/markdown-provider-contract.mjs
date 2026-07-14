@@ -15,7 +15,7 @@ function hasProviderContext(text) {
 }
 
 function hasRequestContext(text) {
-  return /request(?:\s+(?:body|payload|parameters?))?|请求(?:体|参数)?|生图请求|provider\s+request/iu.test(text);
+  return /request(?:\s+(?:body|payload|parameters?))?|\b(?:payload|input)\b|请求(?:体|参数)?|输入(?:体|参数|图)?|生图请求|provider\s+request/iu.test(text);
 }
 
 function splitClauses(text) {
@@ -62,6 +62,27 @@ function affirmativeMatches(text, matches) {
 
 function topicActionMatches(text, itemText, topicPattern, actionPattern) {
   return topicPattern.test(`${itemText} ${text}`) ? findAllMatches(text, actionPattern) : [];
+}
+
+function isInsideJsonMetadataObject(text, targetIndex) {
+  for (const metadataMatch of findAllMatches(text, /["']?metadata["']?\s*:\s*\{/iu)) {
+    const objectStart = metadataMatch.index + metadataMatch[0].lastIndexOf("{");
+    let depth = 0;
+    for (let index = objectStart; index < text.length; index += 1) {
+      if (text[index] === "{") {
+        depth += 1;
+      } else if (text[index] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          if (targetIndex > objectStart && targetIndex < index) {
+            return true;
+          }
+          break;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 export function splitMarkdownRuleItems(markdown) {
@@ -137,7 +158,7 @@ function matchPositiveProviderChanges(clause, context) {
   }
   const positiveChanges = findAllMatches(
     clause,
-    /可替换|可插拔|可切换|支持(?:更换|切换|替换)|允许(?:更换|切换|替换)|可以(?:更换|切换|替换)|允许使用\s*(?:另一(?:个)?|其他|替代)\s*(?:provider|模型)|可改用\s*(?:另一(?:个)?|其他|替代)\s*(?:provider|模型)|(?:更换|切换|替换)\s*(?:图片|主图|生图)?\s*(?:provider|模型)|replaceable|pluggable|switchable|can\s+(?:change|switch|replace)|may\s+(?:change|switch|replace)|supports?\s+(?:changing|switching|replacing)|can\s+use\s+(?:an?\s+)?(?:alternate|other)\s+(?:provider|model)/iu
+    /可替换|可更换|可插拔|可切换|支持(?:更换|切换|替换)|允许(?:更换|切换|替换)|可以(?:更换|切换|替换)|允许使用\s*(?:另一(?:个)?|其他|替代)\s*(?:provider|模型)|可改用\s*(?:另一(?:个)?|其他|替代)\s*(?:provider|模型)|(?:更换|切换|替换)\s*(?:图片|主图|生图)?\s*(?:provider|模型)|replaceable|interchangeable|pluggable|switchable|can\s+(?:change|switch|replace)|may\s+(?:change|switch|replace)|supports?\s+(?:changing|switching|replacing)|can\s+use\s+(?:an?\s+)?(?:alternate|other)\s+(?:provider|model)/iu
   );
   const explicitlyNonImage = /标题|title\s+provider|飞书|Feishu|浏览器|browser|data\s+source|数据源/iu.test(clause);
   return context.image || hasImageContext(clause) || !explicitlyNonImage ? positiveChanges : [];
@@ -165,13 +186,15 @@ export function findObsoleteProviderContradictions(markdown) {
         findings.push(finding("legacy fail_reason artifact", item, clause));
       }
       for (const match of affirmativeMatches(text, findAllMatches(text, /\bimagePath\b/iu))) {
-        findings.push(finding("legacy imagePath request field", item, clause));
+        if (clause.context.request) {
+          findings.push(finding("legacy imagePath request field", item, clause));
+        }
       }
       for (const match of affirmativeMatches(
         text,
         findAllMatches(text, /(?<!metadata\.)\b["'`]?size["'`]?\s*(?:=|:)/iu)
       )) {
-        if (clause.context.request) {
+        if (clause.context.request && !isInsideJsonMetadataObject(text, match.index)) {
           findings.push(finding("legacy top-level size request field", item, clause));
         }
       }
@@ -190,8 +213,8 @@ export function findObsoleteProviderContradictions(markdown) {
       const historicalLedgerMatches = topicActionMatches(
         text,
         item.text,
-        /(?:历史|旧)[^；;。！？!?，,|]{0,48}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)|(?:historical|legacy)[^.;,|]{0,80}(?:paid[- ]image|runtime)[- ]ledger/iu,
-        /迁移|导入|兼容|migrat(?:e|ion)|import|compatib(?:le|ility)|supports?/iu
+        /(?:历史|旧)[^；;。！？!?，,|]{0,80}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)|(?:付费账本|paid[- ]image[- ]ledger)[^；;。！？!?，,|]{0,80}(?:历史|旧|historical|legacy)[^；;。！？!?，,|]{0,24}runtime|(?:historical|legacy)[^.;,|]{0,80}(?:paid[- ]image|runtime)[- ]ledger|paid[- ]image[- ]ledger[^.;,|]{0,80}(?:historical|legacy)[^.;,|]{0,24}runtime/iu,
+        /(?:支持|supports?)[^；;。！？!?，,|]{0,80}(?:迁移|导入|兼容|migrat(?:e|ion)|import|compatib(?:le|ility))|迁移|导入|兼容|migrat(?:e|ion)|import|compatib(?:le|ility)/iu
       );
       for (const match of affirmativeMatches(text, historicalLedgerMatches)) {
         findings.push(finding("historical paid-ledger migration instruction", item, clause));
@@ -203,12 +226,15 @@ export function findObsoleteProviderContradictions(markdown) {
 
 export function hasCanonicalProviderRuleItem(markdown) {
   return splitMarkdownRuleItems(markdown).some(({ text, context }) => {
-    const soleProvider = /唯一|唯一有效|sole|only|canonical/iu.test(text);
-    const noAlternate = /唯一|sole|only|不存在其他|没有其他|不得增加替代|no\s+(?:other|alternate)/iu.test(text);
+    const soleProvider =
+      /(?:唯一(?:有效)?(?:的)?|仅限|只允许|sole|only|exclusive)[^，,；;。]{0,24}(?:provider|模型|模式|路径|接口|contract)|(?:provider|模型|模式|路径|接口|contract)[^，,；;。]{0,24}(?:唯一|仅限|只允许|sole|only|exclusive)/iu.test(
+        text
+      );
+    const noContradiction = findObsoleteProviderContradictions(text).length === 0;
     return (
       context.image &&
       soleProvider &&
-      noAlternate &&
+      noContradiction &&
       /OpenAI-compatible/iu.test(text) &&
       /gpt-image-2/iu.test(text) &&
       /videos-base64/iu.test(text) &&
@@ -217,12 +243,64 @@ export function hasCanonicalProviderRuleItem(markdown) {
   });
 }
 
+function splitPersistenceStatements(text) {
+  return text
+    .split(/(?:；|;|。|\.(?=\s|$))/u)
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
+function artifactClassHasPositivePersistence(text, artifactPattern) {
+  const persistencePattern = /持久(?:化)?|落盘|保存|persist(?:ed|ence)?|sav(?:e|ed)|writ(?:e|ten)/iu;
+  return splitPersistenceStatements(text).some((statement) => {
+    const artifactMatches = findAllMatches(statement, artifactPattern);
+    if (artifactMatches.length === 0) {
+      return false;
+    }
+    const actions = findAllMatches(statement, persistencePattern);
+    return artifactMatches.some((artifactMatch) => {
+      const commaSegments = statement.split(/[，,]/u);
+      let offset = 0;
+      let artifactSegment;
+      for (const segment of commaSegments) {
+        const end = offset + segment.length;
+        if (artifactMatch.index >= offset && artifactMatch.index <= end) {
+          artifactSegment = { text: segment, offset };
+          break;
+        }
+        offset = end + 1;
+      }
+      const localActions = artifactSegment
+        ? findAllMatches(artifactSegment.text, persistencePattern).map((match) => ({
+            ...match,
+            index: match.index + artifactSegment.offset
+          }))
+        : [];
+      const candidates = localActions.length > 0 ? localActions : actions;
+      const closest = candidates
+        .filter((action) => !isLocallyNegated(statement, action.index))
+        .sort(
+          (left, right) =>
+            Math.abs(left.index - artifactMatch.index) - Math.abs(right.index - artifactMatch.index)
+        )[0];
+      if (!closest) {
+        return false;
+      }
+      const nearerNegated = candidates.some(
+        (action) =>
+          isLocallyNegated(statement, action.index) &&
+          Math.abs(action.index - artifactMatch.index) < Math.abs(closest.index - artifactMatch.index)
+      );
+      return !nearerNegated;
+    });
+  });
+}
+
 export function hasProviderArtifactPersistenceRuleItem(markdown) {
-  return splitMarkdownRuleItems(markdown).some(
-    ({ text }) =>
-      /(?:provider\s+)?task\s+ID|任务\s*ID/iu.test(text) &&
-      /response-XX\.json/iu.test(text) &&
-      /response-XX-status-N\.json/iu.test(text) &&
-      /持久|persist|落盘|保存/iu.test(text)
-  );
+  return splitMarkdownRuleItems(markdown).some(({ text }) => {
+    const taskPersisted = artifactClassHasPositivePersistence(text, /(?:provider\s+)?task\s+ID|任务\s*ID/iu);
+    const submitResponsePersisted = artifactClassHasPositivePersistence(text, /response-XX\.json/iu);
+    const statusResponsePersisted = artifactClassHasPositivePersistence(text, /response-XX-status-N\.json/iu);
+    return taskPersisted && submitResponsePersisted && statusResponsePersisted;
+  });
 }
