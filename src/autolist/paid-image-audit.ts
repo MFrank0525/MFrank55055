@@ -97,6 +97,22 @@ function requireCanonicalLedgerPath(productDir: string, realBatchDir: string): v
       throw new Error(`slot entry must be a non-symlink file: ${slotEntry}`);
     }
   }
+
+  const resultsDir = path.join(productDir, "results");
+  let resultsStat: fs.Stats | undefined;
+  try {
+    resultsStat = fs.lstatSync(resultsDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (resultsStat) {
+    if (!resultsStat.isDirectory() || resultsStat.isSymbolicLink()) {
+      throw new Error("results must be a non-symlink directory");
+    }
+    if (fs.realpathSync(resultsDir) !== path.join(realProductDir, "results")) {
+      throw new Error("results resolves outside its canonical path");
+    }
+  }
 }
 
 export function auditCurrentPaidImageLedgers(
@@ -119,14 +135,26 @@ export function auditCurrentPaidImageLedgers(
     if (!record.recordId) continue;
     const productDir = paidImageProductLedgerDir(input.rootDir, input.batchFingerprint, record.recordId);
     const entryName = path.basename(productDir);
-    if (!expectedByEntryName.has(entryName)) {
+    const canonicalRecordId = record.recordId.trim();
+    if (expectedByCanonicalRecordId.has(canonicalRecordId)) {
+      resolutionErrors.push({
+        code: "paid_image_expected_record_identity_duplicate",
+        message: `Current Feishu records duplicate paid image identity ${canonicalRecordId}.`
+      });
+    }
+    if (expectedByEntryName.has(entryName)) {
+      resolutionErrors.push({
+        code: "paid_image_expected_product_path_duplicate",
+        message: `Current Feishu records resolve to duplicate paid image ledger entry ${entryName}.`
+      });
+    } else {
       expectedByEntryName.set(entryName, {
         record,
         pending: recordIsPending(record, processedImages)
       });
     }
-    if (!expectedByCanonicalRecordId.has(record.recordId.trim())) {
-      expectedByCanonicalRecordId.set(record.recordId.trim(), entryName);
+    if (!expectedByCanonicalRecordId.has(canonicalRecordId)) {
+      expectedByCanonicalRecordId.set(canonicalRecordId, entryName);
     }
   }
 

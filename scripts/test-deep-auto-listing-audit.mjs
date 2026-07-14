@@ -562,6 +562,28 @@ const cleanDirectoryFixtureAudit = auditLedgerDirectoryFixture(cleanDirectoryFix
 assert.equal(cleanDirectoryFixtureAudit.generation.ok, true, "a canonical current batch ledger fixture must pass");
 assert.deepEqual(cleanDirectoryFixtureAudit.existingLedgerRecordIds, ["record-clean"]);
 
+const duplicateCurrentFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-duplicate-current-"));
+createPaidAuditLedger("record-duplicate-current", 20, 0, 20, duplicateCurrentFixtureRoot);
+const duplicateCurrentFixtureAudit = auditLedgerDirectoryFixture(duplicateCurrentFixtureRoot, [
+  { recordId: "record-duplicate-current", whiteBackgroundImages: [{ localFile: "/fixtures/duplicate-a.png" }] },
+  { recordId: "record-duplicate-current", whiteBackgroundImages: [{ localFile: "/fixtures/duplicate-b.png" }] }
+]);
+assert.equal(duplicateCurrentFixtureAudit.generation.ok, false, "duplicate current Feishu identities must fail closed");
+assert.equal(
+  duplicateCurrentFixtureAudit.artifacts.errors.some(
+    (issue) => issue.code === "paid_image_expected_record_identity_duplicate"
+  ),
+  true,
+  "duplicate current identities resolving to one expected ledger path must remain explicit"
+);
+assert.equal(
+  duplicateCurrentFixtureAudit.artifacts.errors.some(
+    (issue) => issue.code === "paid_image_expected_product_path_duplicate"
+  ),
+  true,
+  "duplicate current canonical product paths must remain explicit"
+);
+
 const malformedExtraFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-malformed-extra-"));
 createPaidAuditLedger("record-expected", 20, 0, 20, malformedExtraFixtureRoot);
 const malformedExtraDir = path.join(paidImageBatchLedgerDir(malformedExtraFixtureRoot, paidAuditBatch), "rogue-extra");
@@ -680,14 +702,44 @@ if (productAliasCreated) {
   );
 }
 
+const resultsAliasFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-audit-results-alias-"));
+const resultsAliasLedger = createPaidAuditLedger("record-results-alias", 20, 0, 20, resultsAliasFixtureRoot);
+const outsideResultsDir = path.join(outsideLedgerRoot, "outside-results");
+fs.renameSync(path.join(resultsAliasLedger.productDir, "results"), outsideResultsDir);
+let resultsAliasCreated = false;
+try {
+  fs.symlinkSync(outsideResultsDir, path.join(resultsAliasLedger.productDir, "results"), "dir");
+  resultsAliasCreated = true;
+} catch (error) {
+  if (!["EPERM", "EACCES", "ENOSYS"].includes(error?.code)) throw error;
+}
+if (resultsAliasCreated) {
+  const resultsAliasFixtureAudit = auditLedgerDirectoryFixture(resultsAliasFixtureRoot, [
+    { recordId: "record-results-alias", whiteBackgroundImages: [{ localFile: "/fixtures/results-alias.png" }] }
+  ]);
+  assert.equal(resultsAliasFixtureAudit.generation.ok, false);
+  assert.equal(
+    resultsAliasFixtureAudit.artifacts.errors.some((issue) => issue.code === "paid_image_ledger_path_invalid"),
+    true,
+    "a symlinked results directory must be rejected before any child result lookup"
+  );
+  assert.equal(
+    resultsAliasFixtureAudit.artifacts.evidence.some((item) => item.includes(outsideResultsDir)),
+    false,
+    "audit evidence must not expose or traverse the results symlink target"
+  );
+}
+
 for (const fixtureRoot of [
   cleanDirectoryFixtureRoot,
+  duplicateCurrentFixtureRoot,
   malformedExtraFixtureRoot,
   orphanFixtureRoot,
   duplicateIdentityFixtureRoot,
   misnamedFixtureRoot,
   symlinkFixtureRoot,
   productAliasFixtureRoot,
+  resultsAliasFixtureRoot,
   outsideLedgerRoot
 ]) {
   fs.rmSync(fixtureRoot, { recursive: true, force: true });
