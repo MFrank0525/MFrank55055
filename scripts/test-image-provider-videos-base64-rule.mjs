@@ -132,6 +132,55 @@ const ceilingPending = await observeVideosBase64AcceptedTask({
 assert.equal(ceilingPending.kind, "stale", "a final queued/pending status at the ceiling must become stale");
 assert.strictEqual(ceilingPending.payload, ceilingPendingPayload, "stale outcome must carry the exact final queried evidence");
 
+for (const [label, timing] of [
+  ["zero poll interval", { pollIntervalMs: 0 }],
+  ["negative ceiling", { ceilingMs: -1 }],
+  ["nonfinite poll interval", { pollIntervalMs: Number.POSITIVE_INFINITY }],
+  ["nonfinite submitted time", { submittedAtMs: Number.NaN }]
+]) {
+  await assert.rejects(
+    () =>
+      observeVideosBase64AcceptedTask({
+        resumed: true,
+        pollIntervalMs: 1,
+        submittedAtMs: 0,
+        ceilingMs: 100,
+        sleep: async () => {
+          throw new Error("invalid timing must fail before sleep");
+        },
+        query: async () => {
+          throw new Error("invalid timing must fail before query");
+        },
+        now: () => 0,
+        succeeded: () => false,
+        failed: () => false,
+        ...timing
+      }),
+    /positive finite|finite/i,
+    `${label} must fail fast`
+  );
+}
+await assert.rejects(
+  () =>
+    observeVideosBase64AcceptedTask({
+      resumed: true,
+      pollIntervalMs: 1,
+      submittedAtMs: 0,
+      ceilingMs: 100,
+      sleep: async () => {
+        throw new Error("invalid now must fail before sleep");
+      },
+      query: async () => {
+        throw new Error("invalid now must fail before query");
+      },
+      now: () => Number.NEGATIVE_INFINITY,
+      succeeded: () => false,
+      failed: () => false
+    }),
+  /now.*finite/i,
+  "a nonfinite clock value must fail fast"
+);
+
 assert.equal(
   shouldAllowPaidImagePolicyCompatibilityIdentityTransition({
     recordedRequestDigest: "original-request",
@@ -401,11 +450,11 @@ const pollingLoopStart = source.indexOf("export async function observeVideosBase
 const pollingLoopEnd = source.indexOf("function formatSlotList", pollingLoopStart);
 const pollingLoop = source.slice(pollingLoopStart, pollingLoopEnd);
 assert.ok(
-  pollingLoop.indexOf("input.query(pollNo)") < pollingLoop.indexOf("input.now() - input.submittedAtMs"),
+  pollingLoop.indexOf("input.query(pollNo)") < pollingLoop.indexOf("const nowMs = input.now()"),
   "each accepted-task iteration must perform its final provider query before elapsed stale classification"
 );
 assert.ok(
-  pollingLoop.indexOf("input.failed(payload)") < pollingLoop.indexOf("input.now() - input.submittedAtMs"),
+  pollingLoop.indexOf("input.failed(payload)") < pollingLoop.indexOf("const nowMs = input.now()"),
   "queried provider failure must be handled before stale queued/pending classification"
 );
 assert.match(

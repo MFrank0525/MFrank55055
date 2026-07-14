@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { submitTransportFailureProvesNoPaidTaskAccepted } from "./image-generation-rules.js";
 
 export type PaidImageSlotState =
@@ -126,6 +127,7 @@ export interface RecordPaidImageCompletedInput {
   productDir: string;
   slot: number;
   sourceFile: string;
+  providerTaskId?: string;
 }
 
 export interface RecordPaidImageAmbiguousInput {
@@ -144,6 +146,7 @@ export interface RecordPaidImageFailedBeforeAcceptanceInput {
 export interface RecordPaidImageFailedAfterAcceptanceInput {
   productDir: string;
   slot: number;
+  providerTaskId?: string;
   reason: string;
   providerResponse?: unknown;
 }
@@ -979,11 +982,31 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
   if (!fs.statSync(input.sourceFile).isFile()) {
     throw new Error(`completed paid image source is not a file: ${input.sourceFile}`);
   }
+  if (input.providerTaskId !== undefined && !isSafeProviderTaskId(input.providerTaskId)) {
+    throw new Error("providerTaskId must be a bounded safe scalar");
+  }
+  const sourceDigest = sha256File(input.sourceFile);
   validateSlotRange(input.productDir, input.slot);
   return withSlotLock(input.productDir, input.slot, () => {
     const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (record?.state === "completed") {
+      const sameProviderTask = Boolean(input.providerTaskId) && record.providerTaskId === input.providerTaskId;
+      const storedResultIsValid = Boolean(
+        record.resultFile &&
+          record.resultDigest &&
+          fs.existsSync(record.resultFile) &&
+          sha256File(record.resultFile) === record.resultDigest
+      );
+      if (!sameProviderTask || !storedResultIsValid || sourceDigest !== record.resultDigest) {
+        throw new Error(`conflicting completed terminal evidence for paid image slot ${input.slot}`);
+      }
+      return record;
+    }
     if (!record || record.state !== "submitted") {
       throw new Error(`invalid slot transition for slot ${input.slot}: ${record?.state || "missing"} -> completed`);
+    }
+    if (input.providerTaskId && record.providerTaskId !== input.providerTaskId) {
+      throw new Error(`provider task id mismatch for completed slot ${input.slot}`);
     }
     const resultFile = path.join(input.productDir, "results", `${String(input.slot).padStart(2, "0")}.png`);
     const tempResult = `${resultFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
@@ -1025,9 +1048,37 @@ export function recordPaidImageFailedBeforeAcceptance(input: RecordPaidImageFail
 }
 
 export function recordPaidImageFailedAfterAcceptance(input: RecordPaidImageFailedAfterAcceptanceInput): PaidImageSlotRecord {
-  return transitionSlot(input.productDir, input.slot, ["submitted"], "failed_after_acceptance", {
-    reason: cleanText(requireNonEmpty(input.reason, "reason")),
-    providerResponseSummary: providerResponseSummary(input.providerResponse)
+  if (input.providerTaskId !== undefined && !isSafeProviderTaskId(input.providerTaskId)) {
+    throw new Error("providerTaskId must be a bounded safe scalar");
+  }
+  const reason = cleanText(requireNonEmpty(input.reason, "reason"));
+  const responseSummary = providerResponseSummary(input.providerResponse);
+  validateSlotRange(input.productDir, input.slot);
+  return withSlotLock(input.productDir, input.slot, () => {
+    const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (record?.state === "failed_after_acceptance") {
+      const sameProviderTask = Boolean(input.providerTaskId) && record.providerTaskId === input.providerTaskId;
+      if (
+        !sameProviderTask ||
+        record.reason !== reason ||
+        !isDeepStrictEqual(record.providerResponseSummary, responseSummary)
+      ) {
+        throw new Error(`conflicting failed terminal evidence for paid image slot ${input.slot}`);
+      }
+      return record;
+    }
+    if (!record || record.state !== "submitted") {
+      throw new Error(
+        `invalid slot transition for slot ${input.slot}: ${record?.state || "missing"} -> failed_after_acceptance`
+      );
+    }
+    if (input.providerTaskId && record.providerTaskId !== input.providerTaskId) {
+      throw new Error(`provider task id mismatch for failed slot ${input.slot}`);
+    }
+    return transitionSlotUnlocked(input.productDir, input.slot, ["submitted"], "failed_after_acceptance", {
+      reason,
+      providerResponseSummary: responseSummary
+    });
   });
 }
 

@@ -375,6 +375,102 @@ assert.equal(fs.readFileSync(reuse.resultFile, "utf8"), "generated-image");
 assert.equal(completed.resultDigest, sha256File(reuse.resultFile));
 assert.equal(sha256Text("generated-image"), sha256File(resultSource));
 
+const terminalRaceProduct = initializePaidImageProductLedger({
+  ...identity,
+  rootDir: fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-terminal-race-")),
+  batchFingerprint: "batch-terminal-race",
+  recordId: "record-terminal-race",
+  expectedSlotCount: 2
+});
+reservePaidImageSlot({
+  productDir: terminalRaceProduct.productDir,
+  slot: 1,
+  requestDigest: "terminal-complete-request",
+  promptDigest: "terminal-complete-prompt",
+  owner: ownerA
+});
+recordPaidImageSubmitted({
+  productDir: terminalRaceProduct.productDir,
+  slot: 1,
+  providerTaskId: "terminal-complete-task"
+});
+const terminalCompleteSourceA = path.join(rootDir, "terminal-complete-a.png");
+const terminalCompleteSourceB = path.join(rootDir, "terminal-complete-b.png");
+const terminalCompleteConflict = path.join(rootDir, "terminal-complete-conflict.png");
+fs.writeFileSync(terminalCompleteSourceA, "same-terminal-image", "utf8");
+fs.writeFileSync(terminalCompleteSourceB, "same-terminal-image", "utf8");
+fs.writeFileSync(terminalCompleteConflict, "different-terminal-image", "utf8");
+const firstTerminalCompletion = recordPaidImageCompleted({
+  productDir: terminalRaceProduct.productDir,
+  slot: 1,
+  sourceFile: terminalCompleteSourceA,
+  providerTaskId: "terminal-complete-task"
+});
+const secondTerminalCompletion = recordPaidImageCompleted({
+  productDir: terminalRaceProduct.productDir,
+  slot: 1,
+  sourceFile: terminalCompleteSourceB,
+  providerTaskId: "terminal-complete-task"
+});
+assert.deepEqual(secondTerminalCompletion, firstTerminalCompletion, "two completion resumers must converge on one terminal record");
+assert.equal(secondTerminalCompletion.audit.filter((entry) => entry.state === "completed").length, 1);
+assert.throws(
+  () =>
+    recordPaidImageCompleted({
+      productDir: terminalRaceProduct.productDir,
+      slot: 1,
+      sourceFile: terminalCompleteSourceB,
+      providerTaskId: "different-terminal-task"
+    }),
+  /conflicting.*terminal|provider task.*mismatch/i,
+  "a different provider task must not reuse completed terminal state"
+);
+assert.throws(
+  () =>
+    recordPaidImageCompleted({
+      productDir: terminalRaceProduct.productDir,
+      slot: 1,
+      sourceFile: terminalCompleteConflict,
+      providerTaskId: "terminal-complete-task"
+    }),
+  /conflicting.*terminal|result.*mismatch/i,
+  "a different result digest must not reuse completed terminal state"
+);
+
+reservePaidImageSlot({
+  productDir: terminalRaceProduct.productDir,
+  slot: 2,
+  requestDigest: "terminal-failure-request",
+  promptDigest: "terminal-failure-prompt",
+  owner: ownerA
+});
+recordPaidImageSubmitted({
+  productDir: terminalRaceProduct.productDir,
+  slot: 2,
+  providerTaskId: "terminal-failure-task"
+});
+const terminalFailureInput = {
+  productDir: terminalRaceProduct.productDir,
+  slot: 2,
+  providerTaskId: "terminal-failure-task",
+  reason: "provider task failed: deterministic terminal failure",
+  providerResponse: { id: "terminal-failure-task", status: "failed", code: "terminal_failure" }
+};
+const firstTerminalFailure = recordPaidImageFailedAfterAcceptance(terminalFailureInput);
+const secondTerminalFailure = recordPaidImageFailedAfterAcceptance(terminalFailureInput);
+assert.deepEqual(secondTerminalFailure, firstTerminalFailure, "two failure resumers must converge on one terminal record");
+assert.equal(secondTerminalFailure.audit.filter((entry) => entry.state === "failed_after_acceptance").length, 1);
+assert.throws(
+  () => recordPaidImageFailedAfterAcceptance({ ...terminalFailureInput, providerTaskId: "different-failure-task" }),
+  /conflicting.*terminal|provider task.*mismatch/i,
+  "a different provider task must not reuse failed terminal state"
+);
+assert.throws(
+  () => recordPaidImageFailedAfterAcceptance({ ...terminalFailureInput, reason: "provider task failed: conflicting evidence" }),
+  /conflicting.*terminal|evidence.*mismatch/i,
+  "different failure evidence must fail closed"
+);
+
 const ambiguousReservation = reservePaidImageSlot({
   productDir,
   slot: 2,

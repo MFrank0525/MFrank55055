@@ -116,6 +116,18 @@ export async function observeVideosBase64AcceptedTask<T>(input: {
   succeeded: (payload: T) => boolean;
   failed: (payload: T) => boolean;
 }): Promise<{ kind: "success" | "failure" | "stale"; payload: T; pollNo: number }> {
+  if (!Number.isFinite(input.pollIntervalMs) || input.pollIntervalMs <= 0) {
+    throw new Error("videos-base64 poll interval must be positive finite");
+  }
+  if (!Number.isFinite(input.ceilingMs) || input.ceilingMs <= 0) {
+    throw new Error("videos-base64 accepted-task ceiling must be positive finite");
+  }
+  if (!Number.isFinite(input.submittedAtMs)) {
+    throw new Error("videos-base64 submittedAt must be finite");
+  }
+  if (!Number.isFinite(input.now())) {
+    throw new Error("videos-base64 now value must be finite");
+  }
   for (let pollNo = 1; ; pollNo += 1) {
     if (!input.resumed || pollNo > 1) {
       await input.sleep(input.pollIntervalMs);
@@ -127,7 +139,11 @@ export async function observeVideosBase64AcceptedTask<T>(input: {
     if (input.failed(payload)) {
       return { kind: "failure", payload, pollNo };
     }
-    if (input.now() - input.submittedAtMs >= input.ceilingMs) {
+    const nowMs = input.now();
+    if (!Number.isFinite(nowMs)) {
+      throw new Error("videos-base64 now value must be finite");
+    }
+    if (nowMs - input.submittedAtMs >= input.ceilingMs) {
       return { kind: "stale", payload, pollNo };
     }
   }
@@ -1440,6 +1456,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
         recordPaidImageFailedAfterAcceptance({
           productDir: videosBase64Ledger.productDir,
           slot: ledgerSlot,
+          providerTaskId: taskId,
           reason: `provider task failed: ${errorMessage}`,
           providerResponse: statusPayload
         });
@@ -1451,6 +1468,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
         recordPaidImageFailedAfterAcceptance({
           productDir: videosBase64Ledger.productDir,
           slot: ledgerSlot,
+          providerTaskId: taskId,
           reason: `videos-base64 accepted task stayed queued/pending beyond ${maxPollMs}ms; retrying fixed slot ${ledgerSlot}.`,
           providerResponse: statusPayload
         });
@@ -1479,6 +1497,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       recordPaidImageCompleted({
         productDir: videosBase64Ledger.productDir,
         slot: ledgerSlot,
+        providerTaskId: taskId,
         sourceFile: targetFile
       });
     }
