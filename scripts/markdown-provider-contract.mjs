@@ -243,64 +243,38 @@ export function hasCanonicalProviderRuleItem(markdown) {
   });
 }
 
-function splitPersistenceStatements(text) {
+function splitArtifactSemanticClauses(text) {
   return text
-    .split(/(?:；|;|。|\.(?=\s|$))/u)
-    .map((statement) => statement.trim())
+    .split(
+      /(?:；|;|。|\.(?=\s|$)|,?\s+(?:while|whereas|but|however)\s+|但(?:是)?|而|，(?=\s*(?:截图|屏幕截图|screenshot|unrelated|其他(?:文件|产物))))/iu
+    )
+    .map((clause) => clause.trim())
     .filter(Boolean);
 }
 
-function artifactClassHasPositivePersistence(text, artifactPattern) {
+function clauseHasOnlyPositivePersistence(clause) {
   const persistencePattern = /持久(?:化)?|落盘|保存|persist(?:ed|ence)?|sav(?:e|ed)|writ(?:e|ten)/iu;
-  return splitPersistenceStatements(text).some((statement) => {
-    const artifactMatches = findAllMatches(statement, artifactPattern);
-    if (artifactMatches.length === 0) {
-      return false;
-    }
-    const actions = findAllMatches(statement, persistencePattern);
-    return artifactMatches.some((artifactMatch) => {
-      const commaSegments = statement.split(/[，,]/u);
-      let offset = 0;
-      let artifactSegment;
-      for (const segment of commaSegments) {
-        const end = offset + segment.length;
-        if (artifactMatch.index >= offset && artifactMatch.index <= end) {
-          artifactSegment = { text: segment, offset };
-          break;
-        }
-        offset = end + 1;
-      }
-      const localActions = artifactSegment
-        ? findAllMatches(artifactSegment.text, persistencePattern).map((match) => ({
-            ...match,
-            index: match.index + artifactSegment.offset
-          }))
-        : [];
-      const candidates = localActions.length > 0 ? localActions : actions;
-      const closest = candidates
-        .filter((action) => !isLocallyNegated(statement, action.index))
-        .sort(
-          (left, right) =>
-            Math.abs(left.index - artifactMatch.index) - Math.abs(right.index - artifactMatch.index)
-        )[0];
-      if (!closest) {
-        return false;
-      }
-      const nearerNegated = candidates.some(
-        (action) =>
-          isLocallyNegated(statement, action.index) &&
-          Math.abs(action.index - artifactMatch.index) < Math.abs(closest.index - artifactMatch.index)
-      );
-      return !nearerNegated;
-    });
-  });
+  const actions = findAllMatches(clause, persistencePattern);
+  const positiveActions = affirmativeMatches(clause, actions);
+  return actions.length > 0 && positiveActions.length === actions.length;
 }
 
 export function hasProviderArtifactPersistenceRuleItem(markdown) {
   return splitMarkdownRuleItems(markdown).some(({ text }) => {
-    const taskPersisted = artifactClassHasPositivePersistence(text, /(?:provider\s+)?task\s+ID|任务\s*ID/iu);
-    const submitResponsePersisted = artifactClassHasPositivePersistence(text, /response-XX\.json/iu);
-    const statusResponsePersisted = artifactClassHasPositivePersistence(text, /response-XX-status-N\.json/iu);
-    return taskPersisted && submitResponsePersisted && statusResponsePersisted;
+    const artifactClasses = [
+      /(?:provider\s+)?task\s+ID|任务\s*ID/iu,
+      /response-XX\.json/iu,
+      /response-XX-status-N\.json/iu
+    ];
+    const clauses = splitArtifactSemanticClauses(text);
+    const completeListClause = clauses.some(
+      (clause) => artifactClasses.every((artifactPattern) => artifactPattern.test(clause)) && clauseHasOnlyPositivePersistence(clause)
+    );
+    if (completeListClause) {
+      return true;
+    }
+    return artifactClasses.every((artifactPattern) =>
+      clauses.some((clause) => artifactPattern.test(clause) && clauseHasOnlyPositivePersistence(clause))
+    );
   });
 }

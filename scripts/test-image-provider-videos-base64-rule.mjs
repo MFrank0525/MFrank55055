@@ -117,6 +117,20 @@ assert.equal(
   false,
   "persistence of an unrelated artifact must not satisfy the provider artifact contract"
 );
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- provider task ID、response-XX.json、response-XX-status-N.json 已列出，截图必须保存。"
+  ),
+  false,
+  "screenshot persistence after a Chinese comma must not persist the provider artifact list"
+);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- provider task ID, response-XX.json, and response-XX-status-N.json are listed while screenshots are persisted."
+  ),
+  false,
+  "screenshot persistence after an adversative must not persist the provider artifact list"
+);
 
 function readTextTree(rootDir) {
   return fs
