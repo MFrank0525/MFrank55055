@@ -223,6 +223,10 @@ function redactImageGenerationLogText(text: string): string {
     .replace(/https?:\/\/[^\s"',}]+/gi, "[redacted url]");
 }
 
+function sanitizeImageGenerationProviderErrorText(text: string, fallback: string): string {
+  return redactImageGenerationLogText(text || fallback);
+}
+
 function writeImageGenerationTextLog(filePath: string, text: string): void {
   try {
     writeImageGenerationJsonLog(filePath, JSON.parse(text));
@@ -1098,7 +1102,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
             replayDisposition: isUnsafePaidImageReplayReason(rejectionReason) ? "non_replayable" : undefined
           });
         }
-        throw normalizeImageGenerationError("videos-base64 submit failed with HTTP " + response.status + ": " + (text || response.statusText));
+        const safeResponseText = sanitizeImageGenerationProviderErrorText(text, response.statusText);
+        throw normalizeImageGenerationError("videos-base64 submit failed with HTTP " + response.status + ": " + safeResponseText);
       }
       try {
         submitPayload = JSON.parse(text);
@@ -1140,8 +1145,9 @@ async function generateWithOpenAiCompatibleProvider(options: {
         const statusText = await statusResponse.text();
         writeImageGenerationTextLog(path.join(options.downloadDir, "response-" + paddedImageIndex + "-status-" + pollNo + ".json"), statusText);
         if (!statusResponse.ok) {
+          const safeStatusText = sanitizeImageGenerationProviderErrorText(statusText, statusResponse.statusText);
           throw normalizeImageGenerationError(
-            "videos-base64 status failed with HTTP " + statusResponse.status + ": " + (statusText || statusResponse.statusText)
+            "videos-base64 status failed with HTTP " + statusResponse.status + ": " + safeStatusText
           );
         }
         let parsedStatusPayload: any;

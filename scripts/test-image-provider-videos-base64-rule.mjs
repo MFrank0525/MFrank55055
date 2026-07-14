@@ -49,6 +49,14 @@ const example = JSON.parse(fs.readFileSync("input/image-generation.config.videos
 const ruleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
 const stabilityChecklist = fs.readFileSync("docs/auto-listing/stability-checklist.md", "utf8");
 
+function readTextTree(rootDir) {
+  return fs
+    .readdirSync(rootDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => fs.readFileSync(path.join(entry.parentPath, entry.name), "utf8"))
+    .join("\n");
+}
+
 assert.equal(example.mode, "videos-base64");
 assert.equal(example.apiUrl.endsWith("/v1/videos"), true);
 assert.equal(example.size, "1024x1024");
@@ -1090,6 +1098,112 @@ assert.equal(
   unsafeBeforeSlotBeforeRestart,
   "unsafe failed-before ledger evidence must remain byte-for-byte unchanged"
 );
+
+const submitHttpLedgerRoot = path.join(unsafeRestartRoot, "submit-http-ledger");
+const submitHttpRuntimeDir = path.join(unsafeRestartRoot, "submit-http-runtime");
+const submitHttpSecret = "submit-http-secret-token";
+let submitHttpFailure;
+globalThis.fetch = async () =>
+  new Response(
+    JSON.stringify({ code: "invalid_api_key", message: `authentication failed: api key ${submitHttpSecret}` }),
+    { status: 401, statusText: "Unauthorized" }
+  );
+try {
+  await assert.rejects(
+    async () => {
+      try {
+        return await generateMainImageAssets({
+          runtimeDir: submitHttpRuntimeDir,
+          taskId: "image-001",
+          shopRootDir: unsafeRestartShopRoot,
+          sourceImagePath: unsafeRestartSourceImage,
+          sellingPointText: "test product",
+          brandedGenericName: "test product",
+          wordFiles: [unsafeRestartPromptFile],
+          imageGenerationProvider: "openai-compatible",
+          imageGenerationConfigFile: unsafeRestartConfigFile,
+          mainImageExpectedCount: 1,
+          mainImageCountStrategy: "exact",
+          promptCount: 1,
+          shopCodes: ["01"],
+          imagesPerShop: 1,
+          feishuRecordId: "submit-http-record",
+          feishuBatchFingerprint: "submit-http-batch",
+          paidImageSubmissionLedgerDir: submitHttpLedgerRoot,
+          simulateOnly: false
+        });
+      } catch (error) {
+        submitHttpFailure = error;
+        throw error;
+      }
+    },
+    /HTTP 401|authentication failed/i
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.match(String(submitHttpFailure?.message || submitHttpFailure), /HTTP 401/i);
+assert.doesNotMatch(String(submitHttpFailure?.message || submitHttpFailure), new RegExp(submitHttpSecret));
+assert.match(readTextTree(submitHttpRuntimeDir), /invalid_api_key|authentication failed/i);
+assert.doesNotMatch(readTextTree(submitHttpRuntimeDir), new RegExp(submitHttpSecret));
+const submitHttpLedgerText = readTextTree(submitHttpLedgerRoot);
+assert.match(submitHttpLedgerText, /non_replayable/);
+assert.doesNotMatch(submitHttpLedgerText, new RegExp(submitHttpSecret));
+
+const statusHttpLedgerRoot = path.join(unsafeRestartRoot, "status-http-ledger");
+const statusHttpRuntimeDir = path.join(unsafeRestartRoot, "status-http-runtime");
+const statusHttpSecret = "status-http-secret-token";
+let statusHttpFailure;
+globalThis.fetch = async (url, init) => {
+  if (init?.method === "POST") {
+    return new Response(JSON.stringify({ id: "status-http-task" }), { status: 200 });
+  }
+  if (String(url).endsWith("/status-http-task")) {
+    return new Response(
+      JSON.stringify({ code: "status_query_unauthorized", message: `authentication failed: api key ${statusHttpSecret}` }),
+      { status: 401, statusText: "Unauthorized" }
+    );
+  }
+  throw new Error(`unexpected status HTTP transport: ${url}`);
+};
+try {
+  await assert.rejects(
+    async () => {
+      try {
+        return await generateMainImageAssets({
+          runtimeDir: statusHttpRuntimeDir,
+          taskId: "image-001",
+          shopRootDir: unsafeRestartShopRoot,
+          sourceImagePath: unsafeRestartSourceImage,
+          sellingPointText: "test product",
+          brandedGenericName: "test product",
+          wordFiles: [unsafeRestartPromptFile],
+          imageGenerationProvider: "openai-compatible",
+          imageGenerationConfigFile: unsafeRestartConfigFile,
+          mainImageExpectedCount: 1,
+          mainImageCountStrategy: "exact",
+          promptCount: 1,
+          shopCodes: ["01"],
+          imagesPerShop: 1,
+          feishuRecordId: "status-http-record",
+          feishuBatchFingerprint: "status-http-batch",
+          paidImageSubmissionLedgerDir: statusHttpLedgerRoot,
+          simulateOnly: false
+        });
+      } catch (error) {
+        statusHttpFailure = error;
+        throw error;
+      }
+    },
+    /HTTP 401|authentication failed/i
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.match(String(statusHttpFailure?.message || statusHttpFailure), /HTTP 401/i);
+assert.doesNotMatch(String(statusHttpFailure?.message || statusHttpFailure), new RegExp(statusHttpSecret));
+assert.match(readTextTree(statusHttpRuntimeDir), /status_query_unauthorized|authentication failed/i);
+assert.doesNotMatch(readTextTree(statusHttpRuntimeDir), new RegExp(statusHttpSecret));
 
 const legacyRedactedLedgerRoot = path.join(unsafeRestartRoot, "legacy-redacted-ledger");
 const legacyRedactedLedger = initializePaidImageProductLedger({
