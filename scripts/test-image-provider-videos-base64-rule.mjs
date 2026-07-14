@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  observeVideosBase64AcceptedTask,
   resolveLatestSubmittedPaidImageAuditTimestampMs,
   shouldAllowPaidImagePolicyCompatibilityIdentityTransition,
   summarizeVideosBase64PaidResumePlan
@@ -48,6 +49,89 @@ assert.equal(example.maxPollMs, 180000);
 assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(undefined), 30 * 60 * 1000);
 assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(3 * 60 * 1000), 30 * 60 * 1000);
 assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(60 * 60 * 1000), 30 * 60 * 1000);
+const resumedEvents = [];
+const resumedPayload = { status: "completed", id: "resumed-task" };
+const resumedOutcome = await observeVideosBase64AcceptedTask({
+  resumed: true,
+  pollIntervalMs: 1000,
+  submittedAtMs: 0,
+  ceilingMs: 100,
+  sleep: async () => resumedEvents.push("sleep"),
+  query: async () => {
+    resumedEvents.push("query");
+    return resumedPayload;
+  },
+  now: () => 100,
+  succeeded: (payload) => payload.status === "completed",
+  failed: (payload) => payload.status === "failed"
+});
+assert.deepEqual(resumedEvents, ["query"], "a resumed task must query immediately without an initial sleep");
+assert.equal(resumedOutcome.kind, "success");
+assert.strictEqual(resumedOutcome.payload, resumedPayload);
+
+const newTaskEvents = [];
+const newTaskOutcome = await observeVideosBase64AcceptedTask({
+  resumed: false,
+  pollIntervalMs: 1000,
+  submittedAtMs: 0,
+  ceilingMs: 100,
+  sleep: async () => newTaskEvents.push("sleep"),
+  query: async () => {
+    newTaskEvents.push("query");
+    return { status: "completed" };
+  },
+  now: () => 100,
+  succeeded: (payload) => payload.status === "completed",
+  failed: (payload) => payload.status === "failed"
+});
+assert.deepEqual(newTaskEvents, ["sleep", "query"], "a newly submitted task must sleep once before its first query");
+assert.equal(newTaskOutcome.kind, "success");
+
+const ceilingSuccessPayload = { status: "completed", marker: "final-success" };
+const ceilingSuccess = await observeVideosBase64AcceptedTask({
+  resumed: true,
+  pollIntervalMs: 1,
+  submittedAtMs: 0,
+  ceilingMs: 100,
+  sleep: async () => {},
+  query: async () => ceilingSuccessPayload,
+  now: () => 100,
+  succeeded: (payload) => payload.status === "completed",
+  failed: (payload) => payload.status === "failed"
+});
+assert.equal(ceilingSuccess.kind, "success", "a final queried success at the ceiling must win over stale classification");
+assert.strictEqual(ceilingSuccess.payload, ceilingSuccessPayload);
+
+const ceilingFailurePayload = { status: "failed", marker: "final-failure" };
+const ceilingFailure = await observeVideosBase64AcceptedTask({
+  resumed: true,
+  pollIntervalMs: 1,
+  submittedAtMs: 0,
+  ceilingMs: 100,
+  sleep: async () => {},
+  query: async () => ceilingFailurePayload,
+  now: () => 100,
+  succeeded: (payload) => payload.status === "completed",
+  failed: (payload) => payload.status === "failed"
+});
+assert.equal(ceilingFailure.kind, "failure", "a final queried explicit failure at the ceiling must win over stale classification");
+assert.strictEqual(ceilingFailure.payload, ceilingFailurePayload);
+
+const ceilingPendingPayload = { status: "pending", marker: "final-evidence" };
+const ceilingPending = await observeVideosBase64AcceptedTask({
+  resumed: true,
+  pollIntervalMs: 1,
+  submittedAtMs: 0,
+  ceilingMs: 100,
+  sleep: async () => {},
+  query: async () => ceilingPendingPayload,
+  now: () => 100,
+  succeeded: (payload) => payload.status === "completed",
+  failed: (payload) => payload.status === "failed"
+});
+assert.equal(ceilingPending.kind, "stale", "a final queued/pending status at the ceiling must become stale");
+assert.strictEqual(ceilingPending.payload, ceilingPendingPayload, "stale outcome must carry the exact final queried evidence");
+
 assert.equal(
   shouldAllowPaidImagePolicyCompatibilityIdentityTransition({
     recordedRequestDigest: "original-request",
@@ -302,9 +386,9 @@ assert.ok(pollBranchStart >= 0 && pollTaskAssignment > pollBranchStart, "polling
 assert.ok(firstStatusQuery > pollTaskAssignment, "resumed polling must reach a status query using the persisted task ID");
 assert.ok(firstAcceptedFailure > firstStatusQuery, "resumed polling must query provider status before marking acceptance failure");
 const persistedImmediateFlag = source.indexOf("queryPersistedTaskImmediately = true", pollTaskAssignment);
-const conditionalInitialSleep = source.indexOf("if (!queryPersistedTaskImmediately || pollNo > 1)", persistedImmediateFlag);
+const persistedObservationMode = source.indexOf("resumed: queryPersistedTaskImmediately", persistedImmediateFlag);
 assert.ok(
-  persistedImmediateFlag > pollTaskAssignment && conditionalInitialSleep > persistedImmediateFlag && firstStatusQuery > conditionalInitialSleep,
+  persistedImmediateFlag > pollTaskAssignment && persistedObservationMode > persistedImmediateFlag && firstStatusQuery > persistedObservationMode,
   "persisted polling must select the no-initial-sleep path before its first provider status query"
 );
 const pollBranchEnd = source.indexOf('if (slotAction.action === "blocked_reserved"', pollBranchStart);
@@ -313,19 +397,19 @@ assert.doesNotMatch(
   /expireSubmittedPaidImageQueue/,
   "poll branch must never expire a submitted paid task before querying its provider status"
 );
-const pollingLoopStart = source.indexOf("for (let pollNo = 1;");
-const pollingLoopEnd = source.indexOf("const resultUrl =", pollingLoopStart);
+const pollingLoopStart = source.indexOf("export async function observeVideosBase64AcceptedTask");
+const pollingLoopEnd = source.indexOf("function formatSlotList", pollingLoopStart);
 const pollingLoop = source.slice(pollingLoopStart, pollingLoopEnd);
 assert.ok(
-  pollingLoop.indexOf("fetchVideosBase64TaskWithTransportRetries(taskId, false") < pollingLoop.indexOf("Date.now() - startedAt"),
+  pollingLoop.indexOf("input.query(pollNo)") < pollingLoop.indexOf("input.now() - input.submittedAtMs"),
   "each accepted-task iteration must perform its final provider query before elapsed stale classification"
 );
 assert.ok(
-  pollingLoop.indexOf("videosBase64Failed(statusPayload)") < pollingLoop.indexOf("Date.now() - startedAt"),
+  pollingLoop.indexOf("input.failed(payload)") < pollingLoop.indexOf("input.now() - input.submittedAtMs"),
   "queried provider failure must be handled before stale queued/pending classification"
 );
 assert.match(
-  pollingLoop,
+  source.slice(firstStatusQuery, source.indexOf("const resultUrl =", firstStatusQuery)),
   /videos-base64 accepted task stayed queued\/pending beyond \$\{maxPollMs\}ms; retrying fixed slot \$\{ledgerSlot\}\.[\s\S]*providerResponse: statusPayload/,
   "ceiling failure must preserve final queued/pending provider evidence"
 );

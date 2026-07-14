@@ -105,6 +105,34 @@ export function resolveLatestSubmittedPaidImageAuditTimestampMs(
   return submittedTimestamps.length > 0 ? Math.max(...submittedTimestamps) : fallbackMs;
 }
 
+export async function observeVideosBase64AcceptedTask<T>(input: {
+  resumed: boolean;
+  pollIntervalMs: number;
+  submittedAtMs: number;
+  ceilingMs: number;
+  sleep: (ms: number) => Promise<unknown>;
+  query: (pollNo: number) => Promise<T>;
+  now: () => number;
+  succeeded: (payload: T) => boolean;
+  failed: (payload: T) => boolean;
+}): Promise<{ kind: "success" | "failure" | "stale"; payload: T; pollNo: number }> {
+  for (let pollNo = 1; ; pollNo += 1) {
+    if (!input.resumed || pollNo > 1) {
+      await input.sleep(input.pollIntervalMs);
+    }
+    const payload = await input.query(pollNo);
+    if (input.succeeded(payload)) {
+      return { kind: "success", payload, pollNo };
+    }
+    if (input.failed(payload)) {
+      return { kind: "failure", payload, pollNo };
+    }
+    if (input.now() - input.submittedAtMs >= input.ceilingMs) {
+      return { kind: "stale", payload, pollNo };
+    }
+  }
+}
+
 function formatSlotList(slots: number[]): string {
   return slots.length ? slots.join(",") : "none";
 }
@@ -1375,53 +1403,59 @@ async function generateWithOpenAiCompatibleProvider(options: {
     const maxPollMs = resolveVideosBase64AcceptedTaskPollCeilingMs(config.maxPollMs);
     const pollIntervalMs = Math.min(maxPollMs, Math.max(1000, config.pollIntervalMs || 10000));
     const startedAt = acceptedTaskStartedAt ?? Date.now();
-    let statusPayload: any = submitPayload;
-    for (let pollNo = 1; ; pollNo += 1) {
-      if (!queryPersistedTaskImmediately || pollNo > 1) {
-        await sleep(pollIntervalMs);
-      }
-      const statusResponse = await fetchVideosBase64TaskWithTransportRetries(taskId, false, absoluteImageIndex, "status");
-      const statusText = await statusResponse.text();
-      writeImageGenerationTextLog(path.join(options.downloadDir, "response-" + paddedImageIndex + "-status-" + pollNo + ".json"), statusText);
-      if (!statusResponse.ok) {
-        throw normalizeImageGenerationError(
-          "videos-base64 status failed with HTTP " + statusResponse.status + ": " + (statusText || statusResponse.statusText)
-        );
-      }
-      try {
-        statusPayload = JSON.parse(statusText);
-      } catch {
-        throw new Error("videos-base64 status response was not JSON: " + statusText.slice(0, 500));
-      }
-      const status = statusPayload?.status ?? statusPayload?.data?.status ?? "pending";
-      const progress = statusPayload?.progress ?? statusPayload?.data?.progress ?? "";
-      options.onProgress?.(`Image ${absoluteImageIndex}: videos-base64 task ${taskId} status ${status} ${progress}.`.trim());
-      if (videosBase64Succeeded(statusPayload)) {
-        break;
-      }
-      if (videosBase64Failed(statusPayload)) {
-        const errorMessage = formatProviderFailureReason(statusPayload?.error ?? statusPayload?.data?.error);
-        if (videosBase64Ledger) {
-          recordPaidImageFailedAfterAcceptance({
-            productDir: videosBase64Ledger.productDir,
-            slot: ledgerSlot,
-            reason: `provider task failed: ${errorMessage}`,
-            providerResponse: statusPayload
-          });
+    const observation = await observeVideosBase64AcceptedTask<any>({
+      resumed: queryPersistedTaskImmediately,
+      pollIntervalMs,
+      submittedAtMs: startedAt,
+      ceilingMs: maxPollMs,
+      sleep,
+      now: Date.now,
+      succeeded: videosBase64Succeeded,
+      failed: videosBase64Failed,
+      query: async (pollNo) => {
+        const statusResponse = await fetchVideosBase64TaskWithTransportRetries(taskId, false, absoluteImageIndex, "status");
+        const statusText = await statusResponse.text();
+        writeImageGenerationTextLog(path.join(options.downloadDir, "response-" + paddedImageIndex + "-status-" + pollNo + ".json"), statusText);
+        if (!statusResponse.ok) {
+          throw normalizeImageGenerationError(
+            "videos-base64 status failed with HTTP " + statusResponse.status + ": " + (statusText || statusResponse.statusText)
+          );
         }
-        throw normalizeImageGenerationError(`videos-base64 task ${taskId} failed: ${errorMessage}`);
-      }
-      if (Date.now() - startedAt >= maxPollMs) {
-        if (videosBase64Ledger) {
-          recordPaidImageFailedAfterAcceptance({
-            productDir: videosBase64Ledger.productDir,
-            slot: ledgerSlot,
-            reason: `videos-base64 accepted task stayed queued/pending beyond ${maxPollMs}ms; retrying fixed slot ${ledgerSlot}.`,
-            providerResponse: statusPayload
-          });
+        let parsedStatusPayload: any;
+        try {
+          parsedStatusPayload = JSON.parse(statusText);
+        } catch {
+          throw new Error("videos-base64 status response was not JSON: " + statusText.slice(0, 500));
         }
-        throw normalizeImageGenerationError(`videos-base64 task ${taskId} timed out after ${maxPollMs}ms.`);
+        const status = parsedStatusPayload?.status ?? parsedStatusPayload?.data?.status ?? "pending";
+        const progress = parsedStatusPayload?.progress ?? parsedStatusPayload?.data?.progress ?? "";
+        options.onProgress?.(`Image ${absoluteImageIndex}: videos-base64 task ${taskId} status ${status} ${progress}.`.trim());
+        return parsedStatusPayload;
       }
+    });
+    const statusPayload = observation.payload;
+    if (observation.kind === "failure") {
+      const errorMessage = formatProviderFailureReason(statusPayload?.error ?? statusPayload?.data?.error);
+      if (videosBase64Ledger) {
+        recordPaidImageFailedAfterAcceptance({
+          productDir: videosBase64Ledger.productDir,
+          slot: ledgerSlot,
+          reason: `provider task failed: ${errorMessage}`,
+          providerResponse: statusPayload
+        });
+      }
+      throw normalizeImageGenerationError(`videos-base64 task ${taskId} failed: ${errorMessage}`);
+    }
+    if (observation.kind === "stale") {
+      if (videosBase64Ledger) {
+        recordPaidImageFailedAfterAcceptance({
+          productDir: videosBase64Ledger.productDir,
+          slot: ledgerSlot,
+          reason: `videos-base64 accepted task stayed queued/pending beyond ${maxPollMs}ms; retrying fixed slot ${ledgerSlot}.`,
+          providerResponse: statusPayload
+        });
+      }
+      throw normalizeImageGenerationError(`videos-base64 task ${taskId} timed out after ${maxPollMs}ms.`);
     }
 
     const resultUrl = extractVideosBase64ResultUrl(statusPayload);
