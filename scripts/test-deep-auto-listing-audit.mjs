@@ -756,7 +756,9 @@ assert.equal(sameLineDualThresholdAudit.ok, true, sameLineDualThresholdAudit.err
 for (const conflictingAcceptedCeiling of [
   "videos-base64 已受理付费任务固定观察上限 5 分钟。",
   "videos-base64 已受理付费任务观察上限不得超过 5 分钟。",
-  "videos-base64 已受理付费任务最多观察 60 分钟。"
+  "videos-base64 已受理付费任务最多观察 60 分钟。",
+  "videos-base64 已受理付费任务；固定观察上限 5 分钟。",
+  "videos-base64 已受理付费任务轮询最多等待 5 分钟。"
 ]) {
   const audit = auditRuleContradictions({
     categoryPlans: [],
@@ -772,6 +774,42 @@ for (const conflictingAcceptedCeiling of [
     audit.errors.some((item) => item.code === "main_image_accepted_task_poll_rule_contradiction"),
     true
   );
+}
+
+for (const compatibleAcceptedCeiling of [
+  "videos-base64 已受理付费任务轮询最多等待 30 分钟。",
+  "videos-base64 已受理付费任务；固定观察上限 30 分钟。"
+]) {
+  const audit = auditRuleContradictions({
+    categoryPlans: [],
+    titleRuleText: "",
+    shopRuleText: "",
+    promptRuleText: "",
+    imageRuleText: [correctDualThresholdSource, compatibleAcceptedCeiling].join("\n"),
+    imageWaitCeilingMs: 3 * 60 * 1000,
+    videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+  });
+  assert.equal(audit.ok, true, audit.errors.map((item) => item.message).join("\n"));
+}
+
+for (const unrelatedTimingSource of [
+  [correctDualThresholdSource, "普通 HTTP 请求最多等待 5 分钟。"].join("\n"),
+  [
+    correctDualThresholdSource,
+    "1. videos-base64 已受理付费任务。",
+    "2. 普通任务固定观察上限 5 分钟。"
+  ].join("\n")
+]) {
+  const audit = auditRuleContradictions({
+    categoryPlans: [],
+    titleRuleText: "",
+    shopRuleText: "",
+    promptRuleText: "",
+    imageRuleText: unrelatedTimingSource,
+    imageWaitCeilingMs: 3 * 60 * 1000,
+    videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+  });
+  assert.equal(audit.ok, true, audit.errors.map((item) => item.message).join("\n"));
 }
 
 const scatteredContradictionSource = [

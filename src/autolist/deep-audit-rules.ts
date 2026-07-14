@@ -308,6 +308,18 @@ function concernsAcceptedTask(text: string): boolean {
   return /已受理[^。；]*任务/.test(text) || text.includes("付费任务");
 }
 
+function acceptedObservationClauses(statement: string): Array<{ text: string; acceptedTaskContext: boolean }> {
+  const clauses: Array<{ text: string; acceptedTaskContext: boolean }> = [];
+  for (const sentence of statement.split(/[。！？!?]+/).filter(Boolean)) {
+    let acceptedTaskContext = false;
+    for (const clause of sentence.split(/[；;]+/).filter(Boolean)) {
+      acceptedTaskContext ||= concernsAcceptedTask(clause);
+      clauses.push({ text: clause, acceptedTaskContext });
+    }
+  }
+  return clauses;
+}
+
 function extractAcceptedObservationMinuteValues(statement: string): number[] {
   const values: number[] = [];
   const patterns = [
@@ -316,13 +328,17 @@ function extractAcceptedObservationMinuteValues(statement: string): number[] {
     /观察上限(?:为|是)?(\d+)分钟/g,
     /观察上限不得超过(\d+)分钟/g,
     /最多观察(\d+)分钟/g,
-    /观察(?:期限|时间)?不得超过(\d+)分钟/g
+    /观察(?:期限|时间)?不得超过(\d+)分钟/g,
+    /轮询最多等待(\d+)分钟/g,
+    /轮询等待(?:上限(?:为|是)?|不得超过|最多(?:为)?|为)?(\d+)分钟/g,
+    /轮询(?:最大|最长)等待(?:为)?(\d+)分钟/g,
+    /最多轮询等待(\d+)分钟/g
   ];
-  for (const clause of timingRuleClauses(statement)) {
-    if (!concernsAcceptedTask(clause)) continue;
-    if (/不得把[^。；]*当作[^。；]*观察上限/.test(clause)) continue;
+  for (const clause of acceptedObservationClauses(statement)) {
+    if (!clause.acceptedTaskContext) continue;
+    if (/不得把[^。；]*当作[^。；]*观察上限/.test(clause.text)) continue;
     for (const pattern of patterns) {
-      for (const match of clause.matchAll(pattern)) values.push(Number(match[1]));
+      for (const match of clause.text.matchAll(pattern)) values.push(Number(match[1]));
     }
   }
   return values;
