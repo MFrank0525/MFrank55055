@@ -94,6 +94,10 @@ for (const fixture of [
   "- The image provider must not be replaceable.",
   "- The image provider is non-replaceable.",
   "- The image provider is nonreplaceable.",
+  "- The image provider is non-pluggable.",
+  "- The image provider is nonpluggable.",
+  "- The image provider is non-switchable.",
+  "- The image provider is nonswitchable.",
   "- 禁止使用 query_result 或 fail_reason。",
   "- 严禁迁移历史付费账本。",
   "- Image request must not use ImagePath.",
@@ -149,6 +153,27 @@ assert.equal(
   ).some((finding) => finding.label === "replaceable paid-image provider wording"),
   true,
   "a prohibited table row must not mask a separate replaceable-provider row"
+);
+assert.equal(
+  findObsoleteProviderContradictions("- 禁止 query_result 且响应写入 query_result。").some(
+    (finding) => finding.label === "legacy query_result artifact"
+  ),
+  true,
+  "a negated first legacy artifact must not mask a later affirmative occurrence"
+);
+assert.equal(
+  findObsoleteProviderContradictions("- 禁止 query_result / 响应写入 query_result。").some(
+    (finding) => finding.label === "legacy query_result artifact"
+  ),
+  true,
+  "all repeated predicate matches in one semantic subclause must be evaluated independently"
+);
+assert.equal(
+  findObsoleteProviderContradictions("- 禁止主图 provider 切换且主图 provider 可替换。").some(
+    (finding) => finding.label === "replaceable paid-image provider wording"
+  ),
+  true,
+  "a negated first provider change must not mask a later affirmative occurrence"
 );
 
 for (const file of activeProviderFiles) {

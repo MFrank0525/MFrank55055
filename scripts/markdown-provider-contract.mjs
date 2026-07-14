@@ -20,20 +20,33 @@ function hasRequestContext(text) {
 
 function splitClauses(text) {
   return text
-    .split(/(?:\||[；;。！？!?，,]|\s+(?:and|but|while|whereas|however|yet)\s+|而|但(?:是)?|并且|同时)/iu)
+    .split(/(?:\||[；;。！？!?，,]|\s+(?:and|but|while|whereas|however|yet)\s+|而|但(?:是)?|并且|同时|且|以及)/iu)
     .map((clause) => clause.trim())
     .filter(Boolean);
 }
 
-function isLocallyNegated(text, matchIndex) {
-  const localText = text.slice(Math.max(0, matchIndex - 64), matchIndex);
+function isLocallyNegated(text, matchIndex, scopeStart = 0) {
+  const localText = text.slice(Math.max(scopeStart, matchIndex - 64), matchIndex);
   const matchNeighborhood = text.slice(Math.max(0, matchIndex - 8), matchIndex + 20);
-  if (/non-?replaceable/iu.test(matchNeighborhood)) {
+  if (/non-?(?:replaceable|pluggable|switchable)/iu.test(matchNeighborhood)) {
     return true;
   }
   return /(?:禁止|不得|不允许|不可|严禁|不能|不应|不(?:导入|迁移|扫描|提供|使用|支持|更换|切换|替换|自动))[^；;。！？!?，,|]{0,40}$|不\s*$|(?:must\s+not|never|do\s+not|does\s+not|should\s+not|cannot|can't|not\s+(?:be\s+)?|no\s+(?:automatic|legacy|alternate))[^.;,|]{0,48}$/iu.test(
     localText
   );
+}
+
+function findAllMatches(text, pattern) {
+  const flags = [...new Set(`${pattern.flags}g`.split(""))].join("");
+  return [...text.matchAll(new RegExp(pattern.source, flags))];
+}
+
+function affirmativeMatches(text, matches) {
+  return matches.filter((match, index) => {
+    const previousMatch = matches[index - 1];
+    const scopeStart = previousMatch ? previousMatch.index + previousMatch[0].length : 0;
+    return !isLocallyNegated(text, match.index, scopeStart);
+  });
 }
 
 export function splitMarkdownRuleItems(markdown) {
@@ -102,20 +115,17 @@ export function splitMarkdownRuleItems(markdown) {
   return items;
 }
 
-function matchPositiveProviderChange(clause, context) {
+function matchPositiveProviderChanges(clause, context) {
   const providerMentioned = context.provider || hasProviderContext(clause);
   if (!providerMentioned) {
-    return undefined;
+    return [];
   }
-  const positiveChange =
-    /可替换|可插拔|可切换|支持(?:更换|切换|替换)|允许(?:更换|切换|替换)|可以(?:更换|切换|替换)|(?:更换|切换|替换)\s*(?:图片|主图|生图)?\s*(?:provider|模型)|replaceable|pluggable|switchable|can\s+(?:change|switch|replace)|may\s+(?:change|switch|replace)|supports?\s+(?:changing|switching|replacing)/iu.exec(
-      clause
-    );
-  if (!positiveChange) {
-    return undefined;
-  }
+  const positiveChanges = findAllMatches(
+    clause,
+    /可替换|可插拔|可切换|支持(?:更换|切换|替换)|允许(?:更换|切换|替换)|可以(?:更换|切换|替换)|(?:更换|切换|替换)\s*(?:图片|主图|生图)?\s*(?:provider|模型)|replaceable|pluggable|switchable|can\s+(?:change|switch|replace)|may\s+(?:change|switch|replace)|supports?\s+(?:changing|switching|replacing)/iu
+  );
   const explicitlyNonImage = /标题|title\s+provider|飞书|Feishu|浏览器|browser|data\s+source|数据源/iu.test(clause);
-  return context.image || hasImageContext(clause) || !explicitlyNonImage ? positiveChange : undefined;
+  return context.image || hasImageContext(clause) || !explicitlyNonImage ? positiveChanges : [];
 }
 
 function finding(label, item, clause) {
@@ -127,42 +137,48 @@ export function findObsoleteProviderContradictions(markdown) {
   for (const item of splitMarkdownRuleItems(markdown)) {
     for (const clause of item.clauses) {
       const text = clause.text;
-      const modeMatch = /\bmode["'`]?\s*(?:=|:)\s*["'`]?edits\b/iu.exec(text);
-      if (modeMatch && !isLocallyNegated(text, modeMatch.index)) {
+      for (const match of affirmativeMatches(
+        text,
+        findAllMatches(text, /\bmode["'`]?\s*(?:=|:)\s*["'`]?edits\b/iu)
+      )) {
         findings.push(finding("obsolete image-edit mode", item, clause));
       }
-      const queryResultMatch = /\bquery_result\b/iu.exec(text);
-      if (queryResultMatch && !isLocallyNegated(text, queryResultMatch.index)) {
+      for (const match of affirmativeMatches(text, findAllMatches(text, /\bquery_result\b/iu))) {
         findings.push(finding("legacy query_result artifact", item, clause));
       }
-      const failReasonMatch = /\bfail_reason\b/iu.exec(text);
-      if (failReasonMatch && !isLocallyNegated(text, failReasonMatch.index)) {
+      for (const match of affirmativeMatches(text, findAllMatches(text, /\bfail_reason\b/iu))) {
         findings.push(finding("legacy fail_reason artifact", item, clause));
       }
-      const imagePathMatch = /\bimagePath\b/iu.exec(text);
-      if (imagePathMatch && !isLocallyNegated(text, imagePathMatch.index)) {
+      for (const match of affirmativeMatches(text, findAllMatches(text, /\bimagePath\b/iu))) {
         findings.push(finding("legacy imagePath request field", item, clause));
       }
-      const sizeMatch = /(?<!metadata\.)\b["'`]?size["'`]?\s*(?:=|:)/iu.exec(text);
-      if (clause.context.request && sizeMatch && !isLocallyNegated(text, sizeMatch.index)) {
-        findings.push(finding("legacy top-level size request field", item, clause));
+      for (const match of affirmativeMatches(
+        text,
+        findAllMatches(text, /(?<!metadata\.)\b["'`]?size["'`]?\s*(?:=|:)/iu)
+      )) {
+        if (clause.context.request) {
+          findings.push(finding("legacy top-level size request field", item, clause));
+        }
       }
-      const repeatedSubmissionMatch =
-        /自动重复提交|自动重提|automatically\s+(?:repeat(?:ed|ing)?\s+submissions?|re-?submit)|automatic\s+repeated\s+(?:paid\s+)?submission/iu.exec(
-          text
-        );
-      if (repeatedSubmissionMatch && !isLocallyNegated(text, repeatedSubmissionMatch.index)) {
+      for (const match of affirmativeMatches(
+        text,
+        findAllMatches(
+          text,
+          /自动重复提交|自动重提|automatically\s+(?:repeat(?:ed|ing)?\s+submissions?|re-?submit)|automatic\s+repeated\s+(?:paid\s+)?submission/iu
+        )
+      )) {
         findings.push(finding("automatic repeated paid submission", item, clause));
       }
-      const providerChangeMatch = matchPositiveProviderChange(text, clause.context);
-      if (providerChangeMatch && !isLocallyNegated(text, providerChangeMatch.index)) {
+      for (const match of affirmativeMatches(text, matchPositiveProviderChanges(text, clause.context))) {
         findings.push(finding("replaceable paid-image provider wording", item, clause));
       }
-      const migrationMatch =
-        /(?:迁移|导入)[^\n]{0,80}(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)|(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)[^\n]{0,80}(?:迁移|导入)|migrat(?:e|ion)[^\n]{0,120}(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger|(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger[^\n]{0,120}migrat/iu.exec(
-          text
-        );
-      if (migrationMatch && !isLocallyNegated(text, migrationMatch.index)) {
+      for (const match of affirmativeMatches(
+        text,
+        findAllMatches(
+          text,
+          /(?:迁移|导入)[^\n]{0,80}(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)|(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)[^\n]{0,80}(?:迁移|导入)|migrat(?:e|ion)[^\n]{0,120}(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger|(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger[^\n]{0,120}migrat/iu
+        )
+      )) {
         findings.push(finding("historical paid-ledger migration instruction", item, clause));
       }
     }
