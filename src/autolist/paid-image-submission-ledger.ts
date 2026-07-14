@@ -601,8 +601,16 @@ function validateSlotRange(productDir: string, slot: number): PaidImageProductLe
   return ledger;
 }
 
-function isSafePersistedText(value: unknown): value is string {
-  return typeof value === "string" && cleanText(value) === value;
+function isValidLegacyPersistedText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 500 &&
+    !/[\u0000-\u001f\u007f]/.test(value) &&
+    !/data:[^;,]+;base64,|bearer\s|authorization|api(?:[_-\s]?key)|access[_-]?token|secret|\bsk-[A-Za-z0-9_-]{12,}\b/i.test(
+      value
+    ) &&
+    !(value.length >= 128 && /^[A-Za-z0-9+/_=-]+$/.test(value))
+  );
 }
 
 function isValidOwner(value: unknown): value is PaidImageSlotOwner {
@@ -612,8 +620,8 @@ function isValidOwner(value: unknown): value is PaidImageSlotOwner {
   const owner = value as PaidImageSlotOwner;
   return (
     Object.keys(value).every((key) => key === "runId" || key === "taskId" || key === "pid") &&
-    (owner.runId === undefined || isSafePersistedText(owner.runId)) &&
-    (owner.taskId === undefined || isSafePersistedText(owner.taskId)) &&
+    (owner.runId === undefined || isValidLegacyPersistedText(owner.runId)) &&
+    (owner.taskId === undefined || isValidLegacyPersistedText(owner.taskId)) &&
     (owner.pid === undefined || Number.isInteger(owner.pid))
   );
 }
@@ -629,7 +637,7 @@ function validateAudit(value: unknown): value is PaidImageSlotAuditEntry[] {
         states.has((entry as PaidImageSlotAuditEntry).state) &&
         typeof (entry as PaidImageSlotAuditEntry).at === "string" &&
         ((entry as PaidImageSlotAuditEntry).reason === undefined ||
-          isSafePersistedText((entry as PaidImageSlotAuditEntry).reason)) &&
+          isValidLegacyPersistedText((entry as PaidImageSlotAuditEntry).reason)) &&
         ((entry as PaidImageSlotAuditEntry).replayDisposition === undefined ||
           (entry as PaidImageSlotAuditEntry).replayDisposition === "non_replayable") &&
         ((entry as PaidImageSlotAuditEntry).owner === undefined || isValidOwner((entry as PaidImageSlotAuditEntry).owner))
@@ -648,7 +656,7 @@ function isPlainScalarRecord(value: unknown): value is Record<string, string | n
     !Array.isArray(value) &&
     Object.values(value as Record<string, unknown>).every(
       (item) =>
-        (typeof item === "string" && cleanText(item) === item) ||
+        isValidLegacyPersistedText(item) ||
         typeof item === "number" ||
         typeof item === "boolean" ||
         item === null
@@ -678,7 +686,7 @@ function validateSlotRecord(value: unknown, expectedSlot: number): PaidImageSlot
     (record.resultFile !== undefined && (typeof record.resultFile !== "string" || !path.isAbsolute(record.resultFile))) ||
     (record.resultDigest !== undefined &&
       (typeof record.resultDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.resultDigest))) ||
-    (record.reason !== undefined && !isSafePersistedText(record.reason)) ||
+    (record.reason !== undefined && !isValidLegacyPersistedText(record.reason)) ||
     (record.replayDisposition !== undefined && record.replayDisposition !== "non_replayable") ||
     (record.owner !== undefined && !isValidOwner(record.owner))
   ) {
@@ -719,11 +727,7 @@ function cleanText(value: string): string {
     )
     .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "[redacted api key]")
     .replace(/https?:\/\/[^\s"',}]+/gi, "[redacted url]");
-  if (
-    redacted.length > 500 ||
-    /data:[^;,]+;base64,|bearer\s|authorization|api(?:[_-\s]?key)|access[_-]?token|secret/i.test(redacted) ||
-    (redacted.length >= 128 && /^[A-Za-z0-9+/_=-]+$/.test(redacted))
-  ) {
+  if (!isValidLegacyPersistedText(redacted)) {
     return "[redacted]";
   }
   return redacted;

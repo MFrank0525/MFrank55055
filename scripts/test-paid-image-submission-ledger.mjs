@@ -1192,6 +1192,100 @@ assertMalformedSlotRejected(
   (record) => (record.audit[0].reason = "data:image/png;base64," + "A".repeat(200))
 );
 assertMalformedSlotRejected("top-level-reason-secret", (record) => (record.reason = "api_key=existing-secret"));
+assertMalformedSlotRejected("top-level-reason-sk-secret", (record) => (record.reason = `sk-${"A".repeat(24)}`));
+assertMalformedSlotRejected("top-level-reason-control", (record) => (record.reason = "unsafe\u0000control"));
+assertMalformedSlotRejected("top-level-reason-oversize", (record) => (record.reason = "A".repeat(501)));
+
+const legacyUrlProduct = initializePaidImageProductLedger({
+  ...identity,
+  rootDir: fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-legacy-url-")),
+  batchFingerprint: "batch-legacy-url",
+  recordId: "record-legacy-url",
+  expectedSlotCount: 4
+});
+const legacyUrlResultSource = path.join(rootDir, "legacy-url-result.png");
+fs.writeFileSync(legacyUrlResultSource, "legacy-url-result", "utf8");
+reservePaidImageSlot({
+  productDir: legacyUrlProduct.productDir,
+  slot: 1,
+  requestDigest: "legacy-completed-request",
+  promptDigest: "legacy-completed-prompt",
+  owner: ownerA
+});
+recordPaidImageSubmitted({
+  productDir: legacyUrlProduct.productDir,
+  slot: 1,
+  providerTaskId: "legacy-completed-task",
+  providerResponse: { status: "submitted" }
+});
+recordPaidImageCompleted({
+  productDir: legacyUrlProduct.productDir,
+  slot: 1,
+  sourceFile: legacyUrlResultSource,
+  providerTaskId: "legacy-completed-task"
+});
+reservePaidImageSlot({
+  productDir: legacyUrlProduct.productDir,
+  slot: 2,
+  requestDigest: "legacy-failed-request",
+  promptDigest: "legacy-failed-prompt",
+  owner: ownerA
+});
+recordPaidImageFailedBeforeAcceptance({
+  productDir: legacyUrlProduct.productDir,
+  slot: 2,
+  reason: "legacy provider rejection"
+});
+reservePaidImageSlot({
+  productDir: legacyUrlProduct.productDir,
+  slot: 3,
+  requestDigest: "legacy-active-request",
+  promptDigest: "legacy-active-prompt",
+  owner: ownerA
+});
+recordPaidImageSubmitted({
+  productDir: legacyUrlProduct.productDir,
+  slot: 3,
+  providerTaskId: "legacy-active-task",
+  providerResponse: { status: "submitted" }
+});
+const legacyUrlSlotBytes = new Map();
+for (const slot of [1, 2, 3]) {
+  const file = path.join(legacyUrlProduct.productDir, "slots", `${String(slot).padStart(2, "0")}.json`);
+  const record = JSON.parse(fs.readFileSync(file, "utf8"));
+  const legacyUrl =
+    `https://legacy.provider.example/tasks/${slot}?sig=historical-${slot}&token=historical-token-${slot}`;
+  record.reason = `historical provider detail ${legacyUrl}`;
+  record.audit.at(-1).reason = `historical audit detail ${legacyUrl}`;
+  record.providerResponseSummary = { status: "historical", message: `historical summary ${legacyUrl}` };
+  fs.writeFileSync(file, JSON.stringify(record, null, 2) + "\n", "utf8");
+  legacyUrlSlotBytes.set(slot, fs.readFileSync(file, "utf8"));
+}
+assert.equal(resolvePaidImageSlotAction({ productDir: legacyUrlProduct.productDir, slot: 1 }).action, "reuse");
+assert.equal(
+  resolvePaidImageSlotAction({ productDir: legacyUrlProduct.productDir, slot: 2 }).action,
+  "retry_failed_before_acceptance"
+);
+assert.equal(resolvePaidImageSlotAction({ productDir: legacyUrlProduct.productDir, slot: 3 }).action, "poll");
+for (const [slot, before] of legacyUrlSlotBytes) {
+  const file = path.join(legacyUrlProduct.productDir, "slots", `${String(slot).padStart(2, "0")}.json`);
+  assert.equal(fs.readFileSync(file, "utf8"), before, `legacy URL slot ${slot} must not be auto-migrated`);
+}
+reservePaidImageSlot({
+  productDir: legacyUrlProduct.productDir,
+  slot: 4,
+  requestDigest: "new-url-write-request",
+  promptDigest: "new-url-write-prompt",
+  owner: ownerA
+});
+recordPaidImageFailedBeforeAcceptance({
+  productDir: legacyUrlProduct.productDir,
+  slot: 4,
+  reason: "HTTP 401: https://provider.example/help?sig=new-signed-value&token=new-token-value"
+});
+const newUrlWriteText = fs.readFileSync(path.join(legacyUrlProduct.productDir, "slots", "04.json"), "utf8");
+assert.match(newUrlWriteText, /HTTP 401/);
+assert.doesNotMatch(newUrlWriteText, /https:\/\/provider\.example|new-signed-value|new-token-value/);
 
 const cleanupLedgerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-ledger-cleanup-"));
 const cleanupProductA = initializePaidImageProductLedger({
