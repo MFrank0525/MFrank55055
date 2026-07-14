@@ -131,6 +131,20 @@ assert.equal(
   false,
   "screenshot persistence after an adversative must not persist the provider artifact list"
 );
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- provider task ID、response-XX.json、response-XX-status-N.json 已列出，审计日志必须保存。"
+  ),
+  false,
+  "persistence of a new Chinese audit-log subject must not persist the provider artifact list"
+);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- provider task ID, response-XX.json, and response-XX-status-N.json are listed, audit logs must be persisted."
+  ),
+  false,
+  "persistence of a new English audit-log subject must not persist the provider artifact list"
+);
 
 function readTextTree(rootDir) {
   return fs
