@@ -232,6 +232,56 @@ assert.deepEqual(
   ["paid_image_record_identity_noncanonical", "paid_image_completed_record_identity_duplicate"]
 );
 
+const duplicateCanonicalLedgers = aggregatePaidImageLedgerGeneration({
+  completedProducts: [],
+  currentLedgers: [
+    { recordId: "record-current", summary: completePaidLedgerAuditInput() },
+    { recordId: "record-current", summary: completePaidLedgerAuditInput() }
+  ]
+});
+assert.deepEqual(duplicateCanonicalLedgers.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.deepEqual(duplicateCanonicalLedgers.includedRecordIds, ["record-current"]);
+assert.deepEqual(duplicateCanonicalLedgers.errors.map((issue) => issue.code), [
+  "paid_image_ledger_record_identity_duplicate"
+]);
+
+const duplicateWhitespaceLedgers = aggregatePaidImageLedgerGeneration({
+  completedProducts: [],
+  currentLedgers: [
+    { recordId: "record-current", summary: completePaidLedgerAuditInput() },
+    { recordId: " record-current ", summary: completePaidLedgerAuditInput() }
+  ]
+});
+assert.deepEqual(duplicateWhitespaceLedgers.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.deepEqual(duplicateWhitespaceLedgers.includedRecordIds, ["record-current"]);
+assert.deepEqual(duplicateWhitespaceLedgers.errors.map((issue) => issue.code), [
+  "paid_image_record_identity_noncanonical",
+  "paid_image_ledger_record_identity_duplicate"
+]);
+
+const distinctCanonicalLedgers = aggregatePaidImageLedgerGeneration({
+  completedProducts: [],
+  currentLedgers: [
+    { recordId: "record-one", summary: completePaidLedgerAuditInput() },
+    { recordId: "record-two", summary: completePaidLedgerAuditInput() }
+  ]
+});
+assert.deepEqual(distinctCanonicalLedgers.summary, {
+  auditedTaskCount: 2,
+  expectedImageCount: 40,
+  generatedImageCount: 40
+});
+assert.deepEqual(distinctCanonicalLedgers.includedRecordIds, ["record-one", "record-two"]);
+assert.deepEqual(distinctCanonicalLedgers.errors, []);
+
 const paidAuditFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-deep-audit-"));
 const paidAuditBatch = "current-feishu-batch";
 const fixtureResultSource = path.join(paidAuditFixtureRoot, "generated.png");

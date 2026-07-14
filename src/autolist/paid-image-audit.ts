@@ -136,10 +136,12 @@ export function auditCurrentPaidImageLedgers(
       ]
     },
     artifacts: { errors: ledgerErrors, warnings: ledgerWarnings, evidence },
-    existingLedgerRecordIds: currentLedgers
-      .map((ledger) => ledger.recordId)
-      .filter((recordId) => validLedgerRecordIds.has(recordId))
-      .map((recordId) => recordId.trim()),
+    existingLedgerRecordIds: [...new Set(
+      currentLedgers
+        .map((ledger) => ledger.recordId)
+        .filter((recordId) => validLedgerRecordIds.has(recordId))
+        .map((recordId) => recordId.trim())
+    )],
     includedLedgerRecordIds: aggregated.includedRecordIds
       .filter((recordId) => validCanonicalLedgerRecordIds.has(recordId))
   };

@@ -130,7 +130,9 @@ export function aggregatePaidImageLedgerGeneration(input: {
     completedRecordIds.add(recordId);
     completedProducts.push({ ...product, recordId });
   }
-  const normalizedLedgers = input.currentLedgers.map((ledger) => {
+  const normalizedLedgers: typeof input.currentLedgers = [];
+  const ledgerRecordIds = new Set<string>();
+  for (const ledger of input.currentLedgers) {
     const recordId = ledger.recordId.trim();
     if (ledger.recordId !== recordId) {
       errors.push({
@@ -138,8 +140,16 @@ export function aggregatePaidImageLedgerGeneration(input: {
         message: `Paid image audit record identity has surrounding whitespace: ${JSON.stringify(ledger.recordId)}.`
       });
     }
-    return { ...ledger, recordId };
-  });
+    if (ledgerRecordIds.has(recordId)) {
+      errors.push({
+        code: "paid_image_ledger_record_identity_duplicate",
+        message: `Paid image ledgers duplicate Feishu record identity ${recordId}.`
+      });
+      continue;
+    }
+    ledgerRecordIds.add(recordId);
+    normalizedLedgers.push({ ...ledger, recordId });
+  }
   const includedLedgers = normalizedLedgers.filter((ledger) => !completedRecordIds.has(ledger.recordId));
   return {
     summary: {
