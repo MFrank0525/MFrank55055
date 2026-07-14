@@ -79,6 +79,30 @@ const activeProviderFiles = [
     .filter((file) => fs.existsSync(file))
 ];
 
+const activeMarkdownContradictions = [
+  {
+    label: "obsolete image-edit mode",
+    pattern: /mode\s*=\s*edits/iu
+  },
+  {
+    label: "legacy query_result artifact",
+    pattern: /query_result/u
+  },
+  {
+    label: "legacy fail_reason artifact",
+    pattern: /fail_reason/u
+  },
+  {
+    label: "automatic repeated paid submission",
+    pattern: /自动重复提交|automatic(?:ally)?\s+(?:repeat(?:ed|ing)?\s+submission|re-?submit)[^\n]{0,80}(?:paid|image)/iu
+  },
+  {
+    label: "historical paid-ledger migration instruction",
+    pattern:
+      /(?:自动)?导入[^\n]{0,120}历史\s*`?paid-image-ledger`?|历史\s*`?paid-image-ledger`?[^\n]{0,120}迁移|migrat(?:e|ion)[^\n]{0,120}(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger|(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger[^\n]{0,120}migrat/iu
+  }
+];
+
 for (const file of activeProviderFiles) {
   const source = fs.readFileSync(file, "utf8");
   for (const token of obsoleteProviderTokens) {
@@ -91,6 +115,15 @@ for (const file of activeProviderFiles) {
       false,
       `obsolete synchronous image mode remains in ${file}: ${obsoleteModeLiteral}`
     );
+  }
+  if (file.endsWith(".md")) {
+    for (const contradiction of activeMarkdownContradictions) {
+      assert.equal(
+        contradiction.pattern.test(source),
+        false,
+        `obsolete image-provider contract remains in ${file}: ${contradiction.label}`
+      );
+    }
   }
 }
 

@@ -144,17 +144,13 @@
 
 最稳定方案：
 
-1. 自动重复提交，累计到 4 张。
-2. 明确区分：
-   - 提交失败
-   - HTTP/API 失败
-   - 成功但不足 4 张
-3. image2 实际消费文案严格来自 Word 可采纳内容，不自行增删。
-4. 每轮落盘：
-   - `image2-prompt.txt`
-   - `submit_id`
-   - `query_result` 原始结果
-5. `audit:auto-listing` 必须审计已完成生图阶段的任务：每个提示词 4 张，类目总数达标，真实模式下声明的主图文件和产品文件夹存在。
+1. 唯一有效的 provider family 是 OpenAI-compatible：模型固定为 `gpt-image-2`，模式固定为 `videos-base64`，接口精确为 `/v1/videos`；白底参考图必须通过 Base64 data URL 元数据提交，并固定携带 `aspect_ratio=1:1` 与 `size=1024x1024`。
+2. 每个商品固定使用 `01-20` 共 20 个付费 slot，并以持久账本中的 slot 状态驱动恢复。`submitted` 只轮询原 task ID，`completed` 只复用结果，只有明确可重提的同一 slot 才能补交；禁止整轮或整批重放。
+3. 每个 slot 必须落盘 `request-XX.json`、provider 提交响应 `response-XX.json`、状态响应 `response-XX-status-N.json`，并在项目级账本保存 task ID、状态、响应摘要和最终结果证据。
+4. 3 分钟只是操作层等待、退避和状态展示阈值，不是付费重提权限；已受理任务必须观察同一 task ID，到固定 30 分钟上限时先做最终状态查询，只有最终仍为 `queued`/`pending` 才能按同一 slot 的状态恢复。
+5. 权限、余额、额度、计费、身份不明、`reserved` 或 `ambiguous` 都是付费安全阻断，不得自动重提；provider 明确证明未受理，或账本状态明确允许的有界同 slot 恢复，才可提交。
+6. 不扫描、不导入旧 runtime 或历史 run 的付费账本，不提供历史迁移或其他 provider 兼容路径。
+7. 实际消费文案严格来自 Word 可采纳内容，不自行增删；`audit:auto-listing` 必须审计每个提示词 4 张、类目总数达标，以及声明的主图文件和产品文件夹真实存在。
 
 ### 4. 水印与产品文件夹落盘
 
@@ -236,7 +232,7 @@
 34. 项目 supervisor 启动的每个 detached 子流程必须登记独立进程组。子流程正常退出时清除登记；supervisor 异常退出留下孤儿子流程时，下次项目控制器启动必须终止该已登记进程组。即使进程组 leader 已退出，也必须继续清理其 npm/node 后代；只有 leader PID 仍存活且真实命令不匹配时才禁止终止，防止误杀复用 PID。
 35. 规则层必须把当前 child 启动后写出的可信 terminal `result.json` 视为权威终态。成功终态且飞书当前批次仍有待处理产品时，必须立即进入同批次下一产品；禁止继续按普通运行或 stall 状态等待。terminal result 只允许保留短暂资源释放宽限期。
 36. 动作层必须在 auto-listing CLI 写出终态后统一释放当前进程建立的 CDP 自动化连接。若资源句柄仍阻止 child 自然退出，项目 supervisor 必须在 terminal 宽限期后终止该已登记进程组，并按 terminal result 的真实成功/失败结果继续规则层决策。
-37. 图片供应商返回 `429/502/503/504`、`temporarily unavailable`、gateway unavailable、资源过载，或主图生成阶段出现 `fetch failed`、socket reset、timeout、`UND_ERR` 等传输失败时，规则层必须归类为外部服务可用性故障。3 分钟是操作层外部服务等待、退避和慢服务阈值：此类控制等待最多等待 3 分钟且不再指数增长，但不得把它当作已受理付费任务的观察上限，也不得据此重新提交付费任务。必须保留当前飞书批次、当前产品断点、付费账本 task ID 和已验证 raw 图片，且不消耗普通流程有限恢复预算。`videos-base64` 已受理付费任务必须使用同一 task ID 观察，固定观察上限为 30 分钟；`acceptedQueueStaleMs` 和旧 `maxPollMs` 只是兼容输入，必须归一化为固定 30 分钟安全契约；供应商明确成功或失败立即退出，到达 30 分钟必须执行最终状态查询，只有最终结果仍为 `queued`/`pending` 才可 stale 并只补同一固定 slot。`completed` slot 永不重新生成。权限拒绝、access forbidden、业务校验错误和可能产生不确定外部副作用的错误禁止套用此规则。
+37. 图片供应商返回 `429/502/503/504`、`temporarily unavailable`、gateway unavailable、资源过载，或主图生成阶段出现 `fetch failed`、socket reset、timeout、`UND_ERR` 等传输失败时，规则层必须归类为外部服务可用性故障。3 分钟是操作层外部服务等待、退避和慢服务阈值：此类控制等待最多等待 3 分钟且不再指数增长，但不得把它当作已受理付费任务的观察上限，也不得据此重新提交付费任务。必须保留当前飞书批次、当前产品断点、付费账本 task ID 和已验证 raw 图片，且不消耗普通流程有限恢复预算。`videos-base64` 已受理付费任务必须使用同一 task ID 观察，固定观察上限为 30 分钟；供应商明确成功或失败立即退出，到达 30 分钟必须执行最终状态查询，只有最终结果仍为 `queued`/`pending` 才可 stale 并只补同一固定 slot。`completed` slot 永不重新生成。权限拒绝、access forbidden、业务校验错误和可能产生不确定外部副作用的错误禁止套用此规则。
 37.1 `videos-base64` 已受理任务明确终态超时时，不得把第一个固定 slot 超时泛化成整条生图服务不可用。动作层必须在当前子进程重读持久账本并只补同一固定 slot，其他 `completed` slot 必须原样复用。只有该 slot 达到超时熔断条件时才能升级给 supervisor，并按规则层返回的精确冷却时间等待；权限、余额、计费和受理状态不明确仍必须安全阻断。
 38. 任何历史运行资产恢复，包括 raw/staged 主图、异步任务响应、Word 提示词、标题、店铺商品目录、发布计划和发布清单，都必须先验证运行记录中的飞书批次指纹与当前缓存批次完全一致。指纹缺失或不一致时必须失败关闭，禁止用源图路径、recordId、SPU、产品名、文件夹名或“已有产物数量”推断为同一批次；Word 只允许从当前 `runtimeDir/tasks/<taskId>` 恢复，店铺目录只允许按 resume job 的精确文件夹清单恢复。
 39. 项目 supervisor 以独立进程组运行。状态检查优先验证 PID 与命令；受限环境禁止 Node 读取 `ps` 命令行时，必须用该 supervisor 的独立进程组存活信号确认运行中，不能误报任务结束并允许重复启动。

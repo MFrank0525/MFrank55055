@@ -564,13 +564,32 @@ assert.match(
 );
 assert.match(source, /fs\.existsSync\(productDir\)[\s\S]*summarizePaidImageProductLedger/);
 assert.match(imageGenerationRulesSource, /export function providerExplicitlyProvesNoPaidTaskAccepted/);
+assert.match(
+  ruleDoc,
+  /唯一.*OpenAI-compatible.*gpt-image-2.*videos-base64.*\/v1\/videos/s,
+  "The active main-image contract must name the sole canonical provider family, model, mode, and endpoint"
+);
+assert.match(
+  ruleDoc,
+  /response-XX\.json.*response-XX-status-N\.json.*持久/s,
+  "The active main-image contract must require persisted provider submit and status response artifacts"
+);
+assert.match(
+  ruleDoc,
+  /固定 20 个 slot.*状态驱动恢复/s,
+  "The active main-image contract must define recovery through the fixed 20-slot ledger"
+);
+assert.match(
+  ruleDoc,
+  /不得扫描或导入.*历史.*账本/s,
+  "The active main-image contract must reject historical ledger migration"
+);
 assert.match(ruleDoc, /videos-base64.*Base64.*1:1.*1024x1024/s);
 assert.match(ruleDoc, /实际返回.*正方形.*2K.*4K/s);
 assert.match(ruleDoc, /提交结果不明确.*不得在同一子进程里自动重新提交/s);
 assert.match(ruleDoc, /paid-image-ledger.*付费资产.*续跑/s);
 assert.match(ruleDoc, /项目控制器.*当前飞书批次.*续跑/s);
 assert.match(ruleDoc, /异步提交当前商品任务.*统一收敛.*下载全部结果/s);
-assert.match(ruleDoc, /其他.*串行/s);
 assert.match(ruleDoc, /禁止 supervisor 快速重启并重新提交/s);
 assert.match(ruleDoc, /固定文件槽位.*禁止按已有文件数量推算/s);
 assert.match(ruleDoc, /进入发布前.*固定 raw 槽位完整性/s);
@@ -615,6 +634,16 @@ assert.match(
   stabilityChecklist,
   /外部服务.*最多等待 3 分钟.*不再指数增长/s,
   "External image-service waits must stay at or below three minutes instead of growing exponentially"
+);
+assert.match(
+  stabilityChecklist,
+  /唯一.*OpenAI-compatible.*gpt-image-2.*videos-base64.*\/v1\/videos/s,
+  "The stability checklist must use the sole canonical paid-image provider contract"
+);
+assert.match(
+  stabilityChecklist,
+  /权限.*余额.*计费.*不得自动重提/s,
+  "Unsafe paid-image failures must never authorize automatic replay"
 );
 assert.match(ruleDoc, /内容策略.*仅对该固定 slot.*内容策略兼容降级提示词/s);
 assert.match(ruleDoc, /内容策略.*failed_after_acceptance.*requestDigest.*promptDigest.*允许.*更新/s);
