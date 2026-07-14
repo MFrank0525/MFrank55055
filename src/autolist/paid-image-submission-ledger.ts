@@ -13,11 +13,14 @@ export type PaidImageSlotState =
   | "failed_after_acceptance"
   | "ambiguous";
 
+export type PaidImageReplayDisposition = "non_replayable";
+
 export interface PaidImageSlotAuditEntry {
   state: PaidImageSlotState;
   at: string;
   owner?: PaidImageSlotOwner;
   reason?: string;
+  replayDisposition?: PaidImageReplayDisposition;
 }
 
 export interface PaidImageSlotOwner {
@@ -40,6 +43,7 @@ export interface PaidImageSlotRecord {
   resultFile?: string;
   resultDigest?: string;
   reason?: string;
+  replayDisposition?: PaidImageReplayDisposition;
   audit: PaidImageSlotAuditEntry[];
 }
 
@@ -151,12 +155,14 @@ export interface RecordPaidImageAmbiguousInput {
   slot: number;
   reason: string;
   providerResponse?: unknown;
+  replayDisposition?: PaidImageReplayDisposition;
 }
 
 export interface RecordPaidImageFailedBeforeAcceptanceInput {
   productDir: string;
   slot: number;
   reason: string;
+  replayDisposition?: PaidImageReplayDisposition;
 }
 
 export interface RecordPaidImageFailedAfterAcceptanceInput {
@@ -165,6 +171,7 @@ export interface RecordPaidImageFailedAfterAcceptanceInput {
   providerTaskId?: string;
   reason: string;
   providerResponse?: unknown;
+  replayDisposition?: PaidImageReplayDisposition;
 }
 
 export interface ExpireSubmittedPaidImageQueueInput {
@@ -623,6 +630,8 @@ function validateAudit(value: unknown): value is PaidImageSlotAuditEntry[] {
         typeof (entry as PaidImageSlotAuditEntry).at === "string" &&
         ((entry as PaidImageSlotAuditEntry).reason === undefined ||
           isSafePersistedText((entry as PaidImageSlotAuditEntry).reason)) &&
+        ((entry as PaidImageSlotAuditEntry).replayDisposition === undefined ||
+          (entry as PaidImageSlotAuditEntry).replayDisposition === "non_replayable") &&
         ((entry as PaidImageSlotAuditEntry).owner === undefined || isValidOwner((entry as PaidImageSlotAuditEntry).owner))
     )
   );
@@ -670,6 +679,7 @@ function validateSlotRecord(value: unknown, expectedSlot: number): PaidImageSlot
     (record.resultDigest !== undefined &&
       (typeof record.resultDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.resultDigest))) ||
     (record.reason !== undefined && !isSafePersistedText(record.reason)) ||
+    (record.replayDisposition !== undefined && record.replayDisposition !== "non_replayable") ||
     (record.owner !== undefined && !isValidOwner(record.owner))
   ) {
     throw new Error(`invalid paid image slot record for slot ${expectedSlot}`);
@@ -914,7 +924,15 @@ function transitionSlotUnlocked(
     ...changes,
     state: nextState,
     updatedAt: at,
-    audit: [...record.audit, { state: nextState, at, ...(changes.reason ? { reason: cleanText(changes.reason) } : {}) }]
+    audit: [
+      ...record.audit,
+      {
+        state: nextState,
+        at,
+        ...(changes.reason ? { reason: cleanText(changes.reason) } : {}),
+        ...(changes.replayDisposition ? { replayDisposition: changes.replayDisposition } : {})
+      }
+    ]
   };
   atomicWriteJson(slotFile(productDir, slot), next);
   return validateSlotRecord(next, slot);
@@ -1062,13 +1080,15 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
 export function recordPaidImageAmbiguous(input: RecordPaidImageAmbiguousInput): PaidImageSlotRecord {
   return transitionSlot(input.productDir, input.slot, ["reserved", "submitted"], "ambiguous", {
     reason: cleanText(requireNonEmpty(input.reason, "reason")),
-    providerResponseSummary: providerResponseSummary(input.providerResponse)
+    providerResponseSummary: providerResponseSummary(input.providerResponse),
+    ...(input.replayDisposition ? { replayDisposition: input.replayDisposition } : {})
   });
 }
 
 export function recordPaidImageFailedBeforeAcceptance(input: RecordPaidImageFailedBeforeAcceptanceInput): PaidImageSlotRecord {
   return transitionSlot(input.productDir, input.slot, ["reserved"], "failed_before_acceptance", {
-    reason: cleanText(requireNonEmpty(input.reason, "reason"))
+    reason: cleanText(requireNonEmpty(input.reason, "reason")),
+    ...(input.replayDisposition ? { replayDisposition: input.replayDisposition } : {})
   });
 }
 
@@ -1086,6 +1106,7 @@ export function recordPaidImageFailedAfterAcceptance(input: RecordPaidImageFaile
       if (
         !sameProviderTask ||
         record.reason !== reason ||
+        record.replayDisposition !== input.replayDisposition ||
         !isDeepStrictEqual(record.providerResponseSummary, responseSummary)
       ) {
         throw new Error(`conflicting failed terminal evidence for paid image slot ${input.slot}`);
@@ -1102,7 +1123,8 @@ export function recordPaidImageFailedAfterAcceptance(input: RecordPaidImageFaile
     }
     return transitionSlotUnlocked(input.productDir, input.slot, ["submitted"], "failed_after_acceptance", {
       reason,
-      providerResponseSummary: responseSummary
+      providerResponseSummary: responseSummary,
+      ...(input.replayDisposition ? { replayDisposition: input.replayDisposition } : {})
     });
   });
 }

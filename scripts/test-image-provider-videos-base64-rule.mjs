@@ -20,6 +20,7 @@ import {
   resolveVideosBase64AcceptedTaskPollCeilingMs,
   resolveVideosBase64SubmitTimeoutMs,
   shouldKeepPaidImagePolicyCompatiblePrompt,
+  isUnsafePaidImageReplayReason,
   resolvePaidImageProviderTimeoutRetry,
   resolvePaidImageFixedSlotRecovery
 } from "../dist/src/autolist/image-generation-rules.js";
@@ -28,6 +29,7 @@ import {
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
   recordPaidImageFailedAfterAcceptance,
+  recordPaidImageFailedBeforeAcceptance,
   reconcileAmbiguousPaidImageNoAcceptance,
   recordPaidImageSubmitted,
   reservePaidImageSlot,
@@ -751,7 +753,8 @@ const unsafeRestartConfig = {
   apiKey: "test-only-key",
   model: "gpt-image-2",
   mode: "videos-base64",
-  size: "1024x1024"
+  size: "1024x1024",
+  pollIntervalMs: 1
 };
 const unsafeRestartPromptParagraphs = [
   "main instruction",
@@ -957,6 +960,268 @@ assert.equal(
   "completed",
   "the bounded content-policy retry must complete only its failed fixed slot"
 );
+
+for (const [reason, expectedUnsafe] of [
+  ["provider task failed: content policy violation", false],
+  ["provider task failed: content forbidden by policy", false],
+  ["fetch failed before a provider response", false],
+  ['HTTP 400: {"code":"fail_to_fetch_task"}', false],
+  ["HTTP 403: access forbidden", true],
+  ["provider task failed: permission denied", true],
+  ["provider task failed: authentication failed", true]
+]) {
+  assert.equal(isUnsafePaidImageReplayReason(reason), expectedUnsafe, `paid replay safety mismatch: ${reason}`);
+}
+
+const unsafeBeforeLedgerRoot = path.join(unsafeRestartRoot, "unsafe-before-ledger");
+const unsafeBeforeLedger = initializePaidImageProductLedger({
+  rootDir: unsafeBeforeLedgerRoot,
+  batchFingerprint: "unsafe-before-batch",
+  recordId: "unsafe-before-record",
+  expectedSlotCount: 1,
+  providerIdentity: unsafeRestartLedger.providerIdentity,
+  sourceImageDigest: sha256File(unsafeRestartSourceImage)
+});
+reservePaidImageSlot({
+  productDir: unsafeBeforeLedger.productDir,
+  slot: 1,
+  requestDigest: sha256Text(unsafeRestartRequestBody),
+  promptDigest: sha256Text(unsafeRestartPromptText),
+  owner: { runId: "unsafe-before-first-process", taskId: "image-001" }
+});
+recordPaidImageFailedBeforeAcceptance({
+  productDir: unsafeBeforeLedger.productDir,
+  slot: 1,
+  reason: "HTTP 401: authentication failed"
+});
+const unsafeBeforeSlotFile = path.join(unsafeBeforeLedger.productDir, "slots", "01.json");
+const unsafeBeforeSlotBeforeRestart = fs.readFileSync(unsafeBeforeSlotFile, "utf8");
+let unsafeBeforeTransportCalls = 0;
+globalThis.fetch = async () => {
+  unsafeBeforeTransportCalls += 1;
+  throw new Error("unsafe failed-before-acceptance restart must not reach transport");
+};
+try {
+  await assert.rejects(
+    () => generateMainImageAssets({
+      runtimeDir: path.join(unsafeRestartRoot, "unsafe-before-second-process-runtime"),
+      taskId: "image-001",
+      shopRootDir: unsafeRestartShopRoot,
+      sourceImagePath: unsafeRestartSourceImage,
+      sellingPointText: "test product",
+      brandedGenericName: "test product",
+      wordFiles: [unsafeRestartPromptFile],
+      imageGenerationProvider: "openai-compatible",
+      imageGenerationConfigFile: unsafeRestartConfigFile,
+      mainImageExpectedCount: 1,
+      mainImageCountStrategy: "exact",
+      promptCount: 1,
+      shopCodes: ["01"],
+      imagesPerShop: 1,
+      feishuRecordId: "unsafe-before-record",
+      feishuBatchFingerprint: "unsafe-before-batch",
+      paidImageSubmissionLedgerDir: unsafeBeforeLedgerRoot,
+      simulateOnly: false
+    }),
+    /authentication failed/i
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.equal(unsafeBeforeTransportCalls, 0, "unsafe failed-before restart must not call submission transport");
+assert.equal(
+  fs.readFileSync(unsafeBeforeSlotFile, "utf8"),
+  unsafeBeforeSlotBeforeRestart,
+  "unsafe failed-before ledger evidence must remain byte-for-byte unchanged"
+);
+
+const unsafeTerminalLedgerRoot = path.join(unsafeRestartRoot, "unsafe-terminal-ledger");
+const unsafeTerminalLedger = initializePaidImageProductLedger({
+  rootDir: unsafeTerminalLedgerRoot,
+  batchFingerprint: "unsafe-terminal-batch",
+  recordId: "unsafe-terminal-record",
+  expectedSlotCount: 1,
+  providerIdentity: unsafeRestartLedger.providerIdentity,
+  sourceImageDigest: sha256File(unsafeRestartSourceImage)
+});
+let unsafeTerminalSubmitCalls = 0;
+globalThis.fetch = async (url, init) => {
+  if (init?.method === "POST") {
+    unsafeTerminalSubmitCalls += 1;
+    return new Response(JSON.stringify({ id: "unsafe-terminal-task" }), { status: 200 });
+  }
+  if (String(url).endsWith("/unsafe-terminal-task")) {
+    return new Response(JSON.stringify({
+      id: "unsafe-terminal-task",
+      status: "failed",
+      code: "insufficient_quota",
+      message: "insufficient balance"
+    }), { status: 200 });
+  }
+  throw new Error(`unexpected unsafe terminal transport: ${url}`);
+};
+try {
+  await assert.rejects(
+    () => generateMainImageAssets({
+      runtimeDir: path.join(unsafeRestartRoot, "unsafe-terminal-runtime"),
+      taskId: "image-001",
+      shopRootDir: unsafeRestartShopRoot,
+      sourceImagePath: unsafeRestartSourceImage,
+      sellingPointText: "test product",
+      brandedGenericName: "test product",
+      wordFiles: [unsafeRestartPromptFile],
+      imageGenerationProvider: "openai-compatible",
+      imageGenerationConfigFile: unsafeRestartConfigFile,
+      mainImageExpectedCount: 1,
+      mainImageCountStrategy: "exact",
+      promptCount: 1,
+      shopCodes: ["01"],
+      imagesPerShop: 1,
+      feishuRecordId: "unsafe-terminal-record",
+      feishuBatchFingerprint: "unsafe-terminal-batch",
+      paidImageSubmissionLedgerDir: unsafeTerminalLedgerRoot,
+      simulateOnly: false
+    }),
+    /insufficient.quota|insufficient balance/i
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
+const unsafeTerminalSlot = JSON.parse(
+  fs.readFileSync(path.join(unsafeTerminalLedger.productDir, "slots", "01.json"), "utf8")
+);
+assert.equal(unsafeTerminalSubmitCalls, 1, "unsafe accepted terminal payload must stop before a second paid POST");
+assert.equal(unsafeTerminalSlot.state, "failed_after_acceptance");
+assert.match(unsafeTerminalSlot.reason, /insufficient.quota/i);
+assert.match(unsafeTerminalSlot.reason, /insufficient balance/i);
+
+for (const [label, failedPayload] of [
+  [
+    "top-level",
+    { status: "failed", code: "invalid_api_key", message: "invalid api key sk-test-secret-value" }
+  ],
+  [
+    "nested",
+    {
+      status: "failed",
+      diagnostics: "x".repeat(3000),
+      data: { error: { code: "invalid_api_key", message: "invalid api key sk-nested-secret-value" } }
+    }
+  ]
+]) {
+  const recordId = `unsafe-api-key-${label}-record`;
+  const batchFingerprint = `unsafe-api-key-${label}-batch`;
+  const ledgerRoot = path.join(unsafeRestartRoot, `unsafe-api-key-${label}-ledger`);
+  const ledger = initializePaidImageProductLedger({
+    rootDir: ledgerRoot,
+    batchFingerprint,
+    recordId,
+    expectedSlotCount: 1,
+    providerIdentity: unsafeRestartLedger.providerIdentity,
+    sourceImageDigest: sha256File(unsafeRestartSourceImage)
+  });
+  const initialRuntimeDir = path.join(unsafeRestartRoot, `unsafe-api-key-${label}-initial-runtime`);
+  let initialSubmitCalls = 0;
+  let initialFailure;
+  globalThis.fetch = async (url, init) => {
+    if (init?.method === "POST") {
+      initialSubmitCalls += 1;
+      if (initialSubmitCalls > 1) {
+        throw new Error("invalid_api_key terminal failure must stop before a second POST");
+      }
+      return new Response(JSON.stringify({ id: `unsafe-api-key-${label}-task` }), { status: 200 });
+    }
+    if (String(url).endsWith(`/unsafe-api-key-${label}-task`)) {
+      return new Response(JSON.stringify({ id: `unsafe-api-key-${label}-task`, ...failedPayload }), { status: 200 });
+    }
+    throw new Error(`unexpected ${label} invalid_api_key transport: ${url}`);
+  };
+  try {
+    await assert.rejects(
+      async () => {
+        try {
+          return await generateMainImageAssets({
+            runtimeDir: initialRuntimeDir,
+            taskId: "image-001",
+            shopRootDir: unsafeRestartShopRoot,
+            sourceImagePath: unsafeRestartSourceImage,
+            sellingPointText: "test product",
+            brandedGenericName: "test product",
+            wordFiles: [unsafeRestartPromptFile],
+            imageGenerationProvider: "openai-compatible",
+            imageGenerationConfigFile: unsafeRestartConfigFile,
+            mainImageExpectedCount: 1,
+            mainImageCountStrategy: "exact",
+            promptCount: 1,
+            shopCodes: ["01"],
+            imagesPerShop: 1,
+            feishuRecordId: recordId,
+            feishuBatchFingerprint: batchFingerprint,
+            paidImageSubmissionLedgerDir: ledgerRoot,
+            simulateOnly: false
+          });
+        } catch (error) {
+          initialFailure = error;
+          throw error;
+        }
+      },
+      /invalid.api.key|not safe to replay|paid submission safety block/i
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(initialSubmitCalls, 1, `${label} invalid_api_key terminal failure must submit only once`);
+  const slotFile = path.join(ledger.productDir, "slots", "01.json");
+  const slotAfterInitialFailure = fs.readFileSync(slotFile, "utf8");
+  const parsedSlot = JSON.parse(slotAfterInitialFailure);
+  assert.equal(parsedSlot.state, "failed_after_acceptance");
+  assert.equal(parsedSlot.replayDisposition, "non_replayable");
+  assert.equal(parsedSlot.audit.at(-1)?.replayDisposition, "non_replayable");
+  assert.equal(parsedSlot.reason, "[redacted]");
+  assert.doesNotMatch(slotAfterInitialFailure, /sk-(?:test|nested)-secret-value/);
+  assert.doesNotMatch(String(initialFailure?.message || initialFailure), /sk-(?:test|nested)-secret-value/);
+  const runtimeArtifactText = fs
+    .readdirSync(initialRuntimeDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => fs.readFileSync(path.join(entry.parentPath, entry.name), "utf8"))
+    .join("\n");
+  assert.doesNotMatch(runtimeArtifactText, /sk-(?:test|nested)-secret-value/);
+
+  let restartTransportCalls = 0;
+  globalThis.fetch = async () => {
+    restartTransportCalls += 1;
+    throw new Error("persisted non-replayable disposition must stop before restart transport");
+  };
+  try {
+    await assert.rejects(
+      () => generateMainImageAssets({
+        runtimeDir: path.join(unsafeRestartRoot, `unsafe-api-key-${label}-restart-runtime`),
+        taskId: "image-001",
+        shopRootDir: unsafeRestartShopRoot,
+        sourceImagePath: unsafeRestartSourceImage,
+        sellingPointText: "test product",
+        brandedGenericName: "test product",
+        wordFiles: [unsafeRestartPromptFile],
+        imageGenerationProvider: "openai-compatible",
+        imageGenerationConfigFile: unsafeRestartConfigFile,
+        mainImageExpectedCount: 1,
+        mainImageCountStrategy: "exact",
+        promptCount: 1,
+        shopCodes: ["01"],
+        imagesPerShop: 1,
+        feishuRecordId: recordId,
+        feishuBatchFingerprint: batchFingerprint,
+        paidImageSubmissionLedgerDir: ledgerRoot,
+        simulateOnly: false
+      }),
+      /not safe to replay/i
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(restartTransportCalls, 0, `${label} invalid_api_key restart must not call transport`);
+  assert.equal(fs.readFileSync(slotFile, "utf8"), slotAfterInitialFailure);
+}
 
 const providerFailedProduct = initializePaidImageProductLedger({
   rootDir: path.join(tmp, "provider-failed-ledger"),

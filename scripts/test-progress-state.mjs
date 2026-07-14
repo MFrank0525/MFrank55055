@@ -2998,6 +2998,18 @@ assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
     exitCode: 1,
     batchComplete: false,
+    retryableFailureMessage:
+      "failed at main_images_generated: videos-base64 task task_policy failed: content forbidden by policy",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "content forbidden by policy must remain a bounded fixed-slot provider retry"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
     retryableFailureMessage: "failed at main_images_generated: fetch failed",
     recoveryAttempts: 0,
     maxRecoveryAttempts: 12

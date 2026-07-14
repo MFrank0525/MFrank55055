@@ -60,9 +60,8 @@ function isRetryableVideosBase64ProviderTaskFailure(message: string): boolean {
   return (
     /main_images_generated|videos-base64/i.test(message) &&
     /videos-base64 task .* failed|provider task failed/i.test(message) &&
-    !/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
-      message
-    )
+    !isUnsafePaidImageReplayReason(message) &&
+    !/please contact administrator/i.test(message)
   );
 }
 
@@ -75,7 +74,7 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
   if (
     isPaidImageSubmissionSafetyBlock(message) ||
     isUnsafePaidImageReplayReason(message) ||
-    /upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(message)
+    /please contact administrator/i.test(message)
   ) {
     return false;
   }
@@ -168,7 +167,7 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
     input.exitCode === 0 || input.batchComplete ||
     isUnsafePaidImageReplayReason(retryableFailureMessage) ||
     isPaidImageSubmissionSafetyBlock(retryableFailureMessage) ||
-    /upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(retryableFailureMessage)
+    /please contact administrator/i.test(retryableFailureMessage)
   ) {
     return false;
   }

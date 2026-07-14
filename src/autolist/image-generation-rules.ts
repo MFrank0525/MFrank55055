@@ -262,12 +262,63 @@ function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
 export function isUnsafePaidImageReplayReason(reason: string): boolean {
   const normalizedReason = (reason || "").replace(/[_-]+/g, " ");
   const providerProvedNoAcceptance = /fail to fetch task/i.test(normalizedReason);
+  const authorizationFailure =
+    /HTTP\s*(?:401|403)\b|invalid api key|api key invalid|authentication failed|authentication error|unauthenticated|unauthorized|permission denied|access forbidden|upstream forbidden/i.test(
+      normalizedReason
+    );
   return (
     (!providerProvedNoAcceptance && isPaidImageSubmitStageUncertaintyReason(reason)) ||
-    /invalid api key|api key invalid|authentication failed|authentication error|unauthenticated|unauthorized|permission denied|access forbidden|forbidden|usage limit|rate limit|limit exceeded|payment required|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
+    authorizationFailure ||
+    /usage limit|rate limit|limit exceeded|payment required|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
       normalizedReason
     )
   );
+}
+
+export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
+  const evidenceKeys = new Set([
+    "code",
+    "message",
+    "error",
+    "errors",
+    "status",
+    "state",
+    "data",
+    "detail",
+    "details"
+  ]);
+  const evidence: string[] = [];
+  let visitedNodes = 0;
+  const visit = (value: unknown, depth: number, key: string): void => {
+    if (depth > 8 || visitedNodes >= 128) {
+      return;
+    }
+    visitedNodes += 1;
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      if (evidenceKeys.has(key)) {
+        evidence.push(String(value));
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visit(item, depth + 1, key);
+      }
+      return;
+    }
+    if (typeof value === "object") {
+      for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        if (evidenceKeys.has(nestedKey)) {
+          visit(nestedValue, depth + 1, nestedKey);
+        }
+      }
+    }
+  };
+  visit(payload, 0, "data");
+  return isUnsafePaidImageReplayReason(evidence.join("\n"));
 }
 
 export function resolvePaidImageProviderTimeoutRetry(input: {

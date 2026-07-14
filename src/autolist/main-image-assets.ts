@@ -15,6 +15,7 @@ import {
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   providerExplicitlyProvesNoPaidTaskAccepted,
+  isUnsafePaidImageReplayPayload,
   isUnsafePaidImageReplayReason,
   submitTransportFailureProvesNoPaidTaskAccepted,
   shouldRetryImageGenerationWithPolicyPrompt,
@@ -187,6 +188,9 @@ function redactImageGenerationLogValue(value: unknown): unknown {
   }
   if (typeof value === "string" && /^data:image\/[^;]+;base64,/i.test(value)) {
     return "[redacted base64 image data url]";
+  }
+  if (typeof value === "string") {
+    return redactImageGenerationLogText(value);
   }
   if (!value || typeof value !== "object") {
     return value;
@@ -597,6 +601,20 @@ function formatProviderFailureReason(value: unknown): string {
   }
 }
 
+export function formatVideosBase64ProviderFailureReason(payload: any): string {
+  const nested = payload?.data;
+  const nestedError = payload?.error ?? nested?.error;
+  const errorObject = nestedError && typeof nestedError === "object" ? nestedError : undefined;
+  const evidence = Object.fromEntries(
+    Object.entries({
+      code: payload?.code ?? nested?.code ?? errorObject?.code,
+      message: payload?.message ?? nested?.message ?? errorObject?.message,
+      error: nestedError
+    }).filter(([, value]) => value !== undefined && value !== null && value !== "")
+  );
+  return Object.keys(evidence).length > 0 ? formatProviderFailureReason(evidence) : "unknown error";
+}
+
 function extractVideosBase64ResultUrl(payload: any): string {
   const resultUrl =
     payload?.video_url ??
@@ -917,6 +935,22 @@ async function generateWithOpenAiCompatibleProvider(options: {
         slotAction.action === "retry_failed_before_acceptance" ||
         slotAction.action === "retry_failed_after_acceptance"
       ) {
+        const failedRetryReason =
+          slotAction.action !== "missing" && "record" in slotAction
+            ? (slotAction.record?.reason || "")
+            : "";
+        const persistedNonReplayable =
+          slotAction.action !== "missing" &&
+          "record" in slotAction &&
+          slotAction.record?.replayDisposition === "non_replayable";
+        if (
+          slotAction.action !== "missing" &&
+          (persistedNonReplayable || isUnsafePaidImageReplayReason(failedRetryReason))
+        ) {
+          throw normalizeImageGenerationError(
+            `paid image slot ${ledgerSlot} is not safe to replay: ${failedRetryReason || "unknown retry failure"}`
+          );
+        }
         const failedAfterAcceptanceReason =
           slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
             ? (slotAction.record?.reason || "")
@@ -934,11 +968,6 @@ async function generateWithOpenAiCompatibleProvider(options: {
         if (fixedSlotRecovery.action === "defer_to_supervisor") {
           throw normalizeImageGenerationError(
             `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${fixedSlotRecovery.deferMs}ms.`
-          );
-        }
-        if (fixedSlotRecovery.action === "bubble" && isUnsafePaidImageReplayReason(failedAfterAcceptanceReason)) {
-          throw normalizeImageGenerationError(
-            `paid image slot ${ledgerSlot} is not safe to replay: ${failedAfterAcceptanceReason || "unknown failure after acceptance"}`
           );
         }
         const keepPolicyCompatiblePrompt =
@@ -1049,7 +1078,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
           recordFailure({
             productDir: videosBase64Ledger.productDir,
             slot: ledgerSlot,
-            reason: message
+            reason: message,
+            replayDisposition: isUnsafePaidImageReplayReason(message) ? "non_replayable" : undefined
           });
         }
         throw error;
@@ -1060,10 +1090,12 @@ async function generateWithOpenAiCompatibleProvider(options: {
           const recordRejection = providerExplicitlyProvesNoPaidTaskAccepted(response.status, text)
             ? recordPaidImageFailedBeforeAcceptance
             : recordPaidImageAmbiguous;
+          const rejectionReason = "HTTP " + response.status + ": " + (text || response.statusText);
           recordRejection({
             productDir: videosBase64Ledger.productDir,
             slot: ledgerSlot,
-            reason: "HTTP " + response.status + ": " + (text || response.statusText)
+            reason: rejectionReason,
+            replayDisposition: isUnsafePaidImageReplayReason(rejectionReason) ? "non_replayable" : undefined
           });
         }
         throw normalizeImageGenerationError("videos-base64 submit failed with HTTP " + response.status + ": " + (text || response.statusText));
@@ -1126,14 +1158,17 @@ async function generateWithOpenAiCompatibleProvider(options: {
     });
     const statusPayload = observation.payload;
     if (observation.kind === "failure") {
-      const errorMessage = formatProviderFailureReason(statusPayload?.error ?? statusPayload?.data?.error);
+      const replayDisposition = isUnsafePaidImageReplayPayload(statusPayload) ? "non_replayable" : undefined;
+      const errorMessage = formatVideosBase64ProviderFailureReason(statusPayload);
+      const failureReason = `provider task failed: ${errorMessage}`;
       if (videosBase64Ledger) {
         recordPaidImageFailedAfterAcceptance({
           productDir: videosBase64Ledger.productDir,
           slot: ledgerSlot,
           providerTaskId: taskId,
-          reason: `provider task failed: ${errorMessage}`,
-          providerResponse: statusPayload
+          reason: failureReason,
+          providerResponse: statusPayload,
+          replayDisposition
         });
       }
       throw normalizeImageGenerationError(`videos-base64 task ${taskId} failed: ${errorMessage}`);
