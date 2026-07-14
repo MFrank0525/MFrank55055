@@ -45,7 +45,9 @@ assert.equal(example.apiUrl.endsWith("/v1/videos"), true);
 assert.equal(example.size, "1024x1024");
 assert.equal(example.videoMetadata.aspect_ratio, "1:1");
 assert.equal(example.submitConcurrency, 2);
-assert.equal(example.maxPollMs, 180000);
+assert.equal(example.timeoutMs, 180000);
+assert.equal(example.maxPollMs, 30 * 60 * 1000);
+assert.equal(example.acceptedQueueStaleMs, 30 * 60 * 1000);
 assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(undefined), 30 * 60 * 1000);
 assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(3 * 60 * 1000), 30 * 60 * 1000);
 assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(60 * 60 * 1000), 30 * 60 * 1000);
@@ -564,6 +566,21 @@ assert.match(ruleDoc, /failed_after_acceptance.*固定 slot.*允许.*重试/s);
 assert.match(ruleDoc, /没有取得 task ID.*没有供应商响应摘要.*fetch failed.*no-acceptance/s);
 assert.match(ruleDoc, /no-acceptance.*failed_before_acceptance.*重试同一固定 slot/s);
 assert.match(ruleDoc, /failed_after_acceptance.*只补同一固定 slot/s);
+assert.match(
+  ruleDoc,
+  /3\s*分钟.*外部服务等待.*不得.*重新提交/s,
+  "Three minutes must be documented only as operational external-service waiting and must not authorize paid resubmission"
+);
+assert.match(
+  ruleDoc,
+  /30\s*分钟.*已受理.*任务.*观察上限/s,
+  "Accepted paid tasks must have a documented 30-minute observation ceiling"
+);
+assert.match(
+  stabilityChecklist,
+  /30\s*分钟.*最终状态查询/s,
+  "The stability checklist must require the final provider status query at 30 minutes"
+);
 assert.match(
   ruleDoc,
   /明确终态超时.*当前子进程.*同一固定 slot.*禁止.*整批.*supervisor/s,

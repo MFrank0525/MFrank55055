@@ -586,6 +586,11 @@ assert.match(
 );
 assert.match(
   auditCliSource,
+  /videosBase64AcceptedTaskPollCeilingMs:\s*videosBase64AcceptedTaskPollCeilingMs/,
+  "Deep audit must independently compare accepted paid-task observation rules against the executable ceiling"
+);
+assert.match(
+  auditCliSource,
   /docs\/auto-listing\/steps\/03-main-image-generation\.md/,
   "Deep audit must read the main-image rule source for contradiction checks"
 );
@@ -679,6 +684,48 @@ assert.equal(imageWaitContradictionAudit.ok, false);
 assert.deepEqual(imageWaitContradictionAudit.errors.map((item) => item.code), [
   "main_image_wait_rule_contradiction",
   "stability_wait_rule_contradiction"
+]);
+
+const wrongPaidTaskCeilingSource = "videos-base64 已受理付费任务轮询最多等待 3 分钟，之后重新提交。";
+const wrongDualThresholdAudit = auditRuleContradictions({
+  categoryPlans: [],
+  titleRuleText: "",
+  shopRuleText: "",
+  promptRuleText: "",
+  imageRuleText: wrongPaidTaskCeilingSource,
+  stabilityRuleText: wrongPaidTaskCeilingSource,
+  imageWaitCeilingMs: 3 * 60 * 1000,
+  videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+});
+assert.equal(wrongDualThresholdAudit.ok, false, "A three-minute paid-task ceiling must be rejected");
+assert.equal(
+  wrongDualThresholdAudit.errors.some((item) => item.code === "main_image_accepted_task_poll_rule_contradiction"),
+  true
+);
+assert.equal(
+  wrongDualThresholdAudit.errors.some((item) => item.code === "stability_accepted_task_poll_rule_contradiction"),
+  true
+);
+
+const correctDualThresholdSource = [
+  "外部服务等待最多 3 分钟；这是操作等待、退避和慢服务阈值，不得授权重新提交付费任务。",
+  "videos-base64 已受理付费任务使用同一任务 ID，观察上限 30 分钟。",
+  "供应商明确成功或失败立即退出；达到 30 分钟执行最终状态查询，只有仍为 queued/pending 才可标记 stale 并重试同一固定 slot，completed slot 永不重新生成。"
+].join("\n");
+const correctDualThresholdAudit = auditRuleContradictions({
+  categoryPlans: [],
+  titleRuleText: "",
+  shopRuleText: "",
+  promptRuleText: "",
+  imageRuleText: correctDualThresholdSource,
+  stabilityRuleText: correctDualThresholdSource,
+  imageWaitCeilingMs: 3 * 60 * 1000,
+  videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+});
+assert.equal(correctDualThresholdAudit.ok, true, correctDualThresholdAudit.errors.map((item) => item.message).join("\n"));
+assert.deepEqual(correctDualThresholdAudit.evidence.slice(-2), [
+  "imageServiceWaitCeilingMs=180000",
+  "videosBase64AcceptedTaskPollCeilingMs=1800000"
 ]);
 
 console.log("deep auto-listing audit rules passed");

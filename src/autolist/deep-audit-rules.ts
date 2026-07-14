@@ -293,14 +293,25 @@ function includesCountRule(text: string, category: string, count: number, unit: 
   return normalized.includes(`${category}：${count}${unit}`) || normalized.includes(`${category}:${count}${unit}`);
 }
 
-function includesMinuteCeilingRule(text: string, ceilingMs: number): boolean {
+function includesOperationalImageWaitRule(text: string, ceilingMs: number): boolean {
   const minutes = Math.floor(ceilingMs / 60000);
   const normalized = text.replace(/\s+/g, "");
-  return (
-    normalized.includes(`不得超过${minutes}分钟`) ||
-    normalized.includes(`最多等待${minutes}分钟`) ||
-    normalized.includes(`固定等待${minutes}分钟`)
-  );
+  const hasCeiling = normalized.includes(`${minutes}分钟`);
+  const hasOperationalMeaning = normalized.includes("外部服务等待") &&
+    (normalized.includes("退避") || normalized.includes("慢服务") || normalized.includes("操作"));
+  const rejectsPaidResubmission = new RegExp(`(?:${minutes}分钟)[\\s\\S]*(?:不得|不能|禁止)[\\s\\S]*重新提交`).test(normalized);
+  return hasCeiling && hasOperationalMeaning && rejectsPaidResubmission;
+}
+
+function includesAcceptedTaskObservationRule(text: string, ceilingMs: number): boolean {
+  const minutes = Math.floor(ceilingMs / 60000);
+  const normalized = text.replace(/\s+/g, "");
+  const hasAcceptedTask = normalized.includes("已受理") && normalized.includes("任务");
+  const hasObservationCeiling =
+    normalized.includes(`观察上限${minutes}分钟`) ||
+    new RegExp(`${minutes}分钟[\\s\\S]*观察上限`).test(normalized);
+  const hasFinalQuery = new RegExp(`${minutes}分钟[\\s\\S]*最终状态查询`).test(normalized);
+  return hasAcceptedTask && hasObservationCeiling && hasFinalQuery;
 }
 
 export function auditRuleContradictions(input: {
@@ -311,6 +322,7 @@ export function auditRuleContradictions(input: {
   imageRuleText?: string;
   stabilityRuleText?: string;
   imageWaitCeilingMs?: number;
+  videosBase64AcceptedTaskPollCeilingMs?: number;
 }): { ok: boolean; errors: DeepAuditIssue[]; warnings: DeepAuditIssue[]; evidence: string[] } {
   const errors: DeepAuditIssue[] = [];
   for (const plan of input.categoryPlans) {
@@ -326,16 +338,31 @@ export function auditRuleContradictions(input: {
   }
   if (Number.isFinite(input.imageWaitCeilingMs || NaN)) {
     const ceilingMs = Number(input.imageWaitCeilingMs);
-    if (input.imageRuleText !== undefined && !includesMinuteCeilingRule(input.imageRuleText, ceilingMs)) {
+    if (input.imageRuleText !== undefined && !includesOperationalImageWaitRule(input.imageRuleText, ceilingMs)) {
       errors.push({
         code: "main_image_wait_rule_contradiction",
         message: `Main image rule source does not reflect image service wait ceiling ${ceilingMs}ms.`
       });
     }
-    if (input.stabilityRuleText !== undefined && !includesMinuteCeilingRule(input.stabilityRuleText, ceilingMs)) {
+    if (input.stabilityRuleText !== undefined && !includesOperationalImageWaitRule(input.stabilityRuleText, ceilingMs)) {
       errors.push({
         code: "stability_wait_rule_contradiction",
         message: `Stability checklist does not reflect image service wait ceiling ${ceilingMs}ms.`
+      });
+    }
+  }
+  if (Number.isFinite(input.videosBase64AcceptedTaskPollCeilingMs || NaN)) {
+    const ceilingMs = Number(input.videosBase64AcceptedTaskPollCeilingMs);
+    if (input.imageRuleText !== undefined && !includesAcceptedTaskObservationRule(input.imageRuleText, ceilingMs)) {
+      errors.push({
+        code: "main_image_accepted_task_poll_rule_contradiction",
+        message: `Main image rule source does not reflect accepted paid-task observation ceiling ${ceilingMs}ms and its final status query.`
+      });
+    }
+    if (input.stabilityRuleText !== undefined && !includesAcceptedTaskObservationRule(input.stabilityRuleText, ceilingMs)) {
+      errors.push({
+        code: "stability_accepted_task_poll_rule_contradiction",
+        message: `Stability checklist does not reflect accepted paid-task observation ceiling ${ceilingMs}ms and its final status query.`
       });
     }
   }
@@ -345,7 +372,10 @@ export function auditRuleContradictions(input: {
     warnings: [],
     evidence: [
       ...input.categoryPlans.map((plan) => `${plan.category}:titles=${plan.titleCount},shops=${plan.shopCount},prompts=${plan.promptCount}`),
-      ...(Number.isFinite(input.imageWaitCeilingMs || NaN) ? [`imageWaitCeilingMs=${Number(input.imageWaitCeilingMs)}`] : [])
+      ...(Number.isFinite(input.imageWaitCeilingMs || NaN) ? [`imageServiceWaitCeilingMs=${Number(input.imageWaitCeilingMs)}`] : []),
+      ...(Number.isFinite(input.videosBase64AcceptedTaskPollCeilingMs || NaN)
+        ? [`videosBase64AcceptedTaskPollCeilingMs=${Number(input.videosBase64AcceptedTaskPollCeilingMs)}`]
+        : [])
     ]
   };
 }

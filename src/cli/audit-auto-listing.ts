@@ -4,7 +4,7 @@ import { auditAutoListingContinuity, auditCompletedBatchResidue, auditIntermedia
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
 import { auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
-import { imageServiceWaitCeilingMs } from "../autolist/image-generation-rules.js";
+import { imageServiceWaitCeilingMs, videosBase64AcceptedTaskPollCeilingMs } from "../autolist/image-generation-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { auditCurrentPaidImageLedgers } from "../autolist/paid-image-audit.js";
@@ -447,7 +447,8 @@ async function main(): Promise<void> {
     promptRuleText: fs.readFileSync("docs/auto-listing/steps/02-deepseek-prompts.md", "utf8"),
     imageRuleText: fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8"),
     stabilityRuleText: fs.readFileSync("docs/auto-listing/stability-checklist.md", "utf8"),
-    imageWaitCeilingMs: imageServiceWaitCeilingMs
+    imageWaitCeilingMs: imageServiceWaitCeilingMs,
+    videosBase64AcceptedTaskPollCeilingMs: videosBase64AcceptedTaskPollCeilingMs
   });
 
   const toDeepIssues = (issues: Array<{ code: string; message: string }>): DeepAuditIssue[] =>
