@@ -144,7 +144,9 @@ for (const failureReason of [
   "provider task failed: unauthenticated after timeout",
   "provider task failed: api_key_invalid after timeout",
   "provider task failed: usage_limit_exceeded after timeout",
-  "provider task failed: payment_required after timeout"
+  "provider task failed: payment_required after timeout",
+  "submitted provider task response was ambiguous after timeout",
+  "submitted provider task timed out before task id was received"
 ]) {
   assert.deepEqual(
     resolvePaidImageFixedSlotRecovery({

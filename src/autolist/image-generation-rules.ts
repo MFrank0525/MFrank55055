@@ -234,6 +234,13 @@ export function isAcceptedPaidImageTaskTimeoutReason(reason: string): boolean {
 }
 
 function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
+  const hasStrongUncertainty =
+    /response.*ambiguous|(?:missing|before|without|did not include).*task id|task id.*(?:missing|not received|not returned)/i.test(
+      reason
+    );
+  if (hasStrongUncertainty) {
+    return true;
+  }
   if (/submitted provider task/i.test(reason)) {
     return false;
   }
@@ -241,8 +248,7 @@ function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
     /\bsubmission\b|\bsubmitting\b/i.test(reason) ||
     /\bsubmit\b.*(?:request|response|failed|failure|ambiguous)|(?:request|response|failed|failure|ambiguous).*\bsubmit\b/i.test(
       reason
-    ) ||
-    /(?:missing|before|without|did not include).*task id|task id.*(?:missing|not received|not returned)/i.test(reason)
+    )
   );
 }
 
