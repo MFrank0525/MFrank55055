@@ -1,4 +1,9 @@
 export const imageServiceWaitCeilingMs = 3 * 60 * 1000;
+export const videosBase64AcceptedTaskPollCeilingMs = 30 * 60 * 1000;
+
+export function resolveVideosBase64AcceptedTaskPollCeilingMs(_configuredMaxPollMs: number | undefined): number {
+  return videosBase64AcceptedTaskPollCeilingMs;
+}
 
 export function resolveImageDownloadTimeoutMs(requestTimeoutMs: number | undefined): number {
   return Math.max(30000, requestTimeoutMs || 180000);
@@ -221,6 +226,10 @@ export function shouldKeepPaidImagePolicyCompatiblePrompt(input: {
   );
 }
 
+export function isAcceptedPaidImageTaskTimeoutReason(reason: string): boolean {
+  return /task_timeout|timeout|timed out|did not finish within|queued\/pending beyond|超时/i.test(reason);
+}
+
 export function resolvePaidImageProviderTimeoutRetry(input: {
   failureReason: string;
   audit: Array<{ state?: string; at?: string; reason?: string }>;
@@ -232,11 +241,11 @@ export function resolvePaidImageProviderTimeoutRetry(input: {
 }): { usePolicyCompatiblePrompt: boolean; deferMs: number } {
   const timeoutThreshold = Math.max(1, input.timeoutThreshold ?? 2);
   const cooldownMs = Math.min(imageServiceWaitCeilingMs, Math.max(0, input.cooldownMs ?? imageServiceWaitCeilingMs));
-  const timeoutPattern = /timeout|timed out|did not finish within|queued\/pending beyond|超时/i;
   const timeoutFailures = input.audit.filter(
-    (entry) => entry.state === "failed_after_acceptance" && timeoutPattern.test(entry.reason || "")
+    (entry) => entry.state === "failed_after_acceptance" && isAcceptedPaidImageTaskTimeoutReason(entry.reason || "")
   );
-  const repeatedTimeout = timeoutPattern.test(input.failureReason) && timeoutFailures.length >= timeoutThreshold;
+  const repeatedTimeout =
+    isAcceptedPaidImageTaskTimeoutReason(input.failureReason) && timeoutFailures.length >= timeoutThreshold;
   if (!repeatedTimeout) {
     return { usePolicyCompatiblePrompt: false, deferMs: 0 };
   }
@@ -268,25 +277,27 @@ export function resolvePaidImageFixedSlotRecovery(input: {
 } {
   const failureReason = input.failureReason || "";
   const unsafeReplay =
-    /permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
+    /submit response was ambiguous|permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
       failureReason
     );
-  const explicitAcceptedTaskTimeout =
-    /provider task failed/i.test(failureReason) && /task_timeout|timeout|timed out|did not finish within|超时/i.test(failureReason);
+  const explicitAcceptedTaskTimeout = isAcceptedPaidImageTaskTimeoutReason(failureReason);
   if (!explicitAcceptedTaskTimeout || unsafeReplay) {
     return { action: "bubble", usePolicyCompatiblePrompt: false, deferMs: 0 };
   }
 
   const timeoutRetry = resolvePaidImageProviderTimeoutRetry(input);
+  const usePolicyCompatiblePrompt =
+    timeoutRetry.usePolicyCompatiblePrompt ||
+    (Boolean(input.recordedPromptDigest) && input.recordedPromptDigest === input.policyCompatiblePromptDigest);
   return timeoutRetry.deferMs > 0
     ? {
         action: "defer_to_supervisor",
-        usePolicyCompatiblePrompt: timeoutRetry.usePolicyCompatiblePrompt,
+        usePolicyCompatiblePrompt,
         deferMs: timeoutRetry.deferMs
       }
     : {
         action: "retry_fixed_slot_now",
-        usePolicyCompatiblePrompt: timeoutRetry.usePolicyCompatiblePrompt,
+        usePolicyCompatiblePrompt,
         deferMs: 0
       };
 }

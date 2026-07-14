@@ -10,6 +10,7 @@ import {
   resolvePaidImageLedgerFailureDisposition,
   resolveMissingFixedImageIndexes,
   resolveVideosBase64SubmitConcurrency,
+  resolveVideosBase64AcceptedTaskPollCeilingMs,
   resolveVideosBase64SubmitTimeoutMs,
   shouldKeepPaidImagePolicyCompatiblePrompt,
   resolvePaidImageProviderTimeoutRetry,
@@ -40,6 +41,9 @@ assert.equal(example.size, "1024x1024");
 assert.equal(example.videoMetadata.aspect_ratio, "1:1");
 assert.equal(example.submitConcurrency, 2);
 assert.equal(example.maxPollMs, 180000);
+assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(undefined), 30 * 60 * 1000);
+assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(3 * 60 * 1000), 30 * 60 * 1000);
+assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(60 * 60 * 1000), 30 * 60 * 1000);
 assert.equal(
   shouldKeepPaidImagePolicyCompatiblePrompt({
     failureReason: 'provider task failed: {"message":"失败了超时 请重试","code":"upstream_error"}',
@@ -89,6 +93,22 @@ assert.deepEqual(
   }),
   { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: false, deferMs: 0 },
   "A videos-base64 poll timeout must be treated as an accepted-task timeout and retry only that fixed slot"
+);
+assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: "videos-base64 accepted task stayed queued/pending beyond 1800000ms; retrying fixed slot 11.",
+    audit: [
+      {
+        state: "failed_after_acceptance",
+        at: "2026-07-14T06:40:00.000Z",
+        reason: "videos-base64 accepted task stayed queued/pending beyond 1800000ms; retrying fixed slot 11."
+      }
+    ],
+    recordedPromptDigest: "policy-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-07-14T06:44:00.000Z")
+  }),
+  { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: true, deferMs: 0 }
 );
 for (const failureReason of [
   "provider task failed: invalid image",
