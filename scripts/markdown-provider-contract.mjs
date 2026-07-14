@@ -31,7 +31,7 @@ function isLocallyNegated(text, matchIndex, scopeStart = 0) {
   if (/non-?(?:replaceable|pluggable|switchable)/iu.test(matchNeighborhood)) {
     return true;
   }
-  return /(?:禁止|不得|不允许|不可|严禁|不能|不应|不(?:导入|迁移|扫描|提供|使用|支持|更换|切换|替换|自动))[^；;。！？!?，,|]{0,40}$|不\s*$|(?:must\s+not|never|do\s+not|does\s+not|should\s+not|cannot|can't|not\s+(?:be\s+)?|no\s+(?:automatic|legacy|alternate))[^.;,|]{0,48}$/iu.test(
+  return /(?:禁止|不得|不允许|不可|严禁|不能|不应|不(?:存在|导入|迁移|扫描|提供|使用|支持|更换|切换|替换|自动))[^；;。！？!?，,|]{0,40}$|不\s*$|(?:must\s+not|never|do\s+not|does\s+not|should\s+not|cannot|can't|not\s+(?:be\s+)?|no\s+(?:automatic|legacy|alternate))[^.;,|]{0,48}$/iu.test(
     localText
   );
 }
@@ -42,11 +42,26 @@ function findAllMatches(text, pattern) {
 }
 
 function affirmativeMatches(text, matches) {
-  return matches.filter((match, index) => {
+  const affirmative = [];
+  let scopeStart = 0;
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
     const previousMatch = matches[index - 1];
-    const scopeStart = previousMatch ? previousMatch.index + previousMatch[0].length : 0;
-    return !isLocallyNegated(text, match.index, scopeStart);
-  });
+    if (previousMatch) {
+      const bridge = text.slice(previousMatch.index + previousMatch[0].length, match.index);
+      if (!/^\s*(?:或(?:者)?|or\b)/iu.test(bridge)) {
+        scopeStart = previousMatch.index + previousMatch[0].length;
+      }
+    }
+    if (!isLocallyNegated(text, match.index, scopeStart)) {
+      affirmative.push(match);
+    }
+  }
+  return affirmative;
+}
+
+function topicActionMatches(text, itemText, topicPattern, actionPattern) {
+  return topicPattern.test(`${itemText} ${text}`) ? findAllMatches(text, actionPattern) : [];
 }
 
 export function splitMarkdownRuleItems(markdown) {
@@ -122,7 +137,7 @@ function matchPositiveProviderChanges(clause, context) {
   }
   const positiveChanges = findAllMatches(
     clause,
-    /可替换|可插拔|可切换|支持(?:更换|切换|替换)|允许(?:更换|切换|替换)|可以(?:更换|切换|替换)|(?:更换|切换|替换)\s*(?:图片|主图|生图)?\s*(?:provider|模型)|replaceable|pluggable|switchable|can\s+(?:change|switch|replace)|may\s+(?:change|switch|replace)|supports?\s+(?:changing|switching|replacing)/iu
+    /可替换|可插拔|可切换|支持(?:更换|切换|替换)|允许(?:更换|切换|替换)|可以(?:更换|切换|替换)|允许使用\s*(?:另一(?:个)?|其他|替代)\s*(?:provider|模型)|可改用\s*(?:另一(?:个)?|其他|替代)\s*(?:provider|模型)|(?:更换|切换|替换)\s*(?:图片|主图|生图)?\s*(?:provider|模型)|replaceable|pluggable|switchable|can\s+(?:change|switch|replace)|may\s+(?:change|switch|replace)|supports?\s+(?:changing|switching|replacing)|can\s+use\s+(?:an?\s+)?(?:alternate|other)\s+(?:provider|model)/iu
   );
   const explicitlyNonImage = /标题|title\s+provider|飞书|Feishu|浏览器|browser|data\s+source|数据源/iu.test(clause);
   return context.image || hasImageContext(clause) || !explicitlyNonImage ? positiveChanges : [];
@@ -160,25 +175,25 @@ export function findObsoleteProviderContradictions(markdown) {
           findings.push(finding("legacy top-level size request field", item, clause));
         }
       }
-      for (const match of affirmativeMatches(
+      const paidImageReplayMatches = topicActionMatches(
         text,
-        findAllMatches(
-          text,
-          /自动重复提交|自动重提|automatically\s+(?:repeat(?:ed|ing)?\s+submissions?|re-?submit)|automatic\s+repeated\s+(?:paid\s+)?submission/iu
-        )
-      )) {
+        item.text,
+        /付费(?:图片|生图)?(?:任务|请求)|paid[- ]image\s+(?:request|task)|paid\s+image\s+(?:request|task)/iu,
+        /自动(?:循环|重复)提交|自动重提|自动(?:重放|回放)|automatically\s+(?:repeat(?:ed|ing)?\s+submissions?|re-?submit(?:ted)?|replayed)|auto(?:matically)?\s+replay(?:ed)?|automatic\s+repeated\s+(?:paid\s+)?submission/iu
+      );
+      for (const match of affirmativeMatches(text, paidImageReplayMatches)) {
         findings.push(finding("automatic repeated paid submission", item, clause));
       }
       for (const match of affirmativeMatches(text, matchPositiveProviderChanges(text, clause.context))) {
         findings.push(finding("replaceable paid-image provider wording", item, clause));
       }
-      for (const match of affirmativeMatches(
+      const historicalLedgerMatches = topicActionMatches(
         text,
-        findAllMatches(
-          text,
-          /(?:迁移|导入)[^\n]{0,80}(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)|(?:历史|旧)[^\n]{0,40}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)[^\n]{0,80}(?:迁移|导入)|migrat(?:e|ion)[^\n]{0,120}(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger|(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger[^\n]{0,120}migrat/iu
-        )
-      )) {
+        item.text,
+        /(?:历史|旧)[^；;。！？!?，,|]{0,48}(?:付费账本|paid[- ]image[- ]ledger|runtime[- ]ledger)|(?:historical|legacy)[^.;,|]{0,80}(?:paid[- ]image|runtime)[- ]ledger/iu,
+        /迁移|导入|兼容|migrat(?:e|ion)|import|compatib(?:le|ility)|supports?/iu
+      );
+      for (const match of affirmativeMatches(text, historicalLedgerMatches)) {
         findings.push(finding("historical paid-ledger migration instruction", item, clause));
       }
     }

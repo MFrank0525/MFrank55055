@@ -100,6 +100,9 @@ for (const fixture of [
   "- The image provider is nonswitchable.",
   "- 禁止使用 query_result 或 fail_reason。",
   "- 严禁迁移历史付费账本。",
+  "- 不得兼容旧付费账本。",
+  "- Paid-image request must not auto replay after failure.",
+  "- The image provider cannot use an alternate model.",
   "- Image request must not use ImagePath.",
   "- 生图请求固定发送 metadata.size: 1024x1024。",
   "- The downloaded image path is /tmp/result.png."
@@ -118,7 +121,14 @@ for (const [fixture, expectedLabel] of [
   ['- 生图请求使用 {"mode":"edits"}。', "obsolete image-edit mode"],
   ["- Provider response writes Query_Result.", "legacy query_result artifact"],
   ["- Provider response writes Fail_Reason.", "legacy fail_reason artifact"],
-  ["- 恢复流程支持迁移历史付费账本。", "historical paid-ledger migration instruction"]
+  ["- 恢复流程支持迁移历史付费账本。", "historical paid-ledger migration instruction"],
+  ["- 兼容旧付费账本。", "historical paid-ledger migration instruction"],
+  ["- Supports legacy paid-image-ledger compatibility.", "historical paid-ledger migration instruction"],
+  ["- 自动循环提交付费图片任务直到成功。", "automatic repeated paid submission"],
+  ["- Paid-image request is automatically replayed after failure.", "automatic repeated paid submission"],
+  ["- 主图允许使用另一 provider。", "replaceable paid-image provider wording"],
+  ["- 主图可改用其他模型。", "replaceable paid-image provider wording"],
+  ["- The image provider can use an alternate model.", "replaceable paid-image provider wording"]
 ]) {
   assert.equal(
     findObsoleteProviderContradictions(fixture).some((finding) => finding.label === expectedLabel),
