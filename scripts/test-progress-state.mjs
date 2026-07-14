@@ -1545,6 +1545,58 @@ assert.equal(
   30 * 60 * 1000,
   "The supervisor must let an accepted pending task reach its fixed thirty-minute observation ceiling"
 );
+assert.equal(
+  typeof progressRulesModule.resolveAutoListingControllerChildWatchdogDecision,
+  "function",
+  "Accepted-task watchdog timing must be exposed as a pure state transition"
+);
+const firstAcceptedTaskWatchdog = progressRulesModule.resolveAutoListingControllerChildWatchdogDecision({
+  defaultTimeoutMs: 12 * 60 * 1000,
+  lastProgressSeenAtMs: 0,
+  nowMs: 20 * 60 * 1000,
+  activeStep: "main_images_generated",
+  activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_first status queued 0."
+});
+assert.equal(firstAcceptedTaskWatchdog.shouldTerminate, false);
+assert.equal(firstAcceptedTaskWatchdog.stallBaselineMs, 20 * 60 * 1000);
+assert.deepEqual(firstAcceptedTaskWatchdog.acceptedTaskObservation, {
+  taskKey: "task_first",
+  startedAtMs: 20 * 60 * 1000
+});
+const sameAcceptedTaskWatchdog = progressRulesModule.resolveAutoListingControllerChildWatchdogDecision({
+  defaultTimeoutMs: 12 * 60 * 1000,
+  lastProgressSeenAtMs: 0,
+  nowMs: 49 * 60 * 1000,
+  activeStep: "main_images_generated",
+  activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_first status pending 0.",
+  acceptedTaskObservation: firstAcceptedTaskWatchdog.acceptedTaskObservation
+});
+assert.equal(sameAcceptedTaskWatchdog.shouldTerminate, false);
+assert.equal(sameAcceptedTaskWatchdog.stallBaselineMs, 20 * 60 * 1000);
+const changedAcceptedTaskWatchdog = progressRulesModule.resolveAutoListingControllerChildWatchdogDecision({
+  defaultTimeoutMs: 12 * 60 * 1000,
+  lastProgressSeenAtMs: 0,
+  nowMs: 50 * 60 * 1000,
+  activeStep: "main_images_generated",
+  activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_second status queued 0.",
+  acceptedTaskObservation: sameAcceptedTaskWatchdog.acceptedTaskObservation
+});
+assert.equal(changedAcceptedTaskWatchdog.shouldTerminate, false);
+assert.deepEqual(changedAcceptedTaskWatchdog.acceptedTaskObservation, {
+  taskKey: "task_second",
+  startedAtMs: 50 * 60 * 1000
+});
+const decimalProgressWatchdog = progressRulesModule.resolveAutoListingControllerChildWatchdogDecision({
+  defaultTimeoutMs: 12 * 60 * 1000,
+  lastProgressSeenAtMs: 0,
+  nowMs: 20 * 60 * 1000,
+  activeStep: "main_images_generated",
+  activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_decimal status queued 0.5.",
+  acceptedTaskObservation: changedAcceptedTaskWatchdog.acceptedTaskObservation
+});
+assert.equal(decimalProgressWatchdog.effectiveStallTimeoutMs, 12 * 60 * 1000);
+assert.equal(decimalProgressWatchdog.acceptedTaskObservation, undefined);
+assert.equal(decimalProgressWatchdog.shouldTerminate, true);
 
 const alreadyInTargetShop = evaluateShopSwitchMenuState({
   expectedShopName: "延草纲目康复理疗专营店",
@@ -2965,6 +3017,61 @@ assert.equal(
   }),
   "external_service_wait",
   "A running supervisor with an active terminal main-image transport failure must report external-service wait, not normal running"
+);
+const paidLedgerDerivedWaitStatus = resolveAutoListingControllerRuntimeStatus({
+  running: true,
+  activeWaitState: false,
+  completed: false,
+  failed: false,
+  hasPendingFeishuProducts: false,
+  activeMainImageGeneration: true,
+  paidImageSubmitted: 3,
+  publishProgressActive: false
+});
+assert.equal(
+  paidLedgerDerivedWaitStatus,
+  "external_service_wait",
+  "A running main-image task with accepted paid ledger slots must derive external-service wait status"
+);
+const compactPaidLedgerDerivedWait = formatAutoListingControllerCompactStatusText({
+  status: paidLedgerDerivedWaitStatus,
+  summary: "图片服务冷却中，系统将自动继续查询已接受任务。",
+  imageGenerationProgress: "Prompt 5/5: Image 4: videos-base64 task task_active status pending 0.",
+  mainImageCompleted: 17,
+  mainImageExpected: 20,
+  feishuCompleted: 0,
+  feishuTotal: 1
+});
+assert.match(compactPaidLedgerDerivedWait, /主图 17\/20/);
+assert.match(compactPaidLedgerDerivedWait, /等待生图服务/);
+assert.equal(
+  resolveAutoListingControllerRuntimeStatus({
+    running: true,
+    activeWaitState: false,
+    completed: false,
+    failed: false,
+    hasPendingFeishuProducts: false,
+    activeMainImageGeneration: true,
+    paidImageSubmitted: 3,
+    publishProgressActive: true
+  }),
+  "running",
+  "Active publish progress must take precedence over stale submitted paid-image ledger slots"
+);
+assert.equal(
+  resolveAutoListingControllerRuntimeStatus({
+    running: true,
+    activeWaitState: false,
+    completed: false,
+    failed: false,
+    hasPendingFeishuProducts: false,
+    activeMainImageGeneration: true,
+    paidImageSubmitted: 3,
+    publishProgressActive: false,
+    terminalFailureMessage: "paid image ledger blocked slot 4: blocked_ambiguous"
+  }),
+  "running",
+  "A non-provider terminal failure must not be mislabeled as an external provider wait from stale submitted slots"
 );
 assert.equal(
   shouldSuppressTerminalFailureBehindNewerProgress({

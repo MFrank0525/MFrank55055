@@ -4,7 +4,7 @@ import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import {
   resolveDefaultRetryableChildFailureRecoveryAttempts,
-  resolveAutoListingControllerChildStallTimeoutMs,
+  resolveAutoListingControllerChildWatchdogDecision,
   isAutoListingControllerProgressArtifactRelativePath,
   isRetryableExternalServiceAvailabilityFailure,
   resolveSupervisorRecoveryChildMode,
@@ -280,6 +280,7 @@ async function runChild(label: string, command: string, args: string[]): Promise
   let lastProgressSeenAt = Date.now();
   let killedForStall = false;
   let terminalResultExitCode: number | null | undefined;
+  let acceptedTaskObservation: ReturnType<typeof resolveAutoListingControllerChildWatchdogDecision>["acceptedTaskObservation"];
   latestChildStallProgress = {};
   const watchdog = setInterval(() => {
     const terminalResult = latestTerminalResultAfter(childStartedAtMs);
@@ -317,18 +318,22 @@ async function runChild(label: string, command: string, args: string[]): Promise
       latestChildStallProgress = activeProgress;
     }
     activeProgress = activeProgress || latestProgressSnapshot();
-    const effectiveStallTimeoutMs = resolveAutoListingControllerChildStallTimeoutMs({
+    const watchdogDecision = resolveAutoListingControllerChildWatchdogDecision({
       defaultTimeoutMs: childStallTimeoutMs,
+      lastProgressSeenAtMs: lastProgressSeenAt,
+      nowMs: Date.now(),
       activeStep: activeProgress.activeStep,
-      activeMessage: activeProgress.activeMessage
+      activeMessage: activeProgress.activeMessage,
+      acceptedTaskObservation
     });
-    if (Date.now() - lastProgressSeenAt < effectiveStallTimeoutMs) {
+    acceptedTaskObservation = watchdogDecision.acceptedTaskObservation;
+    if (!watchdogDecision.shouldTerminate) {
       return;
     }
     killedForStall = true;
     latestChildStallProgress = activeProgress;
     console.error(
-      `Child ${label} made no progress for ${effectiveStallTimeoutMs}ms during ${activeProgress.activeStep || "unknown"}; terminating process group ${child.pid}. latest=${activeProgress.activeMessage || ""}`
+      `Child ${label} made no progress for ${watchdogDecision.effectiveStallTimeoutMs}ms during ${activeProgress.activeStep || "unknown"}; terminating process group ${child.pid}. latest=${activeProgress.activeMessage || ""}`
     );
     if (child.pid) {
       terminateProcessGroup(child.pid);

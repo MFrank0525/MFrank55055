@@ -119,6 +119,23 @@ interface AutoListingJobFile {
   startStep?: string;
 }
 
+interface AutoListingTaskFile {
+  taskId?: string;
+  sourceImageName?: string;
+  sourceImagePath?: string;
+  status?: string;
+  feishuProductRecord?: {
+    recordId?: string;
+    userCognitionName?: string;
+    genericName?: string;
+    spu?: string;
+  };
+  generatedProductFolders?: string[];
+  mainImageArtifact?: { generatedFiles?: Array<{ productFolder?: string }> };
+  shopDistributionArtifact?: { distributedFolders?: string[] };
+  error?: { step?: string; message?: string };
+}
+
 interface AutoListingResultFile {
   ok?: boolean;
   feishuBatchFingerprint?: string;
@@ -126,38 +143,10 @@ interface AutoListingResultFile {
   status?: string;
   runId?: string;
   runtimeDir?: string;
-  artifacts?: {
-    processedImageManifest?: string;
-  };
+  artifacts?: { processedImageManifest?: string };
   discoveredImages?: string[];
-  tasks?: Array<{
-    taskId?: string;
-    sourceImageName?: string;
-    sourceImagePath?: string;
-    status?: string;
-    feishuProductRecord?: {
-      recordId?: string;
-      userCognitionName?: string;
-      genericName?: string;
-      spu?: string;
-    };
-    generatedProductFolders?: string[];
-    mainImageArtifact?: {
-      generatedFiles?: Array<{
-        productFolder?: string;
-      }>;
-    };
-    shopDistributionArtifact?: {
-      distributedFolders?: string[];
-    };
-    error?: {
-      step?: string;
-      message?: string;
-    };
-  }>;
-  error?: {
-    message?: string;
-  };
+  tasks?: AutoListingTaskFile[];
+  error?: { message?: string };
 }
 
 interface AutoListingStateFile {
@@ -165,31 +154,7 @@ interface AutoListingStateFile {
   feishuBatchFingerprint?: string;
   businessRuleFingerprint?: string;
   status?: string;
-  tasks?: Array<{
-    taskId?: string;
-    sourceImageName?: string;
-    sourceImagePath?: string;
-    status?: string;
-    feishuProductRecord?: {
-      recordId?: string;
-      userCognitionName?: string;
-      genericName?: string;
-      spu?: string;
-    };
-    generatedProductFolders?: string[];
-    mainImageArtifact?: {
-      generatedFiles?: Array<{
-        productFolder?: string;
-      }>;
-    };
-    shopDistributionArtifact?: {
-      distributedFolders?: string[];
-    };
-    error?: {
-      step?: string;
-      message?: string;
-    };
-  }>;
+  tasks?: AutoListingTaskFile[];
 }
 
 interface PublishManifestFile {
@@ -1767,7 +1732,11 @@ function existingStatus(): Record<string, unknown> {
     hasPendingFeishuProducts,
     stateStatus: typeof state?.status === "string" ? state.status : undefined,
     resultStatus: typeof result?.status === "string" ? result.status : undefined,
-    terminalFailureMessage
+    terminalFailureMessage,
+    activeMainImageGeneration:
+      String(currentTask?.status || (state?.latestProgress as Record<string, unknown> | undefined)?.step || "") === "main_images_generated",
+    paidImageSubmitted: typeof paidImageProgress?.submitted === "number" ? Number(paidImageProgress.submitted) : 0,
+    publishProgressActive: exposePublishProgress
   });
   const resolvedStatus =
     manualRecoveryPublishRunning && baseResolvedStatus !== "completed" && baseResolvedStatus !== "failed"

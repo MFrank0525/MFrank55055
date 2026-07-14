@@ -1,8 +1,5 @@
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
-import {
-  imageServiceWaitCeilingMs,
-  videosBase64AcceptedTaskPollCeilingMs
-} from "./image-generation-rules.js";
+import { imageServiceWaitCeilingMs, videosBase64AcceptedTaskPollCeilingMs } from "./image-generation-rules.js";
 
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
@@ -69,10 +66,8 @@ function isRetryableVideosBase64ProviderTaskFailure(message: string): boolean {
 }
 
 function isRetryableVideosBase64AcceptedQueueWait(message: string): boolean {
-  return (
-    /main_images_generated|main image|watchdog|no progress/i.test(message) &&
-    /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(message)
-  );
+  return /main_images_generated|main image|watchdog|no progress/i.test(message) &&
+    /videos-base64 task \S+ status (?:queued|pending)\s+0(?!\.\d|\d)/i.test(message);
 }
 
 export function isRetryableExternalServiceAvailabilityFailure(message: string): boolean {
@@ -94,10 +89,8 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
 }
 
 export function shouldConsumeSupervisorRecoveryAttempt(failureMessage: string): boolean {
-  if (isRetryableVideosBase64NoAcceptanceTransportFailure(failureMessage)) {
-    return false;
-  }
-  return !isRetryableExternalServiceAvailabilityFailure(failureMessage);
+  return !isRetryableVideosBase64NoAcceptanceTransportFailure(failureMessage) &&
+    !isRetryableExternalServiceAvailabilityFailure(failureMessage);
 }
 
 export function resolveSupervisorRecoveryDelayMs(input: {
@@ -108,9 +101,7 @@ export function resolveSupervisorRecoveryDelayMs(input: {
     return 10000;
   }
   const normalDelayMs = imageServiceWaitCeilingMs;
-  const retryMatch = /paid image provider timeout circuit open[\s\S]*?retry after\s+(\d+)ms/i.exec(
-    input.failureMessage
-  );
+  const retryMatch = /paid image provider timeout circuit open[\s\S]*?retry after\s+(\d+)ms/i.exec(input.failureMessage);
   const slotDelayMs = retryMatch ? Number(retryMatch[1]) : Number.NaN;
   const validSlotDelay = slotDelayMs >= 1000 && slotDelayMs <= 6 * 60 * 60 * 1000;
   return validSlotDelay ? Math.min(normalDelayMs, slotDelayMs) : normalDelayMs;
@@ -171,38 +162,28 @@ export function resolveSupervisorRecoveryChildMode(failureMessage: string): Supe
 
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
   const retryableFailureMessage = input.retryableFailureMessage || "";
-  if (input.exitCode === 0 || input.batchComplete) {
+  if (
+    input.exitCode === 0 || input.batchComplete ||
+    isPaidImageSubmissionSafetyBlock(retryableFailureMessage) ||
+    /upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(retryableFailureMessage)
+  ) {
     return false;
   }
-  if (isPaidImageSubmissionSafetyBlock(retryableFailureMessage)) {
-    return false;
-  }
-  if (/upstream access forbidden|access forbidden|please contact administrator|permission denied|forbidden/i.test(retryableFailureMessage)) {
-    return false;
-  }
-  if (isRetryableExternalServiceAvailabilityFailure(retryableFailureMessage)) {
-    return true;
-  }
-  if (isRetryableVideosBase64NoAcceptanceTransportFailure(retryableFailureMessage)) {
+  if (
+    isRetryableExternalServiceAvailabilityFailure(retryableFailureMessage) ||
+    isRetryableVideosBase64NoAcceptanceTransportFailure(retryableFailureMessage)
+  ) {
     return true;
   }
   if (input.recoveryAttempts >= input.maxRecoveryAttempts) {
     return false;
   }
-  if (isRetryableVideosBase64ProviderTaskFailure(retryableFailureMessage)) {
-    return true;
-  }
-  if (isPaidMainImageTransportFailure(retryableFailureMessage)) {
-    return true;
-  }
-  if (isRetryablePublishPageFailure(retryableFailureMessage)) {
-    return true;
-  }
-  if (isRetryablePrePaidDoudianReadinessFailure(retryableFailureMessage)) {
-    return true;
-  }
-  return /image generation|main image|timed out|timeout|fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|no progress|watchdog|product folders already contain workbook/i.test(
-    retryableFailureMessage
+  return (
+    isRetryableVideosBase64ProviderTaskFailure(retryableFailureMessage) ||
+    isPaidMainImageTransportFailure(retryableFailureMessage) ||
+    isRetryablePublishPageFailure(retryableFailureMessage) ||
+    isRetryablePrePaidDoudianReadinessFailure(retryableFailureMessage) ||
+    /image generation|main image|timed out|timeout|fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|no progress|watchdog|product folders already contain workbook/i.test(retryableFailureMessage)
   );
 }
 
@@ -347,35 +328,48 @@ export function resolveAutoListingControllerProgressAgeSeconds(input: AutoListin
   return Math.max(0, Math.floor((nowMs - progressMs) / 1000));
 }
 
-export type AutoListingControllerChildStallTimeoutInput = {
-  defaultTimeoutMs: number;
-  activeStep?: string;
-  activeMessage?: string;
-};
+export type AutoListingControllerChildStallTimeoutInput = { defaultTimeoutMs: number; activeStep?: string; activeMessage?: string };
+
+export type AutoListingControllerAcceptedTaskObservation = { taskKey: string; startedAtMs: number };
+
+function resolveAutoListingControllerAcceptedTaskKey(input: Pick<AutoListingControllerChildStallTimeoutInput, "activeStep" | "activeMessage">): string | undefined {
+  return /main_images_generated/i.test(input.activeStep || "")
+    ? /videos-base64 task (\S+) status (?:queued|pending)\s+0(?!\.\d|\d)/i.exec(input.activeMessage || "")?.[1]
+    : undefined;
+}
 
 export function resolveAutoListingControllerChildStallTimeoutMs(input: AutoListingControllerChildStallTimeoutInput): number {
-  const configuredTimeoutMs = input.defaultTimeoutMs;
-  if (
-    /main_images_generated/i.test(input.activeStep || "") &&
-    /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(input.activeMessage || "")
-  ) {
-    return Math.max(configuredTimeoutMs, videosBase64AcceptedTaskPollCeilingMs);
-  }
-  return configuredTimeoutMs;
+  return resolveAutoListingControllerAcceptedTaskKey(input)
+    ? Math.max(input.defaultTimeoutMs, videosBase64AcceptedTaskPollCeilingMs)
+    : input.defaultTimeoutMs;
+}
+
+export function resolveAutoListingControllerChildWatchdogDecision(input: AutoListingControllerChildStallTimeoutInput & {
+  lastProgressSeenAtMs: number;
+  nowMs: number;
+  acceptedTaskObservation?: AutoListingControllerAcceptedTaskObservation;
+}) {
+  const taskKey = resolveAutoListingControllerAcceptedTaskKey(input);
+  const acceptedTaskObservation = taskKey
+    ? input.acceptedTaskObservation?.taskKey === taskKey
+      ? input.acceptedTaskObservation
+      : { taskKey, startedAtMs: input.nowMs }
+    : undefined;
+  const stallBaselineMs = acceptedTaskObservation?.startedAtMs ?? input.lastProgressSeenAtMs;
+  const effectiveStallTimeoutMs = resolveAutoListingControllerChildStallTimeoutMs(input);
+  return {
+    acceptedTaskObservation,
+    stallBaselineMs,
+    effectiveStallTimeoutMs,
+    shouldTerminate: input.nowMs - stallBaselineMs >= effectiveStallTimeoutMs
+  };
 }
 
 export function shouldRefreshAutoListingChildProgressSeenAt(input: {
   activeStep?: string;
   activeMessage?: string;
 }): boolean {
-  const activeText = `${input.activeStep || ""} ${input.activeMessage || ""}`;
-  if (
-    /main_images_generated/i.test(activeText) &&
-    /videos-base64 task \S+ status (?:queued|pending)\s+0\b/i.test(activeText)
-  ) {
-    return false;
-  }
-  return true;
+  return !resolveAutoListingControllerAcceptedTaskKey(input);
 }
 
 export function isAutoListingControllerProgressArtifactRelativePath(relativePath: string): boolean {
@@ -1130,6 +1124,9 @@ export type AutoListingControllerRuntimeStatusInput = {
   stateStatus?: string;
   resultStatus?: string;
   terminalFailureMessage?: string;
+  activeMainImageGeneration?: boolean;
+  paidImageSubmitted?: number;
+  publishProgressActive?: boolean;
 };
 
 export function resolveAutoListingControllerRuntimeStatus(input: AutoListingControllerRuntimeStatusInput): AutoListingControllerResolvedStatus {
@@ -1140,6 +1137,9 @@ export function resolveAutoListingControllerRuntimeStatus(input: AutoListingCont
     return "external_service_wait";
   }
   if (input.running && isRetryableExternalServiceAvailabilityFailure(input.terminalFailureMessage || "")) {
+    return "external_service_wait";
+  }
+  if (input.running && !input.terminalFailureMessage && !input.publishProgressActive && input.activeMainImageGeneration && Number(input.paidImageSubmitted || 0) > 0) {
     return "external_service_wait";
   }
   if (input.running) {
