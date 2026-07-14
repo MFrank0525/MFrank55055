@@ -70,6 +70,13 @@ assert.equal(
 );
 assert.equal(
   hasCanonicalProviderRuleItem(
+    "- 主图规则启用；标题唯一 provider 是 OpenAI-compatible；导出模型固定为 gpt-image-2；健康检查模式固定为 videos-base64；视频接口精确为 /v1/videos；禁止其他 provider 或替代入口。"
+  ),
+  false,
+  "canonical keywords owned by competing subsystems must not accumulate into an image-provider contract"
+);
+assert.equal(
+  hasCanonicalProviderRuleItem(
     "- 主图使用唯一文件名；provider 是 OpenAI-compatible，模型 gpt-image-2，模式 videos-base64，路径 /v1/videos。"
   ),
   false,

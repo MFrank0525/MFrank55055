@@ -25,15 +25,21 @@ function splitClauses(text) {
     .filter(Boolean);
 }
 
-function isLocallyNegated(text, matchIndex, scopeStart = 0) {
+function isLocallyNegated(text, match, scopeStart = 0) {
+  const matchIndex = match.index;
   const localText = text.slice(Math.max(scopeStart, matchIndex - 64), matchIndex);
   const matchNeighborhood = text.slice(Math.max(0, matchIndex - 8), matchIndex + 20);
   if (/non-?(?:replaceable|pluggable|switchable)/iu.test(matchNeighborhood)) {
     return true;
   }
-  return /(?:禁止|不得|不允许|不可|严禁|不能|不应|不(?:存在|导入|迁移|扫描|提供|使用|支持|更换|切换|替换|自动))[^；;。！？!?，,|]{0,40}$|不\s*$|(?:must\s+not|never|do\s+not|does\s+not|should\s+not|cannot|can't|not\s+(?:be\s+)?|no\s+(?:automatic|legacy|alternate))[^.;,|]{0,48}$/iu.test(
+  const prefixNegated = /(?:禁止|不得|不允许|不可|严禁|不能|不应|不(?:存在|导入|迁移|扫描|提供|使用|支持|更换|切换|替换|自动))[^；;。！？!?，,|]{0,40}$|不\s*$|(?:must\s+not|never|do\s+not|does\s+not|should\s+not|cannot|can't|not\s+(?:be\s+)?|no\s+(?:automatic|legacy|alternate))[^.;,|]{0,48}$/iu.test(
     localText
   );
+  const postfixText = text.slice(matchIndex + match[0].length);
+  const postfixDisabled = /^[\s`*_()（）:：-]*(?:已(?:禁用|停用|废弃|移除)|(?:is|are)\s+(?:disabled|deprecated|removed))(?=$|[\s；;。.！？!?，,|])/iu.test(
+    postfixText
+  );
+  return prefixNegated || postfixDisabled;
 }
 
 function findAllMatches(text, pattern) {
@@ -53,7 +59,7 @@ function affirmativeMatches(text, matches) {
         scopeStart = previousMatch.index + previousMatch[0].length;
       }
     }
-    if (!isLocallyNegated(text, match.index, scopeStart)) {
+    if (!isLocallyNegated(text, match, scopeStart)) {
       affirmative.push(match);
     }
   }
@@ -228,13 +234,37 @@ export function findObsoleteProviderContradictions(markdown) {
   return findings;
 }
 
+function imageOwnedContractText(text, initialImageContext) {
+  let imageOwned = initialImageContext;
+  const imageClauses = [];
+  for (const clause of splitClauses(text)) {
+    const competingSubject = /标题|title|导出|export|健康检查|health[- ]?check|视频|\bvideo\b|音频|\baudio\b|浏览器|\bbrowser\b/iu.test(
+      clause
+    );
+    const imageSubject = /主图|生图|图片生成|图像生成|paid[- ]?image|main[- ]?image|image[- ]generation|image\s+provider/iu.test(
+      clause
+    );
+    if (competingSubject) {
+      imageOwned = false;
+    } else if (imageSubject) {
+      imageOwned = true;
+    }
+    if (imageOwned) {
+      imageClauses.push(clause);
+    }
+  }
+  return imageClauses.join("；");
+}
+
 export function hasCanonicalProviderRuleItem(markdown) {
   return splitMarkdownRuleItems(markdown).some(({ text, context }) => {
-    const affirmative = (pattern) => affirmativeMatches(text, findAllMatches(text, pattern)).length > 0;
+    const contractText = imageOwnedContractText(text, context.image);
+    const affirmative = (pattern) =>
+      affirmativeMatches(contractText, findAllMatches(contractText, pattern)).length > 0;
     const soleProviderAssignments = affirmativeMatches(
-      text,
+      contractText,
       findAllMatches(
-        text,
+        contractText,
         /(?:主图|生图|图片|图像)?\s*(?:唯一(?:有效)?(?:的)?|仅限|只允许)\s*(?:provider(?:\s+family)?|供应商)\s*(?:是|为|=)\s*`?([\p{L}\p{N}._-]+)`?|(?:sole|only|exclusive)\s+(?:(?:main[- ]?)?image\s+)?provider(?:\s+family)?\s*(?:is|=|:)\s*`?([\p{L}\p{N}._-]+)`?/iu
       )
     );
@@ -258,12 +288,12 @@ export function hasCanonicalProviderRuleItem(markdown) {
       (provider) => provider.toLowerCase() !== "openai-compatible"
     );
     const canonicalComponentDisabled = /(?:OpenAI-compatible|gpt-image-2|videos-base64|\/v1\/videos)[^，,；;。]{0,24}(?:已?禁用|停用|不可用|disabled|deactivated|not\s+(?:enabled|used|allowed))|(?:不使用|不得使用|禁止使用|must\s+not\s+use|do\s+not\s+use)[^，,；;。]{0,24}(?:OpenAI-compatible|gpt-image-2|videos-base64|\/v1\/videos)/iu.test(
-      text
+      contractText
     );
     const canonicalFieldNegated = /(?:provider|供应商|模型|model|模式|mode|接口|路径|endpoint|path)[^，,；;。]{0,20}(?:不(?:得|能|可|应|允许)?(?:再)?(?:是|为|使用|启用)?|禁止(?:使用|设为)?|(?:is|are|must|should|can)?\s*not\s+(?:be|use|allow)?|cannot|can't)[^，,；;。]{0,20}(?:OpenAI-compatible|gpt-image-2|videos-base64|\/v1\/videos)/iu.test(
-      text
+      contractText
     );
-    const noContradiction = findObsoleteProviderContradictions(text).length === 0;
+    const noContradiction = findObsoleteProviderContradictions(contractText).length === 0;
     return (
       context.image &&
       soleCanonicalProvider &&

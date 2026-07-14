@@ -110,7 +110,10 @@ for (const fixture of [
   "- Image request must not use ImagePath.",
   "- 生图请求固定发送 metadata.size: 1024x1024。",
   "- The downloaded image path is /tmp/result.png.",
-  "- Image input processing stores imagePath before normalization."
+  "- Image input processing stores imagePath before normalization.",
+  "- 生图请求体 mode=edits 已禁用。",
+  "- Provider response field query_result is deprecated.",
+  "- Provider response field fail_reason is removed."
 ]) {
   assert.deepEqual(findObsoleteProviderContradictions(fixture), [], `valid rule item must remain allowed: ${fixture}`);
 }
@@ -185,6 +188,19 @@ assert.equal(
   ),
   true,
   "a negated first legacy artifact must not mask a later affirmative occurrence"
+);
+const postfixScopeFindings = findObsoleteProviderContradictions(
+  "- Provider response writes query_result before fail_reason is removed."
+);
+assert.equal(
+  postfixScopeFindings.some((finding) => finding.label === "legacy query_result artifact"),
+  true,
+  "a later removed token must not mask an earlier positive obsolete token"
+);
+assert.equal(
+  postfixScopeFindings.some((finding) => finding.label === "legacy fail_reason artifact"),
+  false,
+  "the directly removed obsolete token must remain a valid prohibition"
 );
 assert.equal(
   findObsoleteProviderContradictions("- 禁止 query_result / 响应写入 query_result。").some(
