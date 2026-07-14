@@ -993,6 +993,41 @@ assert.equal(
   true,
   "evidence traversal must fail closed when the depth budget is exceeded before unsafe evidence"
 );
+assert.equal(
+  isUnsafePaidImageReplayPayload({
+    status: "failed",
+    diagnostics: { error: { code: "invalid_api_key", message: "authentication failed" } }
+  }),
+  true,
+  "unsafe evidence nested under an unknown plain-object container must be classified"
+);
+assert.equal(
+  isUnsafePaidImageReplayPayload({
+    status: "failed",
+    result: { errors: [{ code: "permission_denied", message: "permission denied" }] }
+  }),
+  true,
+  "unsafe evidence nested under unknown object and array containers must be classified"
+);
+let unknownDepthBudgetPayload = { note: "benign" };
+for (let depth = 0; depth < 12; depth += 1) {
+  unknownDepthBudgetPayload = { wrapper: unknownDepthBudgetPayload };
+}
+assert.equal(
+  isUnsafePaidImageReplayPayload({ diagnostics: unknownDepthBudgetPayload }),
+  true,
+  "unknown-container depth budget exhaustion must fail closed"
+);
+assert.equal(
+  isUnsafePaidImageReplayPayload({ diagnostics: Array.from({ length: 140 }, () => ({ note: "benign" })) }),
+  true,
+  "unknown-container node budget exhaustion must fail closed"
+);
+assert.equal(
+  isUnsafePaidImageReplayPayload({ diagnostics: { note: "small benign diagnostic" }, status: "failed" }),
+  false,
+  "small fully inspected unknown-container diagnostics must not become unsafe"
+);
 
 const unsafeBeforeLedgerRoot = path.join(unsafeRestartRoot, "unsafe-before-ledger");
 const unsafeBeforeLedger = initializePaidImageProductLedger({
@@ -1054,6 +1089,68 @@ assert.equal(
   fs.readFileSync(unsafeBeforeSlotFile, "utf8"),
   unsafeBeforeSlotBeforeRestart,
   "unsafe failed-before ledger evidence must remain byte-for-byte unchanged"
+);
+
+const legacyRedactedLedgerRoot = path.join(unsafeRestartRoot, "legacy-redacted-ledger");
+const legacyRedactedLedger = initializePaidImageProductLedger({
+  rootDir: legacyRedactedLedgerRoot,
+  batchFingerprint: "legacy-redacted-batch",
+  recordId: "legacy-redacted-record",
+  expectedSlotCount: 1,
+  providerIdentity: unsafeRestartLedger.providerIdentity,
+  sourceImageDigest: sha256File(unsafeRestartSourceImage)
+});
+reservePaidImageSlot({
+  productDir: legacyRedactedLedger.productDir,
+  slot: 1,
+  requestDigest: sha256Text(unsafeRestartRequestBody),
+  promptDigest: sha256Text(unsafeRestartPromptText),
+  owner: { runId: "legacy-process", taskId: "image-001" }
+});
+recordPaidImageFailedBeforeAcceptance({
+  productDir: legacyRedactedLedger.productDir,
+  slot: 1,
+  reason: "[redacted]"
+});
+const legacyRedactedSlotFile = path.join(legacyRedactedLedger.productDir, "slots", "01.json");
+const legacyRedactedSlotBeforeRestart = fs.readFileSync(legacyRedactedSlotFile, "utf8");
+let legacyRedactedTransportCalls = 0;
+globalThis.fetch = async () => {
+  legacyRedactedTransportCalls += 1;
+  throw new Error("legacy redacted slot must fail closed before transport");
+};
+try {
+  await assert.rejects(
+    () => generateMainImageAssets({
+      runtimeDir: path.join(unsafeRestartRoot, "legacy-redacted-restart-runtime"),
+      taskId: "image-001",
+      shopRootDir: unsafeRestartShopRoot,
+      sourceImagePath: unsafeRestartSourceImage,
+      sellingPointText: "test product",
+      brandedGenericName: "test product",
+      wordFiles: [unsafeRestartPromptFile],
+      imageGenerationProvider: "openai-compatible",
+      imageGenerationConfigFile: unsafeRestartConfigFile,
+      mainImageExpectedCount: 1,
+      mainImageCountStrategy: "exact",
+      promptCount: 1,
+      shopCodes: ["01"],
+      imagesPerShop: 1,
+      feishuRecordId: "legacy-redacted-record",
+      feishuBatchFingerprint: "legacy-redacted-batch",
+      paidImageSubmissionLedgerDir: legacyRedactedLedgerRoot,
+      simulateOnly: false
+    }),
+    /redacted|not safe to replay/i
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.equal(legacyRedactedTransportCalls, 0, "legacy redacted retry evidence must block restart transport");
+assert.equal(
+  fs.readFileSync(legacyRedactedSlotFile, "utf8"),
+  legacyRedactedSlotBeforeRestart,
+  "legacy redacted slot must remain byte-for-byte unchanged after restart"
 );
 
 const unsafeTerminalLedgerRoot = path.join(unsafeRestartRoot, "unsafe-terminal-ledger");
@@ -1119,7 +1216,7 @@ assert.match(unsafeTerminalSlot.reason, /insufficient balance/i);
 for (const [label, failedPayload] of [
   [
     "top-level",
-    { status: "failed", code: "invalid_api_key", message: "invalid api key sk-test-secret-value" }
+    { status: "failed", code: "invalid_api_key", message: "api key test-only-key" }
   ],
   [
     "nested",
@@ -1199,14 +1296,15 @@ for (const [label, failedPayload] of [
   assert.equal(parsedSlot.replayDisposition, "non_replayable");
   assert.equal(parsedSlot.audit.at(-1)?.replayDisposition, "non_replayable");
   assert.equal(parsedSlot.reason, "[redacted]");
-  assert.doesNotMatch(slotAfterInitialFailure, /sk-(?:test|nested)-secret-value/);
-  assert.doesNotMatch(String(initialFailure?.message || initialFailure), /sk-(?:test|nested)-secret-value/);
+  const secretTokenPattern = /test-only-key|sk-nested-secret-value/;
+  assert.doesNotMatch(slotAfterInitialFailure, secretTokenPattern);
+  assert.doesNotMatch(String(initialFailure?.message || initialFailure), secretTokenPattern);
   const runtimeArtifactText = fs
     .readdirSync(initialRuntimeDir, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => fs.readFileSync(path.join(entry.parentPath, entry.name), "utf8"))
     .join("\n");
-  assert.doesNotMatch(runtimeArtifactText, /sk-(?:test|nested)-secret-value/);
+  assert.doesNotMatch(runtimeArtifactText, secretTokenPattern);
 
   let restartTransportCalls = 0;
   globalThis.fetch = async () => {

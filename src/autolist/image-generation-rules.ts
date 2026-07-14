@@ -261,6 +261,9 @@ function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
 
 export function isUnsafePaidImageReplayReason(reason: string): boolean {
   const normalizedReason = (reason || "").replace(/[_-]+/g, " ");
+  if (normalizedReason.trim().toLowerCase() === "[redacted]") {
+    return true;
+  }
   const providerProvedNoAcceptance = /fail to fetch task/i.test(normalizedReason);
   const authorizationFailure =
     /HTTP\s*(?:401|403)\b|invalid api key|api key invalid|authentication failed|authentication error|unauthenticated|unauthorized|permission denied|access forbidden|upstream forbidden/i.test(
@@ -312,10 +315,12 @@ export function isUnsafePaidImageReplayPayload(payload: unknown): boolean {
       return;
     }
     if (typeof value === "object") {
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) {
+        return;
+      }
       for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-        if (evidenceKeys.has(nestedKey)) {
-          visit(nestedValue, depth + 1, nestedKey);
-        }
+        visit(nestedValue, depth + 1, nestedKey);
       }
     }
   };

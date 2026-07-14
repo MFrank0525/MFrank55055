@@ -714,7 +714,7 @@ function assertSlotIdentity(record: PaidImageSlotRecord, requestDigest: string, 
 function cleanText(value: string): string {
   if (
     value.length > 500 ||
-    /data:[^;,]+;base64,|bearer\s|authorization|api[_-]?key|access[_-]?token|secret/i.test(value) ||
+    /data:[^;,]+;base64,|bearer\s|authorization|api(?:[_-\s]?key)|access[_-]?token|secret/i.test(value) ||
     (value.length >= 128 && /^[A-Za-z0-9+/_=-]+$/.test(value))
   ) {
     return "[redacted]";

@@ -198,7 +198,7 @@ function redactImageGenerationLogValue(value: unknown): unknown {
 
   const redacted: Record<string, unknown> = {};
   for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-    if (/api[-_]?key|authorization|bearer|secret|token|cookie/i.test(key)) {
+    if (/api(?:[-_\s]?key)|authorization|bearer|secret|token|cookie/i.test(key)) {
       redacted[key] = "[redacted]";
       continue;
     }
@@ -218,7 +218,7 @@ function writeImageGenerationJsonLog(filePath: string, value: unknown): void {
 
 function redactImageGenerationLogText(text: string): string {
   return text
-    .replace(/(authorization|bearer|api[-_]?key|secret|token|cookie)(["'\s:=]+)([^"'\s,}]+)/gi, "$1$2[redacted]")
+    .replace(/(authorization|bearer|api(?:[-_\s]?key)|secret|token|cookie)(["'\s:=]+)([^"'\s,}]+)/gi, "$1$2[redacted]")
     .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "[redacted api key]")
     .replace(/https?:\/\/[^\s"',}]+/gi, "[redacted url]");
 }
