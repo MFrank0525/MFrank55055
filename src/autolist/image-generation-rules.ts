@@ -1,6 +1,7 @@
 export const imageServiceWaitCeilingMs = 3 * 60 * 1000;
 export const videosBase64AcceptedTaskPollCeilingMs = 30 * 60 * 1000;
 
+// Configured values deliberately normalize to the project's fixed 30-minute paid-task safety contract.
 export function resolveVideosBase64AcceptedTaskPollCeilingMs(_configuredMaxPollMs: number | undefined): number {
   return videosBase64AcceptedTaskPollCeilingMs;
 }
@@ -231,9 +232,10 @@ export function isAcceptedPaidImageTaskTimeoutReason(reason: string): boolean {
 }
 
 function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
-  return /submit(?: transport)? failed|submit response (?:was )?not JSON|submit response.*(?:missing|without).*task id|videos-base64 response did not include task id|submit.*ambiguous|ambiguous.*submit/i.test(
-    reason
-  );
+  const mentionsSubmitStage = /\bsubmit(?:ted|ting)?\b/i.test(reason);
+  const mentionsUncertainty =
+    /failed|timeout|timed out|ambiguous|response.*(?:not JSON|(?:missing|without|did not include).*task id)/i.test(reason);
+  return (mentionsSubmitStage && mentionsUncertainty) || /videos-base64 response did not include task id/i.test(reason);
 }
 
 export function resolvePaidImageProviderTimeoutRetry(input: {
@@ -284,7 +286,7 @@ export function resolvePaidImageFixedSlotRecovery(input: {
   const failureReason = input.failureReason || "";
   const unsafeReplay =
     isPaidImageSubmitStageUncertaintyReason(failureReason) ||
-    /permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
+    /invalid[_ -]?api[_ -]?key|authentication failed|usage limit exceeded|payment required|permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
       failureReason
     );
   const explicitAcceptedTaskTimeout = isAcceptedPaidImageTaskTimeoutReason(failureReason);

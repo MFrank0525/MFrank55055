@@ -117,7 +117,12 @@ for (const failureReason of [
   "submit response was ambiguous after timeout",
   "videos-base64 submit failed with HTTP 504: upstream request timeout",
   "videos-base64 submit response was not JSON: timeout",
-  'videos-base64 response did not include task id: {"message":"timeout"}'
+  'videos-base64 response did not include task id: {"message":"timeout"}',
+  "provider task failed: invalid_api_key after timeout",
+  "provider task failed: authentication failed after timeout",
+  "provider task failed: usage limit exceeded after timeout",
+  "provider task failed: payment required after timeout",
+  "request timed out while submitting to provider"
 ]) {
   assert.deepEqual(
     resolvePaidImageFixedSlotRecovery({
