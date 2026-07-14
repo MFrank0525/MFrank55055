@@ -117,6 +117,9 @@ export function auditCurrentPaidImageLedgers(
       aggregated.audits[index].evidence.map((item) => `paidImageLedger:${ledger.recordId}:${item}`)
     )
   ];
+  const validCanonicalLedgerRecordIds = new Set(
+    [...validLedgerRecordIds].map((recordId) => recordId.trim())
+  );
 
   return {
     generation: {
@@ -135,8 +138,9 @@ export function auditCurrentPaidImageLedgers(
     artifacts: { errors: ledgerErrors, warnings: ledgerWarnings, evidence },
     existingLedgerRecordIds: currentLedgers
       .map((ledger) => ledger.recordId)
-      .filter((recordId) => validLedgerRecordIds.has(recordId)),
-    includedLedgerRecordIds: aggregated.includedRecordIds
       .filter((recordId) => validLedgerRecordIds.has(recordId))
+      .map((recordId) => recordId.trim()),
+    includedLedgerRecordIds: aggregated.includedRecordIds
+      .filter((recordId) => validCanonicalLedgerRecordIds.has(recordId))
   };
 }

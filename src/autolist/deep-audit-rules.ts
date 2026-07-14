@@ -105,13 +105,20 @@ export function aggregatePaidImageLedgerGeneration(input: {
   const completedProducts: typeof input.completedProducts = [];
   const errors: DeepAuditIssue[] = [];
   for (const product of input.completedProducts) {
-    const recordId = product.recordId?.trim();
+    const rawRecordId = product.recordId || "";
+    const recordId = rawRecordId.trim();
     if (!recordId) {
       errors.push({
         code: "paid_image_completed_record_identity_missing",
         message: "Completed main-image artifact is missing its Feishu record identity."
       });
       continue;
+    }
+    if (rawRecordId !== recordId) {
+      errors.push({
+        code: "paid_image_record_identity_noncanonical",
+        message: `Paid image audit record identity has surrounding whitespace: ${JSON.stringify(rawRecordId)}.`
+      });
     }
     if (completedRecordIds.has(recordId)) {
       errors.push({
@@ -123,7 +130,17 @@ export function aggregatePaidImageLedgerGeneration(input: {
     completedRecordIds.add(recordId);
     completedProducts.push({ ...product, recordId });
   }
-  const includedLedgers = input.currentLedgers.filter((ledger) => !completedRecordIds.has(ledger.recordId));
+  const normalizedLedgers = input.currentLedgers.map((ledger) => {
+    const recordId = ledger.recordId.trim();
+    if (ledger.recordId !== recordId) {
+      errors.push({
+        code: "paid_image_record_identity_noncanonical",
+        message: `Paid image audit record identity has surrounding whitespace: ${JSON.stringify(ledger.recordId)}.`
+      });
+    }
+    return { ...ledger, recordId };
+  });
+  const includedLedgers = normalizedLedgers.filter((ledger) => !completedRecordIds.has(ledger.recordId));
   return {
     summary: {
       auditedTaskCount: completedProducts.length + includedLedgers.length,

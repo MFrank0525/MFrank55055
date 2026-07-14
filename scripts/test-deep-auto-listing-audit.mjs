@@ -173,6 +173,65 @@ assert.deepEqual(duplicateCompletedIdentity.summary, {
 });
 assert.equal(duplicateCompletedIdentity.errors[0]?.code, "paid_image_completed_record_identity_duplicate");
 
+const canonicalOverlap = aggregatePaidImageLedgerGeneration({
+  completedProducts: [
+    { recordId: "record-current", expectedImageCount: 20, generatedImageCount: 20 }
+  ],
+  currentLedgers: [{ recordId: "record-current", summary: completePaidLedgerAuditInput() }]
+});
+assert.deepEqual(canonicalOverlap.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.deepEqual(canonicalOverlap.includedRecordIds, []);
+assert.deepEqual(canonicalOverlap.errors, []);
+
+const whitespaceCompletedOverlap = aggregatePaidImageLedgerGeneration({
+  completedProducts: [
+    { recordId: " record-current ", expectedImageCount: 20, generatedImageCount: 20 }
+  ],
+  currentLedgers: [{ recordId: "record-current", summary: completePaidLedgerAuditInput() }]
+});
+assert.deepEqual(whitespaceCompletedOverlap.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.deepEqual(whitespaceCompletedOverlap.includedRecordIds, []);
+assert.equal(whitespaceCompletedOverlap.errors[0]?.code, "paid_image_record_identity_noncanonical");
+
+const whitespaceLedgerOverlap = aggregatePaidImageLedgerGeneration({
+  completedProducts: [
+    { recordId: "record-current", expectedImageCount: 20, generatedImageCount: 20 }
+  ],
+  currentLedgers: [{ recordId: " record-current ", summary: completePaidLedgerAuditInput() }]
+});
+assert.deepEqual(whitespaceLedgerOverlap.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.deepEqual(whitespaceLedgerOverlap.includedRecordIds, []);
+assert.equal(whitespaceLedgerOverlap.errors[0]?.code, "paid_image_record_identity_noncanonical");
+
+const whitespaceDuplicateCompletedIdentity = aggregatePaidImageLedgerGeneration({
+  completedProducts: [
+    { recordId: "record-current", expectedImageCount: 20, generatedImageCount: 20 },
+    { recordId: " record-current ", expectedImageCount: 20, generatedImageCount: 20 }
+  ],
+  currentLedgers: []
+});
+assert.deepEqual(whitespaceDuplicateCompletedIdentity.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 20
+});
+assert.deepEqual(
+  whitespaceDuplicateCompletedIdentity.errors.map((issue) => issue.code),
+  ["paid_image_record_identity_noncanonical", "paid_image_completed_record_identity_duplicate"]
+);
+
 const paidAuditFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-deep-audit-"));
 const paidAuditBatch = "current-feishu-batch";
 const fixtureResultSource = path.join(paidAuditFixtureRoot, "generated.png");
