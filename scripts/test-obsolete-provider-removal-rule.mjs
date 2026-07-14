@@ -79,6 +79,14 @@ const activeProviderFiles = [
     .filter((file) => fs.existsSync(file))
 ];
 
+const activeMarkdownFiles = tracked
+  .split("\n")
+  .filter(Boolean)
+  .filter((file) => file.endsWith(".md"))
+  .filter((file) => !file.startsWith("docs/superpowers/specs/"))
+  .filter((file) => !file.startsWith("docs/superpowers/plans/"))
+  .filter((file) => fs.existsSync(file));
+
 const activeMarkdownContradictions = [
   {
     label: "obsolete image-edit mode",
@@ -100,8 +108,44 @@ const activeMarkdownContradictions = [
     label: "historical paid-ledger migration instruction",
     pattern:
       /(?:自动)?导入[^\n]{0,120}历史\s*`?paid-image-ledger`?|历史\s*`?paid-image-ledger`?[^\n]{0,120}迁移|migrat(?:e|ion)[^\n]{0,120}(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger|(?:historical|legacy)[^\n]{0,120}(?:paid[- ]image|runtime)[- ]ledger[^\n]{0,120}migrat/iu
+  },
+  {
+    label: "legacy imagePath request field",
+    pattern: /\bimagePath\b/u
+  },
+  {
+    label: "legacy top-level size request field",
+    pattern:
+      /(?:request(?:\s+(?:body|payload|parameter))?|请求(?:体|参数)?)[^\n]{0,120}(?<!metadata\.)\bsize\s*=|(?<!metadata\.)\bsize\s*=[^\n]{0,120}(?:request|请求)/iu
+  },
+  {
+    label: "replaceable paid-image provider wording",
+    pattern:
+      /(?:主图|生图|图片|image)[^\n]{0,120}(?:provider|模型|model)[^\n]{0,32}(?<!不)(?<!不允许)(?<!禁止)(?<!不得)(?<!not )(?:可替换|可插拔|切换|替换|replaceable|pluggable)|(?:provider|模型|model)[^\n]{0,32}(?<!不)(?<!不允许)(?<!禁止)(?<!不得)(?<!not )(?:可替换|可插拔|切换|替换|replaceable|pluggable)[^\n]{0,120}(?:主图|生图|图片|image)|工具\s*provider\s*(?<!不)(?:可替换|可插拔)|可替换\s*provider|provider\s*只能替换/iu
   }
 ];
+
+const contradictionByLabel = new Map(
+  activeMarkdownContradictions.map((contradiction) => [contradiction.label, contradiction.pattern])
+);
+for (const [label, fixture] of [
+  ["legacy imagePath request field", "Paid image request: imagePath=/tmp/reference.png"],
+  ["legacy top-level size request field", "生图请求参数 size=1024x1024"],
+  ["replaceable paid-image provider wording", "主图生成 provider 可替换"],
+  ["replaceable paid-image provider wording", "The image model is pluggable."]
+]) {
+  assert.equal(contradictionByLabel.get(label)?.test(fixture), true, `contradiction fixture must fail: ${fixture}`);
+}
+for (const fixture of [
+  "Watermark output image size=1024x1024.",
+  "The downloaded image path is /tmp/result.png.",
+  "生图请求固定发送 metadata.size=1024x1024。",
+  "主图只使用唯一 OpenAI-compatible provider，不允许切换。"
+]) {
+  for (const contradiction of activeMarkdownContradictions.slice(-3)) {
+    assert.equal(contradiction.pattern.test(fixture), false, `valid fixture must remain allowed: ${fixture}`);
+  }
+}
 
 for (const file of activeProviderFiles) {
   const source = fs.readFileSync(file, "utf8");
@@ -116,14 +160,16 @@ for (const file of activeProviderFiles) {
       `obsolete synchronous image mode remains in ${file}: ${obsoleteModeLiteral}`
     );
   }
-  if (file.endsWith(".md")) {
-    for (const contradiction of activeMarkdownContradictions) {
-      assert.equal(
-        contradiction.pattern.test(source),
-        false,
-        `obsolete image-provider contract remains in ${file}: ${contradiction.label}`
-      );
-    }
+}
+
+for (const file of activeMarkdownFiles) {
+  const source = fs.readFileSync(file, "utf8");
+  for (const contradiction of activeMarkdownContradictions) {
+    assert.equal(
+      contradiction.pattern.test(source),
+      false,
+      `obsolete image-provider contract remains in ${file}: ${contradiction.label}`
+    );
   }
 }
 

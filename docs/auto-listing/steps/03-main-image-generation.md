@@ -147,7 +147,7 @@
 
 1. 核对 `image2-prompt.txt` 是否严格等于飞书五段式 Word 内容。
 2. 核对第一段来自飞书 `主图指令`，第四段来自飞书 `正向提示词`，第五段来自飞书 `反向提示词`。
-3. 核对 `request-XX.json` 是否显示 `mode=videos-base64`、模型 `gpt-image-2`、接口 `/v1/videos`，且 Base64 参考图元数据包含当前飞书白底图、`aspect_ratio=1:1` 和 `size=1024x1024`。
+3. 核对 `request-XX.json` 是否显示 `mode=videos-base64`、模型 `gpt-image-2`、接口 `/v1/videos`，且 Base64 参考图元数据包含当前飞书白底图、`metadata.aspect_ratio=1:1` 和 `metadata.size=1024x1024`。
 4. 核对 `response-XX.json`、`response-XX-status-N.json` 与持久付费账本是否保存同一个 provider task ID、最新状态和响应证据。
 5. 确认只把当前飞书字段约定的五段内容送给生图模型。
 6. 确认水印内容顺序严格为：大药房专营店、药品专营店、个护保健专营店、康复理疗专营店、医疗保健专营店、理疗器械旗舰店、健康护理专营店、家庭护理专营店、中医保健专营店、养生器械专营店。
