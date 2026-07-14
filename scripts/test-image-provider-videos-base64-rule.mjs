@@ -39,6 +39,10 @@ import {
 } from "../dist/src/autolist/paid-image-submission-ledger.js";
 import { writeSimpleWordDocument } from "../dist/src/autolist/docx-lite.js";
 import { getShopSpecs } from "../dist/src/autolist/shop-rules.js";
+import {
+  hasCanonicalProviderRuleItem,
+  hasProviderArtifactPersistenceRuleItem
+} from "./markdown-provider-contract.mjs";
 
 const source = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 const configSource = fs.readFileSync("src/autolist/config.ts", "utf8");
@@ -48,6 +52,36 @@ const imageGenerationRulesSource = fs.readFileSync("src/autolist/image-generatio
 const example = JSON.parse(fs.readFileSync("input/image-generation.config.videos-base64.example.json", "utf8"));
 const ruleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
 const stabilityChecklist = fs.readFileSync("docs/auto-listing/stability-checklist.md", "utf8");
+
+const canonicalProviderRuleItem =
+  "- 主图唯一 provider family 是 OpenAI-compatible，模型固定为 gpt-image-2，模式固定为 videos-base64，接口精确为 /v1/videos，不存在其他 provider 或兼容入口。";
+const scatteredCanonicalKeywords = [
+  "- 主图唯一 provider family 是 OpenAI-compatible。",
+  "- 模型固定为 gpt-image-2。",
+  "- 模式固定为 videos-base64。",
+  "- 接口精确为 /v1/videos。",
+  "- 不存在其他 provider 或兼容入口。"
+].join("\n");
+assert.equal(hasCanonicalProviderRuleItem(canonicalProviderRuleItem), true);
+assert.equal(
+  hasCanonicalProviderRuleItem(scatteredCanonicalKeywords),
+  false,
+  "scattered canonical-provider keywords must not satisfy one bounded rule item"
+);
+const artifactPersistenceRuleItem =
+  "- 每个 slot 的 provider task ID、提交响应 response-XX.json 和状态响应 response-XX-status-N.json 必须持久化。";
+const scatteredArtifactKeywords = [
+  "- 每个 slot 有 provider task ID。",
+  "- 提交响应是 response-XX.json。",
+  "- 状态响应是 response-XX-status-N.json。",
+  "- 所有证据必须持久化。"
+].join("\n");
+assert.equal(hasProviderArtifactPersistenceRuleItem(artifactPersistenceRuleItem), true);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(scatteredArtifactKeywords),
+  false,
+  "scattered artifact keywords must not satisfy one bounded persistence rule item"
+);
 
 function readTextTree(rootDir) {
   return fs
@@ -564,15 +598,15 @@ assert.match(
 );
 assert.match(source, /fs\.existsSync\(productDir\)[\s\S]*summarizePaidImageProductLedger/);
 assert.match(imageGenerationRulesSource, /export function providerExplicitlyProvesNoPaidTaskAccepted/);
-assert.match(
-  ruleDoc,
-  /唯一.*OpenAI-compatible.*gpt-image-2.*videos-base64.*\/v1\/videos/s,
-  "The active main-image contract must name the sole canonical provider family, model, mode, and endpoint"
+assert.equal(
+  hasCanonicalProviderRuleItem(ruleDoc),
+  true,
+  "The active main-image contract must name the sole provider family, model, mode, and endpoint in one rule item"
 );
-assert.match(
-  ruleDoc,
-  /response-XX\.json.*response-XX-status-N\.json.*持久/s,
-  "The active main-image contract must require persisted provider submit and status response artifacts"
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(ruleDoc),
+  true,
+  "The active main-image contract must require persisted provider submit and status artifacts in one rule item"
 );
 assert.match(
   ruleDoc,
@@ -635,10 +669,15 @@ assert.match(
   /外部服务.*最多等待 3 分钟.*不再指数增长/s,
   "External image-service waits must stay at or below three minutes instead of growing exponentially"
 );
-assert.match(
-  stabilityChecklist,
-  /唯一.*OpenAI-compatible.*gpt-image-2.*videos-base64.*\/v1\/videos/s,
-  "The stability checklist must use the sole canonical paid-image provider contract"
+assert.equal(
+  hasCanonicalProviderRuleItem(stabilityChecklist),
+  true,
+  "The stability checklist must use the sole canonical paid-image provider contract in one rule item"
+);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(stabilityChecklist),
+  true,
+  "The stability checklist must keep provider artifact persistence in one rule item"
 );
 assert.match(
   stabilityChecklist,
