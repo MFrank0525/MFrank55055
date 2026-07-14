@@ -228,14 +228,22 @@ export function shouldKeepPaidImagePolicyCompatiblePrompt(input: {
 }
 
 export function isAcceptedPaidImageTaskTimeoutReason(reason: string): boolean {
-  return /task_timeout|timeout|timed out|did not finish within|queued\/pending beyond|超时/i.test(reason);
+  const hasTimeout = /task_timeout|timeout|timed out|did not finish within|queued\/pending beyond|超时/i.test(reason);
+  const hasAcceptedTaskContext = /provider task failed|accepted task|submitted provider task/i.test(reason);
+  return hasTimeout && hasAcceptedTaskContext;
 }
 
 function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
-  const mentionsSubmitStage = /\bsubmit(?:ted|ting)?\b/i.test(reason);
-  const mentionsUncertainty =
-    /failed|timeout|timed out|ambiguous|response.*(?:not JSON|(?:missing|without|did not include).*task id)/i.test(reason);
-  return (mentionsSubmitStage && mentionsUncertainty) || /videos-base64 response did not include task id/i.test(reason);
+  if (/submitted provider task/i.test(reason)) {
+    return false;
+  }
+  return (
+    /\bsubmission\b|\bsubmitting\b/i.test(reason) ||
+    /\bsubmit\b.*(?:request|response|failed|failure|ambiguous)|(?:request|response|failed|failure|ambiguous).*\bsubmit\b/i.test(
+      reason
+    ) ||
+    /(?:missing|before|without|did not include).*task id|task id.*(?:missing|not received|not returned)/i.test(reason)
+  );
 }
 
 export function resolvePaidImageProviderTimeoutRetry(input: {
@@ -284,10 +292,11 @@ export function resolvePaidImageFixedSlotRecovery(input: {
   deferMs: number;
 } {
   const failureReason = input.failureReason || "";
+  const normalizedFailureReason = failureReason.replace(/[_-]+/g, " ");
   const unsafeReplay =
     isPaidImageSubmitStageUncertaintyReason(failureReason) ||
-    /invalid[_ -]?api[_ -]?key|authentication failed|usage limit exceeded|payment required|permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
-      failureReason
+    /invalid api key|api key invalid|authentication failed|authentication error|unauthenticated|usage limit exceeded|payment required|permission denied|access forbidden|forbidden|unauthorized|余额|balance|quota|credit|insufficient|欠费|充值|billing/i.test(
+      normalizedFailureReason
     );
   const explicitAcceptedTaskTimeout = isAcceptedPaidImageTaskTimeoutReason(failureReason);
   if (!explicitAcceptedTaskTimeout || unsafeReplay) {

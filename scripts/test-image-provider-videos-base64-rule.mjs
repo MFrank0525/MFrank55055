@@ -110,6 +110,22 @@ assert.deepEqual(
   }),
   { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: true, deferMs: 0 }
 );
+assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: "submitted provider task timed out after 1800000ms",
+    audit: [
+      {
+        state: "failed_after_acceptance",
+        at: "2026-07-14T06:40:00.000Z",
+        reason: "submitted provider task timed out after 1800000ms"
+      }
+    ],
+    recordedPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-07-14T06:44:00.000Z")
+  }),
+  { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: false, deferMs: 0 }
+);
 for (const failureReason of [
   "provider task failed: invalid image",
   "provider task failed: permission denied",
@@ -122,7 +138,13 @@ for (const failureReason of [
   "provider task failed: authentication failed after timeout",
   "provider task failed: usage limit exceeded after timeout",
   "provider task failed: payment required after timeout",
-  "request timed out while submitting to provider"
+  "request timed out while submitting to provider",
+  "provider task submission timed out before task id was received",
+  "provider task failed: authentication_error after timeout",
+  "provider task failed: unauthenticated after timeout",
+  "provider task failed: api_key_invalid after timeout",
+  "provider task failed: usage_limit_exceeded after timeout",
+  "provider task failed: payment_required after timeout"
 ]) {
   assert.deepEqual(
     resolvePaidImageFixedSlotRecovery({
