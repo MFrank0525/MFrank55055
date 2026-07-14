@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { summarizeVideosBase64PaidResumePlan } from "../dist/src/autolist/main-image-assets.js";
+import {
+  resolveLatestSubmittedPaidImageAuditTimestampMs,
+  shouldAllowPaidImagePolicyCompatibilityIdentityTransition,
+  summarizeVideosBase64PaidResumePlan
+} from "../dist/src/autolist/main-image-assets.js";
 import {
   providerExplicitlyProvesNoPaidTaskAccepted,
   submitTransportFailureProvesNoPaidTaskAccepted,
@@ -44,6 +48,60 @@ assert.equal(example.maxPollMs, 180000);
 assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(undefined), 30 * 60 * 1000);
 assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(3 * 60 * 1000), 30 * 60 * 1000);
 assert.equal(resolveVideosBase64AcceptedTaskPollCeilingMs(60 * 60 * 1000), 30 * 60 * 1000);
+assert.equal(
+  shouldAllowPaidImagePolicyCompatibilityIdentityTransition({
+    recordedRequestDigest: "original-request",
+    recordedPromptDigest: "original-prompt",
+    originalRequestDigest: "original-request",
+    originalPromptDigest: "original-prompt"
+  }),
+  true,
+  "an exact original request and prompt identity may transition to the compatibility identity"
+);
+assert.equal(
+  shouldAllowPaidImagePolicyCompatibilityIdentityTransition({
+    recordedRequestDigest: "request-changed-by-model-size-source-or-extra",
+    recordedPromptDigest: "original-prompt",
+    originalRequestDigest: "original-request",
+    originalPromptDigest: "original-prompt"
+  }),
+  false,
+  "matching the original prompt alone must not bypass a changed request identity"
+);
+assert.equal(
+  shouldAllowPaidImagePolicyCompatibilityIdentityTransition({
+    recordedRequestDigest: "original-request",
+    recordedPromptDigest: "different-prompt",
+    originalRequestDigest: "original-request",
+    originalPromptDigest: "original-prompt"
+  }),
+  false,
+  "a mismatched prompt identity must not authorize the compatibility transition"
+);
+const submittedFallbackMs = Date.parse("2026-06-18T03:00:00.000Z");
+assert.equal(
+  resolveLatestSubmittedPaidImageAuditTimestampMs(
+    [
+      { state: "submitted", at: "2026-06-18T02:00:00.000Z" },
+      { state: "submitted", at: "2026-06-18T01:00:00.000Z" },
+      { state: "reserved", at: "2026-06-18T02:30:00.000Z" }
+    ],
+    submittedFallbackMs
+  ),
+  Date.parse("2026-06-18T02:00:00.000Z"),
+  "out-of-order submitted audit entries must use the maximum valid timestamp"
+);
+assert.equal(
+  resolveLatestSubmittedPaidImageAuditTimestampMs(
+    [
+      { state: "submitted", at: "invalid" },
+      { state: "submitted", at: "2026-06-18T01:30:00.000Z" }
+    ],
+    submittedFallbackMs
+  ),
+  Date.parse("2026-06-18T01:30:00.000Z"),
+  "invalid submitted timestamps must be ignored"
+);
 assert.equal(
   shouldKeepPaidImagePolicyCompatiblePrompt({
     failureReason: 'provider task failed: {"message":"失败了超时 请重试","code":"upstream_error"}',
@@ -243,6 +301,12 @@ const firstAcceptedFailure = source.indexOf("recordPaidImageFailedAfterAcceptanc
 assert.ok(pollBranchStart >= 0 && pollTaskAssignment > pollBranchStart, "polling must retain the persisted provider task ID");
 assert.ok(firstStatusQuery > pollTaskAssignment, "resumed polling must reach a status query using the persisted task ID");
 assert.ok(firstAcceptedFailure > firstStatusQuery, "resumed polling must query provider status before marking acceptance failure");
+const persistedImmediateFlag = source.indexOf("queryPersistedTaskImmediately = true", pollTaskAssignment);
+const conditionalInitialSleep = source.indexOf("if (!queryPersistedTaskImmediately || pollNo > 1)", persistedImmediateFlag);
+assert.ok(
+  persistedImmediateFlag > pollTaskAssignment && conditionalInitialSleep > persistedImmediateFlag && firstStatusQuery > conditionalInitialSleep,
+  "persisted polling must select the no-initial-sleep path before its first provider status query"
+);
 const pollBranchEnd = source.indexOf('if (slotAction.action === "blocked_reserved"', pollBranchStart);
 assert.doesNotMatch(
   source.slice(pollBranchStart, pollBranchEnd),
@@ -322,7 +386,7 @@ assert.match(
 );
 assert.match(
   source,
-  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*fixedSlotRecovery\.usePolicyCompatiblePrompt[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)[\s\S]*slotAction\.record\?\.promptDigest === originalPromptDigest/,
+  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*fixedSlotRecovery\.usePolicyCompatiblePrompt[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)[\s\S]*shouldAllowPaidImagePolicyCompatibilityIdentityTransition/,
   "Repeated provider timeouts must explicitly authorize the one-time fixed-slot digest switch to the stability-compatible prompt"
 );
 assert.match(source, /submitSlots/);

@@ -78,6 +78,33 @@ export interface VideosBase64PaidResumePlan {
   blockedSlots: number[];
 }
 
+export function shouldAllowPaidImagePolicyCompatibilityIdentityTransition(input: {
+  recordedRequestDigest: string;
+  recordedPromptDigest: string;
+  originalRequestDigest: string;
+  originalPromptDigest: string;
+}): boolean {
+  return Boolean(
+    input.recordedRequestDigest &&
+      input.recordedPromptDigest &&
+      input.originalRequestDigest &&
+      input.originalPromptDigest &&
+      input.recordedRequestDigest === input.originalRequestDigest &&
+      input.recordedPromptDigest === input.originalPromptDigest
+  );
+}
+
+export function resolveLatestSubmittedPaidImageAuditTimestampMs(
+  audit: Array<{ state?: string; at?: string }>,
+  fallbackMs: number = Date.now()
+): number {
+  const submittedTimestamps = audit
+    .filter((entry) => entry.state === "submitted")
+    .map((entry) => Date.parse(entry.at || ""))
+    .filter((timestamp) => Number.isFinite(timestamp));
+  return submittedTimestamps.length > 0 ? Math.max(...submittedTimestamps) : fallbackMs;
+}
+
 function formatSlotList(slots: number[]): string {
   return slots.length ? slots.join(",") : "none";
 }
@@ -1148,6 +1175,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
     let requestBody = JSON.stringify(buildVideosBase64JsonBody(promptText));
     let requestDigest = sha256Text(requestBody);
     let promptDigest = sha256Text(promptText);
+    const originalRequestDigest = requestDigest;
     const originalPromptDigest = promptDigest;
     const policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
     const policyCompatiblePromptDigest = sha256Text(policyCompatiblePromptText);
@@ -1208,7 +1236,12 @@ async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action === "retry_failed_after_acceptance" &&
           (fixedSlotRecovery.usePolicyCompatiblePrompt ||
             isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason)) &&
-          slotAction.record?.promptDigest === originalPromptDigest &&
+          shouldAllowPaidImagePolicyCompatibilityIdentityTransition({
+            recordedRequestDigest: slotAction.record?.requestDigest || "",
+            recordedPromptDigest: slotAction.record?.promptDigest || "",
+            originalRequestDigest,
+            originalPromptDigest
+          }) &&
           slotAction.record?.promptDigest !== policyCompatiblePromptDigest;
         if (
           keepPolicyCompatiblePrompt
@@ -1246,10 +1279,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       }
       if (slotAction.action === "poll") {
         taskId = slotAction.providerTaskId;
-        const submittedAudit = [...slotAction.record.audit]
-          .reverse()
-          .find((entry) => entry.state === "submitted" && Number.isFinite(Date.parse(entry.at)));
-        acceptedTaskStartedAt = submittedAudit ? Date.parse(submittedAudit.at) : Date.now();
+        acceptedTaskStartedAt = resolveLatestSubmittedPaidImageAuditTimestampMs(slotAction.record.audit);
         queryPersistedTaskImmediately = true;
         submitPayload = readVideosBase64SubmittedTask(responseFile) || { id: taskId };
         options.onProgress?.(`Image ${absoluteImageIndex}: resuming submitted videos-base64 task from paid image ledger.`);
