@@ -65,6 +65,12 @@ export interface PaidImageLedgerSummary {
   ambiguous: number;
 }
 
+export interface PaidImageLedgerArtifactIntegrityIssue {
+  code: "completed_result_missing_or_invalid";
+  slot: number;
+  message: string;
+}
+
 export type PaidImageSlotAction =
   | { action: "submit"; record: PaidImageSlotRecord }
   | { action: "poll"; record: PaidImageSlotRecord; providerTaskId: string }
@@ -1110,7 +1116,10 @@ export function expireSubmittedPaidImageQueue(input: ExpireSubmittedPaidImageQue
   });
 }
 
-export function summarizePaidImageProductLedger(productDir: string): PaidImageLedgerSummary {
+export function inspectPaidImageProductLedgerForAudit(productDir: string): {
+  summary: PaidImageLedgerSummary;
+  errors: PaidImageLedgerArtifactIntegrityIssue[];
+} {
   const product = readProductLedger(productDir);
   const summary: PaidImageLedgerSummary = {
     expectedSlotCount: product.expectedSlotCount,
@@ -1122,6 +1131,7 @@ export function summarizePaidImageProductLedger(productDir: string): PaidImageLe
     failedAfterAcceptance: 0,
     ambiguous: 0
   };
+  const errors: PaidImageLedgerArtifactIntegrityIssue[] = [];
   for (const file of fs.readdirSync(path.join(productDir, "slots"))) {
     const match = /^(\d+)\.json$/.exec(file);
     if (!match) {
@@ -1141,14 +1151,46 @@ export function summarizePaidImageProductLedger(productDir: string): PaidImageLe
     if (!record) {
       throw new Error(`paid image slot ${slot} disappeared while summarizing ledger`);
     }
-    summary.missing -= 1;
     if (record.state === "failed_before_acceptance") {
+      summary.missing -= 1;
       summary.failedBeforeAcceptance += 1;
     } else if (record.state === "failed_after_acceptance") {
+      summary.missing -= 1;
       summary.failedAfterAcceptance += 1;
+    } else if (record.state === "completed") {
+      let resultIsValid = false;
+      try {
+        resultIsValid = Boolean(
+          record.resultFile &&
+          record.resultDigest &&
+          fs.existsSync(record.resultFile) &&
+          sha256File(record.resultFile) === record.resultDigest
+        );
+      } catch {
+        resultIsValid = false;
+      }
+      if (!resultIsValid) {
+        errors.push({
+          code: "completed_result_missing_or_invalid",
+          slot: record.slot,
+          message: `completed paid image result is missing or invalid for slot ${record.slot}`
+        });
+        continue;
+      }
+      summary.missing -= 1;
+      summary.completed += 1;
     } else {
+      summary.missing -= 1;
       summary[record.state] += 1;
     }
   }
-  return summary;
+  return { summary, errors };
+}
+
+export function summarizePaidImageProductLedger(productDir: string): PaidImageLedgerSummary {
+  const inspected = inspectPaidImageProductLedgerForAudit(productDir);
+  if (inspected.errors.length > 0) {
+    throw new Error(inspected.errors[0].message);
+  }
+  return inspected.summary;
 }

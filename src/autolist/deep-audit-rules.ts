@@ -43,6 +43,27 @@ export function auditPaidImageLedgerArtifacts(
   input: PaidImageLedgerArtifactInput
 ): { ok: boolean; errors: DeepAuditIssue[]; warnings: DeepAuditIssue[]; evidence: string[] } {
   const errors: DeepAuditIssue[] = [];
+  const stateCounts = [
+    input.completed,
+    input.missing,
+    input.reserved,
+    input.submitted,
+    input.failedBeforeAcceptance,
+    input.failedAfterAcceptance,
+    input.ambiguous
+  ];
+  const summaryIsConsistent =
+    Number.isInteger(input.expectedSlotCount) &&
+    input.expectedSlotCount >= 0 &&
+    stateCounts.every((count) => Number.isInteger(count) && count >= 0) &&
+    input.completed <= input.expectedSlotCount &&
+    stateCounts.reduce((total, count) => total + count, 0) === input.expectedSlotCount;
+  if (!summaryIsConsistent) {
+    errors.push({
+      code: "paid_image_ledger_summary_inconsistent",
+      message: "Paid image ledger summary contains invalid counts or does not cover exactly the expected slots."
+    });
+  }
   if (input.completed < input.expectedSlotCount) {
     errors.push({
       code: "paid_image_slots_incomplete",

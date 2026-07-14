@@ -8,6 +8,7 @@ import {
   currentPaidImageLedgerProcessIdentity,
   expireSubmittedPaidImageQueue,
   initializePaidImageProductLedger,
+  inspectPaidImageProductLedgerForAudit,
   removePaidImageBatchLedger,
   removePaidImageProductLedger,
   paidImageProductLedgerDir,
@@ -864,6 +865,39 @@ assert.deepEqual(summary, {
   failedAfterAcceptance: 2,
   ambiguous: 1
 });
+const completedResultFile = completed.resultFile;
+assert.ok(completedResultFile);
+const temporarilyDeletedResultFile = `${completedResultFile}.deleted-for-audit-test`;
+fs.renameSync(completedResultFile, temporarilyDeletedResultFile);
+const deletedResultAudit = inspectPaidImageProductLedgerForAudit(productDir);
+assert.equal(deletedResultAudit.summary.expectedSlotCount, 20);
+assert.equal(deletedResultAudit.summary.completed, 0);
+assert.equal(deletedResultAudit.summary.missing, 11);
+assert.deepEqual(deletedResultAudit.errors.map((issue) => issue.code), ["completed_result_missing_or_invalid"]);
+assert.throws(
+  () => summarizePaidImageProductLedger(productDir),
+  /completed paid image result is missing or invalid for slot 1/i,
+  "a deleted completed result must fail closed instead of counting as generated"
+);
+fs.renameSync(temporarilyDeletedResultFile, completedResultFile);
+const validCompletedResult = fs.readFileSync(completedResultFile);
+fs.writeFileSync(completedResultFile, "corrupted-completed-image", "utf8");
+const corruptedResultAudit = inspectPaidImageProductLedgerForAudit(productDir);
+assert.equal(corruptedResultAudit.summary.expectedSlotCount, 20);
+assert.equal(corruptedResultAudit.summary.completed, 0);
+assert.equal(corruptedResultAudit.summary.missing, 11);
+assert.deepEqual(corruptedResultAudit.errors.map((issue) => issue.code), ["completed_result_missing_or_invalid"]);
+assert.throws(
+  () => summarizePaidImageProductLedger(productDir),
+  /completed paid image result is missing or invalid for slot 1/i,
+  "a corrupted completed result must fail closed instead of counting as generated"
+);
+fs.writeFileSync(completedResultFile, validCompletedResult);
+assert.equal(
+  summarizePaidImageProductLedger(productDir).completed,
+  1,
+  "a completed slot with an existing SHA-256-matching result counts as generated"
+);
 
 const ledgerText = fs
   .readdirSync(path.join(productDir, "slots"))

@@ -7,7 +7,18 @@ import {
   auditRuleContradictions,
   runDeepAuditRules
 } from "../dist/src/autolist/deep-audit-rules.js";
+import { auditCurrentPaidImageLedgers } from "../dist/src/autolist/paid-image-audit.js";
+import {
+  initializePaidImageProductLedger,
+  recordPaidImageCompleted,
+  recordPaidImageFailedAfterAcceptance,
+  recordPaidImageSubmitted,
+  reservePaidImageSlot,
+  sha256Text
+} from "../dist/src/autolist/paid-image-submission-ledger.js";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const partialPaidLedgerAudit = auditPaidImageLedgerArtifacts({
   expectedSlotCount: 20,
@@ -49,6 +60,31 @@ const completePaidLedgerAudit = auditPaidImageLedgerArtifacts({
 });
 assert.equal(completePaidLedgerAudit.ok, true);
 assert.deepEqual(completePaidLedgerAudit.errors, []);
+
+for (const inconsistentSummary of [
+  { ...completePaidLedgerAuditInput(), completed: 20, ambiguous: 1 },
+  { ...completePaidLedgerAuditInput(), completed: 20, reserved: 1 },
+  { ...completePaidLedgerAuditInput(), completed: 21 },
+  { ...completePaidLedgerAuditInput(), completed: 19.5, missing: 0.5 },
+  { ...completePaidLedgerAuditInput(), failedAfterAcceptance: -1, missing: 1 }
+]) {
+  const inconsistentAudit = auditPaidImageLedgerArtifacts(inconsistentSummary);
+  assert.equal(inconsistentAudit.ok, false);
+  assert.equal(inconsistentAudit.errors[0]?.code, "paid_image_ledger_summary_inconsistent");
+}
+
+function completePaidLedgerAuditInput() {
+  return {
+    expectedSlotCount: 20,
+    completed: 20,
+    missing: 0,
+    reserved: 0,
+    submitted: 0,
+    failedBeforeAcceptance: 0,
+    failedAfterAcceptance: 0,
+    ambiguous: 0
+  };
+}
 
 const aggregatedPaidGeneration = aggregatePaidImageLedgerGeneration({
   completedGeneration: {
@@ -99,6 +135,134 @@ assert.equal(
   "A record with no ledger must contribute nothing"
 );
 
+const paidAuditFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-deep-audit-"));
+const paidAuditBatch = "current-feishu-batch";
+const fixtureResultSource = path.join(paidAuditFixtureRoot, "generated.png");
+fs.writeFileSync(fixtureResultSource, "verified-generated-image", "utf8");
+
+function createPaidAuditLedger(recordId, completedCount, failedAfterAcceptanceCount) {
+  const ledger = initializePaidImageProductLedger({
+    rootDir: paidAuditFixtureRoot,
+    batchFingerprint: paidAuditBatch,
+    recordId,
+    expectedSlotCount: 20,
+    providerIdentity: "provider",
+    sourceImageDigest: sha256Text(`source:${recordId}`)
+  });
+  for (let slot = 1; slot <= completedCount + failedAfterAcceptanceCount; slot += 1) {
+    reservePaidImageSlot({
+      productDir: ledger.productDir,
+      slot,
+      requestDigest: sha256Text(`request:${recordId}:${slot}`),
+      promptDigest: sha256Text(`prompt:${recordId}:${slot}`),
+      owner: { pid: process.pid }
+    });
+    recordPaidImageSubmitted({
+      productDir: ledger.productDir,
+      slot,
+      providerTaskId: `provider-${recordId}-${slot}`
+    });
+    if (slot <= completedCount) {
+      recordPaidImageCompleted({
+        productDir: ledger.productDir,
+        slot,
+        sourceFile: fixtureResultSource,
+        providerTaskId: `provider-${recordId}-${slot}`
+      });
+    } else {
+      recordPaidImageFailedAfterAcceptance({
+        productDir: ledger.productDir,
+        slot,
+        providerTaskId: `provider-${recordId}-${slot}`,
+        reason: "provider task failed after acceptance"
+      });
+    }
+  }
+  return ledger;
+}
+
+createPaidAuditLedger("record-failed-current", 17, 3);
+createPaidAuditLedger("record-completed", 20, 0);
+const behavioralPaidAudit = auditCurrentPaidImageLedgers({
+  records: [
+    { recordId: "record-failed-current", whiteBackgroundImages: [{ localFile: "/fixtures/failed.png" }] },
+    { recordId: "record-never-entered-paid-generation", whiteBackgroundImages: [{ localFile: "/fixtures/absent.png" }] },
+    { recordId: "record-completed", whiteBackgroundImages: [{ localFile: "/fixtures/completed.png" }] }
+  ],
+  processedImages: [],
+  rootDir: paidAuditFixtureRoot,
+  batchFingerprint: paidAuditBatch,
+  completedGeneration: {
+    ok: true,
+    summary: { auditedTaskCount: 1, expectedImageCount: 20, generatedImageCount: 20 },
+    errors: [],
+    warnings: []
+  },
+  completedRecordIds: ["record-completed"]
+});
+assert.equal(behavioralPaidAudit.generation.ok, false);
+assert.deepEqual(behavioralPaidAudit.generation.summary, {
+  auditedTaskCount: 2,
+  expectedImageCount: 40,
+  generatedImageCount: 37
+});
+assert.equal(
+  behavioralPaidAudit.generation.errors.some((issue) => issue.code === "paid_image_slots_incomplete"),
+  true
+);
+assert.deepEqual(behavioralPaidAudit.existingLedgerRecordIds, ["record-failed-current", "record-completed"]);
+assert.deepEqual(behavioralPaidAudit.includedLedgerRecordIds, ["record-failed-current"]);
+const behavioralDeepAudit = runDeepAuditRules({
+  rules: { errors: [], warnings: [], evidence: [] },
+  contradictions: { errors: [], warnings: [], evidence: [] },
+  runtime: { errors: [], warnings: [], evidence: [] },
+  identities: { errors: [], warnings: [], evidence: [] },
+  recovery: { errors: [], warnings: [], evidence: [] },
+  sideEffects: { errors: [], warnings: [], evidence: [] },
+  artifacts: behavioralPaidAudit.artifacts,
+  residue: { errors: [], warnings: [], evidence: [] }
+});
+assert.equal(behavioralDeepAudit.ok, false);
+assert.equal(
+  behavioralDeepAudit.dimensions.find((dimension) => dimension.name === "artifacts")?.errors
+    .some((issue) => issue.code === "paid_image_slots_incomplete"),
+  true
+);
+const corruptedLedger = createPaidAuditLedger("record-corrupted-current", 20, 0);
+fs.writeFileSync(path.join(corruptedLedger.productDir, "results", "01.png"), "corrupted", "utf8");
+const corruptedPaidAudit = auditCurrentPaidImageLedgers({
+  records: [
+    { recordId: "record-corrupted-current", whiteBackgroundImages: [{ localFile: "/fixtures/corrupted.png" }] }
+  ],
+  processedImages: [],
+  rootDir: paidAuditFixtureRoot,
+  batchFingerprint: paidAuditBatch,
+  completedGeneration: {
+    ok: true,
+    summary: { auditedTaskCount: 0, expectedImageCount: 0, generatedImageCount: 0 },
+    errors: [],
+    warnings: []
+  },
+  completedRecordIds: []
+});
+assert.equal(corruptedPaidAudit.generation.ok, false);
+assert.deepEqual(corruptedPaidAudit.generation.summary, {
+  auditedTaskCount: 1,
+  expectedImageCount: 20,
+  generatedImageCount: 19
+});
+assert.equal(
+  corruptedPaidAudit.generation.errors.some((issue) => issue.code === "paid_image_completed_result_invalid"),
+  true,
+  "corruption must remain explicit error evidence"
+);
+assert.equal(
+  corruptedPaidAudit.generation.errors.some((issue) => issue.code === "paid_image_slots_incomplete"),
+  true,
+  "a corrupt completed result must not count as generated"
+);
+fs.rmSync(paidAuditFixtureRoot, { recursive: true, force: true });
+
 const controllerFailureAudit = auditRuntimeControllerConsistency({
   controllerStatus: "failed",
   controllerActive: false,
@@ -110,20 +274,21 @@ assert.deepEqual(
   ["controller_terminal_failed", "controller_run_status_contradiction"]
 );
 const auditCliSource = fs.readFileSync("src/cli/audit-auto-listing.ts", "utf8");
+const paidImageAuditSource = fs.readFileSync("src/autolist/paid-image-audit.ts", "utf8");
 assert.match(auditCliSource, /auditRuntimeControllerConsistency/);
 assert.match(auditCliSource, /controllerRuntimeAudit\.evidence/);
 assert.match(
-  auditCliSource,
-  /paidImageProductLedgerDir\([\s\S]*resolved\.paidImageSubmissionLedgerDir[\s\S]*batchFingerprint[\s\S]*record\.recordId[\s\S]*\)/,
+  paidImageAuditSource,
+  /paidImageProductLedgerDir\(input\.rootDir, input\.batchFingerprint, record\.recordId\)/,
   "Deep audit must resolve a paid-image ledger from the exact current batch and pending Feishu record identity"
 );
 assert.match(
-  auditCliSource,
-  /summarizePaidImageProductLedger\(productLedgerDir\)/,
+  paidImageAuditSource,
+  /inspectPaidImageProductLedgerForAudit\(productDir\)/,
   "Deep audit must use the project ledger summarizer instead of parsing paid slot files ad hoc"
 );
 assert.match(
-  auditCliSource,
+  paidImageAuditSource,
   /aggregatePaidImageLedgerGeneration/,
   "Deep audit must merge current paid ledgers into generation totals"
 );
