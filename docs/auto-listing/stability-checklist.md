@@ -146,7 +146,7 @@
 
 1. 唯一有效的 provider family 是 OpenAI-compatible：模型固定为 `gpt-image-2`，模式固定为 `videos-base64`，接口精确为 `/v1/videos`；白底参考图必须通过 Base64 data URL 元数据提交，并固定携带 `aspect_ratio=1:1` 与 `size=1024x1024`。
 2. 每个商品固定使用 `01-20` 共 20 个付费 slot，并以持久账本中的 slot 状态驱动恢复。`submitted` 只轮询原 task ID，`completed` 只复用结果，只有明确可重提的同一 slot 才能补交；禁止整轮或整批重放。
-3. 每个 slot 必须落盘 `request-XX.json`、provider 提交响应 `response-XX.json`、状态响应 `response-XX-status-N.json`，并在项目级账本保存 task ID、状态、响应摘要和最终结果证据。
+3. 每个 slot 的 provider task ID、provider 提交响应 `response-XX.json` 和状态响应 `response-XX-status-N.json` 均必须持久化；`request-XX.json` 也必须落盘，项目级账本还必须保存状态、响应摘要和最终结果证据。
 4. 3 分钟只是操作层等待、退避和状态展示阈值，不是付费重提权限；已受理任务必须观察同一 task ID，到固定 30 分钟上限时先做最终状态查询，只有最终仍为 `queued`/`pending` 才能按同一 slot 的状态恢复。
 5. 权限、余额、额度、计费、身份不明、`reserved` 或 `ambiguous` 都是付费安全阻断，不得自动重提；provider 明确证明未受理，或账本状态明确允许的有界同 slot 恢复，才可提交。
 6. 不扫描、不导入旧 runtime 或历史 run 的付费账本，不提供历史迁移或其他 provider 兼容路径。

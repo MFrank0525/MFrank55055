@@ -145,6 +145,27 @@ assert.equal(
   false,
   "persistence of a new English audit-log subject must not persist the provider artifact list"
 );
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- 审计日志必须保存，provider task ID、response-XX.json、response-XX-status-N.json 仅列出。"
+  ),
+  false,
+  "prior audit-log persistence must not persist a subsequently listed artifact list"
+);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- 截图必须持久化，provider task ID、response-XX.json、response-XX-status-N.json 仅供检查。"
+  ),
+  false,
+  "prior screenshot persistence must not persist artifacts provided only for inspection"
+);
+assert.equal(
+  hasProviderArtifactPersistenceRuleItem(
+    "- Screenshots are persisted, provider task ID, response-XX.json, and response-XX-status-N.json are listed for inspection."
+  ),
+  false,
+  "prior English screenshot persistence must not persist a listed artifact set"
+);
 
 function readTextTree(rootDir) {
   return fs

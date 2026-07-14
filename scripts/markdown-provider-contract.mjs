@@ -273,15 +273,9 @@ function clausePersistsArtifactClasses(clause, artifactPatterns) {
   if (artifactMatches.length !== artifactPatterns.length) {
     return false;
   }
-  const firstArtifact = artifactMatches[0];
   const lastArtifact = artifactMatches[artifactMatches.length - 1];
-  const listStart = firstArtifact.index;
   const listEnd = lastArtifact.index + lastArtifact[0].length;
   return positiveActions.some((action) => {
-    if (action.index < listStart) {
-      const between = clause.slice(action.index + action[0].length, listStart);
-      return !/(?:但|而|while|whereas|however|已列出|are\s+listed)/iu.test(between);
-    }
     if (action.index >= listEnd) {
       return hasOnlySyntacticTail(clause.slice(listEnd, action.index));
     }
