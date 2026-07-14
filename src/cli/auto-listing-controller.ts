@@ -23,6 +23,7 @@ import {
   shouldUseExpectedResultFileInRunningStatus, summarizeAutoListingControllerImageGenerationEvents,
   type AutoListingControllerLaunchIntent
 } from "../autolist/batch-continuation-rules.js";
+import { resolvePaidImageWaitStatus } from "../autolist/paid-image-wait-rules.js";
 import { shouldFailAutoListingControllerStatusForFeishuCacheInvalid, shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid } from "../autolist/controller-cache-status-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
@@ -149,13 +150,7 @@ interface AutoListingResultFile {
   error?: { message?: string };
 }
 
-interface AutoListingStateFile {
-  runId?: string;
-  feishuBatchFingerprint?: string;
-  businessRuleFingerprint?: string;
-  status?: string;
-  tasks?: AutoListingTaskFile[];
-}
+interface AutoListingStateFile { runId?: string; feishuBatchFingerprint?: string; businessRuleFingerprint?: string; status?: string; tasks?: AutoListingTaskFile[] }
 
 interface PublishManifestFile {
   generatedAt?: string;
@@ -1334,9 +1329,17 @@ function summarizeActiveDirectAutoListingStatus(directProcess: DirectAutoListing
         ? `，最新进度：${compactStatusValue(String((state.latestProgress as Record<string, unknown>).message))}`
         : "")
     : "直接启动的自动上架进程正在运行。";
+  const directTerminalFailureMessage = String((currentTask?.error as Record<string, unknown> | undefined)?.message || "") || undefined;
+  const directResolvedStatus = resolvePaidImageWaitStatus({
+    baseStatus: "running",
+    activeMainImageGeneration: String(currentTask?.status || (state?.latestProgress as Record<string, unknown> | undefined)?.step || "") === "main_images_generated",
+    paidImageSubmitted: paidImageProgress?.submitted,
+    publishProgressActive: activePublishRunning,
+    terminalFailureMessage: directTerminalFailureMessage
+  });
   return {
     ok: true,
-    status: "running",
+    status: directResolvedStatus,
     pid: directProcess.pid,
     mode: "direct-auto-listing",
     command: directProcess.command,
@@ -1732,16 +1735,19 @@ function existingStatus(): Record<string, unknown> {
     hasPendingFeishuProducts,
     stateStatus: typeof state?.status === "string" ? state.status : undefined,
     resultStatus: typeof result?.status === "string" ? result.status : undefined,
-    terminalFailureMessage,
-    activeMainImageGeneration:
-      String(currentTask?.status || (state?.latestProgress as Record<string, unknown> | undefined)?.step || "") === "main_images_generated",
+    terminalFailureMessage
+  });
+  const paidImageResolvedStatus = resolvePaidImageWaitStatus({
+    baseStatus: baseResolvedStatus,
+    activeMainImageGeneration: String(currentTask?.status || (state?.latestProgress as Record<string, unknown> | undefined)?.step || "") === "main_images_generated",
     paidImageSubmitted: typeof paidImageProgress?.submitted === "number" ? Number(paidImageProgress.submitted) : 0,
-    publishProgressActive: exposePublishProgress
+    publishProgressActive: exposePublishProgress,
+    terminalFailureMessage
   });
   const resolvedStatus =
-    manualRecoveryPublishRunning && baseResolvedStatus !== "completed" && baseResolvedStatus !== "failed"
+    manualRecoveryPublishRunning && paidImageResolvedStatus !== "completed" && paidImageResolvedStatus !== "failed"
       ? "running"
-      : baseResolvedStatus;
+      : paidImageResolvedStatus;
   const pauseSignal = readPauseSignalFile();
   const terminalResult = resolvedStatus === "completed" ? "completed" : resolvedStatus === "failed" ? "failed" : undefined;
   const closure = resolveControllerJobClosure({

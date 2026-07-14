@@ -4,13 +4,11 @@ import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import {
   resolveDefaultRetryableChildFailureRecoveryAttempts,
-  resolveAutoListingControllerChildWatchdogDecision,
   isAutoListingControllerProgressArtifactRelativePath,
   isRetryableExternalServiceAvailabilityFailure,
   resolveSupervisorRecoveryChildMode,
   resolveSupervisorRecoveryDelayMs,
   shouldConsumeSupervisorRecoveryAttempt,
-  shouldRefreshAutoListingChildProgressSeenAt,
   shouldTerminateChildAfterTerminalResult,
   shouldContinueFullFlowAfterChildExit,
   shouldContinueFeishuAfterBatchRefresh,
@@ -18,6 +16,10 @@ import {
   shouldRefreshFeishuAssetsBeforeFullFlow,
   type FullFlowContinuationReason
 } from "../autolist/batch-continuation-rules.js";
+import {
+  resolvePaidImageChildWatchdogDecision,
+  shouldRefreshProgressSeenAtForPaidImageWait
+} from "../autolist/paid-image-wait-rules.js";
 import { shouldRefreshFeishuAssetsToCandidateCache } from "../autolist/feishu-refresh-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
@@ -280,7 +282,7 @@ async function runChild(label: string, command: string, args: string[]): Promise
   let lastProgressSeenAt = Date.now();
   let killedForStall = false;
   let terminalResultExitCode: number | null | undefined;
-  let acceptedTaskObservation: ReturnType<typeof resolveAutoListingControllerChildWatchdogDecision>["acceptedTaskObservation"];
+  let acceptedTaskObservation: ReturnType<typeof resolvePaidImageChildWatchdogDecision>["acceptedTaskObservation"];
   latestChildStallProgress = {};
   const watchdog = setInterval(() => {
     const terminalResult = latestTerminalResultAfter(childStartedAtMs);
@@ -311,14 +313,14 @@ async function runChild(label: string, command: string, args: string[]): Promise
     if (progressMtime > lastProgressMtime) {
       lastProgressMtime = progressMtime;
       activeProgress = latestProgressSnapshot();
-      if (shouldRefreshAutoListingChildProgressSeenAt(activeProgress)) {
+      if (shouldRefreshProgressSeenAtForPaidImageWait(activeProgress)) {
         lastProgressSeenAt = Date.now();
         return;
       }
       latestChildStallProgress = activeProgress;
     }
     activeProgress = activeProgress || latestProgressSnapshot();
-    const watchdogDecision = resolveAutoListingControllerChildWatchdogDecision({
+    const watchdogDecision = resolvePaidImageChildWatchdogDecision({
       defaultTimeoutMs: childStallTimeoutMs,
       lastProgressSeenAtMs: lastProgressSeenAt,
       nowMs: Date.now(),

@@ -1,5 +1,6 @@
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
-import { imageServiceWaitCeilingMs, videosBase64AcceptedTaskPollCeilingMs } from "./image-generation-rules.js";
+import { imageServiceWaitCeilingMs } from "./image-generation-rules.js";
+import { isPaidImageAcceptedTaskHeartbeatText } from "./paid-image-wait-rules.js";
 
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
@@ -67,7 +68,7 @@ function isRetryableVideosBase64ProviderTaskFailure(message: string): boolean {
 
 function isRetryableVideosBase64AcceptedQueueWait(message: string): boolean {
   return /main_images_generated|main image|watchdog|no progress/i.test(message) &&
-    /videos-base64 task \S+ status (?:queued|pending)\s+0(?!\.\d|\d)/i.test(message);
+    isPaidImageAcceptedTaskHeartbeatText(message);
 }
 
 export function isRetryableExternalServiceAvailabilityFailure(message: string): boolean {
@@ -326,50 +327,6 @@ export function resolveAutoListingControllerProgressAgeSeconds(input: AutoListin
     return undefined;
   }
   return Math.max(0, Math.floor((nowMs - progressMs) / 1000));
-}
-
-export type AutoListingControllerChildStallTimeoutInput = { defaultTimeoutMs: number; activeStep?: string; activeMessage?: string };
-
-export type AutoListingControllerAcceptedTaskObservation = { taskKey: string; startedAtMs: number };
-
-function resolveAutoListingControllerAcceptedTaskKey(input: Pick<AutoListingControllerChildStallTimeoutInput, "activeStep" | "activeMessage">): string | undefined {
-  return /main_images_generated/i.test(input.activeStep || "")
-    ? /videos-base64 task (\S+) status (?:queued|pending)\s+0(?!\.\d|\d)/i.exec(input.activeMessage || "")?.[1]
-    : undefined;
-}
-
-export function resolveAutoListingControllerChildStallTimeoutMs(input: AutoListingControllerChildStallTimeoutInput): number {
-  return resolveAutoListingControllerAcceptedTaskKey(input)
-    ? Math.max(input.defaultTimeoutMs, videosBase64AcceptedTaskPollCeilingMs)
-    : input.defaultTimeoutMs;
-}
-
-export function resolveAutoListingControllerChildWatchdogDecision(input: AutoListingControllerChildStallTimeoutInput & {
-  lastProgressSeenAtMs: number;
-  nowMs: number;
-  acceptedTaskObservation?: AutoListingControllerAcceptedTaskObservation;
-}) {
-  const taskKey = resolveAutoListingControllerAcceptedTaskKey(input);
-  const acceptedTaskObservation = taskKey
-    ? input.acceptedTaskObservation?.taskKey === taskKey
-      ? input.acceptedTaskObservation
-      : { taskKey, startedAtMs: input.nowMs }
-    : undefined;
-  const stallBaselineMs = acceptedTaskObservation?.startedAtMs ?? input.lastProgressSeenAtMs;
-  const effectiveStallTimeoutMs = resolveAutoListingControllerChildStallTimeoutMs(input);
-  return {
-    acceptedTaskObservation,
-    stallBaselineMs,
-    effectiveStallTimeoutMs,
-    shouldTerminate: input.nowMs - stallBaselineMs >= effectiveStallTimeoutMs
-  };
-}
-
-export function shouldRefreshAutoListingChildProgressSeenAt(input: {
-  activeStep?: string;
-  activeMessage?: string;
-}): boolean {
-  return !resolveAutoListingControllerAcceptedTaskKey(input);
 }
 
 export function isAutoListingControllerProgressArtifactRelativePath(relativePath: string): boolean {
@@ -1124,9 +1081,6 @@ export type AutoListingControllerRuntimeStatusInput = {
   stateStatus?: string;
   resultStatus?: string;
   terminalFailureMessage?: string;
-  activeMainImageGeneration?: boolean;
-  paidImageSubmitted?: number;
-  publishProgressActive?: boolean;
 };
 
 export function resolveAutoListingControllerRuntimeStatus(input: AutoListingControllerRuntimeStatusInput): AutoListingControllerResolvedStatus {
@@ -1137,9 +1091,6 @@ export function resolveAutoListingControllerRuntimeStatus(input: AutoListingCont
     return "external_service_wait";
   }
   if (input.running && isRetryableExternalServiceAvailabilityFailure(input.terminalFailureMessage || "")) {
-    return "external_service_wait";
-  }
-  if (input.running && !input.terminalFailureMessage && !input.publishProgressActive && input.activeMainImageGeneration && Number(input.paidImageSubmitted || 0) > 0) {
     return "external_service_wait";
   }
   if (input.running) {

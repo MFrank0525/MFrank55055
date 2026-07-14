@@ -44,8 +44,6 @@ import {
   isExternalMainImageRawReuseMessage,
   shouldClearPauseSignalOnAutoListingControllerStart,
   summarizeAutoListingControllerImageGenerationEvents,
-  shouldRefreshAutoListingChildProgressSeenAt,
-  resolveAutoListingControllerChildStallTimeoutMs,
   isAutoListingControllerProgressArtifactRelativePath,
   shouldTerminateRecordedAutoListingControllerProcessGroup,
   shouldTerminateChildAfterTerminalResult,
@@ -65,6 +63,12 @@ import {
   shouldSuppressTerminalFailureBehindNewerProgress,
   compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
+import {
+  resolvePaidImageChildStallTimeoutMs,
+  resolvePaidImageChildWatchdogDecision,
+  resolvePaidImageWaitStatus,
+  shouldRefreshProgressSeenAtForPaidImageWait
+} from "../dist/src/autolist/paid-image-wait-rules.js";
 import { shouldRefreshFeishuAssetsToCandidateCache } from "../dist/src/autolist/feishu-refresh-rules.js";
 import {
   shouldFailAutoListingControllerStatusForFeishuCacheInvalid,
@@ -333,11 +337,11 @@ assert.match(
 );
 assert.match(
   hermesSupervisorSource,
-  /shouldRefreshAutoListingChildProgressSeenAt/,
+  /shouldRefreshProgressSeenAtForPaidImageWait/,
   "supervisor watchdog must still classify visible progress messages before deciding whether to refresh progress time"
 );
 assert.equal(
-  shouldRefreshAutoListingChildProgressSeenAt({
+  shouldRefreshProgressSeenAtForPaidImageWait({
     activeStep: "main_images_generated",
     activeMessage: "Prompt 3/5: Image 4: videos-base64 task task_qn0 status queued 0."
   }),
@@ -345,7 +349,7 @@ assert.equal(
   "videos-base64 queued 0 is an external-service heartbeat, not business progress"
 );
 assert.equal(
-  shouldRefreshAutoListingChildProgressSeenAt({
+  shouldRefreshProgressSeenAtForPaidImageWait({
     activeStep: "main_images_generated",
     activeMessage: "Prompt 3/5: Image 4: videos-base64 task task_qn0 status pending 0."
   }),
@@ -353,7 +357,7 @@ assert.equal(
   "videos-base64 pending 0 is an external-service heartbeat, not business progress"
 );
 assert.equal(
-  shouldRefreshAutoListingChildProgressSeenAt({
+  shouldRefreshProgressSeenAtForPaidImageWait({
     activeStep: "main_images_generated",
     activeMessage: "Prompt 3/5: Image 4: videos-base64 task task_qn0 status completed 100."
   }),
@@ -361,7 +365,7 @@ assert.equal(
   "completed provider status is real progress"
 );
 assert.equal(
-  shouldRefreshAutoListingChildProgressSeenAt({
+  shouldRefreshProgressSeenAtForPaidImageWait({
     activeStep: "main_images_generated",
     activeMessage: "Prompt 3/5: Image 4: saved generated-04.png."
   }),
@@ -1511,7 +1515,7 @@ const cdpContextManagementClass = classifyPublishFailure(
 assert.equal(cdpContextManagementClass, "browser_remote_debugging_unavailable");
 assert.equal(shouldRetryPublishFailure(cdpContextManagementClass, 0), true);
 assert.equal(
-  resolveAutoListingControllerChildStallTimeoutMs({
+  resolvePaidImageChildStallTimeoutMs({
     defaultTimeoutMs: 12 * 60 * 1000,
     activeStep: "published",
     activeMessage: "Retrying publish for 延草纲目医用面部冷敷贴水印03 (02延草纲目药品专营店): page_context_lost; attempt 1"
@@ -1520,7 +1524,7 @@ assert.equal(
   "Non-image steps must retain the configured supervisor stall timeout"
 );
 assert.equal(
-  resolveAutoListingControllerChildStallTimeoutMs({
+  resolvePaidImageChildStallTimeoutMs({
     defaultTimeoutMs: 12 * 60 * 1000,
     activeStep: "main_images_generated",
     activeMessage: "Prompt 4/5: Image 2: transient transport error during initial; retry 6/8."
@@ -1528,7 +1532,7 @@ assert.equal(
   12 * 60 * 1000
 );
 assert.equal(
-  resolveAutoListingControllerChildStallTimeoutMs({
+  resolvePaidImageChildStallTimeoutMs({
     defaultTimeoutMs: 12 * 60 * 1000,
     activeStep: "main_images_generated",
     activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_queued status queued 0."
@@ -1537,7 +1541,7 @@ assert.equal(
   "The supervisor must let an accepted queued task reach its fixed thirty-minute observation ceiling"
 );
 assert.equal(
-  resolveAutoListingControllerChildStallTimeoutMs({
+  resolvePaidImageChildStallTimeoutMs({
     defaultTimeoutMs: 12 * 60 * 1000,
     activeStep: "main_images_generated",
     activeMessage: "Prompt 5/5: Image 4: videos-base64 task task_pending status pending 0."
@@ -1546,11 +1550,11 @@ assert.equal(
   "The supervisor must let an accepted pending task reach its fixed thirty-minute observation ceiling"
 );
 assert.equal(
-  typeof progressRulesModule.resolveAutoListingControllerChildWatchdogDecision,
+  typeof resolvePaidImageChildWatchdogDecision,
   "function",
   "Accepted-task watchdog timing must be exposed as a pure state transition"
 );
-const firstAcceptedTaskWatchdog = progressRulesModule.resolveAutoListingControllerChildWatchdogDecision({
+const firstAcceptedTaskWatchdog = resolvePaidImageChildWatchdogDecision({
   defaultTimeoutMs: 12 * 60 * 1000,
   lastProgressSeenAtMs: 0,
   nowMs: 20 * 60 * 1000,
@@ -1563,7 +1567,7 @@ assert.deepEqual(firstAcceptedTaskWatchdog.acceptedTaskObservation, {
   taskKey: "task_first",
   startedAtMs: 20 * 60 * 1000
 });
-const sameAcceptedTaskWatchdog = progressRulesModule.resolveAutoListingControllerChildWatchdogDecision({
+const sameAcceptedTaskWatchdog = resolvePaidImageChildWatchdogDecision({
   defaultTimeoutMs: 12 * 60 * 1000,
   lastProgressSeenAtMs: 0,
   nowMs: 49 * 60 * 1000,
@@ -1573,7 +1577,7 @@ const sameAcceptedTaskWatchdog = progressRulesModule.resolveAutoListingControlle
 });
 assert.equal(sameAcceptedTaskWatchdog.shouldTerminate, false);
 assert.equal(sameAcceptedTaskWatchdog.stallBaselineMs, 20 * 60 * 1000);
-const changedAcceptedTaskWatchdog = progressRulesModule.resolveAutoListingControllerChildWatchdogDecision({
+const changedAcceptedTaskWatchdog = resolvePaidImageChildWatchdogDecision({
   defaultTimeoutMs: 12 * 60 * 1000,
   lastProgressSeenAtMs: 0,
   nowMs: 50 * 60 * 1000,
@@ -1586,7 +1590,7 @@ assert.deepEqual(changedAcceptedTaskWatchdog.acceptedTaskObservation, {
   taskKey: "task_second",
   startedAtMs: 50 * 60 * 1000
 });
-const decimalProgressWatchdog = progressRulesModule.resolveAutoListingControllerChildWatchdogDecision({
+const decimalProgressWatchdog = resolvePaidImageChildWatchdogDecision({
   defaultTimeoutMs: 12 * 60 * 1000,
   lastProgressSeenAtMs: 0,
   nowMs: 20 * 60 * 1000,
@@ -3018,12 +3022,8 @@ assert.equal(
   "external_service_wait",
   "A running supervisor with an active terminal main-image transport failure must report external-service wait, not normal running"
 );
-const paidLedgerDerivedWaitStatus = resolveAutoListingControllerRuntimeStatus({
-  running: true,
-  activeWaitState: false,
-  completed: false,
-  failed: false,
-  hasPendingFeishuProducts: false,
+const paidLedgerDerivedWaitStatus = resolvePaidImageWaitStatus({
+  baseStatus: "running",
   activeMainImageGeneration: true,
   paidImageSubmitted: 3,
   publishProgressActive: false
@@ -3044,6 +3044,55 @@ const compactPaidLedgerDerivedWait = formatAutoListingControllerCompactStatusTex
 });
 assert.match(compactPaidLedgerDerivedWait, /主图 17\/20/);
 assert.match(compactPaidLedgerDerivedWait, /等待生图服务/);
+assert.equal(
+  typeof resolvePaidImageWaitStatus,
+  "function",
+  "Direct and supervised controller paths must share a paid-ledger wait status resolver"
+);
+const sharedDirectPaidWaitStatus = resolvePaidImageWaitStatus({
+  baseStatus: "running",
+  activeMainImageGeneration: true,
+  paidImageSubmitted: 3,
+  publishProgressActive: false
+});
+assert.equal(sharedDirectPaidWaitStatus, "external_service_wait");
+assert.equal(
+  (hermesRunnerSource.match(/resolvePaidImageWaitStatus\(/g) || []).length,
+  2,
+  "Both direct-run and supervised controller status branches must use the shared paid-ledger wait resolver"
+);
+const compactSharedDirectPaidWait = formatAutoListingControllerCompactStatusText({
+  status: sharedDirectPaidWaitStatus,
+  summary: "图片服务冷却中，系统将自动继续查询已接受任务。",
+  imageGenerationProgress: "Prompt 5/5: Image 4: videos-base64 task task_direct status queued 0.",
+  mainImageCompleted: 17,
+  mainImageExpected: 20,
+  feishuCompleted: 0,
+  feishuTotal: 1
+});
+assert.match(compactSharedDirectPaidWait, /主图 17\/20/);
+assert.match(compactSharedDirectPaidWait, /等待生图服务/);
+assert.equal(
+  resolvePaidImageWaitStatus({
+    baseStatus: "running",
+    activeMainImageGeneration: true,
+    paidImageSubmitted: 3,
+    publishProgressActive: true
+  }),
+  "running",
+  "Direct active publish progress must retain publish precedence over historical paid slots"
+);
+assert.equal(
+  resolvePaidImageWaitStatus({
+    baseStatus: "running",
+    activeMainImageGeneration: true,
+    paidImageSubmitted: 3,
+    publishProgressActive: false,
+    terminalFailureMessage: "paid image ledger blocked slot 4: blocked_ambiguous"
+  }),
+  "running",
+  "Direct explicit non-provider failure state must not be relabeled as provider wait"
+);
 assert.equal(
   resolveAutoListingControllerRuntimeStatus({
     running: true,
