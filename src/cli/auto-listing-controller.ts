@@ -31,6 +31,7 @@ import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-ru
 import { removeInvalidRuntimeArtifactDirs } from "../autolist/runtime-artifact-lifecycle.js";
 import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
+import { assertAutoListingControllerImageGenerationContract } from "../autolist/image-generation-config.js";
 import type { ImageGenerationProvider } from "../autolist/image-generation-provider.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { resolveControllerJobClosure, type ControllerJobStatus } from "../autolist/maintenance-rules.js";
@@ -111,6 +112,7 @@ interface AutoListingJobFile {
     paidImageSubmissionLedgerDir?: string;
     imageGenerationConfigFile?: string;
     imageGenerationProvider?: ImageGenerationProvider;
+    simulateOnly?: boolean;
     shopRootDir?: string;
     maxImagesPerRun?: number;
     clearTestOutputsBeforeRun?: boolean;
@@ -2745,6 +2747,7 @@ function selectCommand(forceFullFlow = false): {
   mode: RunnerJob["mode"];
   expectedResultFile?: string;
   imageGenerationConfigFile?: string;
+  job: AutoListingJobFile;
 } {
   const resumeJob = forceFullFlow ? undefined : ensureResumeJobFromLatestFailure();
   if (resumeJob) {
@@ -2753,7 +2756,8 @@ function selectCommand(forceFullFlow = false): {
       args: ["dist/src/cli/auto-listing-supervisor.js", "--initial", "resume"],
       mode: "resume-real-job",
       expectedResultFile: resumeJob?.resultFile ? path.resolve(rootDir, resumeJob.resultFile) : undefined,
-      imageGenerationConfigFile: resolveImageGenerationConfigFile(resumeJob)
+      imageGenerationConfigFile: resolveImageGenerationConfigFile(resumeJob),
+      job: resumeJob
     };
   }
   const fullJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
@@ -2761,7 +2765,8 @@ function selectCommand(forceFullFlow = false): {
     command: "node",
     args: ["dist/src/cli/auto-listing-supervisor.js", "--initial", "full"],
     mode: "full-real-flow",
-    imageGenerationConfigFile: resolveImageGenerationConfigFile(fullJob)
+    imageGenerationConfigFile: resolveImageGenerationConfigFile(fullJob),
+    job: fullJob || {}
   };
 }
 
@@ -2876,6 +2881,7 @@ async function start(
     return;
   }
 
+  assertAutoListingControllerImageGenerationContract(selected.job.input, rootDir);
   await assertRealFlowNetworkPreflight(selected.imageGenerationConfigFile);
 
   const logFd = fs.openSync(logFile, "a");

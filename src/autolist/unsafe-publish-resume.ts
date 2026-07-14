@@ -48,7 +48,7 @@ export function buildFallbackSourceJobFromPreflight(rootDir: string, runtimeDir:
       qualificationDir: String(source.qualificationDir),
       shopRootDir: String(source.shopRootDir),
       imageGenerationProvider: requireOpenAiCompatibleImageProvider(
-        source.imageGenerationProvider || "openai-compatible",
+        source.imageGenerationProvider,
         "Unsafe publish resume preflight"
       ),
       imageGenerationConfigFile: source.imageGenerationConfigFile ? String(source.imageGenerationConfigFile) : undefined,

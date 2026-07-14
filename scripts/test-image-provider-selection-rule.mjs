@@ -7,6 +7,8 @@ import {
   requireOpenAiCompatibleImageProvider,
   resolveImageGenerationProvider
 } from "../dist/src/autolist/image-generation-provider.js";
+import { buildFallbackSourceJobFromPreflight } from "../dist/src/autolist/unsafe-publish-resume.js";
+import { assertAutoListingControllerImageGenerationContract } from "../dist/src/autolist/image-generation-config.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "image-provider-selection-"));
 const realJobFile = path.resolve("input/auto-listing.job.provider-contract-real-test.json");
@@ -34,7 +36,7 @@ const canonicalConfig = {
   mode: "videos-base64"
 };
 
-for (const invalidProvider of [undefined, "media-generate", "edits", "generations", "foo", "none"]) {
+for (const invalidProvider of [undefined, null, "", "media-generate", "edits", "generations", "foo", "none"]) {
   assert.throws(
     () => requireOpenAiCompatibleImageProvider(invalidProvider, "Paid provider test"),
     /provider.*openai-compatible/i
@@ -44,11 +46,29 @@ for (const invalidProvider of [undefined, "media-generate", "edits", "generation
     /provider.*openai-compatible/i
   );
 }
+for (const missingProvider of [undefined, null, ""]) {
+  assert.throws(
+    () => resolveImageGenerationProvider(missingProvider, true, "Simulation test"),
+    /provider.*openai-compatible.*none/i,
+    "simulation must explicitly select openai-compatible or none"
+  );
+}
 assert.equal(resolveImageGenerationProvider("none", true, "Simulation test"), "none");
 assert.equal(resolveImageGenerationProvider("openai-compatible", true, "Simulation test"), "openai-compatible");
 assert.equal(requireOpenAiCompatibleImageProvider("openai-compatible", "Paid provider test"), "openai-compatible");
 
 try {
+  const missingCliProvider = runNode([
+    "dist/src/cli/doctor.js",
+    "--auto-listing",
+    "--require-image-generation"
+  ]);
+  assert.match(
+    missingCliProvider.output,
+    /FAIL image generation provider selection:.*openai-compatible/i,
+    "real doctor entry must fail closed when --image-generation-provider is omitted"
+  );
+
   const invalidCliProvider = runNode([
     "dist/src/cli/doctor.js",
     "--auto-listing",
@@ -100,6 +120,34 @@ try {
   );
 
   const canonicalConfigFile = writeConfig("canonical.json", canonicalConfig);
+  for (const controllerProvider of [undefined, "foo", "none"]) {
+    assert.throws(
+      () => assertAutoListingControllerImageGenerationContract({
+        simulateOnly: false,
+        imageGenerationProvider: controllerProvider,
+        imageGenerationConfigFile: canonicalConfigFile
+      }, process.cwd()),
+      /provider.*openai-compatible/i,
+      `real controller selection must reject ${String(controllerProvider)}`
+    );
+  }
+  assert.throws(
+    () => assertAutoListingControllerImageGenerationContract({
+      simulateOnly: false,
+      imageGenerationProvider: "openai-compatible"
+    }, process.cwd()),
+    /config file is required/i,
+    "real controller selection must require an explicit config file"
+  );
+  assert.doesNotThrow(() => assertAutoListingControllerImageGenerationContract({
+    simulateOnly: false,
+    imageGenerationProvider: "openai-compatible",
+    imageGenerationConfigFile: canonicalConfigFile
+  }, process.cwd()));
+  assert.doesNotThrow(() => assertAutoListingControllerImageGenerationContract({
+    simulateOnly: true,
+    imageGenerationProvider: "none"
+  }, process.cwd()));
   const canonicalDoctor = runNode([
     "dist/src/cli/doctor.js",
     "--auto-listing",
@@ -113,6 +161,63 @@ try {
     canonicalDoctor.output,
     /OK OpenAI-compatible image generation config:/,
     "doctor must accept the canonical current provider config"
+  );
+
+  for (const [name, invalidConfig] of [
+    ["missing-api-url", { ...canonicalConfig, apiUrl: undefined }],
+    ["wrong-endpoint", { ...canonicalConfig, apiUrl: "https://provider.example/v1/images" }],
+    ["missing-mode", { ...canonicalConfig, mode: undefined }],
+    ["missing-model", { ...canonicalConfig, model: undefined }],
+    ["wrong-model", { ...canonicalConfig, model: "other-model" }]
+  ]) {
+    const invalidConfigFile = writeConfig(`${name}.json`, invalidConfig);
+    const invalidConfigDoctor = runNode([
+      "dist/src/cli/doctor.js",
+      "--auto-listing",
+      "--require-image-generation",
+      "--image-generation-provider",
+      "openai-compatible",
+      "--image-generation-config",
+      invalidConfigFile
+    ]);
+    assert.notEqual(invalidConfigDoctor.status, 0, `doctor must reject ${name}`);
+    assert.match(
+      invalidConfigDoctor.output,
+      /FAIL OpenAI-compatible image generation config:/,
+      `doctor must report ${name} as an invalid image generation config`
+    );
+  }
+
+  for (const preflightProvider of [undefined, "foo", "none"]) {
+    const unsafeRuntimeDir = path.join(tmp, `unsafe-${String(preflightProvider)}`);
+    fs.mkdirSync(unsafeRuntimeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(unsafeRuntimeDir, "preflight.json"),
+      JSON.stringify({
+        source: {
+          feishuProductDataFile: "data/feishu/products.json",
+          feishuImageDir: "input/auto-listing/feishu-images",
+          mainImageWorkDir: "input/auto-listing/main-images",
+          qualificationDir: "input/auto-listing/qualification-images",
+          shopRootDir: "input/auto-listing/shops",
+          ...(preflightProvider === undefined ? {} : { imageGenerationProvider: preflightProvider }),
+          imageGenerationConfigFile: canonicalConfigFile
+        }
+      }, null, 2) + "\n",
+      "utf8"
+    );
+    assert.throws(
+      () => buildFallbackSourceJobFromPreflight(process.cwd(), unsafeRuntimeDir),
+      /provider.*openai-compatible/i,
+      `unsafe real resume must reject ${String(preflightProvider)} before constructing a job`
+    );
+  }
+
+  const controllerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
+  assert.match(
+    controllerSource,
+    /const selected = selectCommand\(forceFullFlow\);[\s\S]*assertAutoListingControllerImageGenerationContract\([\s\S]*const child = spawn\(/,
+    "controller must validate the selected job provider and config before background spawn"
   );
 
   fs.writeFileSync(

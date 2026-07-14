@@ -11,9 +11,6 @@ export function resolveImageGenerationProvider(
   if (simulateOnly && value === "none") {
     return value;
   }
-  if (simulateOnly && (value === undefined || value === null || value === "")) {
-    return "openai-compatible";
-  }
   throw new Error(
     `${context} image generation provider must be openai-compatible${simulateOnly ? " or none for simulation-only execution" : ""}.`
   );

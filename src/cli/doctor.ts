@@ -3,7 +3,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
 import { getShopSpecs } from "../autolist/product-category.js";
-import { resolveOpenAiCompatibleImageMode } from "../autolist/image-generation-rules.js";
+import { readOpenAiCompatibleImageGenerationConfig } from "../autolist/image-generation-config.js";
 import {
   requireOpenAiCompatibleImageProvider,
   resolveImageGenerationProvider
@@ -121,32 +121,7 @@ function checkOpenAiCompatibleImageGenerationConfig(configFile: string, required
     };
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as {
-      provider?: unknown;
-      apiUrl?: string;
-      apiKey?: string;
-      model?: string;
-      mode?: unknown;
-    };
-    const missing = [
-      parsed.apiUrl ? "" : "apiUrl",
-      process.env.IMAGE_GENERATION_API_KEY || parsed.apiKey ? "" : "apiKey",
-      parsed.model ? "" : "model"
-    ].filter(Boolean);
-    if (missing.length > 0) {
-      return {
-        name: "OpenAI-compatible image generation config",
-        ok: !required,
-        required,
-        detail: `${resolved}; missing ${missing.join(", ")}`
-      };
-    }
-    assertNoGptPlusWebUrl(parsed.apiUrl || "", `image generation apiUrl in ${resolved}`);
-    requireOpenAiCompatibleImageProvider(parsed.provider, `Image generation config in ${resolved}`);
-    resolveOpenAiCompatibleImageMode(parsed.mode, parsed.apiUrl || "");
-    if (parsed.model !== "gpt-image-2") {
-      throw new Error(`OpenAI-compatible image generation model must be gpt-image-2: ${resolved}`);
-    }
+    const parsed = readOpenAiCompatibleImageGenerationConfig(resolved, "Doctor");
     return {
       name: "OpenAI-compatible image generation config",
       ok: true,
@@ -194,7 +169,7 @@ function parseOptions(argv: string[]): DoctorOptions {
   const providerIndex = argv.indexOf("--image-generation-provider");
   return {
     requireImageGeneration: argv.includes("--require-image-generation"),
-    imageGenerationProvider: providerIndex >= 0 ? argv[providerIndex + 1] : "openai-compatible",
+    imageGenerationProvider: providerIndex >= 0 ? argv[providerIndex + 1] : undefined,
     imageGenerationConfigFile:
       configIndex >= 0 ? argv[configIndex + 1] || "input/image-generation.config.json" : "input/image-generation.config.json"
   };
