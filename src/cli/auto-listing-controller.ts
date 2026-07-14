@@ -31,6 +31,7 @@ import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-ru
 import { removeInvalidRuntimeArtifactDirs } from "../autolist/runtime-artifact-lifecycle.js";
 import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
+import type { ImageGenerationProvider } from "../autolist/image-generation-provider.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { resolveControllerJobClosure, type ControllerJobStatus } from "../autolist/maintenance-rules.js";
 import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-manifest.js";
@@ -109,7 +110,7 @@ interface AutoListingJobFile {
     processedImageManifest?: string;
     paidImageSubmissionLedgerDir?: string;
     imageGenerationConfigFile?: string;
-    imageGenerationProvider?: string;
+    imageGenerationProvider?: ImageGenerationProvider;
     shopRootDir?: string;
     maxImagesPerRun?: number;
     clearTestOutputsBeforeRun?: boolean;

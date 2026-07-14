@@ -4,6 +4,10 @@ import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
 import { getShopSpecs } from "../autolist/product-category.js";
 import { resolveOpenAiCompatibleImageMode } from "../autolist/image-generation-rules.js";
+import {
+  requireOpenAiCompatibleImageProvider,
+  resolveImageGenerationProvider
+} from "../autolist/image-generation-provider.js";
 import { validateFeishuProductPayload } from "../feishu/cache-contract.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
@@ -20,7 +24,7 @@ type DoctorMode = "base" | "publish" | "auto-listing" | "feishu" | "all";
 
 interface DoctorOptions {
   requireImageGeneration: boolean;
-  imageGenerationProvider: "openai-compatible";
+  imageGenerationProvider: unknown;
   imageGenerationConfigFile: string;
 }
 
@@ -28,7 +32,7 @@ interface AutoListingJobSummary {
   input?: {
     simulateOnly?: boolean;
     deepseekConversationUrl?: string;
-    imageGenerationProvider?: "openai-compatible";
+    imageGenerationProvider?: unknown;
     imageGenerationConfigFile?: string;
     pauseSignalFile?: string;
     startStep?: string;
@@ -118,6 +122,7 @@ function checkOpenAiCompatibleImageGenerationConfig(configFile: string, required
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as {
+      provider?: unknown;
       apiUrl?: string;
       apiKey?: string;
       model?: string;
@@ -137,6 +142,7 @@ function checkOpenAiCompatibleImageGenerationConfig(configFile: string, required
       };
     }
     assertNoGptPlusWebUrl(parsed.apiUrl || "", `image generation apiUrl in ${resolved}`);
+    requireOpenAiCompatibleImageProvider(parsed.provider, `Image generation config in ${resolved}`);
     resolveOpenAiCompatibleImageMode(parsed.mode, parsed.apiUrl || "");
     if (parsed.model !== "gpt-image-2") {
       throw new Error(`OpenAI-compatible image generation model must be gpt-image-2: ${resolved}`);
@@ -185,9 +191,10 @@ function parseMode(argv: string[]): DoctorMode {
 
 function parseOptions(argv: string[]): DoctorOptions {
   const configIndex = argv.indexOf("--image-generation-config");
+  const providerIndex = argv.indexOf("--image-generation-provider");
   return {
     requireImageGeneration: argv.includes("--require-image-generation"),
-    imageGenerationProvider: "openai-compatible",
+    imageGenerationProvider: providerIndex >= 0 ? argv[providerIndex + 1] : "openai-compatible",
     imageGenerationConfigFile:
       configIndex >= 0 ? argv[configIndex + 1] || "input/image-generation.config.json" : "input/image-generation.config.json"
   };
@@ -271,8 +278,12 @@ function checkAutoListingJobFile(jobFile: string): CheckResult {
     if (input.deepseekConversationUrl) {
       assertNoGptPlusWebUrl(input.deepseekConversationUrl, `${jobFile} deepseekConversationUrl`);
     }
-    const provider = input.imageGenerationProvider || "openai-compatible";
-    if (input.simulateOnly === false && provider === "openai-compatible") {
+    resolveImageGenerationProvider(
+      input.imageGenerationProvider,
+      input.simulateOnly !== false,
+      `Auto listing job ${resolved}`
+    );
+    if (input.simulateOnly === false) {
       const configFile = input.imageGenerationConfigFile || "input/image-generation.config.json";
       const configCheck = checkOpenAiCompatibleImageGenerationConfig(configFile, true);
       if (!configCheck.ok) {
@@ -324,7 +335,23 @@ function checkAutoListingJobFiles(): CheckResult[] {
 }
 
 function autoListingChecks(options: DoctorOptions): CheckResult[] {
+  let providerCheck: CheckResult;
+  try {
+    requireOpenAiCompatibleImageProvider(options.imageGenerationProvider, "Doctor CLI");
+    providerCheck = {
+      name: "image generation provider selection",
+      ok: true,
+      detail: "openai-compatible"
+    };
+  } catch (error) {
+    providerCheck = {
+      name: "image generation provider selection",
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
   return [
+  providerCheck,
   checkCommand("Python Pillow", getPythonCommand(), ["-c", "import PIL; print(PIL.__version__)"]),
   ...(options.requireImageGeneration
     ? [checkOpenAiCompatibleImageGenerationConfig(options.imageGenerationConfigFile, true)]

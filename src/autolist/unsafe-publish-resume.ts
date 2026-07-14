@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
+import { requireOpenAiCompatibleImageProvider } from "./image-generation-provider.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -46,7 +47,10 @@ export function buildFallbackSourceJobFromPreflight(rootDir: string, runtimeDir:
       titleDir: path.resolve(rootDir, "input/auto-listing/titles"),
       qualificationDir: String(source.qualificationDir),
       shopRootDir: String(source.shopRootDir),
-      imageGenerationProvider: String(source.imageGenerationProvider || "openai-compatible"),
+      imageGenerationProvider: requireOpenAiCompatibleImageProvider(
+        source.imageGenerationProvider || "openai-compatible",
+        "Unsafe publish resume preflight"
+      ),
       imageGenerationConfigFile: source.imageGenerationConfigFile ? String(source.imageGenerationConfigFile) : undefined,
       mainImageExpectedCount: typeof source.mainImageExpectedCount === "number" ? source.mainImageExpectedCount : undefined,
       mainImageCountStrategy: source.mainImageCountStrategy ? String(source.mainImageCountStrategy) : undefined,

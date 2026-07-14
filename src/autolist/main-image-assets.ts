@@ -38,9 +38,10 @@ import {
 } from "./paid-image-submission-ledger.js";
 import { getShopSpecs, resolveMainImageShopAssignments, shopCodeFromFolder } from "./product-category.js";
 import type { ImageGenerationProvider, MainImageArtifact, MainImageCountStrategy, MainImageGeneratedFile } from "./types.js";
+import { requireOpenAiCompatibleImageProvider } from "./image-generation-provider.js";
 
 interface OpenAiCompatibleImageConfig {
-  provider?: "openai-compatible";
+  provider: "openai-compatible";
   apiUrl: string;
   apiKey?: string;
   model: string;
@@ -521,6 +522,7 @@ function readOpenAiCompatibleImageConfig(configFile: string): OpenAiCompatibleIm
   if (!parsed.model) {
     throw new Error("Image generation config missing model: " + resolved);
   }
+  requireOpenAiCompatibleImageProvider(parsed.provider, `Image generation config in ${resolved}`);
   resolveOpenAiCompatibleImageMode(parsed.mode, parsed.apiUrl);
   if (parsed.model !== "gpt-image-2") {
     throw new Error("OpenAI-compatible image generation model must be gpt-image-2: " + resolved);
@@ -1616,6 +1618,7 @@ export async function generateMainImageAssets(options: {
     };
   }
 
+  requireOpenAiCompatibleImageProvider(options.imageGenerationProvider, "Main image generation");
   const imageGenerationConfig = readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
   const videosBase64SubmitGate = createConcurrencyGate(
     resolveVideosBase64SubmitConcurrency(imageGenerationConfig.submitConcurrency)

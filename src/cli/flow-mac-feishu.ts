@@ -7,6 +7,8 @@ import { validateFeishuPosterPromptBatch } from "../autolist/deepseek-prompts.js
 import { buildFeishuBatchFingerprint, buildFeishuBatchIdentityFingerprint } from "../autolist/feishu-batch-rules.js";
 import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
+import { resolveImageGenerationProvider } from "../autolist/image-generation-provider.js";
+import type { ImageGenerationProvider } from "../autolist/image-generation-provider.js";
 
 interface FlowArgs {
   real: boolean;
@@ -27,7 +29,7 @@ interface LocalFeishuConfig {
 interface AutoListingJobSummary {
   input?: {
     simulateOnly?: boolean;
-    imageGenerationProvider?: string;
+    imageGenerationProvider?: ImageGenerationProvider;
     imageGenerationConfigFile?: string;
     feishuProductDataFile?: string;
     processedImageManifest?: string;
@@ -106,6 +108,11 @@ function assertFlowModeMatchesJob(jobFile: string, real: boolean): void {
   if (!real && simulateOnly === false) {
     throw new Error(`Simulate flow refuses to run a real job with input.simulateOnly=false: ${path.resolve(jobFile)}`);
   }
+  resolveImageGenerationProvider(
+    job.input?.imageGenerationProvider,
+    simulateOnly !== false,
+    `Mac Feishu flow job ${path.resolve(jobFile)}`
+  );
 }
 
 function printExternalCostSummary(jobFile: string, real: boolean): void {

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { formatTimestamp } from "../utils/path-names.js";
 import { AUTO_LISTING_STEPS, normalizeAutoListingStep } from "./types.js";
+import { resolveImageGenerationProvider } from "./image-generation-provider.js";
 import type { AutoListingJobFile, AutoListingJobInput, AutoListingResolvedJob } from "./types.js";
 
 const DEFAULT_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
@@ -20,6 +21,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
   const feishuProductDataFile = input.feishuProductDataFile
     ? ensureDirExists(input.feishuProductDataFile, "Feishu product data file")
     : "";
+  const simulateOnly = input.simulateOnly ?? true;
   if (!AUTO_LISTING_STEPS.includes(startStep)) {
     throw new Error(`Invalid startStep: ${startStep}`);
   }
@@ -44,7 +46,11 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
       : path.resolve(process.cwd(), "data", "auto-listing", "product-info-key-map.json"),
     feishuProductDataFile,
     shopRootDir: ensureDirExists(input.shopRootDir, "Shop root dir"),
-    imageGenerationProvider: input.imageGenerationProvider || "openai-compatible",
+    imageGenerationProvider: resolveImageGenerationProvider(
+      input.imageGenerationProvider,
+      simulateOnly,
+      "Auto listing job"
+    ),
     imageGenerationConfigFile: input.imageGenerationConfigFile
       ? ensureDirExists(input.imageGenerationConfigFile, "Image generation config file")
       : "",
@@ -73,7 +79,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     resumeProductFolderNames: input.resumeProductFolderNames || [],
     feishuBatchFingerprint: input.feishuBatchFingerprint || "",
     businessRuleFingerprint: input.businessRuleFingerprint || "",
-    simulateOnly: input.simulateOnly ?? true,
+    simulateOnly,
     clearTestOutputsBeforeRun: input.clearTestOutputsBeforeRun ?? false,
     startStep,
     endStep

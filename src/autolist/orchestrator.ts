@@ -43,7 +43,8 @@ import type {
   AutoListingRunResult,
   AutoListingRunState,
   AutoListingTaskError,
-  ImageTaskState
+  ImageTaskState,
+  ImageGenerationProvider
 } from "./types.js";
 import {
   buildAutoListingBusinessRuleFingerprint,
@@ -230,7 +231,7 @@ async function executeTaskChain(
   productInfoKeyMapFile: string,
   feishuProductDataFile: string,
   shopRootDir: string,
-  imageGenerationProvider: "openai-compatible",
+  imageGenerationProvider: ImageGenerationProvider,
   imageGenerationConfigFile: string,
   mainImageExpectedCount: number,
   mainImageCountStrategy: "accept_all" | "require_exact" | "limit_to_count",

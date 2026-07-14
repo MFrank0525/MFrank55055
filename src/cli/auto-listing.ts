@@ -4,6 +4,7 @@ import { disconnectAutomationBrowserConnections } from "../browser/launch.js";
 import { runAutoListingJob } from "../autolist/orchestrator.js";
 import { inferResumeStartStepForTask } from "../autolist/resume-rules.js";
 import { AUTO_LISTING_STEPS, normalizeAutoListingStep } from "../autolist/types.js";
+import { resolveImageGenerationProvider } from "../autolist/image-generation-provider.js";
 import type { AutoListingJobFile, AutoListingRunState, AutoListingStep, ImageTaskState } from "../autolist/types.js";
 
 interface AutoListingCliArgs {
@@ -207,6 +208,11 @@ function writeResumeJob(options: {
 async function main(): Promise<void> {
   const { jobFile, resumeStateFile, resumeOutFile, allowReal, json } = parseArgs(process.argv.slice(2));
   const job = loadJob(jobFile);
+  resolveImageGenerationProvider(
+    job.input?.imageGenerationProvider,
+    job.input?.simulateOnly !== false,
+    "Auto listing CLI job"
+  );
   if (resumeStateFile) {
     if (!resumeOutFile) {
       throw new Error("Missing required argument --out <resume.job.json> when using --resume-from-state.");

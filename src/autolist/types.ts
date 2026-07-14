@@ -1,6 +1,8 @@
 import type { FeishuProductRecord } from "../feishu/types.js";
 import type { PublishTargetIdentity } from "./publish-identity.js";
 import type { PublishFailureCircuitState } from "./failure-circuit-breaker.js";
+import type { ImageGenerationProvider } from "./image-generation-provider.js";
+export type { ImageGenerationProvider } from "./image-generation-provider.js";
 
 export const AUTO_LISTING_STEPS = [
   "source_images_discovered",
@@ -27,8 +29,6 @@ export function normalizeAutoListingStep(step: AutoListingStepInput): AutoListin
 
 export type AutoListingStatus = AutoListingStep | "failed";
 export type MainImageCountStrategy = "accept_all" | "require_exact" | "limit_to_count";
-export type ImageGenerationProvider = "openai-compatible";
-
 export interface AutoListingJobInput {
   feishuImageDir: string;
   mainImageWorkDir?: string;
