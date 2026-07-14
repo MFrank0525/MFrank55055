@@ -233,13 +233,42 @@ assert.match(
 );
 assert.match(
   source,
-  /Date\.now\(\) - startedAt > maxPollMs[\s\S]*recordPaidImageFailedAfterAcceptance\(\{[\s\S]*slot: ledgerSlot[\s\S]*provider task failed: videos-base64 task \$\{taskId\} did not finish within \$\{maxPollMs\}ms/s,
-  "videos-base64 poll timeout must mark only the accepted fixed slot failed_after_acceptance before retrying"
+  /resolveVideosBase64AcceptedTaskPollCeilingMs\(config\.maxPollMs\)/,
+  "accepted videos-base64 polling must use the fixed 30-minute ceiling"
+);
+const pollBranchStart = source.indexOf('if (slotAction.action === "poll")');
+const pollTaskAssignment = source.indexOf("taskId = slotAction.providerTaskId", pollBranchStart);
+const firstStatusQuery = source.indexOf("fetchVideosBase64TaskWithTransportRetries(taskId, false", pollTaskAssignment);
+const firstAcceptedFailure = source.indexOf("recordPaidImageFailedAfterAcceptance({", pollTaskAssignment);
+assert.ok(pollBranchStart >= 0 && pollTaskAssignment > pollBranchStart, "polling must retain the persisted provider task ID");
+assert.ok(firstStatusQuery > pollTaskAssignment, "resumed polling must reach a status query using the persisted task ID");
+assert.ok(firstAcceptedFailure > firstStatusQuery, "resumed polling must query provider status before marking acceptance failure");
+const pollBranchEnd = source.indexOf('if (slotAction.action === "blocked_reserved"', pollBranchStart);
+assert.doesNotMatch(
+  source.slice(pollBranchStart, pollBranchEnd),
+  /expireSubmittedPaidImageQueue/,
+  "poll branch must never expire a submitted paid task before querying its provider status"
+);
+const pollingLoopStart = source.indexOf("for (let pollNo = 1;");
+const pollingLoopEnd = source.indexOf("const resultUrl =", pollingLoopStart);
+const pollingLoop = source.slice(pollingLoopStart, pollingLoopEnd);
+assert.ok(
+  pollingLoop.indexOf("fetchVideosBase64TaskWithTransportRetries(taskId, false") < pollingLoop.indexOf("Date.now() - startedAt"),
+  "each accepted-task iteration must perform its final provider query before elapsed stale classification"
+);
+assert.ok(
+  pollingLoop.indexOf("videosBase64Failed(statusPayload)") < pollingLoop.indexOf("Date.now() - startedAt"),
+  "queried provider failure must be handled before stale queued/pending classification"
 );
 assert.match(
-  source,
-  /if \(expired\) \{[\s\S]*resolvePaidImageFixedSlotRecovery\(\{[\s\S]*failureReason: expired\.reason \|\| ""[\s\S]*usePolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"[\s\S]*allowFailedAfterAcceptanceDigestChange: expiredRecovery\.usePolicyCompatiblePrompt/s,
-  "videos-base64 stale queued/pending expiry must apply fixed-slot fallback prompt rules before resubmitting"
+  pollingLoop,
+  /videos-base64 accepted task stayed queued\/pending beyond \$\{maxPollMs\}ms; retrying fixed slot \$\{ledgerSlot\}\.[\s\S]*providerResponse: statusPayload/,
+  "ceiling failure must preserve final queued/pending provider evidence"
+);
+const retryReservation = source.indexOf("slotAction = reservePaidImageSlot({", source.indexOf("const keepPolicyCompatiblePrompt"));
+assert.ok(
+  source.indexOf("promptText = policyCompatiblePromptText", source.indexOf("const keepPolicyCompatiblePrompt")) < retryReservation,
+  "the authoritative policy-compatible prompt must be selected before retry reservation"
 );
 assert.match(
   source,
@@ -293,7 +322,7 @@ assert.match(
 );
 assert.match(
   source,
-  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*fixedSlotRecovery\.usePolicyCompatiblePrompt[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)/,
+  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*fixedSlotRecovery\.usePolicyCompatiblePrompt[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)[\s\S]*slotAction\.record\?\.promptDigest === originalPromptDigest/,
   "Repeated provider timeouts must explicitly authorize the one-time fixed-slot digest switch to the stability-compatible prompt"
 );
 assert.match(source, /submitSlots/);

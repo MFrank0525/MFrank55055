@@ -11,6 +11,7 @@ import {
   resolvePaidImageLedgerFailureDisposition,
   resolveVideosBase64SubmitConcurrency,
   resolveVideosBase64SubmitTimeoutMs,
+  resolveVideosBase64AcceptedTaskPollCeilingMs,
   resolveImageGenerationHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   providerExplicitlyProvesNoPaidTaskAccepted,
@@ -23,7 +24,6 @@ import { applyLocalWatermark } from "./local-watermark.js";
 import { readManualTextBlock } from "./operation-manual.js";
 import {
   initializePaidImageProductLedger,
-  expireSubmittedPaidImageQueue,
   paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
@@ -776,10 +776,6 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const responseFormat = config.responseFormat || "b64_json";
   const timeoutMs = Math.max(30000, config.timeoutMs || 180000);
   const videosBase64SubmitTimeoutMs = resolveVideosBase64SubmitTimeoutMs(config.submitTimeoutMs || timeoutMs, config.maxPollMs);
-  const videosBase64AcceptedQueueStaleMs = Math.max(
-    0,
-    Math.min(videosBase64SubmitTimeoutMs, config.acceptedQueueStaleMs ?? config.maxPollMs ?? videosBase64SubmitTimeoutMs)
-  );
   const submitGate =
     options.videosBase64SubmitGate || createConcurrencyGate(resolveVideosBase64SubmitConcurrency(config.submitConcurrency));
   const maxTransientRetries = Math.max(0, config.maxTransientRetries ?? 3);
@@ -1166,6 +1162,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
 
     let submitPayload: any | undefined;
     let taskId = "";
+    let acceptedTaskStartedAt: number | undefined;
+    let queryPersistedTaskImmediately = false;
     let allowExistingSubmittedTaskImport = true;
     if (videosBase64Ledger) {
       let slotAction = resolvePaidImageSlotAction({
@@ -1210,6 +1208,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action === "retry_failed_after_acceptance" &&
           (fixedSlotRecovery.usePolicyCompatiblePrompt ||
             isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason)) &&
+          slotAction.record?.promptDigest === originalPromptDigest &&
           slotAction.record?.promptDigest !== policyCompatiblePromptDigest;
         if (
           keepPolicyCompatiblePrompt
@@ -1246,53 +1245,12 @@ async function generateWithOpenAiCompatibleProvider(options: {
         return { file: targetFile, submitId: slotAction.record.providerTaskId || "ledger-reuse" };
       }
       if (slotAction.action === "poll") {
-        const expired = videosBase64AcceptedQueueStaleMs > 0
-          ? expireSubmittedPaidImageQueue({
-              productDir: videosBase64Ledger.productDir,
-              slot: ledgerSlot,
-              minSubmittedAgeMs: videosBase64AcceptedQueueStaleMs,
-              reason: `videos-base64 accepted task stayed queued/pending beyond ${videosBase64AcceptedQueueStaleMs}ms; retrying fixed slot ${ledgerSlot}.`
-            })
-          : undefined;
-        if (expired) {
-          options.onProgress?.(`Image ${absoluteImageIndex}: videos-base64 accepted task queue timed out; retrying fixed paid slot.`);
-          const expiredRecovery = resolvePaidImageFixedSlotRecovery({
-            failureReason: expired.reason || "",
-            audit: expired.audit || [],
-            recordedPromptDigest: expired.promptDigest || "",
-            policyCompatiblePromptDigest,
-            nowMs: Date.now()
-          });
-          if (expiredRecovery.action === "defer_to_supervisor") {
-            throw normalizeImageGenerationError(
-              `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${expiredRecovery.deferMs}ms.`
-            );
-          }
-          if (expiredRecovery.usePolicyCompatiblePrompt) {
-            promptText = policyCompatiblePromptText;
-            rebuildVideosBase64Request();
-            writeImageGenerationJsonLog(
-              path.join(options.downloadDir, "request-" + paddedImageIndex + "-policy-retry.json"),
-              {
-                endpoint: config.apiUrl,
-                mode,
-                ...JSON.parse(requestBody)
-              }
-            );
-          }
-          allowExistingSubmittedTaskImport = false;
-          slotAction = reservePaidImageSlot({
-            productDir: videosBase64Ledger.productDir,
-            slot: ledgerSlot,
-            requestDigest,
-            promptDigest,
-            owner: options.paidImageLedger?.owner || { pid: process.pid },
-            allowFailedAfterAcceptanceDigestChange: expiredRecovery.usePolicyCompatiblePrompt
-          });
-        }
-      }
-      if (slotAction.action === "poll") {
         taskId = slotAction.providerTaskId;
+        const submittedAudit = [...slotAction.record.audit]
+          .reverse()
+          .find((entry) => entry.state === "submitted" && Number.isFinite(Date.parse(entry.at)));
+        acceptedTaskStartedAt = submittedAudit ? Date.parse(submittedAudit.at) : Date.now();
+        queryPersistedTaskImmediately = true;
         submitPayload = readVideosBase64SubmittedTask(responseFile) || { id: taskId };
         options.onProgress?.(`Image ${absoluteImageIndex}: resuming submitted videos-base64 task from paid image ledger.`);
       } else if (slotAction.action === "blocked_reserved" || slotAction.action === "blocked_ambiguous") {
@@ -1384,22 +1342,14 @@ async function generateWithOpenAiCompatibleProvider(options: {
       }
     }
     taskId = taskId || extractVideosBase64TaskId(submitPayload);
-    const maxPollMs = resolveVideosBase64SubmitTimeoutMs(timeoutMs, config.maxPollMs);
+    const maxPollMs = resolveVideosBase64AcceptedTaskPollCeilingMs(config.maxPollMs);
     const pollIntervalMs = Math.min(maxPollMs, Math.max(1000, config.pollIntervalMs || 10000));
-    const startedAt = Date.now();
+    const startedAt = acceptedTaskStartedAt ?? Date.now();
     let statusPayload: any = submitPayload;
-    for (let pollNo = 1; !videosBase64Succeeded(statusPayload) && !videosBase64Failed(statusPayload); pollNo += 1) {
-      if (Date.now() - startedAt > maxPollMs) {
-        if (videosBase64Ledger) {
-          recordPaidImageFailedAfterAcceptance({
-            productDir: videosBase64Ledger.productDir,
-            slot: ledgerSlot,
-            reason: `provider task failed: videos-base64 task ${taskId} did not finish within ${maxPollMs}ms.`
-          });
-        }
-        throw normalizeImageGenerationError(`videos-base64 task ${taskId} did not finish within ${maxPollMs}ms.`);
+    for (let pollNo = 1; ; pollNo += 1) {
+      if (!queryPersistedTaskImmediately || pollNo > 1) {
+        await sleep(pollIntervalMs);
       }
-      await sleep(pollIntervalMs);
       const statusResponse = await fetchVideosBase64TaskWithTransportRetries(taskId, false, absoluteImageIndex, "status");
       const statusText = await statusResponse.text();
       writeImageGenerationTextLog(path.join(options.downloadDir, "response-" + paddedImageIndex + "-status-" + pollNo + ".json"), statusText);
@@ -1416,18 +1366,32 @@ async function generateWithOpenAiCompatibleProvider(options: {
       const status = statusPayload?.status ?? statusPayload?.data?.status ?? "pending";
       const progress = statusPayload?.progress ?? statusPayload?.data?.progress ?? "";
       options.onProgress?.(`Image ${absoluteImageIndex}: videos-base64 task ${taskId} status ${status} ${progress}.`.trim());
-    }
-    if (videosBase64Failed(statusPayload)) {
-      const errorMessage = formatProviderFailureReason(statusPayload?.error ?? statusPayload?.data?.error);
-      if (videosBase64Ledger) {
-        recordPaidImageFailedAfterAcceptance({
-          productDir: videosBase64Ledger.productDir,
-          slot: ledgerSlot,
-          reason: `provider task failed: ${errorMessage}`,
-          providerResponse: statusPayload
-        });
+      if (videosBase64Succeeded(statusPayload)) {
+        break;
       }
-      throw normalizeImageGenerationError(`videos-base64 task ${taskId} failed: ${errorMessage}`);
+      if (videosBase64Failed(statusPayload)) {
+        const errorMessage = formatProviderFailureReason(statusPayload?.error ?? statusPayload?.data?.error);
+        if (videosBase64Ledger) {
+          recordPaidImageFailedAfterAcceptance({
+            productDir: videosBase64Ledger.productDir,
+            slot: ledgerSlot,
+            reason: `provider task failed: ${errorMessage}`,
+            providerResponse: statusPayload
+          });
+        }
+        throw normalizeImageGenerationError(`videos-base64 task ${taskId} failed: ${errorMessage}`);
+      }
+      if (Date.now() - startedAt >= maxPollMs) {
+        if (videosBase64Ledger) {
+          recordPaidImageFailedAfterAcceptance({
+            productDir: videosBase64Ledger.productDir,
+            slot: ledgerSlot,
+            reason: `videos-base64 accepted task stayed queued/pending beyond ${maxPollMs}ms; retrying fixed slot ${ledgerSlot}.`,
+            providerResponse: statusPayload
+          });
+        }
+        throw normalizeImageGenerationError(`videos-base64 task ${taskId} timed out after ${maxPollMs}ms.`);
+      }
     }
 
     const resultUrl = extractVideosBase64ResultUrl(statusPayload);

@@ -658,6 +658,49 @@ assert.deepEqual(
   policyRetryWithNewDigest.record.audit.map((entry) => entry.state),
   ["reserved", "submitted", "failed_after_acceptance", "reserved"]
 );
+recordPaidImageSubmitted({ productDir, slot: 10, providerTaskId: "provider-task-10-policy-compatible" });
+recordPaidImageFailedAfterAcceptance({
+  productDir,
+  slot: 10,
+  reason: "provider task failed: policy-compatible task timed out"
+});
+const samePolicyDigestRetry = reservePaidImageSlot({
+  productDir,
+  slot: 10,
+  requestDigest: "request-10-policy-compatible",
+  promptDigest: "prompt-10-policy-compatible",
+  owner: ownerA
+});
+assert.equal(samePolicyDigestRetry.action, "submit", "ordinary retries must preserve a persisted policy-compatible identity");
+recordPaidImageSubmitted({ productDir, slot: 10, providerTaskId: "provider-task-10-policy-compatible-again" });
+recordPaidImageFailedAfterAcceptance({
+  productDir,
+  slot: 10,
+  reason: "provider task failed: policy-compatible task timed out again"
+});
+assert.throws(
+  () =>
+    reservePaidImageSlot({
+      productDir,
+      slot: 10,
+      requestDigest: "request-10-original",
+      promptDigest: "prompt-10-original",
+      owner: ownerB
+    }),
+  /slot identity conflict/i,
+  "a policy-compatible slot must never transition back to a different original digest"
+);
+assert.equal(
+  reservePaidImageSlot({
+    productDir,
+    slot: 10,
+    requestDigest: "request-10-policy-compatible",
+    promptDigest: "prompt-10-policy-compatible",
+    owner: ownerB
+  }).action,
+  "submit",
+  "the same persisted compatibility digests must remain retryable after rejecting an identity rollback"
+);
 
 reservePaidImageSlot({
   productDir,
