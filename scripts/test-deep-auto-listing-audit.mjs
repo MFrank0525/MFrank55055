@@ -728,6 +728,52 @@ assert.deepEqual(correctDualThresholdAudit.evidence.slice(-2), [
   "videosBase64AcceptedTaskPollCeilingMs=1800000"
 ]);
 
+const actualPaidTimingDocsAudit = auditRuleContradictions({
+  categoryPlans: [],
+  titleRuleText: "",
+  shopRuleText: "",
+  promptRuleText: "",
+  imageRuleText: fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8"),
+  stabilityRuleText: fs.readFileSync("docs/auto-listing/stability-checklist.md", "utf8"),
+  imageWaitCeilingMs: 3 * 60 * 1000,
+  videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+});
+assert.equal(actualPaidTimingDocsAudit.ok, true, actualPaidTimingDocsAudit.errors.map((item) => item.message).join("\n"));
+
+const sameLineDualThresholdSource =
+  "3 分钟是操作层外部服务等待、退避和慢服务阈值，不得据此重新提交付费任务；30 分钟是 videos-base64 已受理付费任务使用同一 task ID 的固定观察上限，到达 30 分钟必须执行最终状态查询。";
+const sameLineDualThresholdAudit = auditRuleContradictions({
+  categoryPlans: [],
+  titleRuleText: "",
+  shopRuleText: "",
+  promptRuleText: "",
+  imageRuleText: sameLineDualThresholdSource,
+  imageWaitCeilingMs: 3 * 60 * 1000,
+  videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+});
+assert.equal(sameLineDualThresholdAudit.ok, true, sameLineDualThresholdAudit.errors.map((item) => item.message).join("\n"));
+
+for (const conflictingAcceptedCeiling of [
+  "videos-base64 已受理付费任务固定观察上限 5 分钟。",
+  "videos-base64 已受理付费任务观察上限不得超过 5 分钟。",
+  "videos-base64 已受理付费任务最多观察 60 分钟。"
+]) {
+  const audit = auditRuleContradictions({
+    categoryPlans: [],
+    titleRuleText: "",
+    shopRuleText: "",
+    promptRuleText: "",
+    imageRuleText: [correctDualThresholdSource, conflictingAcceptedCeiling].join("\n"),
+    imageWaitCeilingMs: 3 * 60 * 1000,
+    videosBase64AcceptedTaskPollCeilingMs: 30 * 60 * 1000
+  });
+  assert.equal(audit.ok, false, `Conflicting accepted-task ceiling must fail: ${conflictingAcceptedCeiling}`);
+  assert.equal(
+    audit.errors.some((item) => item.code === "main_image_accepted_task_poll_rule_contradiction"),
+    true
+  );
+}
+
 const scatteredContradictionSource = [
   "已受理付费任务观察上限为 3 分钟，随后重新提交。",
   "外部服务等待。",

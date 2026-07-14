@@ -296,30 +296,52 @@ function includesCountRule(text: string, category: string, count: number, unit: 
 function timingRuleStatements(text: string): string[] {
   return text
     .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, ""))
+    .map((line) => line.replace(/^\s*(?:\d+\.\s+|\d+(?:\.\d+)+\s+)/, "").replace(/\s+/g, ""))
     .filter(Boolean);
 }
 
-function hasExplicitPaidTimingConflict(statements: string[], operationalCeilingMs: number): boolean {
+function timingRuleClauses(statement: string): string[] {
+  return statement.split(/[。！？!?；;]+/).filter(Boolean);
+}
+
+function concernsAcceptedTask(text: string): boolean {
+  return /已受理[^。；]*任务/.test(text) || text.includes("付费任务");
+}
+
+function extractAcceptedObservationMinuteValues(statement: string): number[] {
+  const values: number[] = [];
+  const patterns = [
+    /(\d+)分钟(?:是|作为)?[^。；]*(?:已受理[^。；]*任务|付费任务)[^。；]*(?:固定观察上限|观察上限)/g,
+    /固定观察上限(?:为|是)?(\d+)分钟/g,
+    /观察上限(?:为|是)?(\d+)分钟/g,
+    /观察上限不得超过(\d+)分钟/g,
+    /最多观察(\d+)分钟/g,
+    /观察(?:期限|时间)?不得超过(\d+)分钟/g
+  ];
+  for (const clause of timingRuleClauses(statement)) {
+    if (!concernsAcceptedTask(clause)) continue;
+    if (/不得把[^。；]*当作[^。；]*观察上限/.test(clause)) continue;
+    for (const pattern of patterns) {
+      for (const match of clause.matchAll(pattern)) values.push(Number(match[1]));
+    }
+  }
+  return values;
+}
+
+function hasOperationalPaidResubmissionConflict(statements: string[], operationalCeilingMs: number): boolean {
   const operationalMinutes = Math.floor(operationalCeilingMs / 60000);
-  return statements.some((statement) => {
-    const concernsPaidTask = statement.includes("付费任务");
-    const concernsAcceptedPaidTask = statement.includes("已受理") && concernsPaidTask;
-    const claimsOperationalCeiling = statement.includes(`${operationalMinutes}分钟`);
-    const claimsObservationCeiling = /观察上限(?:为|是)?\d+分钟/.test(statement);
-    const resubmits = statement.includes("重新提交");
-    const rejectsResubmission = /(?:不得|不能|禁止)[^。；]*重新提交/.test(statement);
-    return claimsOperationalCeiling && (
-      (concernsAcceptedPaidTask && claimsObservationCeiling) ||
-      (concernsPaidTask && resubmits && !rejectsResubmission)
-    );
-  });
+  return statements.flatMap(timingRuleClauses).some((clause) =>
+    clause.includes(`${operationalMinutes}分钟`) &&
+    clause.includes("付费任务") &&
+    clause.includes("重新提交") &&
+    !/(?:不得|不能|禁止)[^。；]*重新提交/.test(clause)
+  );
 }
 
 function includesOperationalImageWaitRule(text: string, ceilingMs: number): boolean {
   const minutes = Math.floor(ceilingMs / 60000);
   const statements = timingRuleStatements(text);
-  if (hasExplicitPaidTimingConflict(statements, ceilingMs)) return false;
+  if (hasOperationalPaidResubmissionConflict(statements, ceilingMs)) return false;
   return statements.some((statement) =>
     statement.includes(`${minutes}分钟`) &&
     statement.includes("操作层外部服务等待") &&
@@ -329,16 +351,15 @@ function includesOperationalImageWaitRule(text: string, ceilingMs: number): bool
   );
 }
 
-function includesAcceptedTaskObservationRule(text: string, ceilingMs: number, operationalCeilingMs: number): boolean {
+function includesAcceptedTaskObservationRule(text: string, ceilingMs: number): boolean {
   const minutes = Math.floor(ceilingMs / 60000);
   const statements = timingRuleStatements(text);
-  if (hasExplicitPaidTimingConflict(statements, operationalCeilingMs)) return false;
+  const statedObservationMinutes = statements.flatMap(extractAcceptedObservationMinuteValues);
+  if (statedObservationMinutes.some((value) => value !== minutes)) return false;
   return statements.some((statement) => {
-    const hasAcceptedPaidTask = statement.includes("已受理") && statement.includes("付费任务");
+    const hasAcceptedPaidTask = concernsAcceptedTask(statement);
     const hasSameTaskIdentity = /同一(?:task|任务)ID/i.test(statement);
-    const hasObservationCeiling =
-      new RegExp(`观察上限(?:为|是)?${minutes}分钟`).test(statement) ||
-      new RegExp(`${minutes}分钟[^。；]*观察上限`).test(statement);
+    const hasObservationCeiling = extractAcceptedObservationMinuteValues(statement).includes(minutes);
     const hasFinalQuery = new RegExp(`${minutes}分钟[^。；]*最终状态查询`).test(statement);
     return hasAcceptedPaidTask && hasSameTaskIdentity && hasObservationCeiling && hasFinalQuery;
   });
@@ -383,14 +404,13 @@ export function auditRuleContradictions(input: {
   }
   if (Number.isFinite(input.videosBase64AcceptedTaskPollCeilingMs || NaN)) {
     const ceilingMs = Number(input.videosBase64AcceptedTaskPollCeilingMs);
-    const operationalCeilingMs = Number(input.imageWaitCeilingMs || 3 * 60 * 1000);
-    if (input.imageRuleText !== undefined && !includesAcceptedTaskObservationRule(input.imageRuleText, ceilingMs, operationalCeilingMs)) {
+    if (input.imageRuleText !== undefined && !includesAcceptedTaskObservationRule(input.imageRuleText, ceilingMs)) {
       errors.push({
         code: "main_image_accepted_task_poll_rule_contradiction",
         message: `Main image rule source does not reflect accepted paid-task observation ceiling ${ceilingMs}ms and its final status query.`
       });
     }
-    if (input.stabilityRuleText !== undefined && !includesAcceptedTaskObservationRule(input.stabilityRuleText, ceilingMs, operationalCeilingMs)) {
+    if (input.stabilityRuleText !== undefined && !includesAcceptedTaskObservationRule(input.stabilityRuleText, ceilingMs)) {
       errors.push({
         code: "stability_accepted_task_poll_rule_contradiction",
         message: `Stability checklist does not reflect accepted paid-task observation ceiling ${ceilingMs}ms and its final status query.`
