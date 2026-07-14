@@ -86,10 +86,10 @@ async function runRecoveredRawCategory(category) {
     configFile,
     JSON.stringify({
       provider: "openai-compatible",
-      apiUrl: "https://example.invalid/v1/images/edits",
+      apiUrl: "https://example.invalid/v1/videos",
       apiKey: "test-api-key",
-      model: "test-model",
-      mode: "edits"
+      model: "gpt-image-2",
+      mode: "videos-base64"
     }) + "\n",
     "utf8"
   );
@@ -134,6 +134,8 @@ async function runRecoveredRawCategory(category) {
     shopCodes: plan.shopCodes,
     imagesPerShop: plan.imagesPerShop,
     feishuRecordId: "record-001",
+    feishuBatchFingerprint: "batch-001",
+    paidImageSubmissionLedgerDir: path.join(tmp, "paid-image-submissions"),
     simulateOnly: false
   });
 }

@@ -113,12 +113,6 @@ function extractAttachments(value: unknown): FeishuBitableAttachment[] {
         mimeType: typeof object.mime_type === "string" ? object.mime_type : undefined,
         temporaryUrl: typeof object.tmp_url === "string" ? object.tmp_url : typeof object.url === "string" ? object.url : undefined,
         downloadUrl: typeof object.url === "string" ? object.url : undefined,
-        providerReferenceUrl:
-          typeof object.tmp_url === "string" && object.tmp_url.trim()
-            ? object.tmp_url.trim()
-            : typeof object.url === "string" && object.url.trim()
-              ? object.url.trim()
-              : undefined,
         raw: item
       };
     })
@@ -204,7 +198,6 @@ function sanitizeAttachment(attachment: FeishuBitableAttachment): FeishuBitableA
     mimeType: attachment.mimeType,
     temporaryUrl: attachment.temporaryUrl ? "[redacted feishu media url]" : undefined,
     downloadUrl: attachment.downloadUrl ? "[redacted feishu media url]" : undefined,
-    providerReferenceUrl: attachment.providerReferenceUrl ? "[redacted feishu media url]" : undefined,
     localFile: attachment.localFile,
     raw: sanitizeFeishuFieldValue(attachment.raw)
   };

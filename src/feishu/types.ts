@@ -52,7 +52,6 @@ export interface FeishuBitableAttachment {
   mimeType?: string;
   temporaryUrl?: string;
   downloadUrl?: string;
-  providerReferenceUrl?: string;
   localFile?: string;
   raw: unknown;
 }

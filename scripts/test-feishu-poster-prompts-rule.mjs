@@ -5,8 +5,7 @@ import path from "node:path";
 import { buildPosterPromptArtifactFromFeishu } from "../dist/src/autolist/deepseek-prompts.js";
 
 const mainImageRuleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
-const imageGenerationExampleConfig = fs.readFileSync("input/image-generation.config.example.json", "utf8");
-const imageGenerationMediaConfig = fs.readFileSync("input/image-generation.config.media-generate.example.json", "utf8");
+const imageGenerationExampleConfig = fs.readFileSync("input/image-generation.config.videos-base64.example.json", "utf8");
 const mainImageAssetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 
 assert.match(
@@ -22,12 +21,7 @@ assert.doesNotMatch(
 assert.match(
   imageGenerationExampleConfig,
   /"size":\s*"1024x1024"/,
-  "OpenAI-compatible image2 example config must request 1024x1024 square output"
-);
-assert.match(
-  imageGenerationMediaConfig,
-  /"size":\s*"1024x1024"/,
-  "OpenAI-compatible media-generate example config must request 1024x1024 square output"
+  "OpenAI-compatible videos-base64 example config must request 1024x1024 square output"
 );
 assert.match(
   mainImageAssetsSource,

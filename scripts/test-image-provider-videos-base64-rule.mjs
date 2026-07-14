@@ -408,7 +408,7 @@ assert.deepEqual(
   { usePolicyCompatiblePrompt: true, deferMs: 2 * 60 * 1000 },
   "A stability-compatible slot that still times out must enter a fixed-slot cooldown capped at three minutes instead of immediate paid resubmission"
 );
-assert.match(source, /mode\?: "generations" \| "edits" \| "media-generate" \| "videos-base64"/);
+assert.match(source, /mode\?: "videos-base64"/);
 assert.match(source, /buildVideosBase64JsonBody/);
 assert.match(source, /data:image\/\$\{mimeType\.split\("\/"\)\[1\]\};base64,/);
 assert.match(source, /resolveVideosBase64TaskUrl/);
@@ -490,7 +490,7 @@ assert.match(source, /Promise\.allSettled\(work\)/);
 assert.match(source, /settleConcurrentWork\(\s*videosBase64ImageIndexes\.map/s);
 assert.match(source, /settleConcurrentWork\(\s*promptIndexes\.map/s);
 assert.match(source, /reasons: \$\{reasons\.join\("\s*\|\s*"\)\}/);
-assert.match(source, /mode === "videos-base64"/);
+assert.doesNotMatch(source, /mode === "videos-base64"/, "current-only provider code must not retain obsolete mode branching");
 assert.match(typesSource, /paidImageSubmissionLedgerDir\?: string/);
 assert.match(configSource, /paidImageSubmissionLedgerDir: path\.resolve/);
 assert.match(orchestratorSource, /paidImageSubmissionLedgerDir,\s*archiveMainImageDir,\s*simulateOnly/s);
@@ -528,9 +528,9 @@ assert.match(source, /submitSlots/);
 assert.match(source, /roundStartImageIndex \+ missingLocalIndexes\[itemIndex\] - 1/);
 assert.match(source, /sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)/);
 assert.match(source, /createConcurrencyGate\(resolveVideosBase64SubmitConcurrency\(config\.submitConcurrency\)\)/);
-assert.match(source, /const videosBase64SubmitGate =[\s\S]*createConcurrencyGate\(resolveVideosBase64SubmitConcurrency\(imageGenerationConfig\.submitConcurrency\)\)/);
+assert.match(source, /const videosBase64SubmitGate =[\s\S]*createConcurrencyGate\(\s*resolveVideosBase64SubmitConcurrency\(imageGenerationConfig\.submitConcurrency\)\s*\)/);
 assert.match(source, /videosBase64SubmitGate,\s*paidImageLedger:/);
-assert.match(source, /imageGenerationMode === "videos-base64" &&\s*\(!options\.feishuBatchFingerprint/);
+assert.match(source, /if \(!options\.feishuBatchFingerprint \|\| !options\.feishuRecordId \|\| !options\.paidImageSubmissionLedgerDir\)/);
 assert.doesNotMatch(
   source,
   /submitGate\.run\(\(\) => sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)\)/,
@@ -621,8 +621,20 @@ assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("ECONNRESET before r
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("videos-base64 task abc failed"), false);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 180000);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 60000), 180000);
-assert.equal(resolveOpenAiCompatibleImageMode(undefined, "https://relay.example/v1/videos"), "videos-base64");
-assert.equal(resolveOpenAiCompatibleImageMode("edits", "https://relay.example/v1/videos"), "edits");
+assert.equal(resolveOpenAiCompatibleImageMode("videos-base64", "https://relay.example/v1/videos"), "videos-base64");
+for (const [mode, apiUrl] of [
+  [undefined, "https://relay.example/v1/videos"],
+  ["edits", "https://relay.example/v1/videos"],
+  ["media-generate", "https://relay.example/v1/media/generate"],
+  ["generations", "https://relay.example/v1/images/generations"],
+  ["videos-base64", "https://relay.example/v1/images/edits"]
+]) {
+  assert.throws(
+    () => resolveOpenAiCompatibleImageMode(mode, apiUrl),
+    /videos-base64.*\/v1\/videos/i,
+    `obsolete provider config must fail closed: ${mode} ${apiUrl}`
+  );
+}
 assert.equal(resolveVideosBase64SubmitConcurrency(undefined), 2);
 assert.equal(resolveVideosBase64SubmitConcurrency(1), 1);
 assert.equal(resolveVideosBase64SubmitConcurrency(3), 3);

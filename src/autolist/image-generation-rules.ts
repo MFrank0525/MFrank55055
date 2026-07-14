@@ -14,25 +14,23 @@ export function resolveImageGenerationRequestDeadlineMs(requestTimeoutMs: number
   return Math.max(60000, resolveImageDownloadTimeoutMs(requestTimeoutMs) + 30000);
 }
 
-export type OpenAiCompatibleImageMode = "generations" | "edits" | "media-generate" | "videos-base64";
+export type OpenAiCompatibleImageMode = "videos-base64";
 
 export function resolveOpenAiCompatibleImageMode(
-  configuredMode: OpenAiCompatibleImageMode | undefined,
+  configuredMode: unknown,
   apiUrl: string
 ): OpenAiCompatibleImageMode {
-  if (configuredMode) {
-    return configuredMode;
+  let endpoint: URL;
+  try {
+    endpoint = new URL(apiUrl);
+  } catch {
+    throw new Error("OpenAI-compatible image generation requires mode videos-base64 and a valid /v1/videos apiUrl.");
   }
-  if (apiUrl.includes("/images/edits")) {
-    return "edits";
+  const pathname = endpoint.pathname.replace(/\/+$/, "");
+  if (configuredMode !== "videos-base64" || pathname !== "/v1/videos" || endpoint.search || endpoint.hash) {
+    throw new Error("OpenAI-compatible image generation requires mode videos-base64 and apiUrl ending exactly in /v1/videos.");
   }
-  if (apiUrl.includes("/v1/media/generate")) {
-    return "media-generate";
-  }
-  if (apiUrl.includes("/v1/videos")) {
-    return "videos-base64";
-  }
-  return "generations";
+  return "videos-base64";
 }
 
 export function resolveVideosBase64SubmitTimeoutMs(

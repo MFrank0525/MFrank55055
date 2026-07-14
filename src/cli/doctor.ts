@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
 import { getShopSpecs } from "../autolist/product-category.js";
+import { resolveOpenAiCompatibleImageMode } from "../autolist/image-generation-rules.js";
 import { validateFeishuProductPayload } from "../feishu/cache-contract.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
@@ -120,6 +121,7 @@ function checkOpenAiCompatibleImageGenerationConfig(configFile: string, required
       apiUrl?: string;
       apiKey?: string;
       model?: string;
+      mode?: unknown;
     };
     const missing = [
       parsed.apiUrl ? "" : "apiUrl",
@@ -135,6 +137,10 @@ function checkOpenAiCompatibleImageGenerationConfig(configFile: string, required
       };
     }
     assertNoGptPlusWebUrl(parsed.apiUrl || "", `image generation apiUrl in ${resolved}`);
+    resolveOpenAiCompatibleImageMode(parsed.mode, parsed.apiUrl || "");
+    if (parsed.model !== "gpt-image-2") {
+      throw new Error(`OpenAI-compatible image generation model must be gpt-image-2: ${resolved}`);
+    }
     return {
       name: "OpenAI-compatible image generation config",
       ok: true,

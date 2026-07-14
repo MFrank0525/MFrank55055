@@ -7,6 +7,15 @@ const removedChatProvider = ["dou", "bao"].join("");
 const removedImageModule = ["ji", "meng"].join("");
 const removedImageCli = ["dream", "ina"].join("");
 const excludedRootDirs = new Set([".git", ".codegraph", "data", "node_modules"]);
+const obsoleteProviderTokens = [
+  ["media", "generate"].join("-"),
+  ["/images", "edits"].join("/"),
+  ["/v1/media", "generate"].join("/"),
+  ["tmp", "files.org"].join(""),
+  ["b64", "_json"].join(""),
+  ["response", "Format"].join(""),
+  ["response", "_format"].join("")
+];
 
 function listOperationalPaths(dir = ".", relativeDir = "") {
   const paths = [];
@@ -51,6 +60,45 @@ for (const forbidden of [
 const packageJson = fs.readFileSync("package.json", "utf8");
 for (const token of [removedChatProvider, removedImageModule, removedImageCli]) {
   assert.equal(packageJson.toLowerCase().includes(token), false, `obsolete package entry remains: ${token}`);
+}
+
+const activeProviderFiles = [
+  ...tracked
+    .split("\n")
+    .filter(Boolean)
+    .filter((file) =>
+      file === "README.md" ||
+      file === "README.ai.md" ||
+      file === "package.json" ||
+      file.startsWith("src/") ||
+      file.startsWith("input/") ||
+      file.startsWith("schemas/") ||
+      file.startsWith("docs/auto-listing/")
+    )
+    .filter((file) => !file.endsWith("image-generation.config.json"))
+    .filter((file) => fs.existsSync(file))
+];
+
+for (const file of activeProviderFiles) {
+  const source = fs.readFileSync(file, "utf8");
+  for (const token of obsoleteProviderTokens) {
+    assert.equal(source.includes(token), false, `obsolete image-provider path remains in ${file}: ${token}`);
+  }
+  if (file.endsWith(".ts") || file.endsWith(".json")) {
+    const obsoleteModeLiteral = ["gener", "ations"].join("");
+    assert.equal(
+      source.includes(`\"${obsoleteModeLiteral}\"`),
+      false,
+      `obsolete synchronous image mode remains in ${file}: ${obsoleteModeLiteral}`
+    );
+  }
+}
+
+for (const obsoleteExample of [
+  "input/image-generation.config.example.json",
+  ["input/image-generation.config.", "media", "generate.example.json"].join("").replace("mediagenerate", "media-generate")
+]) {
+  assert.equal(fs.existsSync(obsoleteExample), false, `obsolete image-provider example remains: ${obsoleteExample}`);
 }
 
 const paidLedgerSource = fs.readFileSync("src/autolist/paid-image-submission-ledger.ts", "utf8");

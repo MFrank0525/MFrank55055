@@ -44,26 +44,17 @@ interface OpenAiCompatibleImageConfig {
   apiUrl: string;
   apiKey?: string;
   model: string;
-  mode?: "generations" | "edits" | "media-generate" | "videos-base64";
+  mode?: "videos-base64";
   size?: string;
-  responseFormat?: "b64_json" | "url";
   timeoutMs?: number;
   submitTimeoutMs?: number;
   submitConcurrency?: number;
   maxTransientRetries?: number;
   requestExtra?: Record<string, unknown>;
-  mediaParams?: Record<string, unknown>;
   videoMetadata?: Record<string, unknown>;
-  statusUrl?: string;
   pollIntervalMs?: number;
   maxPollMs?: number;
   acceptedQueueStaleMs?: number;
-  allowMediaGenerateWithoutReference?: boolean;
-  referenceImageUpload?: {
-    provider?: "tmpfiles";
-    apiUrl?: string;
-    enabled?: boolean;
-  };
 }
 
 interface ConcurrencyGate {
@@ -203,10 +194,6 @@ function redactImageGenerationLogValue(value: unknown): unknown {
   for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
     if (/api[-_]?key|authorization|bearer|secret|token|cookie/i.test(key)) {
       redacted[key] = "[redacted]";
-      continue;
-    }
-    if (key === "b64_json") {
-      redacted[key] = "[redacted base64 image payload]";
       continue;
     }
     if (/url|image|images|reference/i.test(key) && typeof nestedValue === "string" && /^https?:\/\//i.test(nestedValue)) {
@@ -534,20 +521,14 @@ function readOpenAiCompatibleImageConfig(configFile: string): OpenAiCompatibleIm
   if (!parsed.model) {
     throw new Error("Image generation config missing model: " + resolved);
   }
+  resolveOpenAiCompatibleImageMode(parsed.mode, parsed.apiUrl);
+  if (parsed.model !== "gpt-image-2") {
+    throw new Error("OpenAI-compatible image generation model must be gpt-image-2: " + resolved);
+  }
   return {
     ...parsed,
     apiKey
   };
-}
-
-function getImageExtensionFromContentType(contentType: string): string {
-  if (/webp/i.test(contentType)) {
-    return ".webp";
-  }
-  if (/jpe?g/i.test(contentType)) {
-    return ".jpg";
-  }
-  return ".png";
 }
 
 async function downloadGeneratedImage(url: string, targetFile: string, apiKey: string, timeoutMs: number): Promise<void> {
@@ -569,50 +550,6 @@ async function downloadGeneratedImage(url: string, targetFile: string, apiKey: s
   } finally {
     clearTimeout(timer);
   }
-}
-
-function extractGeneratedImageItems(payload: any, text: string): any[] {
-  const items = Array.isArray(payload?.data) ? payload.data : [];
-  if (items.length === 0) {
-    throw normalizeImageGenerationError("Image generation returned no data items: " + text.slice(0, 500));
-  }
-  return items;
-}
-
-function getGeneratedImageItems(payload: any): any[] {
-  return Array.isArray(payload?.data) ? payload.data : [];
-}
-
-async function saveGeneratedImageItem(options: {
-  item: any;
-  payload: any;
-  targetDir: string;
-  index: number;
-  apiKey: string;
-  timeoutMs: number;
-}): Promise<{ file: string; submitId: string } | null> {
-  const baseName = "generated-" + String(options.index).padStart(2, "0");
-  if (typeof options.item?.b64_json === "string" && options.item.b64_json.trim()) {
-    const file = path.join(options.targetDir, baseName + ".png");
-    fs.writeFileSync(file, Buffer.from(options.item.b64_json, "base64"));
-    return { file, submitId: String(options.payload?.created || "") };
-  }
-  if (typeof options.item?.url === "string" && options.item.url.trim()) {
-    const targetFile = path.join(options.targetDir, baseName + getImageExtensionFromContentType(options.item.url));
-    await downloadGeneratedImage(options.item.url, targetFile, options.apiKey, options.timeoutMs);
-    return { file: targetFile, submitId: String(options.payload?.created || "") };
-  }
-  return null;
-}
-
-function resolveMediaGenerateStatusUrl(apiUrl: string, configuredStatusUrl?: string): string {
-  if (configuredStatusUrl?.trim()) {
-    return configuredStatusUrl.trim();
-  }
-  const url = new URL(apiUrl);
-  url.pathname = "/v1/skills/task-status";
-  url.search = "";
-  return url.toString();
 }
 
 function resolveVideosBase64TaskUrl(apiUrl: string, taskId: string, content = false): string {
@@ -681,60 +618,6 @@ function readVideosBase64SubmittedTask(responseFile: string): any | undefined {
   }
 }
 
-function extractMediaGenerateTaskId(payload: any): string {
-  const taskId =
-    payload?.data?.task_id ??
-    payload?.data?.["任务id"] ??
-    payload?.data?.["任务ID"] ??
-    (Array.isArray(payload?.data?.["任务ids"]) ? payload.data["任务ids"][0] : undefined);
-  if (taskId === undefined || taskId === null || String(taskId).trim() === "") {
-    throw normalizeImageGenerationError("Media generation response did not include task_id: " + JSON.stringify(redactImageGenerationLogValue(payload)).slice(0, 500));
-  }
-  return String(taskId);
-}
-
-function extractMediaGenerateResultUrl(payload: any): string {
-  const resultUrl = payload?.result_url ?? payload?.data?.result_url;
-  if (Array.isArray(resultUrl)) {
-    return String(resultUrl.find((item) => typeof item === "string" && item.trim()) || "");
-  }
-  return typeof resultUrl === "string" ? resultUrl.trim() : "";
-}
-
-function mediaGenerateSucceeded(payload: any): boolean {
-  return (
-    payload?.state === "success" ||
-    payload?.data?.state === "success" ||
-    payload?.status_group === "已完成" ||
-    payload?.data?.status_group === "已完成"
-  );
-}
-
-function mediaGenerateFailed(payload: any): boolean {
-  return (
-    payload?.state === "failed" ||
-    payload?.data?.state === "failed" ||
-    payload?.status_group === "失败" ||
-    payload?.data?.status_group === "失败"
-  );
-}
-
-function mediaGenerateIsFinal(payload: any): boolean {
-  return payload?.is_final === true || payload?.data?.is_final === true;
-}
-
-const mediaGenerateReferenceUploadCache = new Map<string, string>();
-
-function hasMediaGenerateReferenceImage(params: Record<string, unknown>): boolean {
-  return ["images", "image_url", "img_url", "reference_urls"].some((key) => {
-    const value = params[key];
-    if (typeof value === "string") {
-      return value.trim().startsWith("http");
-    }
-    return Array.isArray(value) && value.some((item) => typeof item === "string" && item.trim().startsWith("http"));
-  });
-}
-
 function getMimeTypeForImage(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
@@ -750,76 +633,10 @@ function sourceImageToDataUrl(sourceImagePath: string): string {
   return `data:image/${mimeType.split("/")[1]};base64,${fs.readFileSync(sourceImagePath).toString("base64")}`;
 }
 
-function toTmpFilesDirectUrl(url: string): string {
-  return url.replace(/^https:\/\/tmpfiles\.org\//, "https://tmpfiles.org/dl/");
-}
-
-async function uploadMediaGenerateReferenceImage(options: {
-  config: OpenAiCompatibleImageConfig;
-  sourceImagePath: string;
-  timeoutMs: number;
-}): Promise<string> {
-  if (!fs.existsSync(options.sourceImagePath)) {
-    throw normalizeImageGenerationError("Media generation reference image not found: " + options.sourceImagePath);
-  }
-  const stat = fs.statSync(options.sourceImagePath);
-  const cacheKey = [path.resolve(options.sourceImagePath), stat.size, stat.mtimeMs].join("|");
-  const cached = mediaGenerateReferenceUploadCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const uploadConfig = options.config.referenceImageUpload || {};
-  if (uploadConfig.enabled === false) {
-    throw normalizeImageGenerationError(
-      "media-generate mode needs a public reference image URL, but referenceImageUpload.enabled=false and the Feishu URL is not provider-accessible."
-    );
-  }
-  const apiUrl = uploadConfig.apiUrl || "https://tmpfiles.org/api/v1/upload";
-  if (uploadConfig.provider && uploadConfig.provider !== "tmpfiles") {
-    throw normalizeImageGenerationError("Unsupported media-generate reference image upload provider: " + uploadConfig.provider);
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), resolveImageDownloadTimeoutMs(options.timeoutMs));
-  try {
-    const form = new FormData();
-    const imageBlob = new Blob([fs.readFileSync(options.sourceImagePath)], { type: getMimeTypeForImage(options.sourceImagePath) });
-    form.append("file", imageBlob, sanitizeFileName(path.basename(options.sourceImagePath)));
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      body: form,
-      signal: controller.signal
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      throw normalizeImageGenerationError("Reference image upload failed with HTTP " + response.status + ": " + text.slice(0, 300));
-    }
-    let payload: any;
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = { data: { url: text.trim() } };
-    }
-    const uploadedUrl = String(payload?.data?.url || payload?.url || "").trim();
-    if (!uploadedUrl.startsWith("https://tmpfiles.org/")) {
-      throw normalizeImageGenerationError("Reference image upload did not return a tmpfiles URL.");
-    }
-    const directUrl = toTmpFilesDirectUrl(uploadedUrl);
-    mediaGenerateReferenceUploadCache.set(cacheKey, directUrl);
-    return directUrl;
-  } catch (error) {
-    throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function generateWithOpenAiCompatibleProvider(options: {
   configFile: string;
   promptText: string;
   sourceImagePath: string;
-  sourceImageReferenceUrl?: string;
   downloadDir: string;
   expectedImageCount: number;
   requestedImageIndexes?: number[];
@@ -844,22 +661,11 @@ async function generateWithOpenAiCompatibleProvider(options: {
   const mode = resolveOpenAiCompatibleImageMode(config.mode, config.apiUrl);
   const count = Math.max(1, options.expectedImageCount || 1);
   const imageIndexOffset = generatedImageIndexOffset(options.downloadDir);
-  const responseFormat = config.responseFormat || "b64_json";
   const timeoutMs = Math.max(30000, config.timeoutMs || 180000);
   const videosBase64SubmitTimeoutMs = resolveVideosBase64SubmitTimeoutMs(config.submitTimeoutMs || timeoutMs, config.maxPollMs);
   const submitGate =
     options.videosBase64SubmitGate || createConcurrencyGate(resolveVideosBase64SubmitConcurrency(config.submitConcurrency));
-  const maxTransientRetries = Math.max(0, config.maxTransientRetries ?? 3);
   const transportRetryPolicy = resolveImageGenerationTransportRetryPolicy(config.maxTransientRetries);
-  const configuredMediaParams = config.mediaParams || {};
-  const mediaGenerateReferenceUrl =
-    mode === "media-generate" && !hasMediaGenerateReferenceImage(configuredMediaParams) && !config.allowMediaGenerateWithoutReference
-      ? await uploadMediaGenerateReferenceImage({
-          config,
-          sourceImagePath: options.sourceImagePath,
-          timeoutMs
-        })
-      : "";
   const sendRequest = async (
     requestBody: BodyInit,
     contentType?: string,
@@ -899,71 +705,6 @@ async function generateWithOpenAiCompatibleProvider(options: {
       }
     }
   };
-  const sendRequestWithTransportRetries = async (
-    imageIndex: number,
-    label: string,
-    requestBodyFactory: () => BodyInit,
-    contentType?: string
-  ): Promise<{ response: Response; text: string }> => {
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        return await sendRequest(requestBodyFactory(), contentType);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!isTransientImageProviderErrorMessage(message) || attempt >= transportRetryPolicy.maxRetries) {
-          throw error;
-        }
-        const retryNo = attempt + 1;
-        const nextDelayMs = transportRetryPolicy.delayMs[attempt] || transportRetryPolicy.delayMs.at(-1) || 45000;
-        writeImageGenerationJsonLog(
-          path.join(
-            options.downloadDir,
-            "response-" + String(imageIndex).padStart(2, "0") + "-transport-transient-" + retryNo + ".json"
-          ),
-          {
-            label,
-            retryNo,
-            maxTransientRetries: transportRetryPolicy.maxRetries,
-            error: message,
-            nextDelayMs
-          }
-        );
-        options.onProgress?.(`Image ${imageIndex}: transient transport error during ${label}; retry ${retryNo}/${transportRetryPolicy.maxRetries}.`);
-        await sleep(nextDelayMs);
-      }
-    }
-  };
-
-  const buildGenerationJsonBody = (promptText: string): Record<string, unknown> => ({
-    model: config.model,
-    prompt: promptText,
-    n: 1,
-    size: config.size || "1024x1024",
-    response_format: responseFormat,
-    ...(config.requestExtra || {})
-  });
-
-  const buildMediaGenerateJsonBody = (promptText: string): Record<string, unknown> => {
-    const params = {
-      ...(config.size ? { size: config.size } : {}),
-      ...(options.sourceImageReferenceUrl ? { images: [options.sourceImageReferenceUrl] } : {}),
-      ...(mediaGenerateReferenceUrl ? { images: [mediaGenerateReferenceUrl] } : {}),
-      ...(config.mediaParams || {}),
-      ...(config.requestExtra || {})
-    };
-    if (!config.allowMediaGenerateWithoutReference && !hasMediaGenerateReferenceImage(params)) {
-      throw normalizeImageGenerationError(
-        "media-generate mode requires a public reference image URL in mediaParams.images/image_url/img_url/reference_urls for product main images. The provider does not accept local multipart source images."
-      );
-    }
-    return {
-      model: config.model,
-      prompt: promptText,
-      count: 1,
-      ...(Object.keys(params).length ? { params } : {})
-    };
-  };
-
   const buildVideosBase64JsonBody = (promptText: string): Record<string, unknown> => ({
     model: config.model,
     prompt: promptText,
@@ -976,7 +717,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
   });
 
   const videosBase64Ledger =
-    mode === "videos-base64" && options.paidImageLedger
+    options.paidImageLedger
       ? initializePaidImageProductLedger({
           rootDir: options.paidImageLedger.rootDir,
           batchFingerprint: options.paidImageLedger.batchFingerprint,
@@ -985,7 +726,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
           providerIdentity: sha256Text(
             JSON.stringify({
               apiUrl: config.apiUrl,
-              statusUrl: config.statusUrl || "",
+              statusUrl: "",
               model: config.model,
               mode,
               size: config.size || "1024x1024",
@@ -996,27 +737,6 @@ async function generateWithOpenAiCompatibleProvider(options: {
           sourceImageDigest: sha256File(options.sourceImagePath)
         })
       : undefined;
-  const fetchMediaGenerateStatus = async (taskId: string): Promise<{ response: Response; text: string }> => {
-    const statusUrl = new URL(resolveMediaGenerateStatusUrl(config.apiUrl, config.statusUrl));
-    statusUrl.searchParams.set("task_id", taskId);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(statusUrl, {
-        headers: {
-          Authorization: "Bearer " + config.apiKey
-        },
-        signal: controller.signal
-      });
-      const text = await response.text();
-      return { response, text };
-    } catch (error) {
-      throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
   const fetchVideosBase64Task = async (taskId: string, content = false): Promise<Response> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -1157,60 +877,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
   };
 
-  const buildEditFormData = (includeResponseFormat: boolean, promptText: string): FormData => {
-    if (!fs.existsSync(options.sourceImagePath)) {
-      throw new Error("Source reference image not found for image edit: " + options.sourceImagePath);
-    }
-    const form = new FormData();
-    form.set("model", config.model);
-    form.set("prompt", promptText);
-    form.set("n", "1");
-    form.set("size", config.size || "1024x1024");
-    if (includeResponseFormat) {
-      form.set("response_format", responseFormat);
-    }
-    for (const [key, value] of Object.entries(config.requestExtra || {})) {
-      if (value === undefined || value === null) {
-        continue;
-      }
-      form.set(key, typeof value === "string" ? value : JSON.stringify(value));
-    }
-    const ext = path.extname(options.sourceImagePath).toLowerCase();
-    const mimeType = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "image/png";
-    const imageBlob = new Blob([fs.readFileSync(options.sourceImagePath)], { type: mimeType });
-    form.append("image", imageBlob, path.basename(options.sourceImagePath));
-    return form;
-  };
-
   const buildPromptForImageIndex = (_imageIndex: number): string => options.promptText;
-
-  const sendPolicyPromptRetry = async (
-    imageIndex: number,
-    currentPromptText: string,
-    requestSummaryFactory: (currentPromptText: string) => Record<string, unknown>,
-    label: string
-  ): Promise<{ response: Response; text: string; promptText: string }> => {
-    const nextPromptText = buildPolicyCompatibleImageEditPrompt(options.promptText, imageIndex);
-    const policyRetrySummary = requestSummaryFactory(nextPromptText);
-    writeImageGenerationJsonLog(
-      path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-" + label + "-policy-retry.json"),
-      policyRetrySummary
-    );
-    let result =
-      mode === "edits"
-        ? await sendRequestWithTransportRetries(imageIndex, label + "-policy-retry", () => buildEditFormData(true, nextPromptText))
-        : await sendRequestWithTransportRetries(imageIndex, label + "-policy-retry", () => JSON.stringify(buildGenerationJsonBody(nextPromptText)), "application/json");
-    if (!result.response.ok && mode === "edits" && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(result.text)) {
-      const retrySummary = { ...policyRetrySummary };
-      delete retrySummary.response_format;
-      writeImageGenerationJsonLog(
-        path.join(options.downloadDir, "request-" + String(imageIndex).padStart(2, "0") + "-" + label + "-policy-retry-no-response-format.json"),
-        retrySummary
-      );
-      result = await sendRequestWithTransportRetries(imageIndex, label + "-policy-response-format-retry", () => buildEditFormData(false, nextPromptText));
-    }
-    return { ...result, promptText: nextPromptText || currentPromptText };
-  };
 
   const generateVideosBase64ImageAttempt = async (absoluteImageIndex: number): Promise<{ file: string; submitId: string }> => {
     const paddedImageIndex = String(absoluteImageIndex).padStart(2, "0");
@@ -1547,229 +1214,19 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
   };
 
-  if (mode === "videos-base64") {
-    const videosBase64ImageIndexes =
-      options.requestedImageIndexes?.length
-        ? options.requestedImageIndexes
-        : Array.from({ length: count }, (_, index) => imageIndexOffset + index + 1);
-    return settleConcurrentWork(
-      videosBase64ImageIndexes.map((absoluteImageIndex) => generateVideosBase64Image(absoluteImageIndex)),
-      "videos-base64 paid image slots"
-    );
-  }
-
-  const generated: Array<{ file: string; submitId: string }> = [];
-  for (let imageIndex = 1; imageIndex <= count; imageIndex += 1) {
-    const resolvedImageIndex = resolveOpenAiCompatibleGeneratedImageIndex({
-      imageIndexOffset,
-      localImageIndex: imageIndex
-    });
-    const absoluteImageIndex = resolvedImageIndex.absoluteImageIndex;
-    const paddedImageIndex = resolvedImageIndex.paddedImageIndex;
-    let promptText = buildPromptForImageIndex(absoluteImageIndex);
-    const requestFile = path.join(options.downloadDir, "request-" + paddedImageIndex + ".json");
-    const responseFile = path.join(options.downloadDir, "response-" + paddedImageIndex + ".json");
-    const buildRequestSummary = (currentPromptText: string): Record<string, unknown> =>
-      mode === "edits"
-        ? {
-            endpoint: config.apiUrl,
-            mode,
-            contentType: "multipart/form-data",
-            model: config.model,
-            prompt: currentPromptText,
-            n: 1,
-            size: config.size || "1024x1024",
-            response_format: responseFormat,
-            image: path.basename(options.sourceImagePath),
-            imagePath: options.sourceImagePath,
-            requestExtra: redactImageGenerationLogValue(config.requestExtra || {})
-          }
-        : mode === "media-generate"
-          ? (redactImageGenerationLogValue({
-              endpoint: config.apiUrl,
-              statusUrl: resolveMediaGenerateStatusUrl(config.apiUrl, config.statusUrl),
-              mode,
-              ...buildMediaGenerateJsonBody(currentPromptText)
-            }) as Record<string, unknown>)
-        : (redactImageGenerationLogValue(buildGenerationJsonBody(currentPromptText)) as Record<string, unknown>);
-    const requestSummary = buildRequestSummary(promptText);
-    writeImageGenerationJsonLog(requestFile, requestSummary);
-
-    if (mode === "media-generate") {
-      options.onProgress?.(`Image ${absoluteImageIndex}: submitting media-generate request.`);
-      const { response, text } = await sendRequestWithTransportRetries(
-        absoluteImageIndex,
-        "initial",
-        () => JSON.stringify(buildMediaGenerateJsonBody(promptText)),
-        "application/json"
-      );
-      writeImageGenerationTextLog(responseFile, text);
-      if (!response.ok) {
-        throw normalizeImageGenerationError("Media generation submit failed with HTTP " + response.status + ": " + (text || response.statusText));
-      }
-
-      let submitPayload: any;
-      try {
-        submitPayload = JSON.parse(text);
-      } catch {
-        throw new Error("Media generation submit response was not JSON: " + text.slice(0, 500));
-      }
-      const taskId = extractMediaGenerateTaskId(submitPayload);
-      const pollIntervalMs = Math.max(1000, config.pollIntervalMs || 5000);
-      const maxPollMs = Math.max(pollIntervalMs, config.maxPollMs || timeoutMs);
-      const startedAt = Date.now();
-      let statusPayload: any;
-      for (let pollNo = 1; ; pollNo += 1) {
-        await sleep(pollIntervalMs);
-        const statusResult = await fetchMediaGenerateStatus(taskId);
-        const statusLogFile = path.join(options.downloadDir, "response-" + paddedImageIndex + "-status-" + pollNo + ".json");
-        writeImageGenerationTextLog(statusLogFile, statusResult.text);
-        if (!statusResult.response.ok) {
-          throw normalizeImageGenerationError(
-            "Media generation status failed with HTTP " + statusResult.response.status + ": " + (statusResult.text || statusResult.response.statusText)
-          );
-        }
-        try {
-          statusPayload = JSON.parse(statusResult.text);
-        } catch {
-          throw new Error("Media generation status response was not JSON: " + statusResult.text.slice(0, 500));
-        }
-        const progress = statusPayload?.progress ?? statusPayload?.data?.progress ?? "";
-        const statusText = statusPayload?.status ?? statusPayload?.data?.status ?? "";
-        options.onProgress?.(`Image ${absoluteImageIndex}: media task ${taskId} status ${statusText || "pending"} ${progress || ""}.`.trim());
-        if (mediaGenerateIsFinal(statusPayload)) {
-          break;
-        }
-        if (Date.now() - startedAt > maxPollMs) {
-          throw normalizeImageGenerationError(`Media generation task ${taskId} did not finish within ${maxPollMs}ms.`);
-        }
-      }
-      if (!mediaGenerateSucceeded(statusPayload) || mediaGenerateFailed(statusPayload)) {
-        const errorMessage = statusPayload?.error ?? statusPayload?.data?.error ?? "unknown error";
-        throw normalizeImageGenerationError(`Media generation task ${taskId} failed: ${errorMessage}`);
-      }
-      const resultUrl = extractMediaGenerateResultUrl(statusPayload);
-      if (!resultUrl) {
-        throw normalizeImageGenerationError("Media generation task returned no result_url: " + JSON.stringify(redactImageGenerationLogValue(statusPayload)).slice(0, 500));
-      }
-      const targetFile = path.join(options.downloadDir, "generated-" + paddedImageIndex + getImageExtensionFromContentType(resultUrl));
-      await downloadGeneratedImage(resultUrl, targetFile, config.apiKey || "", timeoutMs);
-      options.onProgress?.(`Image ${absoluteImageIndex}: saved ${path.basename(targetFile)}.`);
-      generated.push({ file: targetFile, submitId: taskId });
-      continue;
-    }
-
-    options.onProgress?.(`Image ${absoluteImageIndex}: submitting ${mode} request.`);
-    let { response, text } =
-      mode === "edits"
-        ? await sendRequestWithTransportRetries(absoluteImageIndex, "initial", () => buildEditFormData(true, promptText))
-        : await sendRequestWithTransportRetries(absoluteImageIndex, "initial", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json");
-    if (!response.ok && /response_?format|unsupported parameter|unknown parameter|invalid parameter/i.test(text)) {
-      if (mode === "edits") {
-        const retrySummary = { ...(requestSummary as Record<string, unknown>) };
-        delete retrySummary.response_format;
-        writeImageGenerationJsonLog(path.join(options.downloadDir, "request-" + paddedImageIndex + "-retry.json"), retrySummary);
-        ({ response, text } = await sendRequestWithTransportRetries(absoluteImageIndex, "response-format-retry", () => buildEditFormData(false, promptText)));
-      } else {
-        const retryBody = buildGenerationJsonBody(promptText);
-        delete (retryBody as Record<string, unknown>).response_format;
-        writeImageGenerationJsonLog(path.join(options.downloadDir, "request-" + paddedImageIndex + "-retry.json"), retryBody);
-        ({ response, text } = await sendRequestWithTransportRetries(absoluteImageIndex, "response-format-retry", () => JSON.stringify(retryBody), "application/json"));
-      }
-    }
-    if (shouldRetryImageGenerationWithPolicyPrompt({ responseOk: response.ok, responseText: text })) {
-      ({ response, text, promptText } = await sendPolicyPromptRetry(absoluteImageIndex, promptText, buildRequestSummary, "initial"));
-    }
-    const httpRetryPolicy = resolveImageGenerationHttpRetryPolicy({
-      status: response.status,
-      responseText: text,
-      configuredMaxRetries: config.maxTransientRetries
-    });
-    for (let attempt = 1; !response.ok && isTransientImageProviderStatus(response.status) && attempt <= httpRetryPolicy.maxRetries; attempt += 1) {
-      writeImageGenerationTextLog(
-        path.join(options.downloadDir, "response-" + paddedImageIndex + "-transient-" + attempt + ".json"),
-        text
-      );
-      options.onProgress?.(
-        `Image ${absoluteImageIndex}: transient HTTP ${response.status} (${httpRetryPolicy.reason}); retry ${attempt}/${httpRetryPolicy.maxRetries}.`
-      );
-      await sleep(httpRetryPolicy.delayMs[attempt - 1] || httpRetryPolicy.delayMs.at(-1) || 3000 * attempt);
-      ({ response, text } =
-        mode === "edits"
-          ? await sendRequestWithTransportRetries(absoluteImageIndex, "http-transient-retry", () => buildEditFormData(true, promptText))
-          : await sendRequestWithTransportRetries(absoluteImageIndex, "http-transient-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
-    }
-    if (!response.ok) {
-      writeImageGenerationTextLog(responseFile, text);
-      throw normalizeImageGenerationError("Image generation failed with HTTP " + response.status + ": " + (text || response.statusText));
-    }
-
-    let payload: any;
-    let items: any[] = [];
-    for (let emptyAttempt = 0; ; emptyAttempt += 1) {
-      try {
-        payload = JSON.parse(text);
-      } catch {
-        throw new Error("Image generation response was not JSON: " + text.slice(0, 500));
-      }
-      writeImageGenerationJsonLog(
-        emptyAttempt === 0
-          ? responseFile
-          : path.join(options.downloadDir, "response-" + paddedImageIndex + "-empty-data-retry-" + emptyAttempt + ".json"),
-        payload
-      );
-
-      items = getGeneratedImageItems(payload);
-      if (items.length > 0) {
-        break;
-      }
-      if (emptyAttempt >= maxTransientRetries) {
-        extractGeneratedImageItems(payload, text);
-      }
-
-      const retryNo = emptyAttempt + 1;
-      options.onProgress?.(`Image ${absoluteImageIndex}: provider returned empty data; retry ${retryNo}/${maxTransientRetries}.`);
-      await sleep(3000 * retryNo);
-      ({ response, text } =
-        mode === "edits"
-          ? await sendRequestWithTransportRetries(absoluteImageIndex, "empty-data-retry", () => buildEditFormData(true, promptText))
-          : await sendRequestWithTransportRetries(absoluteImageIndex, "empty-data-retry", () => JSON.stringify(buildGenerationJsonBody(promptText)), "application/json"));
-      if (shouldRetryImageGenerationWithPolicyPrompt({ responseOk: response.ok, responseText: text })) {
-        ({ response, text, promptText } = await sendPolicyPromptRetry(absoluteImageIndex, promptText, buildRequestSummary, "empty-data-retry-" + retryNo));
-      }
-      if (!response.ok) {
-        writeImageGenerationTextLog(
-          path.join(options.downloadDir, "response-" + paddedImageIndex + "-empty-data-retry-http-error-" + retryNo + ".json"),
-          text
-        );
-        throw normalizeImageGenerationError("Image generation retry failed with HTTP " + response.status + ": " + (text || response.statusText));
-      }
-    }
-    const saved = await saveGeneratedImageItem({
-      item: items[0],
-      payload,
-      targetDir: options.downloadDir,
-      index: absoluteImageIndex,
-      apiKey: config.apiKey || "",
-      timeoutMs
-    });
-    if (!saved) {
-      throw normalizeImageGenerationError("Image generation returned no downloadable image payloads: " + text.slice(0, 500));
-    }
-    options.onProgress?.(`Image ${absoluteImageIndex}: saved ${path.basename(saved.file)}.`);
-    generated.push(saved);
-  }
-
-  if (generated.length < count) {
-    throw new Error("Image generation returned " + generated.length + " image(s), expected " + count + ".");
-  }
-  return generated;
+  const videosBase64ImageIndexes =
+    options.requestedImageIndexes?.length
+      ? options.requestedImageIndexes
+      : Array.from({ length: count }, (_, index) => imageIndexOffset + index + 1);
+  return settleConcurrentWork(
+    videosBase64ImageIndexes.map((absoluteImageIndex) => generateVideosBase64Image(absoluteImageIndex)),
+    "videos-base64 paid image slots"
+  );
 }
 
 export async function generateOpenAiCompatibleImagePreview(options: {
   configFile: string;
   sourceImagePath: string;
-  sourceImageReferenceUrl?: string;
   promptWordFile: string;
   outputDir: string;
   sellingPointText: string;
@@ -1786,7 +1243,6 @@ export async function generateOpenAiCompatibleImagePreview(options: {
     configFile: options.configFile,
     promptText,
     sourceImagePath: options.sourceImagePath,
-    sourceImageReferenceUrl: options.sourceImageReferenceUrl,
     downloadDir: options.outputDir,
     expectedImageCount: 1
   });
@@ -2093,7 +1549,6 @@ export async function generateMainImageAssets(options: {
   taskId: string;
   shopRootDir: string;
   sourceImagePath: string;
-  sourceImageReferenceUrl?: string;
   sellingPointText: string;
   brandedGenericName: string;
   wordFiles: string[];
@@ -2161,30 +1616,20 @@ export async function generateMainImageAssets(options: {
     };
   }
 
-  readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
-
   const imageGenerationConfig = readOpenAiCompatibleImageConfig(options.imageGenerationConfigFile);
-  const imageGenerationMode = resolveOpenAiCompatibleImageMode(imageGenerationConfig.mode, imageGenerationConfig.apiUrl);
-  const videosBase64SubmitGate =
-    imageGenerationMode === "videos-base64"
-      ? createConcurrencyGate(resolveVideosBase64SubmitConcurrency(imageGenerationConfig.submitConcurrency))
-      : undefined;
-  if (
-    imageGenerationMode === "videos-base64" &&
-    (!options.feishuBatchFingerprint || !options.feishuRecordId || !options.paidImageSubmissionLedgerDir)
-  ) {
+  const videosBase64SubmitGate = createConcurrencyGate(
+    resolveVideosBase64SubmitConcurrency(imageGenerationConfig.submitConcurrency)
+  );
+  if (!options.feishuBatchFingerprint || !options.feishuRecordId || !options.paidImageSubmissionLedgerDir) {
     throw new Error(
       "videos-base64 paid submission requires project-owned feishuBatchFingerprint, feishuRecordId, and paidImageSubmissionLedgerDir."
     );
   }
-  const videosBase64ProductLedgerDir =
-    imageGenerationMode === "videos-base64"
-      ? paidImageProductLedgerDir(
-          options.paidImageSubmissionLedgerDir as string,
-          options.feishuBatchFingerprint as string,
-          options.feishuRecordId as string
-        )
-      : undefined;
+  const videosBase64ProductLedgerDir = paidImageProductLedgerDir(
+    options.paidImageSubmissionLedgerDir,
+    options.feishuBatchFingerprint,
+    options.feishuRecordId
+  );
 
   const stagedFiles: Array<{
     stagedFile: string;
@@ -2260,10 +1705,7 @@ export async function generateMainImageAssets(options: {
     }
 
     const requestedPaidSlots = missingLocalIndexes.map((localIndex) => promptIndex * options.mainImageExpectedCount + localIndex);
-    const paidResumePlan =
-      imageGenerationMode === "videos-base64"
-        ? summarizeVideosBase64PaidResumePlan(videosBase64ProductLedgerDir, requestedPaidSlots)
-        : undefined;
+    const paidResumePlan = summarizeVideosBase64PaidResumePlan(videosBase64ProductLedgerDir, requestedPaidSlots);
     options.onProgress?.(
       paidResumePlan
         ? `Prompt ${promptIndex + 1}/${promptCount}: missing fixed slots=${formatSlotList(
@@ -2277,7 +1719,6 @@ export async function generateMainImageAssets(options: {
       configFile: options.imageGenerationConfigFile,
       promptText,
       sourceImagePath: options.sourceImagePath,
-      sourceImageReferenceUrl: options.sourceImageReferenceUrl,
       downloadDir: path.join(roundDir, "openai-compatible", "raw"),
       expectedImageCount: remainingImageCount,
       requestedImageIndexes: missingLocalIndexes,
@@ -2350,34 +1791,28 @@ export async function generateMainImageAssets(options: {
   };
 
   const promptIndexes = Array.from({ length: promptCount }, (_, index) => index);
-  if (imageGenerationMode === "videos-base64") {
-    try {
-      const concurrentRounds = await settleConcurrentWork(
-        promptIndexes.map((promptIndex) => processPromptRound(promptIndex)),
-        "videos-base64 prompt rounds"
-      );
-      stagedFiles.push(...concurrentRounds.flat());
-    } catch (error) {
-      const productDir = paidImageProductLedgerDir(
-        options.paidImageSubmissionLedgerDir as string,
-        options.feishuBatchFingerprint as string,
-        options.feishuRecordId as string
-      );
-      if (fs.existsSync(productDir)) {
-        const summary = summarizePaidImageProductLedger(productDir);
-        if (resolvePaidImageLedgerFailureDisposition(summary) === "safety_block") {
-          const original = error instanceof Error ? error.message : String(error);
-          throw normalizeImageGenerationError(
-            `paid submission safety block: paid image ledger has ambiguous=${summary.ambiguous}, reserved=${summary.reserved}; original: ${original}`
-          );
-        }
+  try {
+    const concurrentRounds = await settleConcurrentWork(
+      promptIndexes.map((promptIndex) => processPromptRound(promptIndex)),
+      "videos-base64 prompt rounds"
+    );
+    stagedFiles.push(...concurrentRounds.flat());
+  } catch (error) {
+    const productDir = paidImageProductLedgerDir(
+      options.paidImageSubmissionLedgerDir,
+      options.feishuBatchFingerprint,
+      options.feishuRecordId
+    );
+    if (fs.existsSync(productDir)) {
+      const summary = summarizePaidImageProductLedger(productDir);
+      if (resolvePaidImageLedgerFailureDisposition(summary) === "safety_block") {
+        const original = error instanceof Error ? error.message : String(error);
+        throw normalizeImageGenerationError(
+          `paid submission safety block: paid image ledger has ambiguous=${summary.ambiguous}, reserved=${summary.reserved}; original: ${original}`
+        );
       }
-      throw error;
     }
-  } else {
-    for (const promptIndex of promptIndexes) {
-      stagedFiles.push(...(await processPromptRound(promptIndex)));
-    }
+    throw error;
   }
   stagedFiles.sort((left, right) => left.imageIndex - right.imageIndex);
 

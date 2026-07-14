@@ -113,7 +113,6 @@ async function downloadAttachmentSet(
     files.push(targetFile);
     updated.push({
       ...attachment,
-      providerReferenceUrl: attachment.providerReferenceUrl || attachment.temporaryUrl || attachment.downloadUrl,
       localFile: targetFile
     });
   }

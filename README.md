@@ -74,8 +74,10 @@ input/image-generation.config.json
 仓库只提交示例：
 
 ```text
-input/image-generation.config.example.json
+input/image-generation.config.videos-base64.example.json
 ```
+
+真实生图链路固定使用 OpenAI-compatible `gpt-image-2` 的 `videos-base64` 模式和 `/v1/videos` 接口，通过 Base64 data URL 元数据传入当前商品白底参考图。
 
 运行数据、浏览器 profile、飞书附件、生成图片、标题表、Word 文档和发布日志都不提交 Git。
 

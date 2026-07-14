@@ -209,7 +209,7 @@ npm run auto-listing:hermes-pause
 
 标题关键词来自飞书 `标题关键词` 字段，脚本只做类目规则内的排列组合。
 
-真实流程的生图 provider 已切换为 OpenAI-compatible 中转站 `gpt-image-2`。本地密钥和接口配置放在 `input/image-generation.config.json`，该文件被 `.gitignore` 忽略；仓库只提交 `input/image-generation.config.example.json`。如果运行时报余额、额度或计费不足，需要先给中转站账号充值。
+真实流程的生图 provider 使用 OpenAI-compatible 中转站 `gpt-image-2`，模式固定为 `videos-base64`，接口固定为 `/v1/videos`，并通过 Base64 data URL 元数据传入当前商品白底参考图。本地密钥和接口配置放在 `input/image-generation.config.json`，该文件被 `.gitignore` 忽略；仓库只提交 `input/image-generation.config.videos-base64.example.json`。如果运行时报余额、额度或计费不足，需要先给中转站账号充值。
 
 这条链路不使用 ChatGPT 网页端，因此不应消耗 GPT Plus 会员消息额度。项目运行时会拦截 `chatgpt.com` 和 `chat.openai.com` 这类 ChatGPT/Plus 网页域名；OpenAI-compatible 图片接口或中转站接口属于 API/中转站计费，不等同于 GPT Plus 会员额度。
 
