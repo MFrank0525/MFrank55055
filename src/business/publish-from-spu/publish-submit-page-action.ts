@@ -386,7 +386,11 @@ async function clickVisibleDialogAction(page: Page, labels: string[]): Promise<b
         const style = window.getComputedStyle(el);
         return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
       });
-    const roots = dialogs.length ? dialogs : [document.body];
+    const publishDialogMarkers = ["发布", "提交审核", "创建商品"];
+    const roots = dialogs.filter((dialog) => publishDialogMarkers.some((marker) => normalize(dialog.innerText || "").includes(marker)));
+    if (!roots.length) {
+      return false;
+    }
     const targets = roots
       .flatMap((root) =>
         Array.from(root.querySelectorAll("button, [role='button'], a, span, div")).map((el) => el as HTMLElement)

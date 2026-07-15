@@ -120,11 +120,27 @@ assert.equal(failureReport.failure?.errorClass, "shop_not_found");
 assert.deepEqual(JSON.parse(fs.readFileSync(failureReport.resultFile, "utf8")), failureReport);
 
 const cliSource = fs.readFileSync("src/cli/audit-shop-access.ts", "utf8");
+const shopSwitchSource = fs.readFileSync("src/business/publish-from-spu/shop-switch-action.ts", "utf8");
 assert.match(cliSource, /--runtime-root/, "shop access audit CLI must support an explicit runtime evidence root");
 assert.match(cliSource, /runShopAccessAudit/, "shop access audit CLI must invoke the dedicated read-only orchestrator");
 assert.match(cliSource, /process\.exitCode\s*=\s*1/, "shop access audit CLI must fail closed with a nonzero exit code");
 assert.match(cliSource, /JSON\.stringify/, "shop access audit CLI must expose machine-readable evidence");
 assert.ok(!cliSource.includes("--allow-publish"), "shop access audit CLI must not accept a publishing authorization flag");
+assert.match(
+  shopSwitchSource,
+  /evaluateAfterNavigationSettles[\s\S]*isNavigationContextDestroyedError[\s\S]*waitForLoadState\("domcontentloaded"\)/,
+  "shop identity reads must retry after a switch-triggered navigation destroys the current execution context"
+);
+assert.match(
+  shopSwitchSource,
+  /detectCurrentShopName[\s\S]*evaluateAfterNavigationSettles/,
+  "shop detection must use the navigation-stable read helper"
+);
+assert.match(
+  shopSwitchSource,
+  /export async function ensureShopContext[\s\S]*ensureShopContextAttempt[\s\S]*isNavigationContextDestroyedError[\s\S]*waitForLoadState\("domcontentloaded"\)/,
+  "the complete shop switch operation must restart safely when any DOM action crosses a navigation"
+);
 
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 assert.match(packageJson.scripts["audit:shop-access"], /audit-shop-access\.js --json/);

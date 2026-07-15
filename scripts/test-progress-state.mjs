@@ -127,6 +127,34 @@ const hermesSupervisorSource = fs.readFileSync("src/cli/auto-listing-supervisor.
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
 const publishSource = fs.readFileSync("src/autolist/publish.ts", "utf8");
+const productListVerificationSource = fs.readFileSync(
+  "src/business/publish-from-spu/product-list-verification-action.ts",
+  "utf8"
+);
+const publishSubmitPageActionSource = fs.readFileSync(
+  "src/business/publish-from-spu/publish-submit-page-action.ts",
+  "utf8"
+);
+assert.match(
+  productListVerificationSource,
+  /属性自动优化用户协议[\s\S]*getByRole\("button", \{ name: "Close", exact: true \}\)/,
+  "product-list verification must close the auto-optimization opt-in dialog through its safe close control"
+);
+assert.doesNotMatch(
+  productListVerificationSource,
+  /getByRole\([^\n]*立即开启|click[^\n]*立即开启/,
+  "product-list verification must never grant auto-optimization authorization"
+);
+assert.match(
+  productListVerificationSource,
+  /searchInput\.locator\("xpath=ancestor::form\[1\]"\)[\s\S]*searchForm\.getByRole\("button", \{ name: "查询", exact: true \}\)/,
+  "product-list verification must scope 查询 to the title input's form"
+);
+assert.match(
+  publishSubmitPageActionSource,
+  /publishDialogMarkers = \["发布", "提交审核", "创建商品"\][\s\S]*dialogs\.filter/,
+  "generic confirmation handling must be restricted to publish-related dialogs"
+);
 assert.doesNotMatch(
   hermesRunnerSource,
   /total\s*\|\|\s*["']\?["']/,
@@ -1260,6 +1288,16 @@ assert.equal(
 
 const finalSubmitTransientClass = classifyPublishFailure(
   "Sequential publish flow stopped: 最终发布动作未完成。系统将自动唤起图片编辑工具正反示例商品完整边缘清晰正面主题适当不完整不清晰非正面主体过小"
+);
+assert.equal(
+  classifyPublishFailure("规格值名称中不能出现Emoji等特殊符号：❤"),
+  "validation_blocked",
+  "platform Emoji rejection must be classified as a deterministic validation failure"
+);
+assert.equal(
+  classifyPublishFailure("Legacy spec values still contain blocked Emoji after exact normalization"),
+  "spec_template_not_ready",
+  "failed controlled spec normalization must retain a retryable, specific failure class"
 );
 assert.equal(finalSubmitTransientClass, "final_publish_state_uncertain");
 assert.equal(
@@ -2546,6 +2584,35 @@ assert.equal(
   "Hermes-facing compact text must not expose cumulative publish totals such as 60/60"
 );
 assert.equal(/发布 60\/60/.test(compactCompletedGroupedStatus), false);
+
+const completedResumeOutOfOrderProgress = resolveAutoListingControllerPublishGroupProgress({
+  entries: Array.from({ length: 20 }, (_, index) => ({
+    productFolder: `/shops/${String(index + 1).padStart(2, "0")}店/延草纲目宝元堂医用疼痛凝胶水印${String(index + 1).padStart(2, "0")}`,
+    shopFolder: `/shops/${String(index + 1).padStart(2, "0")}店`,
+    watermarkNo: index + 1,
+    status: "published",
+    finalVerifyStatus: "publish_signal_confirmed",
+    updatedAt: index === 18 ? "2026-07-15T08:45:00.000Z" : `2026-07-15T07:${String(index).padStart(2, "0")}:00.000Z`
+  })),
+  planEntries: Array.from({ length: 20 }, (_, index) => ({
+    productFolder: `/shops/${String(index + 1).padStart(2, "0")}店/延草纲目宝元堂医用疼痛凝胶水印${String(index + 1).padStart(2, "0")}`,
+    shopFolder: `/shops/${String(index + 1).padStart(2, "0")}店`,
+    watermarkNo: index + 1
+  }))
+});
+assert.deepEqual(
+  completedResumeOutOfOrderProgress,
+  {
+    productName: "延草纲目宝元堂医用疼痛凝胶",
+    productIndex: 20,
+    productTotal: 20,
+    shopName: "20店",
+    shopIndex: 20,
+    shopTotal: 20,
+    failed: 0
+  },
+  "a completed out-of-order resume must report full terminal progress instead of the last replayed watermark"
+);
 
 const partialManifestWithFullPublishPlanProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: Array.from({ length: 9 }, (_, index) => ({

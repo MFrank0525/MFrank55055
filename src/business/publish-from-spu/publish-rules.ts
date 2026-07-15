@@ -184,7 +184,18 @@ const SUBMISSION_SUCCESS_TEXTS = [
   "发布任务已提交"
 ];
 
-const SUBMISSION_BLOCKING_TEXTS = ["必填", "请填写", "错误", "失败", "待处理", "校验未通过", "请上传", "不能为空"];
+const SUBMISSION_BLOCKING_TEXTS = [
+  "必填",
+  "请填写",
+  "错误",
+  "失败",
+  "待处理",
+  "校验未通过",
+  "请上传",
+  "不能为空",
+  "不能出现Emoji",
+  "特殊符号"
+];
 
 export function normalizeVisibleText(value: string): string {
   return value.replace(/\s+/g, "").trim();
@@ -459,6 +470,7 @@ export function classifyPublishFailure(message: string): string {
     text.includes("Spectemplatesearchinputwasnotfound") ||
     text.includes("Novisiblespectemplatematchedkeyword") ||
     text.includes("Novisiblespectemplatedropdownoptionmatchedcontrolledaliases") ||
+    text.includes("LegacyspecvaluesstillcontainblockedEmoji") ||
     text.includes("Manualspectemplateentrymodewasnotvisible") ||
     text.includes("Spectemplateentrycontrolwasnotvisible") ||
     text.includes("Spectemplateselectedbutmanualspecvaluesorprice/inventoryrowswerenotvisibleafterswitchingfromsmart-fillmode") ||
@@ -521,6 +533,8 @@ export function classifyPublishFailure(message: string): string {
     text.includes("请填写") ||
     text.includes("不能为空") ||
     text.includes("校验未通过") ||
+    text.includes("不能出现Emoji") ||
+    text.includes("特殊符号") ||
     text.includes("校验发货模式失败") ||
     text.includes("需在已下架操作上架")
   ) {

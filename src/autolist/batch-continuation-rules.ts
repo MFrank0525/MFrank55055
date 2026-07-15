@@ -1224,6 +1224,7 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
   const review = reviewEntries.length;
   const productTotal = Math.max(20, scopeEntries.length, ...scopeEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const maxCompletedWatermark = Math.max(0, ...safelyPublished.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
+  const groupComplete = safelyPublished.length >= productTotal && failed === 0 && review === 0;
   const latestAttemptedWatermark = Math.max(
     0,
     ...displayGroupEntries
@@ -1238,10 +1239,15 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
     : undefined;
   const failedWatermark = Math.max(0, ...failedEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
   const reviewWatermark = Math.max(0, ...reviewEntries.map(publishWatermarkNoFromEntry).filter(Number.isFinite));
-  const productIndex = Math.max(1, Math.min(productTotal, (failed > 0 && latestAttemptedWatermark > activeWatermark ? latestAttemptedWatermark : activeWatermark) || latestAttemptedWatermark || maxCompletedWatermark || safelyPublished.length + (failed > 0 ? 1 : 0) || 1));
+  const productIndex = groupComplete
+    ? productTotal
+    : Math.max(1, Math.min(productTotal, (failed > 0 && latestAttemptedWatermark > activeWatermark ? latestAttemptedWatermark : activeWatermark) || latestAttemptedWatermark || maxCompletedWatermark || safelyPublished.length + (failed > 0 ? 1 : 0) || 1));
   const shopNames = Array.from(new Set(scopeEntries.map((entry) => cleanAutoListingControllerProductName(publishShopFolderFromEntry(entry))).filter(Boolean)))
     .sort((a, b) => (publishShopIndexFromName(a) || 0) - (publishShopIndexFromName(b) || 0) || a.localeCompare(b, "zh-CN"));
-  const displayEntry = failed > 0 && latestAttemptedEntry ? latestAttemptedEntry : activeEntry;
+  const completedDisplayEntry = groupComplete
+    ? [...safelyPublished].sort((a, b) => publishWatermarkNoFromEntry(b) - publishWatermarkNoFromEntry(a))[0]
+    : undefined;
+  const displayEntry = completedDisplayEntry || (failed > 0 && latestAttemptedEntry ? latestAttemptedEntry : activeEntry);
   const activeShopName = cleanAutoListingControllerProductName(publishShopFolderFromEntry(displayEntry));
   const shopTotal = Math.max(1, plannedGroupEntries.length ? shopNames.length : Math.max(shopNames.length, Math.ceil(productTotal / 2)));
   const shopIndex =

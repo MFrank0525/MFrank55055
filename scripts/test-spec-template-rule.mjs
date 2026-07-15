@@ -7,6 +7,21 @@ import {
   resolveSpecTemplateKeywordCandidates,
   resolvePriceInventoryRowInputRoles
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
+import {
+  FIXED_SPEC_VALUES,
+  LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI
+} from "../dist/src/business/publish-from-spu/constants.js";
+
+assert.deepEqual(
+  LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI.map((value) => value.replace(/\u2764/g, "")),
+  FIXED_SPEC_VALUES,
+  "safe spec values must differ from the controlled legacy values only by removing the blocked heart Emoji"
+);
+assert.equal(
+  FIXED_SPEC_VALUES.some((value) => value.includes("\u2764")),
+  false,
+  "fixed spec values must not contain the platform-blocked heart Emoji"
+);
 
 assert.deepEqual(resolveSpecTemplateKeywordCandidates("买二送一"), ["买二送一", "买2送1", "2送1"]);
 assert.equal(isMatchingSpecTemplateValue("2送1", "买二送一"), true);
@@ -391,6 +406,16 @@ assert.doesNotMatch(
 const applySpecTemplateSource = publishSource.slice(
   publishSource.indexOf("async function applySpecTemplateWithVerificationOnPage"),
   publishSource.indexOf("async function readSpecModuleErrorOnPage")
+);
+assert.match(
+  publishSource,
+  /normalizeLegacyFixedSpecEmojiOnPage[\s\S]*LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI[\s\S]*FIXED_SPEC_VALUES/,
+  "spec flow must use a controlled legacy-to-safe whitelist"
+);
+assert.match(
+  publishSource,
+  /blockedLegacyValues = LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI\.filter[\s\S]*nativeValueSetter[\s\S]*InputEvent\("input"[\s\S]*Event\("change"[\s\S]*remainingLegacyValues/,
+  "legacy spec normalization must update the controlled input and fail closed after DOM readback"
 );
 const chooseSpecTemplateSource = publishSource.slice(
   publishSource.indexOf("async function findSpecTemplateFieldRootOnPage"),

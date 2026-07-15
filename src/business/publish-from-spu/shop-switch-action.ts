@@ -11,8 +11,29 @@ import {
 import { normalizeShopName, resolveExpectedShopName } from "./shop-name.js";
 import { evaluateShopSwitchMenuState, isDoudianLoginPageText } from "./publish-rules.js";
 
+async function evaluateAfterNavigationSettles<T>(
+  page: Page,
+  operation: () => Promise<T>,
+  attempts = 5
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isNavigationContextDestroyedError(error) || attempt === attempts - 1) {
+        throw error;
+      }
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(450 + attempt * 250);
+    }
+  }
+  throw lastError;
+}
+
 async function detectCurrentShopName(page: Page): Promise<string> {
-  return page.evaluate(() => {
+  return evaluateAfterNavigationSettles(page, () => page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
     const candidates = Array.from(document.querySelectorAll("body *"))
       .map((node) => node as HTMLElement)
@@ -46,11 +67,11 @@ async function detectCurrentShopName(page: Page): Promise<string> {
       .sort((a, b) => (b?.score || 0) - (a?.score || 0));
 
     return candidates[0]?.text || "";
-  });
+  }));
 }
 
 async function readCurrentShopNameFromMenu(page: Page): Promise<string> {
-  return page.evaluate(() => {
+  return evaluateAfterNavigationSettles(page, () => page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
     const menus = Array.from(document.querySelectorAll("body *"))
       .map((node) => node as HTMLElement)
@@ -109,13 +130,13 @@ async function readCurrentShopNameFromMenu(page: Page): Promise<string> {
       .sort((a, b) => (b?.score || 0) - (a?.score || 0));
 
     return candidates[0]?.text || "";
-  });
+  }));
 }
 
 async function isDoudianLoginRequired(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
+  return evaluateAfterNavigationSettles(page, () => page.evaluate(() => {
     return document.body.innerText || "";
-  }).then((text) => isDoudianLoginPageText(text));
+  })).then((text) => isDoudianLoginPageText(text));
 }
 
 async function clickTopRightShopMenu(page: Page): Promise<boolean> {
@@ -818,7 +839,7 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
   return false;
 }
 
-export async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: string): Promise<string> {
+async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFolder: string): Promise<string> {
   const expectedShopName = resolveExpectedShopName(shopFolder);
   if (!expectedShopName) {
     return "";
@@ -948,4 +969,22 @@ export async function ensureShopContext(page: Page, runtimeDir: string, shopFold
   await saveShopSwitchDomSnapshot(page, runtimeDir, "shop-switch-verify-failed.html").catch(() => "");
   const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-verify-failed.png").catch(() => "");
   throw new Error(`Shop switch failed: expected=${expectedShopName}; actual=${lastActual || "<empty>"}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
+}
+
+export async function ensureShopContext(page: Page, runtimeDir: string, shopFolder: string): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await ensureShopContextAttempt(page, runtimeDir, shopFolder);
+    } catch (error) {
+      lastError = error;
+      if (!isNavigationContextDestroyedError(error) || attempt === 3) {
+        throw error;
+      }
+      logWarn(`shop context read crossed a navigation; retrying from stable page state (${attempt + 1}/4)`);
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await page.waitForTimeout(700 + attempt * 400);
+    }
+  }
+  throw lastError;
 }

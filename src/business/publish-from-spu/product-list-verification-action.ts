@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { Locator } from "playwright";
 import { getWorkspacePage, launchPersistentBrowser } from "../../browser/launch.js";
 import { logInfo } from "../../utils/logger.js";
 import { savePageScreenshot } from "./browser-session.js";
@@ -28,6 +29,54 @@ async function clickAllTab(page: Awaited<ReturnType<typeof getWorkspacePage>>): 
   }
 }
 
+async function dismissProductListBlockingOverlays(
+  page: Awaited<ReturnType<typeof getWorkspacePage>>
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const dialog = page
+      .locator("[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .index_autoOptmModalWrapper__yQ2hV")
+      .filter({ hasText: "属性自动优化用户协议" })
+      .first();
+    if (!(await dialog.isVisible().catch(() => false))) {
+      return;
+    }
+    const closeButton = dialog.getByRole("button", { name: "Close", exact: true });
+    if ((await closeButton.count()) !== 1) {
+      throw new Error("Product list is blocked by 属性自动优化 dialog, but its safe Close button is not unique.");
+    }
+    await closeButton.click({ timeout: 8000 });
+    await dialog.waitFor({ state: "hidden", timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(350);
+  }
+  throw new Error("Product list remains blocked by 属性自动优化 dialog after safe close retries.");
+}
+
+async function clickProductListSearch(
+  page: Awaited<ReturnType<typeof getWorkspacePage>>,
+  searchInput: Locator
+): Promise<void> {
+  const searchForm = searchInput.locator("xpath=ancestor::form[1]");
+  if ((await searchForm.count()) !== 1) {
+    throw new Error("Product list title search form could not be uniquely resolved from its input.");
+  }
+  const queryButton = searchForm.getByRole("button", { name: "查询", exact: true });
+  if ((await queryButton.count()) !== 1) {
+    throw new Error("Product list title query button is not unique inside its search form.");
+  }
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await dismissProductListBlockingOverlays(page);
+    try {
+      await queryButton.click({ timeout: 8000 });
+      return;
+    } catch (error) {
+      lastError = error;
+      await page.waitForTimeout(500);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Product list query click failed after retries.");
+}
+
 export async function verifyPublishedProductInDoudianList(input: {
   runtimeDir: string;
   shopFolder: string;
@@ -43,12 +92,14 @@ export async function verifyPublishedProductInDoudianList(input: {
   const shopName = await ensureShopContext(page, input.runtimeDir, input.shopFolder);
   await page.goto(PRODUCT_LIST_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForTimeout(1800);
+  await dismissProductListBlockingOverlays(page);
   await clickAllTab(page);
   await page.waitForTimeout(800);
+  await dismissProductListBlockingOverlays(page);
 
   const searchInput = page.getByPlaceholder("请输入商品名称/商品ID/商家编码，多条可用逗号隔开").first();
   await searchInput.fill(title, { timeout: 15000 });
-  await page.getByRole("button", { name: /^查询$/ }).click({ timeout: 15000 });
+  await clickProductListSearch(page, searchInput);
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
   await page.waitForTimeout(2500);
 
