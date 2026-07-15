@@ -1232,6 +1232,47 @@ recordPaidImageFailedAfterAcceptance({
 });
 const completedSlotFile = path.join(policyRestartLedger.productDir, "slots", "01.json");
 const completedSlotBeforeRestart = fs.readFileSync(completedSlotFile, "utf8");
+let policyPreAcceptanceFailureCalls = 0;
+globalThis.fetch = async (_url, init) => {
+  if (init?.method === "POST") {
+    policyPreAcceptanceFailureCalls += 1;
+    throw new Error("fetch failed");
+  }
+  throw new Error("policy pre-acceptance failure must not reach status transport");
+};
+try {
+  await assert.rejects(
+    generateMainImageAssets({
+      runtimeDir: path.join(unsafeRestartRoot, "policy-pre-acceptance-failure-runtime"),
+      taskId: "image-001",
+      shopRootDir: unsafeRestartShopRoot,
+      sourceImagePath: unsafeRestartSourceImage,
+      sellingPointText: "test product",
+      brandedGenericName: "test product",
+      wordFiles: [unsafeRestartPromptFile],
+      imageGenerationProvider: "openai-compatible",
+      imageGenerationConfigFile: unsafeRestartConfigFile,
+      mainImageExpectedCount: 2,
+      mainImageCountStrategy: "exact",
+      promptCount: 1,
+      shopCodes: ["01"],
+      imagesPerShop: 2,
+      feishuRecordId: "policy-restart-record",
+      feishuBatchFingerprint: "policy-restart-batch",
+      paidImageSubmissionLedgerDir: policyRestartLedgerRoot,
+      simulateOnly: false
+    }),
+    /fetch failed/i
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.equal(policyPreAcceptanceFailureCalls, 1, "policy-compatible retry must attempt exactly one submission");
+assert.equal(
+  JSON.parse(fs.readFileSync(path.join(policyRestartLedger.productDir, "slots", "02.json"), "utf8")).state,
+  "failed_before_acceptance",
+  "a transport failure before task acceptance must preserve the fixed slot for a safe retry"
+);
 let policyRestartSubmitCalls = 0;
 globalThis.fetch = async (url, init) => {
   if (init?.method === "POST") {

@@ -984,11 +984,11 @@ async function generateWithOpenAiCompatibleProvider(options: {
           );
         }
         const keepPolicyCompatiblePrompt =
-          slotAction.action === "retry_failed_after_acceptance" &&
+          slotAction.action !== "missing" &&
           "record" in slotAction &&
-          (fixedSlotRecovery.usePolicyCompatiblePrompt ||
+          ((slotAction.action === "retry_failed_after_acceptance" && fixedSlotRecovery.usePolicyCompatiblePrompt) ||
             shouldKeepPaidImagePolicyCompatiblePrompt({
-              failureReason: failedAfterAcceptanceReason,
+              failureReason: failedRetryReason,
               recordedPromptDigest: slotAction.record?.promptDigest || "",
               originalPromptDigest,
               policyCompatiblePromptDigest
