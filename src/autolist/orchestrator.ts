@@ -35,7 +35,7 @@ import { assertDoudianPublishSessionReady } from "../business/publish-from-spu.j
 import { logError, logInfo, setLogFile } from "../utils/logger.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { loadPublishManifest, type PublishProductIdentity } from "./publish-manifest.js";
-import { isProductFullyProcessed } from "./processed-completion-rules.js";
+import { hasCompleteProductPublishCoverage, isProductFullyProcessed } from "./processed-completion-rules.js";
 import { removePaidImageBatchLedger, removePaidImageProductLedger } from "./paid-image-submission-ledger.js";
 import type {
   AutoListingEvent,
@@ -787,6 +787,30 @@ async function executeTaskChain(
 
     if (step === "cleaned") {
       assertNotPaused(pauseSignalFile, current.taskId, step);
+      const publishManifest = loadPublishManifest(runtimeDir);
+      const productIdentity = buildPublishProductIdentity(current, feishuBatchFingerprint);
+      if (
+        !hasCompleteProductPublishCoverage({
+          task: current,
+          publishManifestEntries: publishManifest.entries,
+          productIdentity
+        })
+      ) {
+        const cleanupArtifact = { removedPaths: [], simulated: simulateOnly };
+        current = {
+          ...current,
+          status: step,
+          cleanupArtifact,
+          lastUpdatedAt: new Date().toISOString(),
+          notes: [...current.notes, "Cleanup deferred until every planned publish target has safe manifest coverage."]
+        };
+        appendEvent(
+          eventFile,
+          createEvent("info", step, "Cleanup deferred: planned publish targets remain pending.", current.taskId)
+        );
+        markProgress();
+        continue;
+      }
       const categoryPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
       const taskRuntimeDir = path.join(runtimeDir, "tasks", current.taskId);
       const publishRuntimeDirs = resolvePublishRuntimeDirsForCleanup({

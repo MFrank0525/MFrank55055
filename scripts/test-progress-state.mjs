@@ -99,7 +99,10 @@ import {
   summarizeReusableTaskArtifacts
 } from "../dist/src/autolist/resume-artifacts.js";
 import { recoverDistributedFoldersFromShopRoot } from "../dist/src/autolist/resume.js";
-import { isProductFullyProcessed } from "../dist/src/autolist/processed-completion-rules.js";
+import {
+  hasCompleteProductPublishCoverage,
+  isProductFullyProcessed
+} from "../dist/src/autolist/processed-completion-rules.js";
 import { applyResumeTaskId, createRunState, recordTaskProgress } from "../dist/src/autolist/state-machine.js";
 import {
   assertGeneratedTitlesBelongToProduct,
@@ -552,6 +555,11 @@ assert.match(
   orchestratorSource,
   /isProductFullyProcessed[\s\S]*appendProcessedImages[\s\S]*removePaidImageProductLedger/,
   "A safely completed product must be atomically marked processed before its project-owned paid-image ledger is deleted"
+);
+assert.match(
+  orchestratorSource,
+  /step === "cleaned"[\s\S]*hasCompleteProductPublishCoverage[\s\S]*Cleanup deferred[\s\S]*archiveUnwatermarkedMainImages/,
+  "A partial publish-stage resume must defer archive and cleanup until every planned target has safe manifest coverage"
 );
 assert.match(
   orchestratorSource,
@@ -4526,6 +4534,62 @@ assert.deepEqual(
 );
 
 const cleanupResumeFolders = Array.from({ length: 20 }, (_, index) => `/work/shop/product-${index + 1}`);
+assert.equal(
+  hasCompleteProductPublishCoverage({
+    task: {
+      taskId: "image-partial-cleanup-guard",
+      sequenceNo: 1,
+      sourceImagePath: "/work/input/current.png",
+      sourceImageName: "current.png",
+      status: "published",
+      lastUpdatedAt: new Date().toISOString(),
+      generatedProductFolders: ["/work/shop/product-7"],
+      notes: [],
+      feishuProductRecord: {
+        recordId: "record-001",
+        userCognitionName: "医用面部补水喷雾",
+        genericName: "医用透明质酸钠液体敷料",
+        brand: "延草纲目",
+        spu: "鄂械注准20232144654",
+        sellingPointText: "测试卖点",
+        deepseekPromptText: "测试提示词",
+        mainImageInstructionText: "测试主图指令",
+        positivePromptText: "测试正向提示词",
+        negativePromptText: "测试反向提示词",
+        titleKeywordText: "医用面部补水喷雾",
+        titleSuffixText: "延草纲目",
+        productPriceText: "149,139,89.9,79.9",
+        shortTitle: "面部补水喷雾",
+        productCategory: "医疗器械",
+        whiteBackgroundImages: [],
+        qualificationImages: [],
+        rawFields: {}
+      }
+    },
+    productIdentity: {
+      sourceImagePath: "/work/input/current.png",
+      recordId: "record-001",
+      productCategory: "医疗器械"
+    },
+    publishManifestEntries: [
+      {
+        productFolder: "/work/shop/product-7",
+        runtimeKey: "shop__product-7",
+        shopFolder: "/work/shop",
+        watermarkNo: 7,
+        sourceImagePath: "/work/input/current.png",
+        recordId: "record-001",
+        productCategory: "医疗器械",
+        status: "published",
+        finalVerifyStatus: "publish_signal_confirmed",
+        message: "ok",
+        updatedAt: new Date().toISOString()
+      }
+    ]
+  }),
+  false,
+  "One resumed target must not unlock cleanup for a 20-target product."
+);
 assert.equal(
   isProductFullyProcessed({
     task: {

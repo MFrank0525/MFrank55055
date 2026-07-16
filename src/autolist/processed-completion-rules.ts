@@ -53,6 +53,14 @@ export function isProductFullyProcessed(input: {
   if (input.task.status !== "cleaned" && input.task.status !== "done") {
     return false;
   }
+  return hasCompleteProductPublishCoverage(input);
+}
+
+export function hasCompleteProductPublishCoverage(input: {
+  task: ImageTaskState;
+  publishManifestEntries?: PublishManifestEntry[];
+  productIdentity: PublishProductIdentity;
+}): boolean {
   const expectedPublishCount = resolveExpectedPublishCount(input.task, input.productIdentity);
   if (expectedPublishCount <= 0) {
     return false;
