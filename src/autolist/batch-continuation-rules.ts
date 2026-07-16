@@ -872,6 +872,7 @@ export type AutoListingControllerCompactStatusTextInput = {
   publishFailedWatermarkNo?: number;
   publishReviewWatermarkNo?: number;
   publishLatestAttemptedWatermarkNo?: number;
+  publishCurrentWatermarkNo?: number;
   feishuProductIndex?: number;
   feishuCompleted?: number;
   feishuTotal?: number;
@@ -1305,9 +1306,17 @@ function compactAutoListingControllerReason(summary?: string): string {
   if (/Spec template left .*blank required spec value input|Spectemplateleft.*blankspecvalueinput/i.test(text)) {
     return "规格模板存在空白占位值；按模板内容为准，续跑时不补写也不删除该空白项。";
   }
+  const uncertainSubmitVerification = /Verifying existing uncertain final submit.*?水印\s*0*(\d+)/i.exec(text);
+  if (uncertainSubmitVerification) {
+    return `正在核验第${Number(uncertainSubmitVerification[1])}店是否已发布，确认不存在才会重提。`;
+  }
   const mainImageUploadFailure = /Main image upload did not reach\s+(\d+)\s+preview\(s\).*?confirmed=(\d+)/i.exec(text);
   if (mainImageUploadFailure) {
     return `主图上传失败：重试后仅确认 ${Number(mainImageUploadFailure[2])}/${Number(mainImageUploadFailure[1])} 张。`;
+  }
+  const mainImageReadbackFailure = /Main image slots did not contain\s+(\d+)\s+images after upload;\s*actual=(\d+)/i.exec(text);
+  if (mainImageReadbackFailure) {
+    return `主图上传失败：最终读回 ${Number(mainImageReadbackFailure[2])}/${Number(mainImageReadbackFailure[1])} 张，已安全停止。`;
   }
   if (/Price\/inventory verification failed|价格库存模块未完成/i.test(text)) {
     return "价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。";
@@ -1409,6 +1418,15 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
       `商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`,
       `原因：${compactAutoListingControllerReason(input.summary)}`
     ].join("\n");
+  }
+  if (input.status === "running" && input.publishCurrentWatermarkNo !== undefined && input.publishProductTotal !== undefined) {
+    const currentAt = Math.max(1, Math.min(productTotal, input.publishCurrentWatermarkNo));
+    const active = cleanAutoListingControllerProductName(input.activeItemName || input.productName);
+    return [
+      `状态：运行中｜已上架 ${Math.max(0, Math.min(productTotal, input.publishSafelyPublished || 0))}/${productTotal}｜当前 第${currentAt}店`,
+      `当前：${active}`,
+      input.latestProgress ? `进度：${compactAutoListingControllerReason(input.latestProgress)}` : undefined
+    ].filter(Boolean).slice(0, 3).join("\n");
   }
   if (input.showPublishProgress === false && !input.imageGenerationProgress) {
     const lines = [`状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${feishuLabel}`];

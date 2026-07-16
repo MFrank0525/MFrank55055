@@ -544,6 +544,13 @@ export async function purgeForbiddenGraphicSectionsSafe(page: Page): Promise<str
   return removedSections;
 }
 
+export async function resolveExactMainImageFieldRoot(page: Page): Promise<Locator | null> {
+  const roots = page
+    .locator("div.goods-publish-highlight-group")
+    .filter({ has: page.getByText("主图", { exact: true }) });
+  return (await roots.count()) === 1 ? roots.first() : null;
+}
+
 async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string): Promise<number> {
   return page.evaluate(
     ({ targetSection, sectionLabels, uploadPlaceholderPattern }) => {
@@ -630,7 +637,29 @@ async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string
 }
 
 export async function countMainImagePreviews(page: Page): Promise<number> {
-  return countGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe").catch(() => 0);
+  const fieldRoot = await resolveExactMainImageFieldRoot(page);
+  if (!fieldRoot) {
+    return 0;
+  }
+  return fieldRoot.evaluate((root) => {
+    const previewRoots = new Set<Element>();
+    for (const node of Array.from(root.querySelectorAll("img, [style*='background-image']"))) {
+      const element = node as HTMLElement;
+      const previewRoot = element.closest(".material-preview-button");
+      if (!previewRoot || previewRoot.closest("[aria-hidden='true']")) {
+        continue;
+      }
+      const style = window.getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") {
+        continue;
+      }
+      if (element instanceof HTMLImageElement && !(element.currentSrc || element.src)) {
+        continue;
+      }
+      previewRoots.add(previewRoot);
+    }
+    return previewRoots.size;
+  }).catch(() => 0);
 }
 
 export async function countWhiteBackgroundPreviews(page: Page): Promise<number> {

@@ -208,6 +208,7 @@ const publishFromSpuSource = [
   fs.readFileSync("src/business/publish-from-spu/publish-section-navigation.ts", "utf8")
 ].join("\n");
 const publishAssetsSource = fs.readFileSync("src/business/publish-from-spu/assets.ts", "utf8");
+const graphicPreviewSource = fs.readFileSync("src/business/publish-from-spu/graphic-section-preview-action.ts", "utf8");
 const feishuAssetsSource = fs.readFileSync("src/feishu/assets.ts", "utf8");
 const autoListingCliSource = fs.readFileSync("src/cli/auto-listing.ts", "utf8");
 const auditAutoListingSource = fs.readFileSync("src/cli/audit-auto-listing.ts", "utf8");
@@ -328,8 +329,27 @@ assert.match(
 );
 assert.match(
   publishFromSpuSource,
-  /getByText\("主图",\s*\{ exact: true \}\)[\s\S]*ancestor::div\[contains\(@class, 'goods-publish-highlight-group'\)\]\[1\][\s\S]*input\[type='file'\]\[accept\*='image'\]/,
-  "main-image upload must resolve slots inside the exact 主图 field root instead of classifying global file inputs by viewport geometry"
+  /resolveCurrentMainImageUploadInput[\s\S]*resolveExactMainImageFieldRoot\(page\)[\s\S]*input\[type='file'\]\[accept\*='image'\]/,
+  "main-image upload must discard same-text labels outside the publish form before selecting the exact 主图 field root"
+);
+assert.match(
+  graphicPreviewSource,
+  /locator\("div\.goods-publish-highlight-group"\)[\s\S]*filter\(\{ has: page\.getByText\("主图", \{ exact: true \}\) \}\)[\s\S]*roots\.count\(\)\) === 1/,
+  "the shared main-image field resolver must require exactly one publish-form root containing an exact 主图 label"
+);
+const exactMainPreviewCounterSource = graphicPreviewSource.slice(
+  graphicPreviewSource.indexOf("export async function countMainImagePreviews"),
+  graphicPreviewSource.indexOf("export async function countWhiteBackgroundPreviews")
+);
+assert.match(
+  exactMainPreviewCounterSource,
+  /resolveExactMainImageFieldRoot[\s\S]*fieldRoot\.evaluate[\s\S]*querySelectorAll\("img, \[style\*='background-image'\]"\)/,
+  "main-image atomic readback must count previews only inside the exact publish-form 主图 field root"
+);
+assert.doesNotMatch(
+  exactMainPreviewCounterSource,
+  /document\.querySelectorAll|getBoundingClientRect|current\.top|nextTop/,
+  "main-image atomic readback must not use global document geometry"
 );
 assert.match(
   uploadMainImagesSource,
@@ -1136,6 +1156,39 @@ assert.equal(
   }),
   "状态：失败｜已上架 14/20｜卡在 第16店\n商品：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n原因：主图上传失败：重试后仅确认 1/5 张。",
   "Hermes failure feedback must report canonical completed/current shop progress and the actionable cause without resume counts or local paths"
+);
+assert.equal(
+  formatAutoListingControllerCompactStatusText({
+    status: "running",
+    productName: "延草纲目金奥力牌苦瓜荞麦桑叶胶囊",
+    latestProgress:
+      "Verifying existing uncertain final submit in Doudian 全部 tab: 商品-水印10 (10延草纲目营养膳食专卖店)",
+    publishSafelyPublished: 14,
+    publishProductIndex: 16,
+    publishCurrentWatermarkNo: 10,
+    publishProductTotal: 20,
+    publishShopIndex: 13,
+    publishShopTotal: 13,
+    publishFailed: 2,
+    feishuCompleted: 1,
+    feishuTotal: 1
+  }),
+  "状态：运行中｜已上架 14/20｜当前 第10店\n当前：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n进度：正在核验第10店是否已发布，确认不存在才会重提。",
+  "Hermes running feedback must prefer the newest current action over stale failed manifest progress"
+);
+assert.equal(
+  formatAutoListingControllerCompactStatusText({
+    status: "failed",
+    summary:
+      "Publish failed for /shops/17店/商品-水印17: Sequential publish flow stopped: 图文信息模块未完成。Main image slots did not contain 5 images after upload; actual=0.",
+    productName: "延草纲目金奥力牌苦瓜荞麦桑叶胶囊",
+    publishSafelyPublished: 16,
+    publishProductIndex: 17,
+    publishProductTotal: 20,
+    publishFailedWatermarkNo: 17
+  }),
+  "状态：失败｜已上架 16/20｜卡在 第17店\n商品：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n原因：主图上传失败：最终读回 0/5 张，已安全停止。",
+  "Hermes must report a concise readback failure instead of a local product path"
 );
 assert.equal(
   resolveAutoListingControllerHermesStatusPayload({

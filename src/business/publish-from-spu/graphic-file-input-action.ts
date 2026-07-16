@@ -117,6 +117,7 @@ import {
   clearGraphicSectionPreviewsStrict,
   countDetailImagePreviews,
   countMainImagePreviews,
+  resolveExactMainImageFieldRoot,
   scrollGraphicSectionIntoView,
   waitForPreviewCount
 } from "./graphic-section-preview-action.js";
@@ -687,11 +688,8 @@ export async function uploadFilesToSectionSlots(
 }
 
 async function resolveCurrentMainImageUploadInput(page: Page, fileIndex: number): Promise<Locator | null> {
-  const exactMainImageLabel = page.getByText("主图", { exact: true }).first();
-  const fieldRoot = exactMainImageLabel.locator(
-    "xpath=ancestor::div[contains(@class, 'goods-publish-highlight-group')][1]"
-  );
-  if (!(await fieldRoot.count())) {
+  const fieldRoot = await resolveExactMainImageFieldRoot(page);
+  if (!fieldRoot) {
     return null;
   }
 

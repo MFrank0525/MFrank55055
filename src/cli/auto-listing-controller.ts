@@ -1942,6 +1942,18 @@ function formatStatusText(status: Record<string, unknown>): string {
       ? `最近产物：${String(latestArtifact.name)}`
       : undefined;
   const publishActiveMessage = publishArtifactMessage || (typeof active?.message === "string" ? compactStatusValue(String(active.message)) : undefined);
+  const stateLatestProgressMessage = latestProgress?.message ? compactStatusValue(String(latestProgress.message)) : undefined;
+  const stateLatestProgressAt = Date.parse(String(latestProgress?.timestamp || ""));
+  const publishActiveAt = Math.max(
+    Date.parse(String(active?.updatedAt || "")) || 0,
+    Date.parse(String(latestArtifact?.updatedAt || "")) || 0,
+    Date.parse(String(publishLogProgress?.timestamp || "")) || 0
+  );
+  const preferStateLatestProgress =
+    String(status.status || "") === "running" &&
+    Boolean(stateLatestProgressMessage) &&
+    Number.isFinite(stateLatestProgressAt) &&
+    stateLatestProgressAt > publishActiveAt;
   const latestResultError = latestResult?.error as Record<string, unknown> | undefined;
   const latestResultProducts = Array.isArray(latestResult?.products) ? (latestResult.products as Array<Record<string, unknown>>) : [];
   const failedResultProduct = latestResultProducts.find((product) => product.status === "failed" || product.error);
@@ -1950,12 +1962,17 @@ function formatStatusText(status: Record<string, unknown>): string {
       ? compactStatusValue(String(latestResultError.message))
       : undefined;
   const latestProgressText =
+    (preferStateLatestProgress ? stateLatestProgressMessage : undefined) ||
     publishActiveMessage ||
     (typeof publishLogProgress?.message === "string"
       ? String(publishLogProgress.message)
       : latestProgress?.message
-        ? compactStatusValue(String(latestProgress.message))
+        ? stateLatestProgressMessage
         : latestResultFailureMessage);
+  const currentWatermarkMatch = /水印\s*0*(\d+)/i.exec(
+    [latestProgressText, active?.productFolder, stateLatestProgressMessage].filter(Boolean).join(" ")
+  );
+  const publishCurrentWatermarkNo = currentWatermarkMatch ? Number(currentWatermarkMatch[1]) : undefined;
   const shouldExposeImageGenerationProgress = !progress;
   const imageGenerationProgressMessage =
     shouldExposeImageGenerationProgress && typeof (status.imageProgress as Record<string, unknown> | undefined)?.latestMessage === "string"
@@ -2003,6 +2020,7 @@ function formatStatusText(status: Record<string, unknown>): string {
       typeof publishGroupProgress?.reviewWatermarkNo === "number" ? Number(publishGroupProgress.reviewWatermarkNo) : undefined,
     publishLatestAttemptedWatermarkNo:
       typeof publishGroupProgress?.latestAttemptedWatermarkNo === "number" ? Number(publishGroupProgress.latestAttemptedWatermarkNo) : undefined,
+    publishCurrentWatermarkNo,
     feishuProductIndex:
       status.feishuProgressReliable === false ? undefined : typeof feishuCurrentProduct?.current === "number" ? Number(feishuCurrentProduct.current) : undefined,
     feishuCompleted:
