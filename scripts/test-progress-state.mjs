@@ -1135,6 +1135,11 @@ const basicFieldLocatorClass = classifyPublishFailure(
 );
 assert.equal(basicFieldLocatorClass, "basic_info_field_not_ready");
 assert.equal(
+  classifyPublishFailure("Doudian 只看必填 switch click did not read back aria-checked=false."),
+  "basic_info_field_not_ready",
+  "只看必填 switch failures must remain recoverable basic-info failures"
+);
+assert.equal(
   shouldRetryPublishFailure(basicFieldLocatorClass, 0),
   true,
   "basic-info field readiness failures are transient publish-page failures and must retry with a fresh SPU-prefilled page"

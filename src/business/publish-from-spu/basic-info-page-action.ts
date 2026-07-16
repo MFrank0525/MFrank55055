@@ -114,6 +114,77 @@ import type { PublishRuleCheck, ServiceFulfillmentState } from "./publish-rules.
 import { makePublishActionResult } from "./publish-actions.js";
 
 
+async function ensureOnlyRequiredFilterDisabledOnPage(
+  page: Page,
+  onProgress?: (message: string) => void
+): Promise<"not_present" | "already_disabled" | "disabled"> {
+  const marker = `doudian-only-required-switch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const inspect = async (): Promise<{ candidateCount: number; checked: string }> =>
+    page.evaluate((markerName) => {
+      const normalize = (text: string): string => text.replace(/\s+/g, "").trim();
+      const visible = (element: HTMLElement): boolean => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      for (const stale of Array.from(document.querySelectorAll(`[${markerName}]`))) {
+        stale.removeAttribute(markerName);
+      }
+      const candidates = Array.from(document.querySelectorAll('button[role="switch"]'))
+        .map((node) => node as HTMLButtonElement)
+        .filter((button) => {
+          if (!visible(button) || button.disabled) {
+            return false;
+          }
+          const container = button.parentElement;
+          return Boolean(
+            container &&
+              Array.from(container.querySelectorAll("span")).some(
+                (label) => visible(label as HTMLElement) && normalize(label.textContent || "") === "只看必填"
+              )
+          );
+        });
+      if (candidates.length === 1) {
+        candidates[0].setAttribute(markerName, "true");
+      }
+      return {
+        candidateCount: candidates.length,
+        checked: candidates.length === 1 ? candidates[0].getAttribute("aria-checked") || "" : ""
+      };
+    }, marker);
+
+  const initial = await inspect();
+  if (initial.candidateCount === 0) {
+    return "not_present";
+  }
+  if (initial.candidateCount !== 1) {
+    throw new Error(`Doudian 只看必填 must resolve exactly one switch: actual=${initial.candidateCount}`);
+  }
+  if (initial.checked === "false") {
+    return "already_disabled";
+  }
+  if (initial.checked !== "true") {
+    throw new Error(`Doudian 只看必填 switch has an unknown aria-checked state: actual=${initial.checked || "<empty>"}`);
+  }
+
+  const switchLocator = page.locator(`[${marker}="true"]`);
+  if ((await switchLocator.count()) !== 1) {
+    throw new Error(`Doudian 只看必填 marker must resolve exactly one switch: actual=${await switchLocator.count()}`);
+  }
+  onProgress?.("basic_info_disable_only_required_filter");
+  await switchLocator.scrollIntoViewIfNeeded();
+  await switchLocator.click({ timeout: 3000 });
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const readback = await inspect();
+    if (readback.candidateCount === 1 && readback.checked === "false") {
+      onProgress?.("basic_info_only_required_filter_disabled");
+      return "disabled";
+    }
+    await page.waitForTimeout(250);
+  }
+  throw new Error("Doudian 只看必填 switch click did not read back aria-checked=false.");
+}
+
 async function isBasicPublishFieldAvailable(page: Page, field: "title" | "shortTitle" | "modelSpec"): Promise<boolean> {
   const aliases = resolveBasicFieldIdAliases(field);
   return page.evaluate((fieldAliases) => {
@@ -157,6 +228,9 @@ async function waitForBasicFieldAvailable(
 ): Promise<boolean> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
+    if (field === "shortTitle") {
+      await ensureOnlyRequiredFilterDisabledOnPage(page, onProgress);
+    }
     if (await isBasicPublishFieldAvailable(page, field).catch(() => false)) {
       return true;
     }
@@ -544,6 +618,7 @@ async function fillBasicPublishPage(
     }
 
     if (metadata.shortTitle) {
+      await ensureOnlyRequiredFilterDisabledOnPage(page);
       if (!(await setBasicPublishFieldValue(page, "shortTitle", metadata.shortTitle))) {
         throw new Error("Short title input not found on publish page.");
       }
@@ -614,6 +689,7 @@ export async function fillBasicPublishPageOnPage(
     }
 
     if (metadata.shortTitle) {
+      await ensureOnlyRequiredFilterDisabledOnPage(page, onProgress);
       if (!(await setBasicPublishFieldValue(page, "shortTitle", metadata.shortTitle))) {
         throw new Error("Short title input not found on publish page.");
       }

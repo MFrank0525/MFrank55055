@@ -458,6 +458,7 @@ export function classifyPublishFailure(message: string): string {
   }
   if (
     text.includes("基础信息模块未完成") ||
+    text.includes("Doudian只看必填") ||
     text.includes("Titleinputnotfoundonpublishpage") ||
     text.includes("Shorttitleinputnotfoundonpublishpage") ||
     text.includes("Modelspecinputnotfoundonpublishpage") ||

@@ -61,6 +61,37 @@ assert.equal(
 
 const basicFieldAvailableSource = sliceFunction("isBasicPublishFieldAvailable");
 const basicFieldSetterSource = sliceFunction("setBasicPublishFieldValue");
+const onlyRequiredFilterSource = sliceFunction("ensureOnlyRequiredFilterDisabledOnPage");
+assert.match(
+  onlyRequiredFilterSource,
+  /button\[role="switch"\][\s\S]*只看必填[\s\S]*aria-checked/,
+  "basic-info recovery must locate the 只看必填 switch by its exact visible label relationship and authoritative state"
+);
+assert.match(
+  onlyRequiredFilterSource,
+  /candidateCount === 0[\s\S]*not_present/,
+  "basic-info recovery must preserve the normal flow when the platform does not render 只看必填"
+);
+assert.match(
+  onlyRequiredFilterSource,
+  /candidateCount !== 1[\s\S]*must resolve exactly one switch/,
+  "basic-info recovery must fail closed when the 只看必填 switch target is ambiguous"
+);
+assert.match(
+  onlyRequiredFilterSource,
+  /switchLocator\.click[\s\S]*readback\.checked === "false"[\s\S]*aria-checked=false/,
+  "basic-info recovery must click the unique enabled switch and verify its disabled DOM readback"
+);
+assert.doesNotMatch(
+  onlyRequiredFilterSource,
+  /mouse\.|click\s*\(\s*\{[^}]*position|elementFromPoint|force:\s*true/,
+  "只看必填 recovery must not use coordinates or force-click bypasses"
+);
+assert.match(
+  publishSource,
+  /field === "shortTitle"[\s\S]*ensureOnlyRequiredFilterDisabledOnPage\(page/,
+  "short-title availability polling must disable 只看必填 before looking for the field"
+);
 assert.match(
   publishSource,
   /resolveBasicFieldIdAliases/,
