@@ -327,6 +327,11 @@ assert.match(
   "main-image upload must resolve current Doudian file inputs for every slot instead of reusing stale indexes after DOM rerenders"
 );
 assert.match(
+  publishFromSpuSource,
+  /getByText\("主图",\s*\{ exact: true \}\)[\s\S]*ancestor::div\[contains\(@class, 'goods-publish-highlight-group'\)\]\[1\][\s\S]*input\[type='file'\]\[accept\*='image'\]/,
+  "main-image upload must resolve slots inside the exact 主图 field root instead of classifying global file inputs by viewport geometry"
+);
+assert.match(
   uploadMainImagesSource,
   /for \(let fileIndex = 0; fileIndex < files\.length; fileIndex \+= 1\)[\s\S]*const expectedCount = Math\.max\(previousCount, fileIndex \+ 1\)[\s\S]*waitForPreviewCount\([\s\S]*expectedCount/,
   "main-image upload must overwrite stale slot previews and confirm by slot position instead of skipping files when stale previews exist"
@@ -1112,6 +1117,25 @@ assert.doesNotMatch(
   hermesPublishOrdinalText,
   /产品 2\/20｜店铺 1\/10｜飞书产品 1\/6/,
   "Hermes compact text must not confuse publish target ordinal with Feishu product progress"
+);
+assert.equal(
+  formatAutoListingControllerCompactStatusText({
+    status: "failed",
+    summary:
+      "Publish failed for /Users/mfrank/MFrank55055/input/auto-listing/shops/16延草纲目特医食品专营店/商品-水印16: Main image upload did not reach 5 preview(s) after restart; confirmed=1, uploaded=1.",
+    productName: "延草纲目金奥力牌苦瓜荞麦桑叶胶囊",
+    publishSafelyPublished: 14,
+    publishProductIndex: 16,
+    publishProductTotal: 20,
+    publishShopIndex: 13,
+    publishShopTotal: 13,
+    publishFailed: 2,
+    publishFailedWatermarkNo: 16,
+    feishuCompleted: 1,
+    feishuTotal: 1
+  }),
+  "状态：失败｜已上架 14/20｜卡在 第16店\n商品：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n原因：主图上传失败：重试后仅确认 1/5 张。",
+  "Hermes failure feedback must report canonical completed/current shop progress and the actionable cause without resume counts or local paths"
 );
 assert.equal(
   resolveAutoListingControllerHermesStatusPayload({
@@ -2783,6 +2807,7 @@ const compactFailedMiddleStatus = formatAutoListingControllerCompactStatusText({
   publishProductTotal: failedMiddleWithLaterPublishedProgress.productTotal,
   publishShopIndex: failedMiddleWithLaterPublishedProgress.shopIndex,
   publishShopTotal: failedMiddleWithLaterPublishedProgress.shopTotal,
+  publishSafelyPublished: 19,
   publishFailed: failedMiddleWithLaterPublishedProgress.failed,
   publishFailedWatermarkNo: failedMiddleWithLaterPublishedProgress.failedWatermarkNo,
   publishLatestAttemptedWatermarkNo: failedMiddleWithLaterPublishedProgress.latestAttemptedWatermarkNo,
@@ -2792,7 +2817,7 @@ const compactFailedMiddleStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactFailedMiddleStatus.split("\n"),
   [
-    "状态：失败｜发布 20/20｜店铺 10/10｜失败项 水印16｜飞书产品 0/4",
+    "状态：失败｜已上架 19/20｜卡在 第16店",
     "商品：延草纲目遠紅外治療貼",
     "原因：价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。"
   ],
@@ -2872,6 +2897,7 @@ const compactBlankSpecStatus = formatAutoListingControllerCompactStatusText({
   publishProductTotal: 20,
   publishShopIndex: 10,
   publishShopTotal: 10,
+  publishSafelyPublished: 19,
   publishFailedWatermarkNo: 16,
   feishuCompleted: 0,
   feishuTotal: 4
@@ -2879,7 +2905,7 @@ const compactBlankSpecStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactBlankSpecStatus.split("\n"),
   [
-    "状态：失败｜发布 20/20｜店铺 10/10｜失败项 水印16｜飞书产品 0/4",
+    "状态：失败｜已上架 19/20｜卡在 第16店",
     "商品：延草纲目遠紅外治療貼",
     "原因：规格模板存在空白占位值；按模板内容为准，续跑时不补写也不删除该空白项。"
   ],
@@ -3542,13 +3568,14 @@ assert.deepEqual(
     publishProductTotal: 20,
     publishShopIndex: 9,
     publishShopTotal: 10,
+    publishSafelyPublished: 17,
     publishFailed: 1,
     publishFailedWatermarkNo: 18,
     feishuCompleted: 3,
     feishuTotal: 3
   }).split("\n"),
   [
-    "状态：失败｜发布 18/20｜店铺 9/10｜失败项 水印18｜飞书产品 3/3",
+    "状态：失败｜已上架 17/20｜卡在 第18店",
     "商品：延草纲目李时珍牙科护理剂",
     "原因：抖店登录已失效，已停止；请在自动化浏览器完成登录后从断点续跑。"
   ],

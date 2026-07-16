@@ -1305,6 +1305,10 @@ function compactAutoListingControllerReason(summary?: string): string {
   if (/Spec template left .*blank required spec value input|Spectemplateleft.*blankspecvalueinput/i.test(text)) {
     return "规格模板存在空白占位值；按模板内容为准，续跑时不补写也不删除该空白项。";
   }
+  const mainImageUploadFailure = /Main image upload did not reach\s+(\d+)\s+preview\(s\).*?confirmed=(\d+)/i.exec(text);
+  if (mainImageUploadFailure) {
+    return `主图上传失败：重试后仅确认 ${Number(mainImageUploadFailure[2])}/${Number(mainImageUploadFailure[1])} 张。`;
+  }
   if (/Price\/inventory verification failed|价格库存模块未完成/i.test(text)) {
     return "价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。";
   }
@@ -1392,6 +1396,20 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
     feishuHasCompleteProgress && feishuCompleted !== undefined && feishuTotal !== undefined
       ? `飞书产品 ${feishuCompleted}/${feishuTotal}`
       : "飞书产品 待确认";
+  if (input.status === "failed" && input.publishProductTotal !== undefined) {
+    const failedAt = Math.max(
+      1,
+      Math.min(
+        productTotal,
+        input.publishFailedWatermarkNo ?? input.publishLatestAttemptedWatermarkNo ?? input.publishProductIndex ?? productIndex
+      )
+    );
+    return [
+      `状态：失败｜已上架 ${Math.max(0, Math.min(productTotal, input.publishSafelyPublished || 0))}/${productTotal}｜卡在 第${failedAt}店`,
+      `商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`,
+      `原因：${compactAutoListingControllerReason(input.summary)}`
+    ].join("\n");
+  }
   if (input.showPublishProgress === false && !input.imageGenerationProgress) {
     const lines = [`状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${feishuLabel}`];
     if (input.status === "failed") {

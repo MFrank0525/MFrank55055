@@ -686,21 +686,20 @@ export async function uploadFilesToSectionSlots(
   return uploaded;
 }
 
-async function resolveCurrentMainImageUploadInput(page: Page, fileIndex: number): Promise<{ index: number } | null> {
-  const inputs = await collectFileInputs(page);
-  const sectionInputs = inputs
-    .filter((input) => input.sectionLabel === "\u4e3b\u56fe")
-    .sort((a, b) => a.index - b.index);
-
-  if (sectionInputs.length) {
-    return sectionInputs[fileIndex] || null;
+async function resolveCurrentMainImageUploadInput(page: Page, fileIndex: number): Promise<Locator | null> {
+  const exactMainImageLabel = page.getByText("主图", { exact: true }).first();
+  const fieldRoot = exactMainImageLabel.locator(
+    "xpath=ancestor::div[contains(@class, 'goods-publish-highlight-group')][1]"
+  );
+  if (!(await fieldRoot.count())) {
+    return null;
   }
 
-  if (fileIndex === 0) {
-    return pickBestSectionFileInput(inputs, "\u4e3b\u56fe", scoreMainGraphicInput) || null;
+  const inputs = fieldRoot.locator("input[type='file'][accept*='image']");
+  if ((await inputs.count()) <= fileIndex) {
+    return null;
   }
-
-  return null;
+  return inputs.nth(fileIndex);
 }
 
 export async function uploadMainImagesToSection(page: Page, files: string[]): Promise<number> {
@@ -721,7 +720,7 @@ export async function uploadMainImagesToSection(page: Page, files: string[]): Pr
       if (!input) {
         return { uploaded, confirmed: previousCount };
       }
-      await page.locator("input[type='file']").nth(input.index).setInputFiles(files[fileIndex]);
+      await input.setInputFiles(files[fileIndex]);
       uploaded += 1;
       const expectedCount = Math.max(previousCount, fileIndex + 1);
       const observedCount = await waitForPreviewCount(
