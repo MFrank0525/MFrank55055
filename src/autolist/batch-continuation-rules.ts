@@ -1405,6 +1405,14 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
     feishuHasCompleteProgress && feishuCompleted !== undefined && feishuTotal !== undefined
       ? `飞书产品 ${feishuCompleted}/${feishuTotal}`
       : "飞书产品 待确认";
+  if (input.status === "completed" && input.publishProductTotal !== undefined) {
+    const published = Math.max(0, Math.min(productTotal, input.publishSafelyPublished ?? input.publishProductIndex ?? productTotal));
+    const completedFeishu = input.feishuCompleted ?? input.feishuProductIndex;
+    const result = completedFeishu !== undefined && input.feishuTotal !== undefined
+      ? `飞书产品 ${completedFeishu}/${input.feishuTotal} 已处理。`
+      : "当前批次已处理完成。";
+    return [`状态：完成｜已上架 ${published}/${productTotal}`, `商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`, `结果：${result}`].join("\n");
+  }
   if (input.status === "failed" && input.publishProductTotal !== undefined) {
     const failedAt = Math.max(
       1,

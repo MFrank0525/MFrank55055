@@ -2664,8 +2664,8 @@ const compactCompletedGroupedStatus = formatAutoListingControllerCompactStatusTe
   feishuTotal: 5
 });
 assert.equal(
-  compactCompletedGroupedStatus.split("\n")[0],
-  "状态：完成｜发布 20/20｜店铺 10/10｜飞书产品 4/5",
+  compactCompletedGroupedStatus,
+  "状态：完成｜已上架 20/20\n商品：延草纲目遠紅外治療貼\n结果：飞书产品 5/5 已处理。",
   "Hermes-facing compact text must not expose cumulative publish totals such as 60/60"
 );
 assert.equal(/发布 60\/60/.test(compactCompletedGroupedStatus), false);
