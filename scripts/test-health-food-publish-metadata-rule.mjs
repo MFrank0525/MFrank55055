@@ -23,7 +23,7 @@ assert.match(
 );
 assert.match(
   orchestratorSource,
-  /productIdentity:\s*buildPublishProductIdentity\(current,\s*feishuBatchFingerprint\),\s*feishuProductRecord:\s*current\.feishuProductRecord,/,
+  /const currentProductIdentity = buildPublishProductIdentity\(current,\s*feishuBatchFingerprint\);[\s\S]*productIdentity:\s*currentProductIdentity,\s*feishuProductRecord:\s*current\.feishuProductRecord,/,
   "The orchestrator must pass identity and metadata source from the same current task."
 );
 assert.match(

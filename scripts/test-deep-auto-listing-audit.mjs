@@ -8,6 +8,7 @@ import {
   runDeepAuditRules
 } from "../dist/src/autolist/deep-audit-rules.js";
 import { auditCurrentPaidImageLedgers } from "../dist/src/autolist/paid-image-audit.js";
+import { buildCanonicalPublishTargetKeys } from "../dist/src/autolist/audit-rules.js";
 import {
   initializePaidImageProductLedger,
   paidImageBatchLedgerDir,
@@ -858,6 +859,23 @@ assert.deepEqual(dimensions.dimensions.map((item) => item.name), [
 ]);
 
 const expectedTargetKeys = Array.from({ length: 120 }, (_, index) => `target-${index + 1}`);
+const healthFoodCanonicalTargets = buildCanonicalPublishTargetKeys({
+  batchFingerprint: "batch-health",
+  tasks: [{ taskId: "task-health", recordId: "record-health", productCategory: "保健食品" }]
+});
+assert.equal(healthFoodCanonicalTargets.length, 20);
+assert.match(healthFoodCanonicalTargets[0], /__01__01$/);
+assert.match(healthFoodCanonicalTargets[19], /__20__20$/);
+
+const otcCanonicalTargets = buildCanonicalPublishTargetKeys({
+  batchFingerprint: "batch-otc",
+  tasks: [{ taskId: "task-otc", recordId: "record-otc", productCategory: "非处方药" }]
+});
+assert.equal(otcCanonicalTargets.length, 20);
+assert.match(otcCanonicalTargets[0], /__01__01$/);
+assert.match(otcCanonicalTargets[1], /__01__02$/);
+assert.match(otcCanonicalTargets[19], /__10__20$/);
+
 const identityAudit = auditCanonicalPublishEvidence({
   expectedTargetKeys,
   manifestTargetKeys: expectedTargetKeys.slice(0, 100),
@@ -885,10 +903,15 @@ assert.deepEqual(resumableIdentityAudit.warnings.map((item) => item.code), [
   "publish_manifest_identity_pending",
   "publish_artifact_identity_pending"
 ]);
-assert.match(
+assert.doesNotMatch(
   auditCliSource,
   /expectedTargetKeySet[\s\S]*filter\(.*expectedTargetKeySet\.has/s,
-  "Deep audit must scope a shared runtime manifest to the current task plan instead of flagging prior same-batch tasks as unexpected"
+  "Deep audit must not discard unexpected manifest or artifact identities before auditing them"
+);
+assert.match(
+  auditCliSource,
+  /buildCanonicalPublishTargetKeys\([\s\S]*manifestTargetKeys:\s*manifest\.entries\.map\([\s\S]*artifactTargetKeys:/,
+  "Deep audit must derive the full category plan and compare all manifest and artifact identities"
 );
 
 const contradictionAudit = auditRuleContradictions({

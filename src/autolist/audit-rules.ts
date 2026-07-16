@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { FeishuProductRecord } from "../feishu/types.js";
-import { getProductCategoryPlan } from "./product-category.js";
+import { getProductCategoryPlan, resolveMainImageShopAssignments } from "./product-category.js";
+import { buildPublishTargetIdentity, publishTargetKey } from "./publish-identity.js";
 import type { ImageTaskState, MainImageGeneratedFile } from "./types.js";
 import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, BATCH_COMPLETION_FINAL_VERIFY_STATUSES, type PublishManifestEntry } from "./publish-manifest.js";
 
@@ -112,6 +113,7 @@ export interface MainImageGenerationAuditResult {
 export interface PublishCoverageAuditInput {
   tasks: ImageTaskState[];
   manifestEntries: PublishManifestEntry[];
+  batchFingerprint?: string;
   allowInProgress?: boolean;
 }
 
@@ -125,6 +127,31 @@ export interface PublishCoverageAuditResult {
   };
   errors: AutoListingAuditIssue[];
   warnings: AutoListingAuditIssue[];
+}
+
+export function buildCanonicalPublishTargetKeys(input: {
+  batchFingerprint: string;
+  tasks: Array<{
+    taskId: string;
+    recordId?: string;
+    productCategory?: string;
+  }>;
+}): string[] {
+  return input.tasks.flatMap((task) => {
+    const plan = getProductCategoryPlan(task.productCategory);
+    const assignments = resolveMainImageShopAssignments({
+      shopCodes: plan.shopCodes,
+      imagesPerShop: plan.imagesPerShop,
+      totalImageCount: plan.titleCount
+    });
+    return assignments.map((assignment, index) => publishTargetKey(buildPublishTargetIdentity({
+      batchFingerprint: input.batchFingerprint,
+      recordId: task.recordId || "",
+      taskId: task.taskId,
+      shopCode: assignment.shopCode,
+      watermarkNo: index + 1
+    })));
+  });
 }
 
 function normalizePath(value: string): string {
@@ -574,9 +601,61 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
   let safelyPublishedCount = 0;
   let inProgressPublishCount = 0;
   const manifestByFolder = new Map(input.manifestEntries.map((entry) => [normalizePath(entry.productFolder), entry]));
+  const manifestByTargetKey = new Map(input.manifestEntries.map((entry) => [entry.targetKey, entry]));
 
   for (const task of tasks) {
     const resultByFolder = new Map((task.publishArtifact?.results || []).map((result) => [normalizePath(result.productFolder), result]));
+    const canonicalTargetKeys = input.batchFingerprint && task.feishuProductRecord?.recordId
+      ? buildCanonicalPublishTargetKeys({
+          batchFingerprint: input.batchFingerprint,
+          tasks: [{
+            taskId: task.taskId,
+            recordId: task.feishuProductRecord.recordId,
+            productCategory: task.feishuProductRecord.productCategory
+          }]
+        })
+      : [];
+    if (canonicalTargetKeys.length > 0) {
+      const resultByTargetKey = new Map((task.publishArtifact?.results || []).map((result) => [result.targetKey, result]));
+      for (const targetKey of canonicalTargetKeys) {
+        expectedPublishCount += 1;
+        const result = resultByTargetKey.get(targetKey);
+        const manifest = manifestByTargetKey.get(targetKey);
+        const resultSafe = isSafePublishSignal(result?.status, result?.finalVerifyStatus);
+        const manifestSafe = isSafePublishSignal(manifest?.status, manifest?.finalVerifyStatus);
+        if (resultSafe || manifestSafe) {
+          safelyPublishedCount += 1;
+          continue;
+        }
+        const resultAccepted = isAcceptedBatchCompletionSignal(result?.status, result?.finalVerifyStatus, result?.errorClass);
+        const manifestAccepted = isAcceptedBatchCompletionSignal(manifest?.status, manifest?.finalVerifyStatus, manifest?.errorClass);
+        if (resultAccepted || manifestAccepted) {
+          safelyPublishedCount += 1;
+          warnings.push(issue(
+            "warning",
+            "publish_result_submit_accepted_unconfirmed",
+            `Publish submit was accepted but final platform success was not observed for canonical target: ${targetKey}`,
+            task.taskId
+          ));
+          continue;
+        }
+        const failedResult = result && (result.status === "failed" || result.ok === false || result.finalVerifyStatus === "needs_manual_review");
+        const failedManifest = manifest && (manifest.status === "failed" || manifest.finalVerifyStatus === "needs_manual_review");
+        if (!failedResult && !failedManifest && input.allowInProgress) {
+          inProgressPublishCount += 1;
+          continue;
+        }
+        errors.push(issue(
+          "error",
+          failedResult || failedManifest ? "publish_result_unsafe" : "publish_result_missing",
+          failedResult || failedManifest
+            ? `Publish result is not safe for canonical target: ${targetKey}`
+            : `No safe publish result was found for canonical target: ${targetKey}`,
+          task.taskId
+        ));
+      }
+      continue;
+    }
     for (const folder of taskExpectedPublishFolders(task)) {
       expectedPublishCount += 1;
       const normalizedFolder = normalizePath(folder);

@@ -7,6 +7,7 @@ import { buildFeishuSellingPointText } from "../dist/src/autolist/selling-point-
 import {
   auditAutoListingContinuity,
   auditCompletedBatchResidue,
+  buildCanonicalPublishTargetKeys,
   summarizeFeishuBatchProgress,
   auditMainImageGeneration,
   auditPublishCoverage
@@ -123,7 +124,56 @@ import {
   shouldStopPublishBatchAfterFailure,
   evaluatePublishResult
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
-import { publishDistributedProducts, selectLatestFailedPublishResult } from "../dist/src/autolist/publish.js";
+import {
+  mergePublishArtifactWithSafeManifest,
+  publishDistributedProducts,
+  selectLatestFailedPublishResult
+} from "../dist/src/autolist/publish.js";
+
+const canonicalIdentity = {
+  batchFingerprint: "batch-1",
+  recordId: "record-1",
+  taskId: "task-1",
+  shopCode: "01",
+  watermarkNo: 1
+};
+const mergedResumeArtifact = mergePublishArtifactWithSafeManifest({
+  artifact: { results: [], simulated: false },
+  manifestEntries: [
+    {
+      targetKey: "safe-1",
+      targetIdentity: canonicalIdentity,
+      productFolder: "/shops/01/product-水印1",
+      runtimeKey: "safe-1",
+      shopFolder: "/shops/01",
+      watermarkNo: 1,
+      batchFingerprint: "batch-1",
+      recordId: "record-1",
+      taskId: "task-1",
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed",
+      message: "safe evidence",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    },
+    {
+      targetKey: "unsafe-2",
+      targetIdentity: { ...canonicalIdentity, watermarkNo: 2 },
+      productFolder: "/shops/01/product-水印2",
+      runtimeKey: "unsafe-2",
+      shopFolder: "/shops/01",
+      watermarkNo: 2,
+      batchFingerprint: "batch-1",
+      recordId: "record-1",
+      taskId: "task-1",
+      status: "failed",
+      finalVerifyStatus: "needs_manual_review",
+      message: "unsafe evidence",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  identity: { batchFingerprint: "batch-1", recordId: "record-1", taskId: "task-1" }
+});
+assert.deepEqual(mergedResumeArtifact.results.map((item) => item.targetKey), ["safe-1"]);
 
 const hermesRunnerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
 const hermesSupervisorSource = fs.readFileSync("src/cli/auto-listing-supervisor.ts", "utf8");
@@ -152,6 +202,16 @@ assert.match(
   productListVerificationSource,
   /searchInput\.locator\("xpath=ancestor::form\[1\]"\)[\s\S]*searchForm\.getByRole\("button", \{ name: "查询", exact: true \}\)/,
   "product-list verification must scope 查询 to the title input's form"
+);
+assert.match(
+  productListVerificationSource,
+  /if \(\(await searchInputs\.count\(\)\) !== 1\)[\s\S]*const searchInput = searchInputs;/,
+  "product-list verification must fail closed unless the title search input is unique"
+);
+assert.doesNotMatch(
+  productListVerificationSource,
+  /normalizeText\(bodyText\)\.includes\(normalizedTitle\)/,
+  "product-list verification must not infer a published row from page-wide text that can echo the query"
 );
 assert.match(
   publishSubmitPageActionSource,
@@ -254,6 +314,11 @@ assert.match(
   publishSource,
   /requiresPostSubmitListVerification\(existingDecision,\s*existingSummary\)[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;/,
   "Auto-listing resume must verify an existing post-submit unverified result in the Doudian 全部 tab before replaying publish"
+);
+assert.match(
+  publishSource,
+  /Preflight checking Doudian 全部 tab for an existing exact-title product[\s\S]*verifyPublishedProductInDoudianList[\s\S]*if \(listVerification\.found\)[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;[\s\S]*Publishing product folder:/,
+  "Every otherwise-pending target must pass a read-only exact-title idempotency preflight before a publish mutation"
 );
 assert.match(
   publishFromSpuSource,
@@ -5469,6 +5534,44 @@ const publishOk = auditPublishCoverage({
 assert.equal(publishOk.ok, true);
 assert.equal(publishOk.summary.expectedPublishCount, 1);
 assert.equal(publishOk.summary.safelyPublishedCount, 1);
+
+const canonicalCoverageKeys = buildCanonicalPublishTargetKeys({
+  batchFingerprint: "batch-coverage",
+  tasks: [{ taskId: "task-coverage", recordId: "record-coverage", productCategory: "保健食品" }]
+});
+const canonicalCoverage = auditPublishCoverage({
+  batchFingerprint: "batch-coverage",
+  tasks: [{
+    ...publishTask,
+    taskId: "task-coverage",
+    feishuProductRecord: { recordId: "record-coverage", productCategory: "保健食品" },
+    shopDistributionArtifact: {
+      distributedFolders: Array.from({ length: 13 }, (_, index) => `/work/shop/product-${index + 8}`),
+      simulated: false
+    }
+  }],
+  manifestEntries: canonicalCoverageKeys.map((targetKey, index) => ({
+    targetKey,
+    targetIdentity: {
+      batchFingerprint: "batch-coverage",
+      recordId: "record-coverage",
+      taskId: "task-coverage",
+      shopCode: String(index + 1).padStart(2, "0"),
+      watermarkNo: index + 1
+    },
+    productFolder: `/work/shop/product-${index + 1}`,
+    runtimeKey: targetKey,
+    shopFolder: `/work/shop/${String(index + 1).padStart(2, "0")}`,
+    watermarkNo: index + 1,
+    status: "published",
+    finalVerifyStatus: "publish_signal_confirmed",
+    message: "safe",
+    updatedAt: "2026-05-23T00:00:00.000Z"
+  }))
+});
+assert.equal(canonicalCoverage.ok, true);
+assert.equal(canonicalCoverage.summary.expectedPublishCount, 20);
+assert.equal(canonicalCoverage.summary.safelyPublishedCount, 20);
 
 const publishMissing = auditPublishCoverage({
   tasks: [publishTask],

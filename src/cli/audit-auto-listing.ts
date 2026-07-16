@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { auditAutoListingContinuity, auditCompletedBatchResidue, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { auditAutoListingContinuity, auditCompletedBatchResidue, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, buildCanonicalPublishTargetKeys, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
 import { auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
@@ -9,9 +9,7 @@ import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { auditCurrentPaidImageLedgers } from "../autolist/paid-image-audit.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
-import { extractWatermarkNo } from "../autolist/publish-manifest.js";
-import { buildPublishTargetIdentity, publishTargetKey } from "../autolist/publish-identity.js";
-import { getProductCategoryPlan, shopCodeFromFolder, type ProductCategory } from "../autolist/product-category.js";
+import { getProductCategoryPlan, type ProductCategory } from "../autolist/product-category.js";
 import { paidImageBatchLedgerDir } from "../autolist/paid-image-submission-ledger.js";
 import type { AutoListingJobFile, AutoListingRunResult, AutoListingRunState } from "../autolist/types.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
@@ -382,6 +380,7 @@ async function main(): Promise<void> {
   const publish = auditPublishCoverage({
     tasks: state?.tasks || [],
     manifestEntries: manifest.entries,
+    batchFingerprint: state?.feishuBatchFingerprint,
     allowInProgress: state?.status === "running" && activeControllerRunning
   });
   const runDirCount = fs.existsSync(resolved.runtimeRootDir)
@@ -409,30 +408,26 @@ async function main(): Promise<void> {
   const expectedTargetKeys: string[] = [];
   const identityBuildErrors: DeepAuditIssue[] = [];
   for (const task of state?.tasks || []) {
-    for (const productFolder of task.shopDistributionArtifact?.distributedFolders || []) {
-      try {
-        const watermarkNo = extractWatermarkNo(productFolder);
-        if (!watermarkNo) throw new Error("watermark number missing");
-        expectedTargetKeys.push(publishTargetKey(buildPublishTargetIdentity({
-          batchFingerprint: state?.feishuBatchFingerprint || "",
-          recordId: task.feishuProductRecord?.recordId || "",
+    try {
+      expectedTargetKeys.push(...buildCanonicalPublishTargetKeys({
+        batchFingerprint: state?.feishuBatchFingerprint || "",
+        tasks: [{
           taskId: task.taskId,
-          shopCode: shopCodeFromFolder(path.dirname(productFolder)),
-          watermarkNo
-        })));
-      } catch (error) {
-        identityBuildErrors.push({
-          code: "publish_target_identity_invalid",
-          message: `${task.taskId}:${productFolder}: ${error instanceof Error ? error.message : String(error)}`
-        });
-      }
+          recordId: task.feishuProductRecord?.recordId,
+          productCategory: task.feishuProductRecord?.productCategory
+        }]
+      }));
+    } catch (error) {
+      identityBuildErrors.push({
+        code: "publish_target_identity_invalid",
+        message: `${task.taskId}: ${error instanceof Error ? error.message : String(error)}`
+      });
     }
   }
-  const expectedTargetKeySet = new Set(expectedTargetKeys);
   const identityAudit = auditCanonicalPublishEvidence({
     expectedTargetKeys,
-    manifestTargetKeys: manifest.entries.map((entry) => entry.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey) && expectedTargetKeySet.has(targetKey)),
-    artifactTargetKeys: (state?.tasks || []).flatMap((task) => task.publishArtifact?.results.map((result) => result.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey) && expectedTargetKeySet.has(targetKey)) || []),
+    manifestTargetKeys: manifest.entries.map((entry) => entry.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey)),
+    artifactTargetKeys: (state?.tasks || []).flatMap((task) => task.publishArtifact?.results.map((result) => result.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey)) || []),
     requireComplete: state?.status === "completed"
   });
   identityAudit.errors.unshift(...identityBuildErrors);

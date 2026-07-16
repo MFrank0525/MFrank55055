@@ -23,10 +23,13 @@ function normalizeText(value: string): string {
 }
 
 async function clickAllTab(page: Awaited<ReturnType<typeof getWorkspacePage>>): Promise<void> {
-  const allTab = page.getByText("全部", { exact: true }).first();
-  if (await allTab.count().catch(() => 0)) {
-    await allTab.click({ timeout: 15000 }).catch(() => {});
+  const roleTabs = page.getByRole("tab", { name: "全部", exact: true }).filter({ visible: true });
+  const textTabs = page.getByText("全部", { exact: true }).filter({ visible: true });
+  const candidates = (await roleTabs.count().catch(() => 0)) > 0 ? roleTabs : textTabs;
+  if ((await candidates.count().catch(() => 0)) !== 1) {
+    throw new Error("Doudian product list 全部 tab could not be uniquely resolved.");
   }
+  await candidates.click({ timeout: 15000 });
 }
 
 async function dismissProductListBlockingOverlays(
@@ -97,7 +100,13 @@ export async function verifyPublishedProductInDoudianList(input: {
   await page.waitForTimeout(800);
   await dismissProductListBlockingOverlays(page);
 
-  const searchInput = page.getByPlaceholder("请输入商品名称/商品ID/商家编码，多条可用逗号隔开").first();
+  const searchInputs = page
+    .getByPlaceholder("请输入商品名称/商品ID/商家编码，多条可用逗号隔开")
+    .filter({ visible: true });
+  if ((await searchInputs.count()) !== 1) {
+    throw new Error("Doudian product list title search input could not be uniquely resolved.");
+  }
+  const searchInput = searchInputs;
   await searchInput.fill(title, { timeout: 15000 });
   await clickProductListSearch(page, searchInput);
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
@@ -106,7 +115,7 @@ export async function verifyPublishedProductInDoudianList(input: {
   const bodyText = await page.locator("body").innerText({ timeout: 10000 });
   const normalizedTitle = normalizeText(title);
   const countText = bodyText.match(/共\s*\d+\s*条/)?.[0] || "";
-  const matchedRows = await page.locator("tbody tr, .auxo-table-row, .ecom-table-row")
+  const matchedRows = await page.locator("tbody tr, .auxo-table-row, .ecom-table-row").filter({ visible: true })
     .evaluateAll((rows, expectedTitle) =>
       rows
         .map((row) => (row as HTMLElement).innerText || "")
@@ -115,7 +124,7 @@ export async function verifyPublishedProductInDoudianList(input: {
       normalizedTitle
     )
     .catch(() => [] as string[]);
-  const found = normalizeText(bodyText).includes(normalizedTitle) || matchedRows.length > 0;
+  const found = matchedRows.length > 0;
   const screenshotFile = await savePageScreenshot(
     page,
     input.runtimeDir,

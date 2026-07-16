@@ -23,7 +23,7 @@ import { resolvePublishRuntimeDirsForCleanup } from "./cleanup-rules.js";
 import { buildAutoListingPreflightSummary } from "./preflight.js";
 import { readOperationManual } from "./operation-manual.js";
 import { prepareTestRunOutputs } from "./prepare-test-run.js";
-import { publishDistributedProducts, selectLatestFailedPublishResult } from "./publish.js";
+import { mergePublishArtifactWithSafeManifest, publishDistributedProducts, selectLatestFailedPublishResult } from "./publish.js";
 import { attachQualificationFiles } from "./qualifications.js";
 import { recoverArtifactsFromWordFiles, recoverDistributedFoldersFromShopRoot } from "./resume.js";
 import { distributeProductFoldersToShops } from "./shop-distribution.js";
@@ -753,10 +753,11 @@ async function executeTaskChain(
         throw new Error("Publish step requires distributed shop folders.");
       }
       assertNotPaused(pauseSignalFile, current.taskId, step);
-      const publishArtifact = await publishDistributedProducts({
+      const currentProductIdentity = buildPublishProductIdentity(current, feishuBatchFingerprint);
+      const currentPublishArtifact = await publishDistributedProducts({
         runtimeDir,
         distributedFolders: current.shopDistributionArtifact.distributedFolders,
-        productIdentity: buildPublishProductIdentity(current, feishuBatchFingerprint),
+        productIdentity: currentProductIdentity,
         feishuProductRecord: current.feishuProductRecord,
         simulateOnly,
         assertNotPaused: () => assertNotPaused(pauseSignalFile, current.taskId, step),
@@ -765,6 +766,11 @@ async function executeTaskChain(
           current = recordTaskProgress(current, step, message);
           markProgress();
         }
+      });
+      const publishArtifact = mergePublishArtifactWithSafeManifest({
+        artifact: currentPublishArtifact,
+        manifestEntries: loadPublishManifest(runtimeDir).entries,
+        identity: currentProductIdentity
       });
       current = {
         ...current,

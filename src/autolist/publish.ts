@@ -11,6 +11,7 @@ import {
   shouldRetryPublishFailure
 } from "../business/publish-from-spu/publish-rules.js";
 import { logInfo } from "../utils/logger.js";
+import { atomicWriteJson } from "../utils/atomic-file.js";
 import { shopCodeFromFolder } from "./product-category.js";
 import { recordPublishFailure, type PublishFailureCircuitState } from "./failure-circuit-breaker.js";
 import { buildPublishTargetIdentity, publishTargetKey } from "./publish-identity.js";
@@ -27,7 +28,7 @@ import { readWorkbookRows } from "./xlsx-lite.js";
 import type { PublishFromSpuMetadata } from "../business/publish-from-spu/types.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import type { PublishTargetIdentity } from "./publish-identity.js";
-import type { PublishProductIdentity } from "./publish-manifest.js";
+import type { PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
 import type { PublishArtifact } from "./types.js";
 
 type ProductWorkbookFields = {
@@ -285,10 +286,15 @@ function requiresPostSubmitListVerification(
 }
 
 function markPublishResultListVerified(resultFile: string, verification: DoudianProductListVerificationResult): void {
-  if (!fs.existsSync(resultFile)) {
-    return;
-  }
-  const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as Record<string, unknown>;
+  const now = new Date().toISOString();
+  const result = fs.existsSync(resultFile)
+    ? JSON.parse(fs.readFileSync(resultFile, "utf8")) as Record<string, unknown>
+    : {
+        startedAt: now,
+        finishedAt: now,
+        runtimeDir: path.dirname(resultFile),
+        artifacts: { resultFile, screenshots: verification.screenshotFile ? [verification.screenshotFile] : [] }
+      };
   result.ok = true;
   result.status = "published";
   result.finalVerifyStatus = "list_verified";
@@ -302,15 +308,45 @@ function markPublishResultListVerified(resultFile: string, verification: Doudian
     matchedRows: verification.matchedRows,
     pageUrl: verification.pageUrl,
     screenshotFile: verification.screenshotFile,
-    verifiedAt: new Date().toISOString()
+    verifiedAt: now
   };
-  fs.writeFileSync(resultFile, JSON.stringify(result, null, 2) + "\n");
+  atomicWriteJson(resultFile, result);
 }
 
 export function selectLatestFailedPublishResult<T extends { ok: boolean; finalVerifyStatus?: string; status?: string }>(
   results: T[]
 ): T | undefined {
   return [...results].reverse().find((item) => !item.ok || item.status === "failed" || item.finalVerifyStatus === "needs_manual_review");
+}
+
+export function mergePublishArtifactWithSafeManifest(input: {
+  artifact: PublishArtifact;
+  manifestEntries: PublishManifestEntry[];
+  identity: PublishProductIdentity;
+}): PublishArtifact {
+  const resultsByTargetKey = new Map(input.artifact.results.map((result) => [result.targetKey, result]));
+  for (const entry of input.manifestEntries) {
+    if (resultsByTargetKey.has(entry.targetKey) || !isManifestEntrySafelyPublishedForIdentity(entry, input.identity)) {
+      continue;
+    }
+    resultsByTargetKey.set(entry.targetKey, {
+      targetKey: entry.targetKey,
+      targetIdentity: entry.targetIdentity,
+      productFolder: entry.productFolder,
+      ok: true,
+      status: "published",
+      message: `Recovered durable safe publish evidence from manifest: ${entry.message}`,
+      resultFile: entry.resultFile,
+      finalVerifyStatus: entry.finalVerifyStatus,
+      errorClass: entry.errorClass || ""
+    });
+  }
+  return {
+    ...input.artifact,
+    results: [...resultsByTargetKey.values()].sort((a, b) =>
+      a.targetIdentity.watermarkNo - b.targetIdentity.watermarkNo || a.targetKey.localeCompare(b.targetKey)
+    )
+  };
 }
 
 export async function publishDistributedProducts(options: {
@@ -524,6 +560,7 @@ export async function publishDistributedProducts(options: {
       throw new Error(`Publish metadata was not built for canonical target: ${targetKey}`);
     }
     const existingResultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
+    let listCheckedNotFound = false;
     if (fs.existsSync(existingResultFile)) {
       const existingSummary = readPublishResultSummary(existingResultFile);
       const existingDecision = evaluatePublishResult(existingSummary);
@@ -582,6 +619,50 @@ export async function publishDistributedProducts(options: {
           message: "Doudian 全部 tab full-title verification returned no product for existing uncertain submit; replaying publish once.",
           ...productIdentityFields
         });
+        listCheckedNotFound = true;
+      }
+    }
+    if (!listCheckedNotFound) {
+      options.assertNotPaused?.();
+      const preflightMessage = `Preflight checking Doudian 全部 tab for an existing exact-title product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+      logInfo(preflightMessage);
+      options.onProgress?.(preflightMessage);
+      const listVerification = await verifyPublishedProductInDoudianList({
+        runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
+        shopFolder,
+        title: metadata.title || ""
+      });
+      if (listVerification.found) {
+        const message = `Read-only Doudian 全部 tab exact-title preflight found an existing product; publish mutation skipped: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+        markPublishResultListVerified(existingResultFile, listVerification);
+        results.push({
+          targetIdentity,
+          targetKey,
+          productFolder,
+          ok: true,
+          status: "published",
+          message,
+          resultFile: existingResultFile,
+          finalVerifyStatus: "list_verified",
+          errorClass: ""
+        });
+        upsertPublishManifestEntry(options.runtimeDir, {
+          targetIdentity,
+          targetKey,
+          productFolder,
+          runtimeKey,
+          shopFolder,
+          watermarkNo: extractWatermarkNo(productFolder),
+          status: "published",
+          finalVerifyStatus: "list_verified",
+          resultFile: existingResultFile,
+          message,
+          errorClass: "",
+          ...productIdentityFields
+        });
+        saveCheckpoint(path.join(options.runtimeDir, "publish", runtimeKey), [{ step: "publish_flow", status: "completed" }]);
+        failureCircuit = { signature: "", consecutive: 0, open: false };
+        continue;
       }
     }
     const startMessage = `Publishing product folder: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
