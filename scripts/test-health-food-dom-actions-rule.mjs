@@ -211,12 +211,35 @@ assert.match(
 assert.match(
   source,
   /applyHealthFoodSpecificationOnPage[\s\S]*findHealthFoodFieldRootByLabel\(page, "商品规格"\)[\s\S]*#skuValue-规格[\s\S]*placeholder=.填写并新增规格值.[\s\S]*editableValueInputs[\s\S]*populatedValueInputs[\s\S]*targetIndex/,
-  "health-food specification action must target the populated template value input inside exact 规格 group before using blank add-value inputs"
+  "health-food specification action must target the populated template value input inside exact 规格 group"
+);
+assert.doesNotMatch(
+  source.slice(
+    source.indexOf("export async function applyHealthFoodSpecificationOnPage"),
+    source.indexOf("export async function uploadHealthFoodPackagingLabelOnPage")
+  ),
+  /populatedValueInputs\[0\]\s*\|\|\s*editableValueInputs\[0\]/,
+  "health-food specification action must never fall back from the unique populated template value to a blank add-value input"
 );
 assert.match(
   source,
-  /openHealthFoodSpecificationEditor\(specificationInput\)[\s\S]*applyHealthFoodSpecificationEditorOnPage\(page,\s*parts\)[\s\S]*inputValue/,
+  /if \(discovery\.populatedValueInputs !== 1 \|\| discovery\.targetIndex < 0\)[\s\S]*exactly one populated template value input/,
+  "health-food specification action must fail closed unless the exact 规格 group exposes one populated template value"
+);
+assert.match(
+  source,
+  /openHealthFoodSpecificationEditor\(page, specificationInput\)[\s\S]*applyHealthFoodSpecificationEditorOnPage\(page,\s*parts\)[\s\S]*inputValue/,
   "health-food specification action must open the split editor, fill numeric/unit controls, then read back the auto-updated combined value"
+);
+assert.match(
+  source,
+  /openHealthFoodSpecificationEditor[\s\S]*ecom-g-popover-content[\s\S]*hasText: "选择规则"[\s\S]*for \(let attempt = 0; attempt < 3; attempt \+= 1\)[\s\S]*locator\.click[\s\S]*state: "visible"/,
+  "health-food specification editor opening must retry the unique locator and verify the split-editor popover"
+);
+assert.match(
+  source,
+  /for \(let attempt = 0; attempt < 12; attempt \+= 1\)[\s\S]*specificationInput\.inputValue[\s\S]*stableReadbackCount >= 2/,
+  "health-food specification action must require two consecutive exact DOM readbacks after the split editor update"
 );
 assert.match(
   source,

@@ -470,7 +470,6 @@ export function classifyPublishFailure(message: string): string {
     text.includes("Spectemplatesearchinputwasnotfound") ||
     text.includes("Novisiblespectemplatematchedkeyword") ||
     text.includes("Novisiblespectemplatedropdownoptionmatchedcontrolledaliases") ||
-    text.includes("LegacyspecvaluesstillcontainblockedEmoji") ||
     text.includes("Manualspectemplateentrymodewasnotvisible") ||
     text.includes("Spectemplateentrycontrolwasnotvisible") ||
     text.includes("Spectemplateselectedbutmanualspecvaluesorprice/inventoryrowswerenotvisibleafterswitchingfromsmart-fillmode") ||

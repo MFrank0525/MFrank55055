@@ -1294,11 +1294,6 @@ assert.equal(
   "validation_blocked",
   "platform Emoji rejection must be classified as a deterministic validation failure"
 );
-assert.equal(
-  classifyPublishFailure("Legacy spec values still contain blocked Emoji after exact normalization"),
-  "spec_template_not_ready",
-  "failed controlled spec normalization must retain a retryable, specific failure class"
-);
 assert.equal(finalSubmitTransientClass, "final_publish_state_uncertain");
 assert.equal(
   shouldRetryPublishFailure(finalSubmitTransientClass, 0),

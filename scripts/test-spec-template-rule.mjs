@@ -8,19 +8,18 @@ import {
   resolvePriceInventoryRowInputRoles
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 import {
-  FIXED_SPEC_VALUES,
-  LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI
+  FIXED_SPEC_VALUES
 } from "../dist/src/business/publish-from-spu/constants.js";
 
 assert.deepEqual(
-  LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI.map((value) => value.replace(/\u2764/g, "")),
   FIXED_SPEC_VALUES,
-  "safe spec values must differ from the controlled legacy values only by removing the blocked heart Emoji"
-);
-assert.equal(
-  FIXED_SPEC_VALUES.some((value) => value.includes("\u2764")),
-  false,
-  "fixed spec values must not contain the platform-blocked heart Emoji"
+  [
+    "❤❤❤周年庆活动【买2送1】到手3盒❤❤",
+    "【日常养护】两盒装1.11_11.1",
+    "【贵在运费】一盒装【太不划算】",
+    "❤❤❤周年庆活动【正装一盒】先到先得"
+  ],
+  "template-provided spec values must remain byte-for-byte unchanged, including content rejected by the platform"
 );
 
 assert.deepEqual(resolveSpecTemplateKeywordCandidates("买二送一"), ["买二送一", "买2送1", "2送1"]);
@@ -331,21 +330,21 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /const specTemplateOptionMarker[\s\S]*setAttribute\(markerName, "true"\)[\s\S]*page\.locator\(`\[\$\{specTemplateOptionMarker\}="true"\]`\)\.first\(\)\.click/,
+  /const specTemplateOptionMarker[\s\S]*setAttribute\(markerName, "true"\)[\s\S]*page\.locator\(`\[\$\{specTemplateOptionMarker\}="true"\]`\)[\s\S]*\.first\(\)\.click/,
   "spec template option clicking must mark the currently visible dropdown option before Playwright clicks it"
 );
 assert.match(
   publishSource,
-  /async function clickSpecTemplateOptionByDomStructure[\s\S]*const text = await markVisibleSpecTemplateOption\(page, keywords\)[\s\S]*if \(text\) \{[\s\S]*click\(\{ timeout: 1000 \}\)[\s\S]*return text;[\s\S]*return "";/,
-  "spec template option clicking must immediately click a visible matching option without pre-click polling hesitation"
+  /async function clickSpecTemplateOptionByDomStructure[\s\S]*click\(\{ timeout: 1500 \}\)[\s\S]*intercepts pointer events[\s\S]*markVisibleSpecTemplateOption\(page, keywords\)[\s\S]*count\(\)[\s\S]*click\(\{ timeout: 1500, force: true \}\)/,
+  "spec template option clicking must retry the same exact visible option with a verified force click when a transient sticky table intercepts it"
 );
 assert.doesNotMatch(
   publishSource.slice(
     publishSource.indexOf("async function clickSpecTemplateOptionByDomStructure"),
     publishSource.indexOf("async function chooseSpecTemplateKeywordFromDropdown")
   ),
-  /for \(let attempt|waitForTimeout/,
-  "visible spec template option clicking must not poll or sleep before clicking"
+  /page\.mouse|elementFromPoint|getBoundingClientRect\(\)\.(?:x|y)/,
+  "spec template option recovery must remain exact-locator based without coordinate clicks"
 );
 assert.match(
   publishSource,
@@ -407,15 +406,15 @@ const applySpecTemplateSource = publishSource.slice(
   publishSource.indexOf("async function applySpecTemplateWithVerificationOnPage"),
   publishSource.indexOf("async function readSpecModuleErrorOnPage")
 );
-assert.match(
+assert.doesNotMatch(
   publishSource,
-  /normalizeLegacyFixedSpecEmojiOnPage[\s\S]*LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI[\s\S]*FIXED_SPEC_VALUES/,
-  "spec flow must use a controlled legacy-to-safe whitelist"
+  /LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI|normalizeLegacyFixedSpecEmojiOnPage|nativeValueSetter/,
+  "medical/OTC spec flow must never normalize, rewrite, or patch template-provided specification content"
 );
 assert.match(
-  publishSource,
-  /blockedLegacyValues = LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI\.filter[\s\S]*nativeValueSetter[\s\S]*InputEvent\("input"[\s\S]*Event\("change"[\s\S]*remainingLegacyValues/,
-  "legacy spec normalization must update the controlled input and fail closed after DOM readback"
+  applySpecTemplateSource,
+  /clickManualSpecFillAfterTemplateOnPage\(page\)[\s\S]*readCurrentSpecValuesStrict\(page\)/,
+  "spec flow must only expose and read template content before price/inventory verification"
 );
 const chooseSpecTemplateSource = publishSource.slice(
   publishSource.indexOf("async function findSpecTemplateFieldRootOnPage"),

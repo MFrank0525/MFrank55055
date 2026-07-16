@@ -655,13 +655,21 @@ function parseHealthFoodSpecificationParts(value: string): HealthFoodSpecificati
   };
 }
 
-async function openHealthFoodSpecificationEditor(locator: Locator): Promise<void> {
-  await locator.evaluate((node) => {
-    const element = node as HTMLElement;
-    element.scrollIntoView({ block: "center", inline: "nearest" });
-    element.focus();
-    element.click();
-  });
+async function openHealthFoodSpecificationEditor(page: Page, locator: Locator): Promise<void> {
+  if ((await locator.count()) !== 1) {
+    throw new Error("Health-food specification editor target is not unique.");
+  }
+  await locator.scrollIntoViewIfNeeded();
+  const editorPopover = page.locator(".ecom-g-popover-content").filter({ hasText: "选择规则" }).first();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await locator.click({ timeout: 3000 }).catch(() => {});
+    if (await editorPopover.waitFor({ state: "visible", timeout: 1500 }).then(() => true, () => false)) {
+      return;
+    }
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(250);
+  }
+  throw new Error("Health-food specification split editor did not open after verified locator retries.");
 }
 
 async function applyHealthFoodSpecificationEditorOnPage(
@@ -958,7 +966,7 @@ export async function applyHealthFoodSpecificationOnPage(
           input.type === "text"
       );
     const populatedValueInputs = editableValueInputs.filter((input) => (input.value || "").trim());
-    const target = populatedValueInputs[0] || editableValueInputs[0] || null;
+    const target = populatedValueInputs.length === 1 ? populatedValueInputs[0] : null;
     const targetIndex = target ? editableValueInputs.indexOf(target) : -1;
     if (groupName === "规格" && target) {
       target.setAttribute(markerName, "true");
@@ -975,13 +983,17 @@ export async function applyHealthFoodSpecificationOnPage(
       `Health-food full specification input must belong to exact group 规格: actual=${discovery.groupName || "<empty>"}`
     );
   }
-  if (discovery.targetIndex < 0) {
+  if (discovery.populatedValueInputs !== 1 || discovery.targetIndex < 0) {
     throw new Error(
-      `Health-food 商品规格 must expose a populated template value input or editable fallback in group 规格: editable=${discovery.editableValueInputs}; populated=${discovery.populatedValueInputs}`
+      `Health-food 商品规格 must expose exactly one populated template value input in group 规格: editable=${discovery.editableValueInputs}; populated=${discovery.populatedValueInputs}`
     );
   }
 
-  const specificationInput = fieldRoot.locator(`[${marker}="true"]`).first();
+  const specificationTargets = fieldRoot.locator(`[${marker}="true"]`);
+  if ((await specificationTargets.count()) !== 1) {
+    throw new Error(`Health-food specification marker did not resolve one target: actual=${await specificationTargets.count()}`);
+  }
+  const specificationInput = specificationTargets.first();
   await specificationInput.scrollIntoViewIfNeeded().catch(() => {});
   const previousValue = await specificationInput.inputValue({ timeout: 3000 });
   if (normalizeDomText(previousValue) === normalizeDomText(expectedSpecification)) {
@@ -994,17 +1006,29 @@ export async function applyHealthFoodSpecificationOnPage(
       ok: true
     };
   }
-  await openHealthFoodSpecificationEditor(specificationInput);
+  await openHealthFoodSpecificationEditor(page, specificationInput);
   await applyHealthFoodSpecificationEditorOnPage(page, parts);
-  await page.waitForTimeout(3000);
-  const readbackValue = await specificationInput.inputValue({ timeout: 3000 });
+  let readbackValue = "";
+  let stableReadbackCount = 0;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    readbackValue = await specificationInput.inputValue({ timeout: 3000 }).catch(() => "");
+    if (normalizeDomText(readbackValue) === normalizeDomText(expectedSpecification)) {
+      stableReadbackCount += 1;
+      if (stableReadbackCount >= 2) {
+        break;
+      }
+    } else {
+      stableReadbackCount = 0;
+    }
+    await page.waitForTimeout(500);
+  }
   return {
     action: "apply_health_food_specification",
     groupName: "规格",
     previousValue,
     expectedValue: expectedSpecification,
     readbackValue,
-    ok: normalizeDomText(readbackValue) === normalizeDomText(expectedSpecification)
+    ok: stableReadbackCount >= 2
   };
 }
 

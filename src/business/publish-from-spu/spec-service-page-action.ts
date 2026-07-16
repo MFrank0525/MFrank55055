@@ -57,7 +57,6 @@ import { prepareQualificationImagesForUpload } from "./qualification-image-norma
 import {
   FIXED_FREIGHT_TEMPLATE_KEYWORD,
   FIXED_SPEC_VALUES,
-  LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI,
   GRAPHIC_SECTION_LABELS,
   PLATFORM_SPU_URL,
   SPEC_TEMPLATE_KEYWORD_DEFAULT,
@@ -347,11 +346,35 @@ async function markVisibleSpecTemplateOption(page: Page, keywords: string[]): Pr
 
 async function clickSpecTemplateOptionByDomStructure(page: Page, keywords: string[]): Promise<string> {
   const text = await markVisibleSpecTemplateOption(page, keywords);
-  if (text) {
-    await page.locator(`[${specTemplateOptionMarker}="true"]`).first().click({ timeout: 1000 });
-    return text;
+  if (!text) {
+    return "";
   }
-  return "";
+  const initialOption = page.locator(`[${specTemplateOptionMarker}="true"]`);
+  if ((await initialOption.count()) !== 1) {
+    throw new Error(`Spec template option marker was not unique before click: actual=${await initialOption.count()}`);
+  }
+  try {
+    await initialOption.first().click({ timeout: 1500 });
+    return text;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/intercepts pointer events|element is not stable|element is not visible|Timeout/i.test(message)) {
+      throw error;
+    }
+  }
+
+  await page.keyboard.press("Escape").catch(() => {});
+  await dismissTransientOverlays(page).catch(() => {});
+  const reopenTarget = await findSpecTemplateDropdownClickTargetOnPage(page);
+  await reopenTarget.click({ timeout: 1500 });
+  await page.waitForTimeout(100);
+  const retryText = await markVisibleSpecTemplateOption(page, keywords);
+  const retryOption = page.locator(`[${specTemplateOptionMarker}="true"]`);
+  if (!retryText || (await retryOption.count()) !== 1 || !(await retryOption.first().isVisible().catch(() => false))) {
+    throw new Error(`Spec template option was not uniquely visible after intercepted click recovery: keywords=${keywords.join("/")}`);
+  }
+  await retryOption.first().click({ timeout: 1500, force: true });
+  return retryText;
 }
 
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
@@ -1166,56 +1189,6 @@ async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {
   }, FIXED_SPEC_VALUES);
 }
 
-async function normalizeLegacyFixedSpecEmojiOnPage(
-  page: Page
-): Promise<{ replaced: number; remainingLegacyValues: string[] }> {
-  const blockedLegacyValues = LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI.filter(
-    (value, index) => value !== FIXED_SPEC_VALUES[index]
-  );
-  const replaced = await page.evaluate(
-    ({ legacyValues, safeValues }) => {
-      const replacements = new Map(legacyValues.map((value, index) => [value.trim(), safeValues[index]?.trim() || ""]));
-      const nativeValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-      let changed = 0;
-      for (const input of Array.from(document.querySelectorAll("input")) as HTMLInputElement[]) {
-        const rect = input.getBoundingClientRect();
-        const style = window.getComputedStyle(input);
-        const currentValue = input.value.trim();
-        const replacement = replacements.get(currentValue);
-        const context = [input.placeholder || "", input.parentElement?.textContent || "", input.parentElement?.parentElement?.textContent || ""]
-          .join(" ")
-          .replace(/\s+/g, " ");
-        if (
-          !replacement ||
-          replacement === currentValue ||
-          !context.includes("规格值") ||
-          rect.width <= 120 ||
-          rect.height <= 0 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          input.disabled ||
-          input.readOnly
-        ) {
-          continue;
-        }
-        nativeValueSetter?.call(input, replacement);
-        input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: replacement }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-        input.blur();
-        changed += 1;
-      }
-      return changed;
-    },
-    { legacyValues: LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI, safeValues: FIXED_SPEC_VALUES }
-  );
-  await page.waitForTimeout(900);
-  const remainingLegacyValues = await page.evaluate((legacyValues) => {
-    const currentValues = Array.from(document.querySelectorAll("input")).map((element) => (element as HTMLInputElement).value.trim());
-    return legacyValues.filter((value) => currentValues.includes(value.trim()));
-  }, blockedLegacyValues);
-  return { replaced, remainingLegacyValues };
-}
-
 async function countVisibleBlankSpecValueInputs(page: Page): Promise<number> {
   return page.evaluate(() => {
     const labels = Array.from(document.querySelectorAll("body *"))
@@ -1287,19 +1260,6 @@ export async function applySpecTemplateWithVerificationOnPage(
   await page.waitForTimeout(3000);
   await clickManualSpecFillAfterTemplateOnPage(page);
   await page.waitForTimeout(3000);
-  const normalization = await normalizeLegacyFixedSpecEmojiOnPage(page).catch(() => ({
-    replaced: 0,
-    remainingLegacyValues: LEGACY_FIXED_SPEC_VALUES_WITH_EMOJI.filter(
-      (value, index) => value !== FIXED_SPEC_VALUES[index]
-    )
-  }));
-  if (normalization.remainingLegacyValues.length > 0) {
-    return {
-      selectedTemplate,
-      filledValues: [],
-      issue: `Legacy spec values still contain blocked Emoji after exact normalization; remaining=${normalization.remainingLegacyValues.join(" | ")}`
-    };
-  }
   const filledValues = await readCurrentSpecValuesStrict(page).catch(() => []);
   const visiblePriceRows = await countVisiblePriceInventoryRows(page).catch(() => 0);
   const blankSpecValueInputs = await countVisibleBlankSpecValueInputs(page).catch(() => 0);
