@@ -41,4 +41,13 @@ assert.deepEqual(
   "A missing shop spec template must stop the publish batch immediately so Hermes can report the configuration blocker"
 );
 
+assert.deepEqual(
+  recordPublishFailure(state, {
+    stage: "publish",
+    errorClass: "main_image_shape_invalid"
+  }),
+  { signature: "publish:main_image_shape_invalid", consecutive: 1, open: true },
+  "An unrepairable main-image shape failure must stop the product group before later shops inherit invalid assets."
+);
+
 console.log("publish failure circuit breaker passed");

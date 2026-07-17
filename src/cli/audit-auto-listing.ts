@@ -1,9 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
+import { readImageDimensions } from "../utils/image-dimensions.js";
 import { auditAutoListingContinuity, auditCompletedBatchResidue, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, buildCanonicalPublishTargetKeys, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
-import { auditCanonicalPublishEvidence, auditRuleContradictions, auditRuntimeControllerConsistency, runDeepAuditRules, type DeepAuditIssue } from "../autolist/deep-audit-rules.js";
+import {
+  auditCanonicalPublishEvidence,
+  auditRuleContradictions,
+  auditRuntimeControllerConsistency,
+  runDeepAuditRules,
+  shouldRequirePublishTargetIdentity,
+  type DeepAuditIssue
+} from "../autolist/deep-audit-rules.js";
 import { imageServiceWaitCeilingMs, videosBase64AcceptedTaskPollCeilingMs } from "../autolist/image-generation-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
@@ -355,9 +363,26 @@ async function main(): Promise<void> {
     records,
     processedImages
   });
+  const mainImageDimensions = new Map(
+    (state?.tasks || [])
+      .flatMap((task) =>
+        (task.mainImageArtifact?.generatedFiles || []).flatMap((file) =>
+          [file.imageFile, file.rawImageFile].filter(Boolean) as string[]
+        )
+      )
+      .filter((filePath) => fs.existsSync(filePath))
+      .flatMap((filePath) => {
+        try {
+          return [[path.resolve(filePath), readImageDimensions(filePath)] as const];
+        } catch {
+          return [];
+        }
+      })
+  );
   const completedGeneration = auditMainImageGeneration({
     tasks: state?.tasks || [],
     existingFiles,
+    imageDimensions: mainImageDimensions,
     expectedImagesPerPrompt: resolved.mainImageExpectedCount,
     simulateOnly: resolved.simulateOnly
   });
@@ -408,6 +433,18 @@ async function main(): Promise<void> {
   const expectedTargetKeys: string[] = [];
   const identityBuildErrors: DeepAuditIssue[] = [];
   for (const task of state?.tasks || []) {
+    if (
+      !shouldRequirePublishTargetIdentity({
+        recordId: task.feishuProductRecord?.recordId,
+        status: task.status,
+        hasMainImageArtifact: Boolean(task.mainImageArtifact),
+        generatedProductFolderCount: task.generatedProductFolders.length,
+        distributedProductFolderCount: task.shopDistributionArtifact?.distributedFolders.length,
+        publishResultCount: task.publishArtifact?.results.length
+      })
+    ) {
+      continue;
+    }
     try {
       expectedTargetKeys.push(...buildCanonicalPublishTargetKeys({
         batchFingerprint: state?.feishuBatchFingerprint || "",

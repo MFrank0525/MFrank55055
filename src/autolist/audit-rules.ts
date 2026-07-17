@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { FeishuProductRecord } from "../feishu/types.js";
+import type { ImageDimensions } from "../utils/image-dimensions.js";
 import { getProductCategoryPlan, resolveMainImageShopAssignments } from "./product-category.js";
 import { buildPublishTargetIdentity, publishTargetKey } from "./publish-identity.js";
 import type { ImageTaskState, MainImageGeneratedFile } from "./types.js";
@@ -94,6 +95,7 @@ export interface IntermediateArtifactResidueAuditResult {
 export interface MainImageGenerationAuditInput {
   tasks: ImageTaskState[];
   existingFiles: Iterable<string>;
+  imageDimensions?: ReadonlyMap<string, ImageDimensions>;
   expectedPromptCount?: number;
   expectedImagesPerPrompt: number;
   simulateOnly: boolean;
@@ -548,6 +550,39 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
 
       if (file.rawImageFile && !cleanedArtifactsWereRemoved && !input.simulateOnly && !existingFiles.has(normalizePath(file.rawImageFile))) {
         errors.push(issue("error", "main_image_raw_file_missing", `Generated raw main image file is missing: ${file.rawImageFile}`, task.taskId, file.rawImageFile));
+      }
+
+      if (!cleanedArtifactsWereRemoved && !input.simulateOnly && input.imageDimensions) {
+        for (const candidate of [file.imageFile, file.rawImageFile].filter(Boolean) as string[]) {
+          const normalizedCandidate = normalizePath(candidate);
+          if (!existingFiles.has(normalizedCandidate)) {
+            continue;
+          }
+          const dimensions = input.imageDimensions.get(normalizedCandidate);
+          if (!dimensions) {
+            errors.push(
+              issue(
+                "error",
+                "main_image_dimensions_unreadable",
+                `Main image dimensions could not be read: ${candidate}`,
+                task.taskId,
+                candidate
+              )
+            );
+            continue;
+          }
+          if (dimensions.width !== dimensions.height) {
+            errors.push(
+              issue(
+                "error",
+                "main_image_not_square",
+                `Main image must be square before downstream steps: ${candidate} (${dimensions.width}x${dimensions.height}).`,
+                task.taskId,
+                candidate
+              )
+            );
+          }
+        }
       }
     }
   }

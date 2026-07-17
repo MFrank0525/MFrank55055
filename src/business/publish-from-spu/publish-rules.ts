@@ -514,6 +514,14 @@ export function classifyPublishFailure(message: string): string {
   ) {
     return "detail_qualification_not_ready";
   }
+  if (
+    text.includes("Mainimagesmustalreadysatisfy1:1ratiobeforeupload") ||
+    text.includes("Mainimagemustbesquarebeforedownstreamsteps") ||
+    text.includes("Mainimagesquarenormalizationreadbackfailed") ||
+    text.includes("Repairedwatermarkedmainimageisstillnotsquare")
+  ) {
+    return "main_image_shape_invalid";
+  }
   if (text.includes("营养成分表错误") || text.includes("nutritiontable")) {
     return "health_food_nutrition_table_invalid";
   }

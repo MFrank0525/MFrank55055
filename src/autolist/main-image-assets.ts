@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sanitizeFileName } from "../utils/path-names.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
+import { readImageDimensions } from "../utils/image-dimensions.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import {
   resolveImageDownloadTimeoutMs,
@@ -23,6 +24,8 @@ import {
   resolvePaidImageFixedSlotRecovery
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
+import { ensureSquareMainImageFile } from "./main-image-square-action.js";
+import { evaluateMainImageSquareRule } from "./main-image-shape-rules.js";
 import { readManualTextBlock } from "./operation-manual.js";
 import {
   initializePaidImageProductLedger,
@@ -1391,6 +1394,16 @@ async function recoverExistingRoundOutputs(options: {
       return match ? [[Number(match[1]), file] as const] : [];
     })
   );
+  const normalizedRawIndexes = new Set<number>();
+  for (const [localIndex, rawImageFile] of rawByLocalIndex) {
+    const normalization = await ensureSquareMainImageFile({
+      sourceFile: rawImageFile,
+      evidenceDir: path.join(options.roundDir, "provider-original")
+    });
+    if (normalization.changed) {
+      normalizedRawIndexes.add(localIndex);
+    }
+  }
   const existingStagedFiles = listImageFiles(options.stageDir);
   let invalidStagedFileFound = false;
   for (const stagedFile of existingStagedFiles) {
@@ -1399,7 +1412,20 @@ async function recoverExistingRoundOutputs(options: {
     const localIndex = imageIndex - startImageIndex + 1;
     const rawImageFile = rawByLocalIndex.get(localIndex);
     const expectedWatermarkText = Number.isInteger(imageIndex) ? options.resolveWatermarkText(imageIndex) : "";
-    if (!rawImageFile || !expectedWatermarkText || !path.basename(stagedFile).includes(expectedWatermarkText)) {
+    const stagedShapeValid = (() => {
+      try {
+        return evaluateMainImageSquareRule(readImageDimensions(stagedFile)).action === "reuse";
+      } catch {
+        return false;
+      }
+    })();
+    if (
+      !rawImageFile ||
+      !expectedWatermarkText ||
+      !path.basename(stagedFile).includes(expectedWatermarkText) ||
+      normalizedRawIndexes.has(localIndex) ||
+      !stagedShapeValid
+    ) {
       fs.rmSync(stagedFile, { force: true });
       invalidStagedFileFound = true;
       continue;
@@ -1799,6 +1825,18 @@ export async function generateMainImageAssets(options: {
       },
       onProgress: (message) => options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: ${message}`)
     });
+
+    for (const result of generationResults) {
+      const normalization = await ensureSquareMainImageFile({
+        sourceFile: result.file,
+        evidenceDir: path.join(roundDir, "provider-original")
+      });
+      if (normalization.changed) {
+        options.onProgress?.(
+          `Prompt ${promptIndex + 1}/${promptCount}: normalized provider output ${path.basename(result.file)} from ${normalization.sourceDimensions.width}x${normalization.sourceDimensions.height} to ${normalization.outputDimensions.width}x${normalization.outputDimensions.height}.`
+        );
+      }
+    }
 
     const watermarkedFiles: string[] = [];
     for (let itemIndex = 0; itemIndex < generationResults.length; itemIndex += 1) {

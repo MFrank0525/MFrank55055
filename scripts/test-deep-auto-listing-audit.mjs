@@ -5,7 +5,8 @@ import {
   auditPaidImageLedgerArtifacts,
   auditRuntimeControllerConsistency,
   auditRuleContradictions,
-  runDeepAuditRules
+  runDeepAuditRules,
+  shouldRequirePublishTargetIdentity
 } from "../dist/src/autolist/deep-audit-rules.js";
 import { auditCurrentPaidImageLedgers } from "../dist/src/autolist/paid-image-audit.js";
 import { buildCanonicalPublishTargetKeys } from "../dist/src/autolist/audit-rules.js";
@@ -22,6 +23,34 @@ import {
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+assert.equal(
+  shouldRequirePublishTargetIdentity({
+    status: "source_images_discovered",
+    generatedProductFolderCount: 0,
+    distributedProductFolderCount: 0,
+    publishResultCount: 0
+  }),
+  false,
+  "Untouched pending task placeholders must not be audited as publish identities before Feishu record hydration."
+);
+assert.equal(
+  shouldRequirePublishTargetIdentity({
+    status: "published",
+    generatedProductFolderCount: 20,
+    distributedProductFolderCount: 20,
+    publishResultCount: 1
+  }),
+  true,
+  "A task that entered publish assets must require canonical identity even if recordId is unexpectedly missing."
+);
+assert.equal(
+  shouldRequirePublishTargetIdentity({
+    status: "selling_points_loaded",
+    recordId: "record-1"
+  }),
+  true
+);
 
 const partialPaidLedgerAudit = auditPaidImageLedgerArtifacts({
   expectedSlotCount: 20,

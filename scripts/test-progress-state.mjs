@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./test-main-image-square-normalization-rule.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1374,6 +1375,12 @@ assert.equal(
 );
 const detailQualificationClass = classifyPublishFailure(
   "Sequential publish flow stopped: 图文信息模块未完成。Qualification detail upload was not acknowledged per file. expected=2; acknowledged=0; baseline=6; final=6"
+);
+assert.equal(
+  classifyPublishFailure(
+    "Sequential publish flow stopped: 图文信息模块未完成。Main images must already satisfy 1:1 ratio before upload. Invalid files: generated.png(1199x1312)"
+  ),
+  "main_image_shape_invalid"
 );
 assert.equal(detailQualificationClass, "detail_qualification_not_ready");
 assert.equal(
@@ -5573,6 +5580,27 @@ const generationDuplicate = auditMainImageGeneration({
 
 assert.equal(generationDuplicate.ok, false);
 assert.ok(generationDuplicate.errors.some((issue) => issue.code === "main_image_duplicate_file"));
+
+const generationNonSquareDimensions = new Map(
+  completeGeneratedFiles.flatMap((item) => [
+    [path.resolve(item.imageFile), { width: 1254, height: 1254 }],
+    [path.resolve(item.rawImageFile), { width: 1254, height: 1254 }]
+  ])
+);
+generationNonSquareDimensions.set(path.resolve(completeGeneratedFiles[7].rawImageFile), {
+  width: 1199,
+  height: 1312
+});
+const generationNonSquare = auditMainImageGeneration({
+  tasks: [taskWithMainImages(completeGeneratedFiles)],
+  existingFiles: completeGeneratedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder]),
+  imageDimensions: generationNonSquareDimensions,
+  expectedPromptCount: 2,
+  expectedImagesPerPrompt: 4,
+  simulateOnly: false
+});
+assert.equal(generationNonSquare.ok, false);
+assert.ok(generationNonSquare.errors.some((issue) => issue.code === "main_image_not_square"));
 
 const publishTask = {
   taskId: "image-001",

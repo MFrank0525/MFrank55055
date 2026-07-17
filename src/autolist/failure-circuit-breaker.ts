@@ -11,6 +11,7 @@ const EXCLUDED_FAILURE_CLASSES = new Set([
 const IMMEDIATE_FAILURE_CLASSES = new Set([
   "price_inventory_not_ready",
   "detail_qualification_not_ready",
+  "main_image_shape_invalid",
   "doudian_login_required",
   "shop_context_mismatch",
   "spec_template_configuration_missing",

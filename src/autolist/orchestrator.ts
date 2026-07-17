@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { readImageDimensions } from "../utils/image-dimensions.js";
 import { generatePosterPromptsWithDeepSeek } from "./deepseek-prompts.js";
 import {
   assertDeepSeekPromptsBelongToCurrentProduct,
@@ -7,6 +8,10 @@ import {
 } from "./deepseek-prompt-rules.js";
 import { writeFeishuPromptWordFiles } from "./deepseek-word-docs.js";
 import { generateMainImageAssets } from "./main-image-assets.js";
+import {
+  recoverMainImageArtifactForPublish,
+  repairMainImageArtifactShapes
+} from "./main-image-square-action.js";
 import { archiveUnwatermarkedMainImages, resolveArchiveProductName } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
 import { auditMainImageGeneration, collectFeishuProductAssetFiles, summarizeFeishuBatchProgress } from "./audit-rules.js";
@@ -208,9 +213,22 @@ function assertMainImageCompletionGate(input: {
   const generatedFiles = input.task.mainImageArtifact?.generatedFiles || [];
   const candidatePaths = generatedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder].filter(Boolean) as string[]);
   const existingFiles = input.simulateOnly ? candidatePaths : candidatePaths.filter((filePath) => fs.existsSync(filePath));
+  const imageDimensions = new Map(
+    generatedFiles
+      .flatMap((item) => [item.imageFile, item.rawImageFile].filter(Boolean) as string[])
+      .filter((filePath) => fs.existsSync(filePath))
+      .flatMap((filePath) => {
+        try {
+          return [[path.resolve(filePath), readImageDimensions(filePath)] as const];
+        } catch {
+          return [];
+        }
+      })
+  );
   const audit = auditMainImageGeneration({
     tasks: [input.task],
     existingFiles,
+    imageDimensions,
     expectedPromptCount: input.expectedPromptCount,
     expectedImagesPerPrompt: input.expectedImagesPerPrompt,
     simulateOnly: input.simulateOnly
@@ -754,11 +772,46 @@ async function executeTaskChain(
       if (!current.shopDistributionArtifact?.distributedFolders?.length) {
         throw new Error("Publish step requires distributed shop folders.");
       }
+      const distributedFolders = current.shopDistributionArtifact.distributedFolders;
       assertNotPaused(pauseSignalFile, current.taskId, step);
+      if (!simulateOnly) {
+        const publishMainImageArtifact =
+          current.mainImageArtifact ||
+          recoverMainImageArtifactForPublish({
+            taskRuntimeDir: path.join(runtimeDir, "tasks", current.taskId),
+            distributedFolders,
+            imagesPerPrompt: mainImageExpectedCount
+          });
+        const repaired = await repairMainImageArtifactShapes({
+          artifact: publishMainImageArtifact,
+          evidenceDir: path.join(runtimeDir, "tasks", current.taskId, "main-image-shape-evidence"),
+          onProgress: (message) => {
+            appendEvent(eventFile, createEvent("info", step, message, current.taskId));
+            current = recordTaskProgress(current, step, message);
+            markProgress();
+          }
+        });
+        current = {
+          ...current,
+          mainImageArtifact: repaired.artifact,
+          lastUpdatedAt: new Date().toISOString(),
+          notes:
+            repaired.normalizedFileCount > 0
+              ? [...current.notes, `Normalized ${repaired.normalizedFileCount} legacy main image file(s) before publish.`]
+              : current.notes
+        };
+      }
+      const publishProductPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
+      assertMainImageCompletionGate({
+        task: current,
+        expectedPromptCount: publishProductPlan.promptCount,
+        expectedImagesPerPrompt: mainImageExpectedCount,
+        simulateOnly
+      });
       const currentProductIdentity = buildPublishProductIdentity(current, feishuBatchFingerprint);
       const currentPublishArtifact = await publishDistributedProducts({
         runtimeDir,
-        distributedFolders: current.shopDistributionArtifact.distributedFolders,
+        distributedFolders,
         productIdentity: currentProductIdentity,
         feishuProductRecord: current.feishuProductRecord,
         productListPreflightMode,

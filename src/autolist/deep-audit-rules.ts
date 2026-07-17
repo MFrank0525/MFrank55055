@@ -17,6 +17,28 @@ export interface DeepAuditIssue {
   count?: number;
 }
 
+export function shouldRequirePublishTargetIdentity(input: {
+  recordId?: string;
+  status?: string;
+  hasMainImageArtifact?: boolean;
+  generatedProductFolderCount?: number;
+  distributedProductFolderCount?: number;
+  publishResultCount?: number;
+}): boolean {
+  if (input.recordId?.trim()) {
+    return true;
+  }
+  return Boolean(
+    input.hasMainImageArtifact ||
+      Number(input.generatedProductFolderCount || 0) > 0 ||
+      Number(input.distributedProductFolderCount || 0) > 0 ||
+      Number(input.publishResultCount || 0) > 0 ||
+      ["main_images_generated", "product_folders_built", "titles_generated", "titles_distributed", "metadata_enriched", "qualifications_attached", "shop_distributed", "published", "cleaned", "done"].includes(
+        input.status || ""
+      )
+  );
+}
+
 export interface DeepAuditDimensionInput {
   errors: DeepAuditIssue[];
   warnings: DeepAuditIssue[];
