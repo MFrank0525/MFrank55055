@@ -41,6 +41,29 @@ export interface PublishRuleCheck {
   issue: string;
 }
 
+export type ProductListPreflightMode = "known_sequence" | "unresolved_disorder";
+
+export function resolveProductListPreflightMode(input: {
+  requestedMode?: string;
+  resumeSourceImagePath?: string;
+  startStep?: string;
+}): ProductListPreflightMode {
+  const mode = input.requestedMode || "known_sequence";
+  if (mode !== "known_sequence" && mode !== "unresolved_disorder") {
+    throw new Error(`Invalid productListPreflightMode: ${mode}`);
+  }
+  if (mode === "unresolved_disorder" && (!input.resumeSourceImagePath || input.startStep !== "published")) {
+    throw new Error(
+      "productListPreflightMode=unresolved_disorder is only valid for an explicit publish-stage resume."
+    );
+  }
+  return mode;
+}
+
+export function shouldRunPendingTargetProductListPreflight(mode: ProductListPreflightMode): boolean {
+  return mode === "unresolved_disorder";
+}
+
 export const OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW = true;
 
 export interface SpecTemplateCompletionRuleInput {

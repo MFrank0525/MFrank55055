@@ -92,3 +92,5 @@ Move these next, in order:
 2. Replace regex-based source-structure tests with exported pure rule contracts where possible.
 
 Product-list verification is now an active idempotency boundary. Its business decision remains in the publish rules, while the action module owns the exact 商品状态 tab-group locator, asynchronous readiness wait, safe known-dialog dismissal, query settlement evidence, row readback, and failure screenshot.
+
+Pending-target product-list preflight is not a normal publish step. `publish-rules.ts` defaults to `known_sequence`, which covers normal batches and recoveries with a known resume shop and skips per-shop full-title queries. Only an explicit publish-stage `unresolved_disorder` recovery—used when shop order became disordered and the resume shop cannot be identified—may query every candidate target. A single final-submit-uncertain target remains a targeted verification boundary for that target only.

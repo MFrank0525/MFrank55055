@@ -46,6 +46,7 @@ import type {
   ImageTaskState,
   ImageGenerationProvider
 } from "./types.js";
+import type { ProductListPreflightMode } from "../business/publish-from-spu/publish-rules.js";
 import {
   buildAutoListingBusinessRuleFingerprint,
   canResumeAutoListingArtifacts
@@ -246,6 +247,7 @@ async function executeTaskChain(
   simulateOnly: boolean,
   feishuBatchFingerprint: string | undefined,
   resumeProductFolderNames: string[],
+  productListPreflightMode: ProductListPreflightMode,
   protectedCleanupAssetFiles: string[],
   manualReadMap: Map<string, ManualReadRecord>,
   onProgress?: (task: ImageTaskState) => void
@@ -759,6 +761,7 @@ async function executeTaskChain(
         distributedFolders: current.shopDistributionArtifact.distributedFolders,
         productIdentity: currentProductIdentity,
         feishuProductRecord: current.feishuProductRecord,
+        productListPreflightMode,
         simulateOnly,
         assertNotPaused: () => assertNotPaused(pauseSignalFile, current.taskId, step),
         onProgress: (message) => {
@@ -1139,6 +1142,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.input.simulateOnly,
           feishuBatchFingerprint,
           resolved.input.resumeProductFolderNames,
+          resolved.input.productListPreflightMode,
           protectedCleanupAssetFiles,
           manualReadMap,
           (updatedTask) => {

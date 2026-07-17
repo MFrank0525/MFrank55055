@@ -8,6 +8,7 @@ import {
 } from "../business/publish-from-spu/product-list-verification-action.js";
 import {
   evaluatePublishResult,
+  shouldRunPendingTargetProductListPreflight,
   shouldRetryPublishFailure
 } from "../business/publish-from-spu/publish-rules.js";
 import { logInfo } from "../utils/logger.js";
@@ -26,6 +27,7 @@ import {
 } from "./publish-manifest.js";
 import { readWorkbookRows } from "./xlsx-lite.js";
 import type { PublishFromSpuMetadata } from "../business/publish-from-spu/types.js";
+import type { ProductListPreflightMode } from "../business/publish-from-spu/publish-rules.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import type { PublishTargetIdentity } from "./publish-identity.js";
 import type { PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
@@ -354,6 +356,7 @@ export async function publishDistributedProducts(options: {
   distributedFolders: string[];
   productIdentity?: PublishProductIdentity;
   feishuProductRecord?: FeishuProductRecord;
+  productListPreflightMode: ProductListPreflightMode;
   simulateOnly: boolean;
   assertNotPaused?: () => void;
   onProgress?: (message: string) => void;
@@ -622,7 +625,10 @@ export async function publishDistributedProducts(options: {
         listCheckedNotFound = true;
       }
     }
-    if (!listCheckedNotFound) {
+    if (
+      !listCheckedNotFound &&
+      shouldRunPendingTargetProductListPreflight(options.productListPreflightMode)
+    ) {
       options.assertNotPaused?.();
       const preflightMessage = `Preflight checking Doudian 全部 tab for an existing exact-title product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
       logInfo(preflightMessage);

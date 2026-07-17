@@ -22,6 +22,7 @@
     "maxImagesPerRun": 1,
     "simulateOnly": true,
     "startStep": "source_images_discovered",
+    "productListPreflightMode": "known_sequence",
     "endStep": "done"
   }
 }

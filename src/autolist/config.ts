@@ -3,6 +3,7 @@ import path from "node:path";
 import { formatTimestamp } from "../utils/path-names.js";
 import { AUTO_LISTING_STEPS, normalizeAutoListingStep } from "./types.js";
 import { resolveImageGenerationProvider } from "./image-generation-provider.js";
+import { resolveProductListPreflightMode } from "../business/publish-from-spu/publish-rules.js";
 import type { AutoListingJobFile, AutoListingJobInput, AutoListingResolvedJob } from "./types.js";
 
 const DEFAULT_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
@@ -77,6 +78,11 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     resumeSourceImagePath: input.resumeSourceImagePath ? path.resolve(input.resumeSourceImagePath) : "",
     resumeTaskId: input.resumeTaskId || "",
     resumeProductFolderNames: input.resumeProductFolderNames || [],
+    productListPreflightMode: resolveProductListPreflightMode({
+      requestedMode: input.productListPreflightMode,
+      resumeSourceImagePath: input.resumeSourceImagePath,
+      startStep
+    }),
     feishuBatchFingerprint: input.feishuBatchFingerprint || "",
     businessRuleFingerprint: input.businessRuleFingerprint || "",
     simulateOnly,

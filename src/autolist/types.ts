@@ -1,4 +1,5 @@
 import type { FeishuProductRecord } from "../feishu/types.js";
+import type { ProductListPreflightMode } from "../business/publish-from-spu/publish-rules.js";
 import type { PublishTargetIdentity } from "./publish-identity.js";
 import type { PublishFailureCircuitState } from "./failure-circuit-breaker.js";
 import type { ImageGenerationProvider } from "./image-generation-provider.js";
@@ -57,6 +58,7 @@ export interface AutoListingJobInput {
   resumeSourceImagePath?: string;
   resumeTaskId?: string;
   resumeProductFolderNames?: string[];
+  productListPreflightMode?: ProductListPreflightMode;
   feishuBatchFingerprint?: string;
   businessRuleFingerprint?: string;
   simulateOnly?: boolean;

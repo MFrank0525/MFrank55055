@@ -120,6 +120,8 @@ import {
   evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
+  resolveProductListPreflightMode,
+  shouldRunPendingTargetProductListPreflight,
   shouldRetryPublishFailure,
   shouldStopPublishBatchAfterFailure,
   evaluatePublishResult
@@ -137,6 +139,42 @@ const canonicalIdentity = {
   shopCode: "01",
   watermarkNo: 1
 };
+assert.equal(shouldRunPendingTargetProductListPreflight("known_sequence"), false);
+assert.equal(shouldRunPendingTargetProductListPreflight("unresolved_disorder"), true);
+assert.equal(
+  resolveProductListPreflightMode({
+    requestedMode: undefined,
+    resumeSourceImagePath: "",
+    startStep: "source_images_discovered"
+  }),
+  "known_sequence"
+);
+assert.equal(
+  resolveProductListPreflightMode({
+    requestedMode: "unresolved_disorder",
+    resumeSourceImagePath: "/runtime/source.png",
+    startStep: "published"
+  }),
+  "unresolved_disorder"
+);
+assert.throws(
+  () =>
+    resolveProductListPreflightMode({
+      requestedMode: "unresolved_disorder",
+      resumeSourceImagePath: "",
+      startStep: "source_images_discovered"
+    }),
+  /only valid for an explicit publish-stage resume/
+);
+assert.throws(
+  () =>
+    resolveProductListPreflightMode({
+      requestedMode: "unexpected_mode",
+      resumeSourceImagePath: "/runtime/source.png",
+      startStep: "published"
+    }),
+  /Invalid productListPreflightMode/
+);
 const mergedResumeArtifact = mergePublishArtifactWithSafeManifest({
   artifact: { results: [], simulated: false },
   manifestEntries: [
@@ -352,8 +390,13 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /Preflight checking Doudian 全部 tab for an existing exact-title product[\s\S]*verifyPublishedProductInDoudianList[\s\S]*if \(listVerification\.found\)[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;[\s\S]*Publishing product folder:/,
-  "Every otherwise-pending target must pass a read-only exact-title idempotency preflight before a publish mutation"
+  /shouldRunPendingTargetProductListPreflight\(options\.productListPreflightMode\)[\s\S]*Preflight checking Doudian 全部 tab for an existing exact-title product[\s\S]*verifyPublishedProductInDoudianList[\s\S]*if \(listVerification\.found\)[\s\S]*finalVerifyStatus:\s*"list_verified"/,
+  "Pending-target exact-title preflight must run only through the unresolved-disorder rule gate"
+);
+assert.doesNotMatch(
+  publishSource,
+  /if \(!listCheckedNotFound\) \{\s*options\.assertNotPaused/,
+  "Known-sequence publish must not perform the old unconditional per-target product-list preflight"
 );
 assert.match(
   publishFromSpuSource,

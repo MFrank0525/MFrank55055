@@ -23,6 +23,7 @@
     "simulateOnly": true,
     "clearTestOutputsBeforeRun": true,
     "startStep": "source_images_discovered",
+    "productListPreflightMode": "known_sequence",
     "endStep": "done"
   }
 }
