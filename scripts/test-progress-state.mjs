@@ -3934,6 +3934,13 @@ assert.equal(
   "resume",
   "A publish-stage completion-gate failure must never fall through to destructive full-flow recovery."
 );
+assert.equal(
+  resolveSupervisorRecoveryChildMode(
+    "failed at cleaned: Archive guard failed: expected 20 current unwatermarked main image(s), got 3."
+  ),
+  "resume",
+  "A cleanup-stage archive guard failure must resume cleanup instead of restarting the full paid and publish flow."
+);
 const emptyPublishSectionsAfterSpuFailure =
   "failed at published: Publish failed for /work/shop/product-03: Publish create page has no publish sections after SPU query.";
 assert.equal(

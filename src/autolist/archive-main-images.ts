@@ -78,10 +78,10 @@ export function archiveUnwatermarkedMainImages(options: {
   const artifactRawFiles = (options.mainImageArtifact?.generatedFiles || [])
     .map((item) => item.rawImageFile || "")
     .filter((filePath) => filePath && fs.existsSync(filePath) && isGeneratedRawMainImage(filePath));
-  const recoveredRawFiles = artifactRawFiles.length
-    ? []
-    : listImageFilesRecursive(options.rawImageSearchDir || "").filter(isGeneratedRawMainImage);
-  const rawFiles = artifactRawFiles.length ? artifactRawFiles : recoveredRawFiles;
+  const recoveredRawFiles = listImageFilesRecursive(options.rawImageSearchDir || "").filter(isGeneratedRawMainImage);
+  const rawFiles = Array.from(
+    new Set([...artifactRawFiles, ...recoveredRawFiles].map((filePath) => path.resolve(filePath)))
+  ).sort((a, b) => a.localeCompare(b, "zh-CN"));
 
   if (!rawFiles.length) {
     return [];

@@ -143,7 +143,7 @@ function isChildWatchdogFailure(message: string): boolean {
 }
 
 function isSafeResumeTransitionFailure(message: string): boolean {
-  return /product folders already contain workbook/i.test(message);
+  return /product folders already contain workbook|failed at cleaned:.*Archive guard failed/i.test(message);
 }
 
 function isSafeManifestBackedPublishResumeFailure(message: string): boolean {

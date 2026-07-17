@@ -86,3 +86,32 @@ assert.ok(path.basename(path.dirname(archived[0])).endsWith(shortTitle));
 assert.equal(path.basename(archived[0]), `${shortTitle}无水印主图01.png`);
 assert.equal(fs.readFileSync(archived[0], "utf8"), "raw-1-1");
 assert.equal(fs.readFileSync(archived[14], "utf8"), "raw-4-3");
+
+const fourthRawDir = path.join(taskDir, "main-image-04", "openai-compatible", "raw");
+const missingFourthRaw = path.join(fourthRawDir, "generated-04.png");
+fs.writeFileSync(missingFourthRaw, "raw-4-4");
+rawFiles.push(missingFourthRaw);
+const finalRawDir = path.join(taskDir, "main-image-05", "openai-compatible", "raw");
+fs.mkdirSync(finalRawDir, { recursive: true });
+for (let imageIndex = 1; imageIndex <= 4; imageIndex += 1) {
+  const file = path.join(finalRawDir, `generated-${String(imageIndex).padStart(2, "0")}.png`);
+  fs.writeFileSync(file, `raw-5-${imageIndex}`);
+  rawFiles.push(file);
+}
+const archivedFromPartialResumeArtifact = archiveUnwatermarkedMainImages({
+  ...incompleteArchiveInput,
+  mainImageArtifact: {
+    ...incompleteArchiveInput.mainImageArtifact,
+    generatedFiles: incompleteArchiveInput.mainImageArtifact.generatedFiles.slice(-3)
+  }
+});
+assert.equal(
+  archivedFromPartialResumeArtifact.length,
+  20,
+  "A partial publish-resume artifact must be united with the complete current-task raw image set before archiving."
+);
+assert.equal(
+  new Set(archivedFromPartialResumeArtifact.map((file) => fs.readFileSync(file, "utf8"))).size,
+  20,
+  "Artifact and disk-discovered raw images must be deduplicated before archiving."
+);
