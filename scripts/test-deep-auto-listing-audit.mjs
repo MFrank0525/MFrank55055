@@ -6,6 +6,7 @@ import {
   auditRuntimeControllerConsistency,
   auditRuleContradictions,
   runDeepAuditRules,
+  shouldRequireCompletePublishAudit,
   shouldRequirePublishTargetIdentity
 } from "../dist/src/autolist/deep-audit-rules.js";
 import { auditCurrentPaidImageLedgers } from "../dist/src/autolist/paid-image-audit.js";
@@ -51,6 +52,12 @@ assert.equal(
   }),
   true
 );
+assert.equal(
+  shouldRequireCompletePublishAudit({ runStatus: "completed", taskStatuses: ["shop_distributed"] }),
+  false,
+  "A bounded asset-recovery run that stopped before publish must remain in-progress for publish evidence auditing."
+);
+assert.equal(shouldRequireCompletePublishAudit({ runStatus: "completed", taskStatuses: ["done"] }), true);
 
 const partialPaidLedgerAudit = auditPaidImageLedgerArtifacts({
   expectedSlotCount: 20,

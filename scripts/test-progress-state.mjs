@@ -11,6 +11,7 @@ import {
   buildCanonicalPublishTargetKeys,
   summarizeFeishuBatchProgress,
   auditMainImageGeneration,
+  auditPublishMainImageSubset,
   auditPublishCoverage
 } from "../dist/src/autolist/audit-rules.js";
 import {
@@ -93,6 +94,7 @@ import {
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
   inferResumeStartStepForTask,
+  selectRemainingResumeProductFolderNames,
   shouldInvalidatePublishedResumeWithoutProductFolders,
   shouldReplaceStaleResumeStartStep
 } from "../dist/src/autolist/resume-rules.js";
@@ -722,6 +724,16 @@ assert.match(
 );
 assert.match(
   orchestratorSource,
+  /auditPublishMainImageSubset[\s\S]*expectedProductFolders:\s*distributedFolders[\s\S]*publishDistributedProducts/,
+  "Publish-stage known-target resumes must validate their exact remaining image subset before browser mutation."
+);
+assert.match(
+  orchestratorSource,
+  /currentBatchPaidLedgerExists[\s\S]*shouldCleanupStaleRunHistory[\s\S]*!currentBatchPaidLedgerExists[\s\S]*enabled:\s*resolved\.input\.clearTestOutputsBeforeRun\s*&&\s*!currentBatchPaidLedgerExists/,
+  "A current-batch paid ledger must protect unfinished publish runtime and shop assets from destructive full-flow pre-run cleanup."
+);
+assert.match(
+  orchestratorSource,
   /isProductFullyProcessed[\s\S]*appendProcessedImages[\s\S]*removePaidImageProductLedger/,
   "A safely completed product must be atomically marked processed before its project-owned paid-image ledger is deleted"
 );
@@ -765,6 +777,15 @@ assert.match(
   /countResumeProductFolders/,
   "AutoListingController resume must count restored product folders as reusable publish-stage artifacts"
 );
+assert.deepEqual(
+  selectRemainingResumeProductFolderNames({
+    allProductFolderNames: ["product-水印01", "product-水印02", "product-水印03"],
+    manifestEntries: [{ productFolder: "/shops/01/product-水印01", status: "published", finalVerifyStatus: "publish_signal_confirmed" }]
+  }),
+  ["product-水印02", "product-水印03"],
+  "Manifest-backed recovery must include every not-yet-safe target after the failed shop, not only the single failed entry."
+);
+assert.match(hermesRunnerSource, /unsafeLatest[\s\S]*selectRemainingResumeProductFolderNames/);
 assert.match(
   hermesRunnerSource,
   /const resumeProductFolderCount = countResumeProductFolders\(resumeJob\)[\s\S]*summarizeReusableTaskArtifacts[\s\S]*Math\.max\(reusableTaskArtifacts\.reusableArtifactCount, resumeProductFolderCount\)/,
@@ -3890,6 +3911,20 @@ assert.equal(
   "full",
   "Ordinary retryable failures must keep the existing full-flow recovery behavior"
 );
+assert.equal(
+  resolveSupervisorRecoveryChildMode(
+    "failed at published: Publish failed for /work/shop/product-18: Main images must already satisfy 1:1 ratio before upload. Invalid files: main.png(1199x1312)"
+  ),
+  "resume",
+  "A publish-stage main-image shape failure must stay on the manifest-backed publish resume path."
+);
+assert.equal(
+  resolveSupervisorRecoveryChildMode(
+    "failed at published: Main image completion gate failed: Task image-001 generated 1 main image(s), expected 20."
+  ),
+  "resume",
+  "A publish-stage completion-gate failure must never fall through to destructive full-flow recovery."
+);
 const emptyPublishSectionsAfterSpuFailure =
   "failed at published: Publish failed for /work/shop/product-03: Publish create page has no publish sections after SPU query.";
 assert.equal(
@@ -5601,6 +5636,44 @@ const generationNonSquare = auditMainImageGeneration({
 });
 assert.equal(generationNonSquare.ok, false);
 assert.ok(generationNonSquare.errors.some((issue) => issue.code === "main_image_not_square"));
+
+const publishSubsetOk = auditPublishMainImageSubset({
+  taskId: "image-001",
+  generatedFiles: [completeGeneratedFiles[4]],
+  expectedProductFolders: [completeGeneratedFiles[4].productFolder],
+  existingFiles: [
+    completeGeneratedFiles[4].imageFile,
+    completeGeneratedFiles[4].rawImageFile,
+    completeGeneratedFiles[4].productFolder
+  ],
+  imageDimensions: new Map([
+    [path.resolve(completeGeneratedFiles[4].imageFile), { width: 1312, height: 1312 }],
+    [path.resolve(completeGeneratedFiles[4].rawImageFile), { width: 1312, height: 1312 }]
+  ]),
+  simulateOnly: false
+});
+assert.equal(
+  publishSubsetOk.ok,
+  true,
+  "A known publish-stage resume may validate exactly its remaining target subset without pretending it regenerated all 20 images."
+);
+const publishSubsetMissing = auditPublishMainImageSubset({
+  taskId: "image-001",
+  generatedFiles: [completeGeneratedFiles[4]],
+  expectedProductFolders: [completeGeneratedFiles[4].productFolder, "/work/shop/product-3"],
+  existingFiles: [
+    completeGeneratedFiles[4].imageFile,
+    completeGeneratedFiles[4].rawImageFile,
+    completeGeneratedFiles[4].productFolder
+  ],
+  imageDimensions: new Map([
+    [path.resolve(completeGeneratedFiles[4].imageFile), { width: 1312, height: 1312 }],
+    [path.resolve(completeGeneratedFiles[4].rawImageFile), { width: 1312, height: 1312 }]
+  ]),
+  simulateOnly: false
+});
+assert.equal(publishSubsetMissing.ok, false);
+assert.ok(publishSubsetMissing.errors.some((issue) => issue.code === "publish_main_image_target_mismatch"));
 
 const publishTask = {
   taskId: "image-001",

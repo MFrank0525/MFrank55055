@@ -112,6 +112,15 @@ export interface MainImageGenerationAuditResult {
   warnings: AutoListingAuditIssue[];
 }
 
+export interface PublishMainImageSubsetAuditInput {
+  taskId: string;
+  generatedFiles: MainImageGeneratedFile[];
+  expectedProductFolders: string[];
+  existingFiles: Iterable<string>;
+  imageDimensions?: ReadonlyMap<string, ImageDimensions>;
+  simulateOnly: boolean;
+}
+
 export interface PublishCoverageAuditInput {
   tasks: ImageTaskState[];
   manifestEntries: PublishManifestEntry[];
@@ -593,6 +602,89 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
       auditedTaskCount: tasks.length,
       generatedImageCount,
       expectedImageCount
+    },
+    errors,
+    warnings
+  };
+}
+
+export function auditPublishMainImageSubset(input: PublishMainImageSubsetAuditInput): MainImageGenerationAuditResult {
+  const errors: AutoListingAuditIssue[] = [];
+  const warnings: AutoListingAuditIssue[] = [];
+  const existingFiles = new Set(Array.from(input.existingFiles || []).filter(Boolean).map(normalizePath));
+  const expectedFolders = new Set(input.expectedProductFolders.filter(Boolean).map(normalizePath));
+  const actualFolders = new Set(input.generatedFiles.map((item) => normalizePath(item.productFolder)).filter(Boolean));
+
+  if (
+    expectedFolders.size === 0 ||
+    actualFolders.size !== expectedFolders.size ||
+    [...expectedFolders].some((folder) => !actualFolders.has(folder))
+  ) {
+    errors.push(
+      issue(
+        "error",
+        "publish_main_image_target_mismatch",
+        `Publish-stage main image recovery did not match the exact remaining target set. expected=${expectedFolders.size}; actual=${actualFolders.size}.`,
+        input.taskId
+      )
+    );
+  }
+
+  const seenImages = new Set<string>();
+  const seenRawImages = new Set<string>();
+  for (const file of input.generatedFiles) {
+    const requiredPaths = [file.productFolder, file.imageFile, file.rawImageFile].filter(Boolean) as string[];
+    if (!file.rawImageFile) {
+      errors.push(
+        issue(
+          "error",
+          "main_image_raw_file_missing",
+          `Publish-stage recovery is missing the raw main image for ${file.productFolder}.`,
+          input.taskId,
+          file.productFolder
+        )
+      );
+    }
+    for (const requiredPath of requiredPaths) {
+      if (!input.simulateOnly && !existingFiles.has(normalizePath(requiredPath))) {
+        errors.push(
+          issue(
+            "error",
+            requiredPath === file.productFolder ? "main_image_product_folder_missing" : "main_image_file_missing",
+            `Publish-stage main image artifact is missing: ${requiredPath}`,
+            input.taskId,
+            requiredPath
+          )
+        );
+      }
+    }
+
+    for (const [candidate, seen] of [
+      [file.imageFile, seenImages],
+      [file.rawImageFile, seenRawImages]
+    ] as Array<[string | undefined, Set<string>]>) {
+      if (!candidate) continue;
+      const normalized = normalizePath(candidate);
+      if (!input.simulateOnly && seen.has(normalized)) {
+        errors.push(issue("error", "main_image_duplicate_file", `Publish-stage main image path is duplicated: ${candidate}`, input.taskId, candidate));
+      }
+      seen.add(normalized);
+      if (input.simulateOnly || !existingFiles.has(normalized)) continue;
+      const dimensions = input.imageDimensions?.get(normalized);
+      if (!dimensions) {
+        errors.push(issue("error", "main_image_dimensions_unreadable", `Main image dimensions could not be read: ${candidate}`, input.taskId, candidate));
+      } else if (dimensions.width !== dimensions.height) {
+        errors.push(issue("error", "main_image_not_square", `Main image must be square before publishing: ${candidate} (${dimensions.width}x${dimensions.height}).`, input.taskId, candidate));
+      }
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    summary: {
+      auditedTaskCount: 1,
+      generatedImageCount: input.generatedFiles.length,
+      expectedImageCount: expectedFolders.size
     },
     errors,
     warnings

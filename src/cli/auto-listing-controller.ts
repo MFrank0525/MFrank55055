@@ -39,6 +39,7 @@ import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-m
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
   inferResumeStartStepForTask,
+  selectRemainingResumeProductFolderNames,
   shouldInvalidatePublishedResumeWithoutProductFolders,
   shouldReplaceStaleResumeStartStep
 } from "../autolist/resume-rules.js";
@@ -2626,9 +2627,8 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
       sourceImagePath && item.sourceImagePath && path.resolve(rootDir, item.sourceImagePath) === path.resolve(rootDir, sourceImagePath)
     );
     if (task?.sourceImagePath) {
-      const resumeProductFolderNames = Array.from(
-        new Set(unsafeLatest.unsafeEntries.map((entry) => path.basename(entry.productFolder || "")).filter(Boolean))
-      );
+      const runtimeManifest = readJsonFile<PublishManifestFile>(path.join(unsafeLatest.runtimeDir, "publish-manifest.json"));
+      const resumeProductFolderNames = selectRemainingResumeProductFolderNames({ allProductFolderNames: collectResumeProductFolderNames(task), manifestEntries: runtimeManifest?.entries || [] });
       const resumeJob: AutoListingJobFile = {
         ...sourceJob,
         runtimeDir: unsafeLatest.runtimeDir,

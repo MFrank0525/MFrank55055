@@ -147,12 +147,11 @@ function isSafeResumeTransitionFailure(message: string): boolean {
 }
 
 function isSafeManifestBackedPublishResumeFailure(message: string): boolean {
-  return (
-    isRetryablePublishPageFailure(message) &&
-    (/基础信息模块未完成|Basic info gate failed|input not found on publish page|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete/i.test(
-      message
-    ) || isDeterministicDetailQualificationFailure(message) || isRetryablePreSubmitShippingPreconditionFailure(message))
-  );
+  const publishStage = /failed at published|publish failed|publish flow stopped/i.test(message);
+  const imageGate = /Main image completion gate failed|Main images must already satisfy 1:1 ratio|main_image_shape_invalid/i.test(message);
+  const knownPublishGate = /基础信息模块未完成|Basic info gate failed|input not found on publish page|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete/i.test(message);
+  return publishStage && (imageGate || (isRetryablePublishPageFailure(message) &&
+    (knownPublishGate || isDeterministicDetailQualificationFailure(message) || isRetryablePreSubmitShippingPreconditionFailure(message))));
 }
 
 export function resolveSupervisorRecoveryChildMode(failureMessage: string): SupervisorChildMode {

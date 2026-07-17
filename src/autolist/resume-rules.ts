@@ -1,5 +1,5 @@
 import { AUTO_LISTING_STEPS, normalizeAutoListingStep, type AutoListingStep } from "./types.js";
-import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, type PublishFinalVerifyStatus } from "./publish-manifest.js";
+import { isManifestEntryAcceptedForBatchCompletion, SAFE_PUBLISH_FINAL_VERIFY_STATUSES, type PublishFinalVerifyStatus } from "./publish-manifest.js";
 
 export interface ResumeTaskLike {
   status?: string;
@@ -110,4 +110,15 @@ export function shouldInvalidatePublishedResumeWithoutProductFolders(input: {
     input.declaredProductFolderCount > 0 &&
     input.actualProductFolderCount < input.declaredProductFolderCount
   );
+}
+
+export function selectRemainingResumeProductFolderNames(input: {
+  allProductFolderNames: string[];
+  manifestEntries: Array<{ productFolder?: string; status?: string; finalVerifyStatus?: string; errorClass?: string }>;
+}): string[] {
+  const safelyPublishedNames = new Set(input.manifestEntries
+    .filter((entry) => isManifestEntryAcceptedForBatchCompletion(entry as never))
+    .map((entry) => entry.productFolder?.split(/[\\/]/).pop() || "")
+    .filter(Boolean));
+  return [...new Set(input.allProductFolderNames.filter(Boolean))].filter((name) => !safelyPublishedNames.has(name));
 }

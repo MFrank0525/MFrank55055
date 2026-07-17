@@ -310,6 +310,13 @@ export function auditCanonicalPublishEvidence(input: {
   };
 }
 
+export function shouldRequireCompletePublishAudit(input: {
+  runStatus?: string;
+  taskStatuses: string[];
+}): boolean {
+  return input.runStatus === "completed" && input.taskStatuses.length > 0 && input.taskStatuses.every((status) => status === "done");
+}
+
 function includesCountRule(text: string, category: string, count: number, unit: string): boolean {
   const normalized = text.replace(/\s+/g, "");
   return normalized.includes(`${category}：${count}${unit}`) || normalized.includes(`${category}:${count}${unit}`);

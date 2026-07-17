@@ -14,7 +14,7 @@ import {
 } from "./main-image-square-action.js";
 import { archiveUnwatermarkedMainImages, resolveArchiveProductName } from "./archive-main-images.js";
 import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
-import { auditMainImageGeneration, collectFeishuProductAssetFiles, summarizeFeishuBatchProgress } from "./audit-rules.js";
+import { auditMainImageGeneration, auditPublishMainImageSubset, collectFeishuProductAssetFiles, summarizeFeishuBatchProgress } from "./audit-rules.js";
 import { buildFeishuBatchFingerprint } from "./feishu-batch-rules.js";
 import {
   loadFeishuProductRecords,
@@ -41,7 +41,7 @@ import { logError, logInfo, setLogFile } from "../utils/logger.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { loadPublishManifest, type PublishProductIdentity } from "./publish-manifest.js";
 import { hasCompleteProductPublishCoverage, isProductFullyProcessed } from "./processed-completion-rules.js";
-import { removePaidImageBatchLedger, removePaidImageProductLedger } from "./paid-image-submission-ledger.js";
+import { paidImageBatchLedgerDir, removePaidImageBatchLedger, removePaidImageProductLedger } from "./paid-image-submission-ledger.js";
 import type {
   AutoListingEvent,
   AutoListingJobFile,
@@ -236,6 +236,33 @@ function assertMainImageCompletionGate(input: {
   if (!audit.ok) {
     const reason = audit.errors.map((issue) => issue.message).join("; ");
     throw new Error(`Main image completion gate failed: ${reason || "generated main images are incomplete"}`);
+  }
+}
+
+function assertPublishMainImageSubsetGate(input: {
+  task: ImageTaskState;
+  expectedProductFolders: string[];
+  simulateOnly: boolean;
+}): void {
+  const generatedFiles = input.task.mainImageArtifact?.generatedFiles || [];
+  const candidatePaths = generatedFiles.flatMap((item) => [item.imageFile, item.rawImageFile, item.productFolder].filter(Boolean) as string[]);
+  const existingFiles = input.simulateOnly ? candidatePaths : candidatePaths.filter((filePath) => fs.existsSync(filePath));
+  const imageDimensions = new Map(
+    generatedFiles
+      .flatMap((item) => [item.imageFile, item.rawImageFile].filter(Boolean) as string[])
+      .filter((filePath) => fs.existsSync(filePath))
+      .map((filePath) => [path.resolve(filePath), readImageDimensions(filePath)] as const)
+  );
+  const audit = auditPublishMainImageSubset({
+    taskId: input.task.taskId,
+    generatedFiles,
+    expectedProductFolders: input.expectedProductFolders,
+    existingFiles,
+    imageDimensions,
+    simulateOnly: input.simulateOnly
+  });
+  if (!audit.ok) {
+    throw new Error(`Publish main image subset gate failed: ${audit.errors.map((item) => item.message).join("; ")}`);
   }
 }
 
@@ -801,11 +828,9 @@ async function executeTaskChain(
               : current.notes
         };
       }
-      const publishProductPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
-      assertMainImageCompletionGate({
+      assertPublishMainImageSubsetGate({
         task: current,
-        expectedPromptCount: publishProductPlan.promptCount,
-        expectedImagesPerPrompt: mainImageExpectedCount,
+        expectedProductFolders: distributedFolders,
         simulateOnly
       });
       const currentProductIdentity = buildPublishProductIdentity(current, feishuBatchFingerprint);
@@ -1052,9 +1077,13 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
       throw new Error(`Auto-listing preflight failed: ${preflight.errors.join(" ")}`);
     }
 
+    const currentBatchPaidLedgerExists = Boolean(
+      feishuBatchFingerprint && fs.existsSync(paidImageBatchLedgerDir(resolved.input.paidImageSubmissionLedgerDir, feishuBatchFingerprint))
+    );
     const shouldCleanupStaleRunHistory =
       !resolved.input.simulateOnly &&
       resolved.input.cleanupAfterPublish &&
+      !currentBatchPaidLedgerExists &&
       !resolved.input.resumeSourceImagePath &&
       resolved.input.startStep === "source_images_discovered";
     const staleRunHistoryCleanup = cleanupStaleRunHistory({
@@ -1076,7 +1105,7 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
       mainImageWorkDir: resolved.input.mainImageWorkDir,
       titleDir: resolved.input.titleDir,
       shopRootDir: resolved.input.shopRootDir,
-      enabled: resolved.input.clearTestOutputsBeforeRun,
+      enabled: resolved.input.clearTestOutputsBeforeRun && !currentBatchPaidLedgerExists,
       simulateOnly: resolved.input.simulateOnly
     });
 

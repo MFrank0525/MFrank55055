@@ -9,6 +9,7 @@ import {
   auditRuleContradictions,
   auditRuntimeControllerConsistency,
   runDeepAuditRules,
+  shouldRequireCompletePublishAudit,
   shouldRequirePublishTargetIdentity,
   type DeepAuditIssue
 } from "../autolist/deep-audit-rules.js";
@@ -402,11 +403,15 @@ async function main(): Promise<void> {
       }))
   });
   const generation = currentPaidImageAudit.generation;
+  const requireCompletePublishAudit = shouldRequireCompletePublishAudit({
+    runStatus: state?.status,
+    taskStatuses: (state?.tasks || []).map((task) => task.status)
+  });
   const publish = auditPublishCoverage({
     tasks: state?.tasks || [],
     manifestEntries: manifest.entries,
     batchFingerprint: state?.feishuBatchFingerprint,
-    allowInProgress: state?.status === "running" && activeControllerRunning
+    allowInProgress: !requireCompletePublishAudit
   });
   const runDirCount = fs.existsSync(resolved.runtimeRootDir)
     ? fs.readdirSync(resolved.runtimeRootDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[0-9]{8}-[0-9]{6}$/.test(entry.name)).length
@@ -465,7 +470,7 @@ async function main(): Promise<void> {
     expectedTargetKeys,
     manifestTargetKeys: manifest.entries.map((entry) => entry.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey)),
     artifactTargetKeys: (state?.tasks || []).flatMap((task) => task.publishArtifact?.results.map((result) => result.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey)) || []),
-    requireComplete: state?.status === "completed"
+    requireComplete: requireCompletePublishAudit
   });
   identityAudit.errors.unshift(...identityBuildErrors);
   const categories: ProductCategory[] = ["医疗器械", "非处方药", "保健食品"];
