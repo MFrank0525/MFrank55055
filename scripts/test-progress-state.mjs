@@ -93,6 +93,7 @@ import {
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
+  hasPendingResumeProductFolders,
   inferResumeStartStepForTask,
   selectRemainingResumeProductFolderNames,
   shouldInvalidatePublishedResumeWithoutProductFolders,
@@ -785,6 +786,14 @@ assert.deepEqual(
   ["product-水印02", "product-水印03"],
   "Manifest-backed recovery must include every not-yet-safe target after the failed shop, not only the single failed entry."
 );
+assert.equal(
+  hasPendingResumeProductFolders({
+    resumeProductFolderNames: ["product-水印18", "product-水印19", "product-水印20"],
+    manifestEntries: [{ productFolder: "/shops/01/product-水印01", status: "published", finalVerifyStatus: "publish_signal_confirmed" }]
+  }),
+  true,
+  "Safe evidence for earlier shops must not satisfy the exact remaining resume allowlist."
+);
 assert.match(hermesRunnerSource, /unsafeLatest[\s\S]*selectRemainingResumeProductFolderNames/);
 assert.match(
   hermesRunnerSource,
@@ -833,7 +842,7 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /publishResumeNeedsWork[\s\S]*startStep === "published"[\s\S]*resumeProductFolderCount > 0[\s\S]*countSafelyPublishedManifestEntries\(resumeRuntimeDir\) < resumeProductFolderCount/,
+  /publishResumeNeedsWork[\s\S]*startStep === "published"[\s\S]*resumeProductFolderCount > 0[\s\S]*hasPendingResumeProductFolders/,
   "AutoListingController resume must continue publish-stage work when restored product folders exist but publish manifest is not safely complete"
 );
 assert.match(

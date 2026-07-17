@@ -39,6 +39,7 @@ import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-m
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
   inferResumeStartStepForTask,
+  hasPendingResumeProductFolders,
   selectRemainingResumeProductFolderNames,
   shouldInvalidatePublishedResumeWithoutProductFolders,
   shouldReplaceStaleResumeStartStep
@@ -56,7 +57,6 @@ import {
   findLatestUnsafePublishManifestForResume as selectLatestUnsafePublishManifestForResume,
   unsafePublishEntriesForResume
 } from "../autolist/unsafe-publish-resume.js";
-
 interface RunnerJob {
   pid: number;
   startedAt: string;
@@ -2189,7 +2189,7 @@ function shouldResumeCurrentFailure(): boolean {
   const publishResumeNeedsWork =
     startStep === "published" &&
     resumeProductFolderCount > 0 &&
-    countSafelyPublishedManifestEntries(resumeRuntimeDir) < resumeProductFolderCount;
+    hasPendingResumeProductFolders({ resumeProductFolderNames: resumeJob.input?.resumeProductFolderNames || [], manifestEntries: readJsonFile<PublishManifestFile>(path.join(resumeRuntimeDir, "publish-manifest.json"))?.entries || [] });
   const shouldResume = unsafePublishResumeNeedsWork || publishResumeNeedsWork || !result || (result.ok !== true && result.status !== "success");
   const latestRelevantFailure = findLatestFailedResultForResume();
   if (!unsafePublishResumeNeedsWork && !publishResumeNeedsWork && (!latestRelevantFailure || path.resolve(latestRelevantFailure.resultFile) !== resultFile)) {

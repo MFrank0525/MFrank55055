@@ -122,3 +122,13 @@ export function selectRemainingResumeProductFolderNames(input: {
     .filter(Boolean));
   return [...new Set(input.allProductFolderNames.filter(Boolean))].filter((name) => !safelyPublishedNames.has(name));
 }
+
+export function hasPendingResumeProductFolders(input: {
+  resumeProductFolderNames: string[];
+  manifestEntries: Array<{ productFolder?: string; status?: string; finalVerifyStatus?: string; errorClass?: string }>;
+}): boolean {
+  return selectRemainingResumeProductFolderNames({
+    allProductFolderNames: input.resumeProductFolderNames,
+    manifestEntries: input.manifestEntries
+  }).length > 0;
+}
