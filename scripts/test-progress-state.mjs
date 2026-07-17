@@ -190,8 +190,28 @@ const publishSubmitPageActionSource = fs.readFileSync(
 );
 assert.match(
   productListVerificationSource,
-  /属性自动优化用户协议[\s\S]*getByRole\("button", \{ name: "Close", exact: true \}\)/,
+  /ecom-g-tabs-nav-list[\s\S]*getByRole\("tab", \{ name: "售卖中", exact: true \}\)[\s\S]*getByRole\("tab", \{ name: "全部", exact: true \}\)/,
+  "product-list verification must resolve 全部 only inside the unique product-status tab group"
+);
+assert.doesNotMatch(
+  productListVerificationSource,
+  /getByText\("全部", \{ exact: true \}\)/,
+  "product-list verification must never fall back to page-wide 全部 text shared by filter controls"
+);
+assert.match(
+  productListVerificationSource,
+  /waitForUniqueProductListLocator[\s\S]*product status tab group[\s\S]*product status 全部 tab/,
+  "product-list verification must wait for asynchronous list controls and fail with structural diagnostics"
+);
+assert.match(
+  productListVerificationSource,
+  /属性自动优化[\s\S]*getByRole\("button", \{ name: "Close", exact: true \}\)/,
   "product-list verification must close the auto-optimization opt-in dialog through its safe close control"
+);
+assert.match(
+  productListVerificationSource,
+  /auxo-modal-mask[\s\S]*unrecognized modal overlay/,
+  "product-list verification must diagnose an unknown blocking overlay instead of timing out on the query button"
 );
 assert.doesNotMatch(
   productListVerificationSource,
@@ -205,13 +225,28 @@ assert.match(
 );
 assert.match(
   productListVerificationSource,
-  /if \(\(await searchInputs\.count\(\)\) !== 1\)[\s\S]*const searchInput = searchInputs;/,
-  "product-list verification must fail closed unless the title search input is unique"
+  /waitForUniqueProductListLocator\([\s\S]*"title search input"[\s\S]*getByPlaceholder\("请输入商品名称\/商品ID\/商家编码，多条可用逗号隔开"\)/,
+  "product-list verification must wait and fail closed unless the title search input is unique"
 );
 assert.doesNotMatch(
   productListVerificationSource,
   /normalizeText\(bodyText\)\.includes\(normalizedTitle\)/,
   "product-list verification must not infer a published row from page-wide text that can echo the query"
+);
+assert.match(
+  productListVerificationSource,
+  /waitForProductListQuerySettlement[\s\S]*searchParams\.get\("product_id"\)[\s\S]*共\\s\*\\d\+\\s\*条[\s\S]*暂无数据[\s\S]*visibleResultRows/,
+  "product-list verification must prove query identity and a settled row-or-empty result before returning not-found"
+);
+assert.doesNotMatch(
+  productListVerificationSource,
+  /waitForTimeout\(2500\)/,
+  "product-list verification must not use a fixed delay as evidence that an exact-title query returned no product"
+);
+assert.match(
+  productListVerificationSource,
+  /catch \(error\)[\s\S]*doudian-list-verification-failed[\s\S]*failureScreenshot/,
+  "product-list verification failures must preserve a screenshot path for root-cause evidence"
 );
 assert.match(
   publishSubmitPageActionSource,

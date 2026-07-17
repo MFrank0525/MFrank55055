@@ -89,5 +89,6 @@ Health-food business decisions are owned by `src/business/publish-from-spu/healt
 Move these next, in order:
 
 1. Keep rule classifications in `publish-rules.ts` and `health-food-rules.ts`; module action files may return readback structures but must not decide business pass/fail meaning.
-2. Add product-list verification rules when the 商品管理 list page is stable enough to query by title/SPU.
-3. Replace regex-based source-structure tests with exported pure rule contracts where possible.
+2. Replace regex-based source-structure tests with exported pure rule contracts where possible.
+
+Product-list verification is now an active idempotency boundary. Its business decision remains in the publish rules, while the action module owns the exact 商品状态 tab-group locator, asynchronous readiness wait, safe known-dialog dismissal, query settlement evidence, row readback, and failure screenshot.
