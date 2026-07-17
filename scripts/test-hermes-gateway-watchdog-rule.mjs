@@ -79,3 +79,8 @@ assert.match(
   /terminal_key.*summary\["status"\].*summary\["summary"\]/s,
   "Hermes terminal notices must dedupe by terminal status and project failure summary"
 );
+assert.match(
+  source,
+  /kind == "stopped"[\s\S]*summary\.get\("realtimeMessage"\)[\s\S]*进度：\{summary\['realtimeMessage'\]\}/,
+  "Hermes pause/stopped notices must use the project-owned progress message instead of hidden cumulative publish fields."
+);

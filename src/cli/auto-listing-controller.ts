@@ -25,6 +25,7 @@ import {
 } from "../autolist/batch-continuation-rules.js";
 import { resolvePaidImageWaitStatus } from "../autolist/paid-image-wait-rules.js";
 import { shouldFailAutoListingControllerStatusForFeishuCacheInvalid, shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid } from "../autolist/controller-cache-status-rules.js";
+import { formatAutoListingPublishProgressLabel, shouldRetainStoppedControllerPublishCheckpoint } from "../autolist/status-progress-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
@@ -71,14 +72,12 @@ interface RunnerJob {
   businessRuleFingerprint?: string;
   finishedAt?: string;
 }
-
 interface DirectAutoListingProcess {
   pid: number;
   command: string;
   jobFile: string;
   runtimeDir?: string;
 }
-
 interface ExternalServiceWait {
   supervisorPid?: number;
   status?: "external_service_wait";
@@ -909,7 +908,7 @@ function summarizePublishProgress(runtimeDir: string | undefined): Record<string
   const latestArtifact = summarizeLatestPublishArtifact(runtimeDir, activeEntry?.runtimeKey);
   const progressText =
     (publishGroupProgress
-      ? `当前商品：${publishGroupProgress.productName}，发布 ${publishGroupProgress.productIndex}/${publishGroupProgress.productTotal}，店铺 ${publishGroupProgress.shopIndex}/${publishGroupProgress.shopTotal}`
+      ? `当前商品：${publishGroupProgress.productName}，${formatAutoListingPublishProgressLabel({ completed: publishGroupProgress.completed, current: publishGroupProgress.productIndex, total: publishGroupProgress.productTotal, shopCurrent: publishGroupProgress.shopIndex, shopTotal: publishGroupProgress.shopTotal }).replace(/｜/g, "，")}`
       : safelyPublished.length > 0
         ? `发布清单初始化中，已确认发布 ${safelyPublished.length} 个`
         : "发布清单初始化中") +
@@ -1453,6 +1452,7 @@ function existingStatus(): Record<string, unknown> {
     const activePublishState = activePublishRunning ? summarizeState(publishRuntimeDir) : undefined;
     const interruptedState = activePublishState || summarizeState(interrupted?.runtimeDir);
     const interruptedCurrentTask = interruptedState?.currentTask as Record<string, unknown> | undefined;
+    const exposePublishCheckpoint = activePublishRunning || shouldRetainStoppedControllerPublishCheckpoint({ controllerStatus: status, currentTaskStatus: String(interruptedCurrentTask?.status || ""), publishProgressAvailable: Boolean(publishProgress) });
     const interruptedImageProgress = summarizeImageGenerationProgress(
       interrupted?.runtimeDir,
       typeof interruptedCurrentTask?.taskId === "string" ? String(interruptedCurrentTask.taskId) : undefined
@@ -1475,7 +1475,7 @@ function existingStatus(): Record<string, unknown> {
     const feishuProductDataFile = path.resolve(rootDir, "data/feishu/products.json");
     const feishuProductRecordsForStatus = fs.existsSync(feishuProductDataFile) ? safeLoadFeishuProductRecords(feishuProductDataFile) : [];
     const activeFeishuCurrentProduct =
-      activePublishRunning && feishuProductRecordsForStatus.length
+      exposePublishCheckpoint && feishuProductRecordsForStatus.length
         ? summarizeFeishuCurrentProduct({
             records: feishuProductRecordsForStatus,
             currentTask: interruptedCurrentTask,
@@ -1495,10 +1495,10 @@ function existingStatus(): Record<string, unknown> {
       jobFile,
       latestResult: activePublishRunning ? undefined : latestResult,
       activeRuntimeDir: publishRuntimeDir || interrupted?.runtimeDir,
-      statusSource: activePublishRunning ? "publish-manifest" : interruptedState ? "state" : "idle",
+      statusSource: exposePublishCheckpoint ? "publish-manifest" : interruptedState ? "state" : "idle",
       historicalRuntimeSuppressed: !exposeHistoricalRuntime && Boolean(historicalResult),
       pauseSignal,
-      publishProgress: activePublishRunning ? publishProgress : undefined,
+      publishProgress: exposePublishCheckpoint ? publishProgress : undefined,
       state: interruptedState,
       imageProgress: interruptedImageProgress,
       paidImageProgress: interruptedPaidImageProgress,
@@ -1995,7 +1995,7 @@ function formatStatusText(status: Record<string, unknown>): string {
           : typeof failedResultProduct?.sourceImageName === "string"
             ? String(failedResultProduct.sourceImageName)
           : undefined,
-    activeItemName: active?.productFolder ? path.basename(String(active.productFolder)) : undefined,
+    activeItemName: typeof feishuCurrentProduct?.userCognitionName === "string" ? String(feishuCurrentProduct.userCognitionName) : active?.productFolder ? path.basename(String(active.productFolder)) : undefined,
     latestProgress: latestProgressText,
     imageGenerationProgress: imageGenerationProgressMessage,
     mainImageCompleted:
@@ -2004,7 +2004,7 @@ function formatStatusText(status: Record<string, unknown>): string {
         : undefined,
     mainImageExpected:
       shouldExposeImageGenerationProgress && typeof paidImageProgress?.expectedSlotCount === "number" ? Number(paidImageProgress.expectedSlotCount) : undefined,
-    publishSafelyPublished: Number(progress?.safelyPublished ?? 0),
+    publishSafelyPublished: Number(publishGroupProgress?.completed ?? progress?.safelyPublished ?? 0),
     publishTotal: progress?.total === undefined ? undefined : Number(progress.total),
     publishFailed: Number(progress?.failed ?? 0),
     publishProductIndex:

@@ -1,4 +1,5 @@
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
+import { formatAutoListingBatchProgressLabel, formatAutoListingPublishProgressLabel, replaceAutoListingPublishProgressProductName, resolveAutoListingPublishGroupIdentity } from "./status-progress-rules.js";
 import { imageServiceWaitCeilingMs, isUnsafePaidImageReplayReason } from "./image-generation-rules.js";
 import { isPaidImageAcceptedTaskHeartbeatText } from "./paid-image-wait-rules.js";
 
@@ -712,18 +713,16 @@ export type AutoListingControllerHermesStatusPayload = Record<string, unknown> &
   hermesProgress?: Record<string, unknown>;
 };
 
-function formatFeishuProductProgress(value: unknown): string | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const progress = value as Record<string, unknown>;
-  const current = Number(progress.current ?? progress.index ?? 0);
-  const total = Number(progress.total ?? 0);
-  if (!Number.isFinite(current) || !Number.isFinite(total) || current <= 0 || total <= 0) return undefined;
-  return `飞书产品 ${Math.min(total, current)}/${total}`;
+function formatFeishuProductProgress(status: Record<string, unknown>): string | undefined {
+  const current = status.feishuCurrentProduct as Record<string, unknown> | undefined;
+  const counts = status.feishuBatchDisplayCounts as Record<string, unknown> | undefined;
+  const label = formatAutoListingBatchProgressLabel({ completed: counts?.completedCount === undefined ? undefined : Number(counts.completedCount), current: current?.current === undefined ? undefined : Number(current.current), total: counts?.recordCount === undefined ? Number(current?.total || 0) : Number(counts.recordCount) });
+  return label === "飞书批次待确认" ? undefined : label;
 }
 
 function isCompleteAutoListingControllerPublishProgressText(text?: string): boolean {
   const value = String(text || "").trim();
-  return Boolean(value) && !value.includes("?") && /当前商品：.+发布\s+\d+\/\d+，店铺\s+\d+\/\d+/.test(value);
+  return Boolean(value) && !value.includes("?") && /当前商品：.+(?:发布已完成|当前目标)\s+\d+\/\d+/.test(value);
 }
 
 function normalizeAutoListingControllerPublishProgressText(text: string): string {
@@ -800,19 +799,21 @@ export function resolveAutoListingControllerHermesStatusPayload(
   const publishProgress = status.publishProgress as Record<string, unknown> | undefined;
   const realtimeProgress = status.realtimeProgress as Record<string, unknown> | undefined;
   const payload: AutoListingControllerHermesStatusPayload = { ...status };
-  const feishuProductProgress = formatFeishuProductProgress(status.feishuCurrentProduct);
+  const feishuProductProgress = formatFeishuProductProgress(status);
   const rawPublishProgressText = typeof publishProgress?.progressText === "string" ? String(publishProgress.progressText) : undefined;
   const publishProgressText = isCompleteAutoListingControllerPublishProgressText(rawPublishProgressText)
     ? normalizeAutoListingControllerPublishProgressText(String(rawPublishProgressText))
     : undefined;
+  const currentFeishuProduct = status.feishuCurrentProduct as Record<string, unknown> | undefined;
+  const displayPublishProgressText = publishProgressText ? replaceAutoListingPublishProgressProductName(publishProgressText, String(currentFeishuProduct?.userCognitionName || "")) : undefined;
   const publishGroupProgress = publishProgress?.publishGroupProgress as Record<string, unknown> | undefined;
-  const stablePublishKey = publishProgressText ? ["publish_progress", publishGroupProgress?.productName, publishGroupProgress?.productIndex, publishGroupProgress?.productTotal, publishGroupProgress?.shopIndex, publishGroupProgress?.shopTotal, publishGroupProgress?.failed].filter((value) => value !== undefined && value !== "").join("|") : undefined;
+  const stablePublishKey = displayPublishProgressText ? ["publish_progress", currentFeishuProduct?.recordId, publishGroupProgress?.productName, publishGroupProgress?.productIndex, publishGroupProgress?.productTotal, publishGroupProgress?.shopIndex, publishGroupProgress?.shopTotal, publishGroupProgress?.failed].filter((value) => value !== undefined && value !== "").join("|") : undefined;
   if (realtimeProgress && typeof realtimeProgress === "object") {
     const realtimeMessage =
       typeof realtimeProgress.message === "string"
         ? translateAutoListingControllerOperatorMessage(String(realtimeProgress.message))
         : undefined;
-    const message = publishProgressText || realtimeMessage;
+    const message = displayPublishProgressText || realtimeMessage;
     const feishuPrefixedMessage =
       feishuProductProgress && message && !message.includes(feishuProductProgress)
         ? `${feishuProductProgress}；${message}`
@@ -824,11 +825,11 @@ export function resolveAutoListingControllerHermesStatusPayload(
       key: stablePublishKey || realtimeProgress.key
     };
     payload.hermesProgress = Object.fromEntries(Object.entries(hermesProgress).filter(([, value]) => value !== undefined));
-  } else if (publishProgressText) {
+  } else if (displayPublishProgressText) {
     const message =
-      feishuProductProgress && !publishProgressText.includes(feishuProductProgress)
-        ? `${feishuProductProgress}；${publishProgressText}`
-        : publishProgressText;
+      feishuProductProgress && !displayPublishProgressText.includes(feishuProductProgress)
+        ? `${feishuProductProgress}；${displayPublishProgressText}`
+        : displayPublishProgressText;
     payload.hermesProgress = Object.fromEntries(Object.entries({ source: "publish_progress", message, key: stablePublishKey }).filter(([, value]) => value !== undefined));
   }
   if (publishProgress) {
@@ -886,6 +887,10 @@ export function resolveAutoListingControllerPaidImageRecordId(input: {
 }
 
 export type AutoListingControllerPublishGroupProgressEntry = {
+  batchFingerprint?: string;
+  recordId?: string;
+  taskId?: string;
+  targetIdentity?: { batchFingerprint?: string; recordId?: string; taskId?: string };
   productFolder?: string;
   runtimeKey?: string;
   shopFolder?: string;
@@ -898,6 +903,7 @@ export type AutoListingControllerPublishGroupProgressEntry = {
 
 export type AutoListingControllerPublishGroupProgress = {
   productName: string;
+  completed: number;
   productIndex: number;
   productTotal: number;
   shopName: string;
@@ -1199,8 +1205,9 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
     [...entries].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0] ||
     planEntries[0];
   const productName = publishGroupNameFromFolder(activeEntry.productFolder);
-  const groupEntries = entries.filter((entry) => publishGroupNameFromFolder(entry.productFolder) === productName);
-  const plannedGroupEntries = planEntries.filter((entry) => publishGroupNameFromFolder(entry.productFolder) === productName);
+  const productIdentity = resolveAutoListingPublishGroupIdentity(activeEntry, productName);
+  const groupEntries = entries.filter((entry) => resolveAutoListingPublishGroupIdentity(entry, publishGroupNameFromFolder(entry.productFolder)) === productIdentity);
+  const plannedGroupEntries = planEntries.filter((entry) => resolveAutoListingPublishGroupIdentity(entry, publishGroupNameFromFolder(entry.productFolder)) === productIdentity);
   const scopeEntries = plannedGroupEntries.length ? plannedGroupEntries : groupEntries;
   const activeEntryUpdatedAtMs = publishEntryUpdatedAtMs(activeEntry);
   const activeWatermark = publishWatermarkNoFromEntry(activeEntry);
@@ -1256,6 +1263,7 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
     Math.max(1, Math.ceil(productIndex / 2));
   return {
     productName,
+    completed: safelyPublished.length,
     productIndex,
     productTotal,
     shopName: activeShopName || "未知店铺",
@@ -1395,20 +1403,12 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const productIndex = Math.max(1, Math.min(productTotal, input.publishProductIndex ?? fallbackProductIndex));
   const shopTotal = input.publishShopTotal ?? Math.max(1, Math.ceil(productTotal / 2));
   const shopIndex = Math.max(1, Math.min(shopTotal, input.publishShopIndex ?? Math.ceil(productIndex / 2)));
-  const feishuHasCompleteProgress =
-    input.feishuProductIndex !== undefined ||
-    (input.feishuCompleted !== undefined && input.feishuTotal !== undefined);
-  const feishuCompleted = input.feishuProductIndex ?? input.feishuCompleted;
-  const feishuTotal = input.feishuTotal;
-  const feishuLabel =
-    feishuHasCompleteProgress && feishuCompleted !== undefined && feishuTotal !== undefined
-      ? `飞书产品 ${feishuCompleted}/${feishuTotal}`
-      : "飞书产品 待确认";
+  const feishuLabel = formatAutoListingBatchProgressLabel({ completed: input.feishuCompleted, current: input.feishuProductIndex, total: input.feishuTotal });
   if (input.status === "completed" && input.publishProductTotal !== undefined) {
     const published = Math.max(0, Math.min(productTotal, input.publishSafelyPublished ?? input.publishProductIndex ?? productTotal));
     const completedFeishu = input.feishuCompleted ?? input.feishuProductIndex;
     const result = completedFeishu !== undefined && input.feishuTotal !== undefined
-      ? `飞书产品 ${completedFeishu}/${input.feishuTotal} 已处理。`
+      ? `飞书批次已完成 ${completedFeishu}/${input.feishuTotal}。`
       : "当前批次已处理完成。";
     return [`状态：完成｜已上架 ${published}/${productTotal}`, `商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`, `结果：${result}`].join("\n");
   }
@@ -1421,7 +1421,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
       )
     );
     return [
-      `状态：失败｜已上架 ${Math.max(0, Math.min(productTotal, input.publishSafelyPublished || 0))}/${productTotal}｜卡在 第${failedAt}店`,
+      `状态：失败｜发布已完成 ${Math.max(0, Math.min(productTotal, input.publishSafelyPublished || 0))}/${productTotal}｜失败目标 ${failedAt}/${productTotal}｜当前店铺 ${shopIndex}/${shopTotal}｜${feishuLabel}`,
       `商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`,
       `原因：${compactAutoListingControllerReason(input.summary)}`
     ].join("\n");
@@ -1430,7 +1430,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
     const currentAt = Math.max(1, Math.min(productTotal, input.publishCurrentWatermarkNo));
     const active = cleanAutoListingControllerProductName(input.activeItemName || input.productName);
     return [
-      `状态：运行中｜已上架 ${Math.max(0, Math.min(productTotal, input.publishSafelyPublished || 0))}/${productTotal}｜当前 第${currentAt}店`,
+      `状态：运行中｜发布已完成 ${Math.max(0, Math.min(productTotal, input.publishSafelyPublished || 0))}/${productTotal}｜当前目标 ${currentAt}/${productTotal}｜当前店铺 ${shopIndex}/${shopTotal}｜${feishuLabel}`,
       `当前：${active}`,
       input.latestProgress ? `进度：${compactAutoListingControllerReason(input.latestProgress)}` : undefined
     ].filter(Boolean).slice(0, 3).join("\n");
@@ -1453,7 +1453,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const lines = [
     !preferPublishProgress && input.imageGenerationProgress
       ? `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${input.mainImageCompleted === undefined ? "提交槽位" : "主图"} ${mainImageProgressIndex}/${mainImageTotal}｜${feishuLabel}`
-      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜发布 ${productIndex}/${productTotal}｜店铺 ${shopIndex}/${shopTotal}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}${input.publishReviewWatermarkNo ? `｜待复核 水印${input.publishReviewWatermarkNo}` : ""}｜${feishuLabel}`
+      : `状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${formatAutoListingPublishProgressLabel({ completed: input.publishSafelyPublished, current: productIndex, total: productTotal, shopCurrent: shopIndex, shopTotal })}${input.publishFailedWatermarkNo ? `｜失败项 水印${input.publishFailedWatermarkNo}` : ""}${input.publishReviewWatermarkNo ? `｜待复核 水印${input.publishReviewWatermarkNo}` : ""}｜${feishuLabel}`
   ];
 
   if (input.status === "failed") {

@@ -73,6 +73,7 @@ import {
   shouldRefreshProgressSeenAtForPaidImageWait
 } from "../dist/src/autolist/paid-image-wait-rules.js";
 import { shouldRefreshFeishuAssetsToCandidateCache } from "../dist/src/autolist/feishu-refresh-rules.js";
+import { shouldRetainStoppedControllerPublishCheckpoint } from "../dist/src/autolist/status-progress-rules.js";
 import {
   shouldFailAutoListingControllerStatusForFeishuCacheInvalid,
   shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid
@@ -1105,7 +1106,7 @@ const hermesChineseFeedbackPayload = resolveAutoListingControllerHermesStatusPay
 });
 assert.equal(
   hermesChineseFeedbackPayload.hermesProgress?.message,
-  "飞书产品 4/4；任务链已完成",
+  "飞书当前第 4/4；任务链已完成",
   "Hermes progress message must translate terminal English progress into concise Chinese"
 );
 assert.equal(
@@ -1143,18 +1144,25 @@ assert.match(
 );
 const groupedHermesPayload = resolveAutoListingControllerHermesStatusPayload({
   status: "running",
-  summary: "当前商品：延草纲目宝元堂痛风医用远红外治疗凝胶，发布 20/20，店铺 10/10",
+  summary: "当前商品：延草纲目宝元堂痛风医用远红外治疗凝胶，发布已完成 20/20，店铺已完成 10/10",
   realtimeProgress: groupedHermesRealtimeProgress,
   feishuCurrentProduct: {
     current: 4,
     total: 7,
+    recordId: "recv-grouped-current",
     userCognitionName: "宝元堂痛风凝胶"
+  },
+  feishuBatchDisplayCounts: {
+    recordCount: 7,
+    completedCount: 3,
+    currentCount: 1,
+    notStartedCount: 3
   },
   publishProgress: {
     safelyPublished: 39,
     total: 40,
     failed: 0,
-    progressText: "当前商品：延草纲目宝元堂痛风医用远红外治疗凝胶，发布 20/20，店铺 10/10",
+    progressText: "当前商品：延草纲目宝元堂痛风医用远红外治疗凝胶，发布已完成 20/20，店铺已完成 10/10",
     publishGroupProgress: {
       productName: "延草纲目宝元堂痛风医用远红外治疗凝胶",
       productIndex: 20,
@@ -1178,18 +1186,18 @@ assert.equal(
 assert.equal(groupedHermesPayload.publishProgress, undefined);
 assert.match(
   String(groupedHermesPayload.hermesProgress?.message || ""),
-  /^飞书产品 4\/7；/,
-  "Hermes progress message must lead with the current Feishu table product ordinal"
+  /^飞书批次已完成 3\/7，当前第 4\/7；/,
+  "Hermes progress must distinguish processed batch completion from the current Feishu record ordinal"
 );
 assert.match(
   String(groupedHermesPayload.hermesProgress?.message || ""),
-  /当前商品：.*发布 20\/20，店铺 10\/10/,
+  /当前商品：宝元堂痛风凝胶，发布已完成 20\/20，店铺已完成 10\/10/,
   "Hermes progress message must use the current product-group progress text"
 );
 const publishProgressOnlyHermesPayload = resolveAutoListingControllerHermesStatusPayload({
   status: "running",
   publishProgress: {
-    progressText: "当前商品：延草纲目宝元堂腱鞘医用喷雾，发布 17/20，店铺 9/10，最近产物：publish-page-spec-editor.png",
+    progressText: "当前商品：延草纲目宝元堂腱鞘医用喷雾，发布已完成 16/20，当前目标 17/20，当前店铺 9/10，最近产物：publish-page-spec-editor.png",
     publishGroupProgress: {
       productName: "延草纲目宝元堂腱鞘医用喷雾",
       productIndex: 17,
@@ -1203,6 +1211,7 @@ const publishProgressOnlyHermesPayload = resolveAutoListingControllerHermesStatu
   feishuCurrentProduct: {
     current: 6,
     total: 6,
+    recordId: "recv-current-product",
     userCognitionName: "宝元堂腱鞘部位喷剂"
   }
 });
@@ -1210,8 +1219,8 @@ assert.deepEqual(
   publishProgressOnlyHermesPayload.hermesProgress,
   {
     source: "publish_progress",
-    message: "飞书产品 6/6；当前商品：延草纲目宝元堂腱鞘医用喷雾，发布 17/20，店铺 9/10，最近产物：规格编辑截图",
-    key: "publish_progress|延草纲目宝元堂腱鞘医用喷雾|17|20|9|10|0"
+    message: "飞书当前第 6/6；当前商品：宝元堂腱鞘部位喷剂，发布已完成 16/20，当前目标 17/20，当前店铺 9/10，最近产物：规格编辑截图",
+    key: "publish_progress|recv-current-product|延草纲目宝元堂腱鞘医用喷雾|17|20|9|10|0"
   },
   "Hermes payload must expose project-owned publish progress even when realtimeProgress is unavailable"
 );
@@ -1224,12 +1233,12 @@ const dedupedHermesPayloadMessage = resolveAutoListingControllerHermesStatusPayl
     key: "grouped-key"
   },
   publishProgress: {
-    progressText: "当前商品：延草纲目测试品，发布 11/20，店铺 6/10，最近产物：publish-page-basic-filled.png"
+    progressText: "当前商品：延草纲目测试品，发布已完成 10/20，当前目标 11/20，当前店铺 6/10，最近产物：publish-page-basic-filled.png"
   }
 }).hermesProgress?.message;
 assert.equal(
   dedupedHermesPayloadMessage,
-  "当前商品：延草纲目测试品，发布 11/20，店铺 6/10，最近产物：基础信息截图",
+  "当前商品：延草纲目测试品，发布已完成 10/20，当前目标 11/20，当前店铺 6/10，最近产物：基础信息截图",
   "Hermes progress message must not append the same realtime phrase twice"
 );
 const hermesIncompletePublishProgressPayload = resolveAutoListingControllerHermesStatusPayload({
@@ -1256,7 +1265,7 @@ assert.equal(
 );
 assert.equal(
   hermesIncompletePublishProgressPayload.hermesProgress?.message,
-  "飞书产品 5/6；最近产物：基础信息截图",
+  "飞书当前第 5/6；最近产物：基础信息截图",
   "Hermes progress payload must fall back to a concrete realtime message instead of incomplete publish totals"
 );
 const hermesStablePublishMessagePayload = resolveAutoListingControllerHermesStatusPayload({
@@ -1268,7 +1277,7 @@ const hermesStablePublishMessagePayload = resolveAutoListingControllerHermesStat
     key: "artifact|publish-page-basic-filled.png|2026-06-14T06:10:02.000Z"
   },
   publishProgress: {
-    progressText: "当前商品：延草纲目测试品，发布 11/20，店铺 6/10",
+    progressText: "当前商品：延草纲目测试品，发布已完成 10/20，当前目标 11/20，当前店铺 6/10",
     publishGroupProgress: {
       productName: "延草纲目测试品",
       productIndex: 11,
@@ -1282,7 +1291,7 @@ const hermesStablePublishMessagePayload = resolveAutoListingControllerHermesStat
 }).hermesProgress;
 assert.equal(
   hermesStablePublishMessagePayload?.message,
-  "当前商品：延草纲目测试品，发布 11/20，店铺 6/10",
+  "当前商品：延草纲目测试品，发布已完成 10/20，当前目标 11/20，当前店铺 6/10",
   "Hermes publish-stage automatic feedback must use the stable current product progress message, not transient artifact text"
 );
 assert.equal(
@@ -1294,6 +1303,7 @@ const hermesPublishOrdinalText = formatAutoListingControllerCompactStatusText({
   status: "running",
   productName: "延草纲目海斯莱福氨糖软骨素钙片",
   latestProgress: "最近产物：基础信息截图",
+  publishSafelyPublished: 1,
   publishProductIndex: 2,
   publishProductTotal: 20,
   publishShopIndex: 1,
@@ -1304,8 +1314,8 @@ const hermesPublishOrdinalText = formatAutoListingControllerCompactStatusText({
 });
 assert.match(
   hermesPublishOrdinalText,
-  /发布 2\/20｜店铺 1\/10｜飞书产品 3\/6/,
-  "Hermes compact text must label watermark/publish ordinal as publish progress and use the current Feishu record ordinal"
+  /发布已完成 1\/20｜当前目标 2\/20｜当前店铺 1\/10｜飞书批次已完成 1\/6，当前第 3\/6/,
+  "Hermes compact text must distinguish completed publish targets, current target/shop, batch completion, and current Feishu ordinal"
 );
 assert.doesNotMatch(
   hermesPublishOrdinalText,
@@ -1328,7 +1338,7 @@ assert.equal(
     feishuCompleted: 1,
     feishuTotal: 1
   }),
-  "状态：失败｜已上架 14/20｜卡在 第16店\n商品：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n原因：主图上传失败：重试后仅确认 1/5 张。",
+  "状态：失败｜发布已完成 14/20｜失败目标 16/20｜当前店铺 13/13｜飞书批次已完成 1/1\n商品：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n原因：主图上传失败：重试后仅确认 1/5 张。",
   "Hermes failure feedback must report canonical completed/current shop progress and the actionable cause without resume counts or local paths"
 );
 assert.equal(
@@ -1347,7 +1357,7 @@ assert.equal(
     feishuCompleted: 1,
     feishuTotal: 1
   }),
-  "状态：运行中｜已上架 14/20｜当前 第10店\n当前：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n进度：正在核验第10店是否已发布，确认不存在才会重提。",
+  "状态：运行中｜发布已完成 14/20｜当前目标 10/20｜当前店铺 13/13｜飞书批次已完成 1/1\n当前：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n进度：正在核验第10店是否已发布，确认不存在才会重提。",
   "Hermes running feedback must prefer the newest current action over stale failed manifest progress"
 );
 assert.equal(
@@ -1361,7 +1371,7 @@ assert.equal(
     publishProductTotal: 20,
     publishFailedWatermarkNo: 17
   }),
-  "状态：失败｜已上架 16/20｜卡在 第17店\n商品：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n原因：主图上传失败：最终读回 0/5 张，已安全停止。",
+  "状态：失败｜发布已完成 16/20｜失败目标 17/20｜当前店铺 9/10｜飞书批次待确认\n商品：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n原因：主图上传失败：最终读回 0/5 张，已安全停止。",
   "Hermes must report a concise readback failure instead of a local product path"
 );
 assert.equal(
@@ -2563,6 +2573,24 @@ assert.equal(
   true
 );
 assert.equal(
+  shouldRetainStoppedControllerPublishCheckpoint({
+    controllerStatus: "pause_requested",
+    currentTaskStatus: "published",
+    publishProgressAvailable: true
+  }),
+  true,
+  "A pause result written after the publish manifest must retain the current product checkpoint instead of falling back to paid-image progress."
+);
+assert.equal(
+  shouldRetainStoppedControllerPublishCheckpoint({
+    controllerStatus: "pause_requested",
+    currentTaskStatus: "main_images_generated",
+    publishProgressAvailable: true
+  }),
+  false,
+  "A paused image-generation task must not expose a stale prior-product publish manifest."
+);
+assert.equal(
   selectAutoListingControllerStatusRuntimeDir({
     running: true,
     activeRuntimeDir: "/runs/active",
@@ -2640,7 +2668,7 @@ const compactFailedStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactFailedStatus.split("\n"),
   [
-    "状态：失败｜发布 15/20｜店铺 8/10｜飞书产品 2/3",
+    "状态：失败｜发布已完成 14/20｜当前目标 15/20｜当前店铺 8/10｜飞书批次已完成 2/3",
     "商品：医用面部生物膜",
     "原因：导购短标题字段缺失，已停止，可续跑。"
   ],
@@ -2666,13 +2694,13 @@ assert.equal(
     feishuCompleted: 1,
     feishuTotal: 7
   }).split("\n")[0],
-  "状态：运行中｜提交槽位 20/20｜飞书产品 1/7",
+  "状态：运行中｜提交槽位 20/20｜飞书批次已完成 1/7",
   "A submission slot index must not be reported as a completed main-image count before ledger completion is available"
 );
 assert.deepEqual(
   compactImageGenerationStatus.split("\n"),
   [
-    "状态：运行中｜主图 15/20｜飞书产品 0/4",
+    "状态：运行中｜主图 15/20｜飞书批次已完成 0/4",
     "当前：医用芦荟凝胶",
     "进度：等待图片服务队列：第 5/5 组，第 4 张，任务 task_O0UjYIbz9zHAJ8mCnoHszjLxdkLq7wBM 排队中"
   ],
@@ -2690,7 +2718,7 @@ assert.deepEqual(
     feishuTotal: 4
   }).split("\n"),
   [
-    "状态：运行中｜主图 11/20｜飞书产品 4/4",
+    "状态：运行中｜主图 11/20｜飞书当前第 4/4",
     "当前：B族维生素片-recvntth27DUyf-白底图-01-2a63110e80",
     "进度：等待图片服务队列：第 2/5 组，第 1 张，任务 task_U8RAbBSpF6hMeYzVVVOARoLKQ9m5zWMa 排队中"
   ],
@@ -2727,6 +2755,7 @@ const compactPublishStageStatus = formatAutoListingControllerCompactStatusText({
   activeItemName: "延草纲目宝元堂痛风医用远红外治疗凝胶水印11",
   imageGenerationProgress: "Main images ready: 20 file(s).",
   latestProgress: "发布模块：基础信息（06延草纲目理疗器械旗舰店）",
+  publishSafelyPublished: 10,
   publishProductIndex: 11,
   publishProductTotal: 20,
   publishShopIndex: 6,
@@ -2737,7 +2766,7 @@ const compactPublishStageStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactPublishStageStatus.split("\n"),
   [
-    "状态：运行中｜发布 11/20｜店铺 6/10｜飞书产品 0/2",
+    "状态：运行中｜发布已完成 10/20｜当前目标 11/20｜当前店铺 6/10｜飞书批次已完成 0/2",
     "当前：延草纲目宝元堂痛风医用远红外治疗凝胶",
     "进度：发布模块：基础信息（06延草纲目理疗器械旗舰店）"
   ],
@@ -2750,6 +2779,7 @@ const compactManualRecoveryPublishStatus = formatAutoListingControllerCompactSta
   productName: "延草纲目医用透明质酸钠修护贴",
   activeItemName: "延草纲目医用透明质酸钠修护贴-recvnhdPKe0cNN-水印20",
   latestProgress: "延草纲目医用透明质酸钠修护贴-recvnhdPKe0cNN-水印20: basic_info_fill: basic_info_fill_attempt: 1",
+  publishSafelyPublished: 19,
   publishProductIndex: 20,
   publishProductTotal: 20,
   publishShopIndex: 10,
@@ -2760,7 +2790,7 @@ const compactManualRecoveryPublishStatus = formatAutoListingControllerCompactSta
 assert.deepEqual(
   compactManualRecoveryPublishStatus.split("\n"),
   [
-    "状态：运行中｜发布 20/20｜店铺 10/10｜飞书产品 0/0",
+    "状态：运行中｜发布已完成 19/20｜当前目标 20/20｜当前店铺 10/10｜飞书批次待确认",
     "当前：延草纲目医用透明质酸钠修护贴",
     "进度：延草纲目医用透明质酸钠修护贴-recvnhdPKe0cNN-水印20: basic_info_fill: basic_info_fill_attempt: 1"
   ],
@@ -2780,7 +2810,7 @@ const compactPlatformFailedStatus = formatAutoListingControllerCompactStatusText
 assert.deepEqual(
   compactPlatformFailedStatus.split("\n"),
   [
-    "状态：失败｜发布 15/20｜店铺 8/10｜飞书产品 2/3",
+    "状态：失败｜发布已完成 14/20｜当前目标 15/20｜当前店铺 8/10｜飞书批次已完成 2/3",
     "商品：医用面部生物膜",
     "原因：标品检索页控件未加载完整，已停止，可续跑。"
   ],
@@ -2819,6 +2849,7 @@ assert.deepEqual(
   groupedPublishProgress,
   {
     productName: "延草纲目遠紅外治療貼",
+    completed: 20,
     productIndex: 20,
     productTotal: 20,
     shopName: "10店",
@@ -2845,10 +2876,41 @@ const compactCompletedGroupedStatus = formatAutoListingControllerCompactStatusTe
 });
 assert.equal(
   compactCompletedGroupedStatus,
-  "状态：完成｜已上架 20/20\n商品：延草纲目遠紅外治療貼\n结果：飞书产品 5/5 已处理。",
+  "状态：完成｜已上架 20/20\n商品：延草纲目遠紅外治療貼\n结果：飞书批次已完成 5/5。",
   "Hermes-facing compact text must not expose cumulative publish totals such as 60/60"
 );
 assert.equal(/发布 60\/60/.test(compactCompletedGroupedStatus), false);
+
+const sameNameDifferentRecordProgress = resolveAutoListingControllerPublishGroupProgress({
+  entries: [
+    ...Array.from({ length: 20 }, (_, index) => ({
+      targetIdentity: { batchFingerprint: "batch-current", recordId: "recvpy6bua9U6N", taskId: "image-001" },
+      runtimeKey: `old-${index + 1}`,
+      productFolder: `/shops/${index + 1}/延草纲目医用重组胶原蛋白护理软膏-recvpy6bua9U6N-水印${index + 1}`,
+      watermarkNo: index + 1,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed"
+    })),
+    ...Array.from({ length: 7 }, (_, index) => ({
+      targetIdentity: { batchFingerprint: "batch-current", recordId: "recvpyc5el2oG7", taskId: "image-003" },
+      runtimeKey: `current-${index + 1}`,
+      productFolder: `/shops/${index + 1}/延草纲目医用重组胶原蛋白护理软膏-recvpyc5el2oG7-水印${index + 1}`,
+      watermarkNo: index + 1,
+      status: "published",
+      finalVerifyStatus: "publish_signal_confirmed"
+    }))
+  ],
+  planEntries: Array.from({ length: 20 }, (_, index) => ({
+    targetIdentity: { batchFingerprint: "batch-current", recordId: "recvpyc5el2oG7", taskId: "image-003" },
+    runtimeKey: `current-${index + 1}`,
+    productFolder: `/shops/${index + 1}/延草纲目医用重组胶原蛋白护理软膏-recvpyc5el2oG7-水印${index + 1}`,
+    watermarkNo: index + 1
+  })),
+  activeRuntimeKey: "current-8"
+});
+assert.equal(sameNameDifferentRecordProgress.completed, 7);
+assert.equal(sameNameDifferentRecordProgress.productIndex, 8);
+assert.equal(sameNameDifferentRecordProgress.productTotal, 20);
 
 const completedResumeOutOfOrderProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: Array.from({ length: 20 }, (_, index) => ({
@@ -2869,6 +2931,7 @@ assert.deepEqual(
   completedResumeOutOfOrderProgress,
   {
     productName: "延草纲目宝元堂医用疼痛凝胶",
+    completed: 20,
     productIndex: 20,
     productTotal: 20,
     shopName: "20店",
@@ -2898,6 +2961,7 @@ assert.deepEqual(
   partialManifestWithFullPublishPlanProgress,
   {
     productName: "延草纲目宝元堂痛风医用远红外治疗凝胶",
+    completed: 8,
     productIndex: 9,
     productTotal: 20,
     shopName: "05店",
@@ -2959,6 +3023,7 @@ assert.deepEqual(
   resumedPublishWithHistoricalFutureFailuresProgress,
   {
     productName: "延草纲目远红外磁疗舒痛贴",
+    completed: 2,
     productIndex: 3,
     productTotal: 20,
     shopName: "02延草纲目药品专营店",
@@ -2974,6 +3039,7 @@ const compactResumedPublishWithHistoricalFutureFailuresStatus = formatAutoListin
   productName: resumedPublishWithHistoricalFutureFailuresProgress.productName,
   latestProgress: "发布模块：服务履约（02延草纲目药品专营店）",
   publishProductIndex: resumedPublishWithHistoricalFutureFailuresProgress.productIndex,
+  publishSafelyPublished: resumedPublishWithHistoricalFutureFailuresProgress.completed,
   publishProductTotal: resumedPublishWithHistoricalFutureFailuresProgress.productTotal,
   publishShopIndex: resumedPublishWithHistoricalFutureFailuresProgress.shopIndex,
   publishShopTotal: resumedPublishWithHistoricalFutureFailuresProgress.shopTotal,
@@ -2984,7 +3050,7 @@ const compactResumedPublishWithHistoricalFutureFailuresStatus = formatAutoListin
 });
 assert.equal(
   compactResumedPublishWithHistoricalFutureFailuresStatus.split("\n")[0],
-  "状态：运行中｜发布 3/20｜店铺 2/10｜飞书产品 1/4",
+  "状态：运行中｜发布已完成 2/20｜当前目标 3/20｜当前店铺 2/10｜飞书当前第 1/4",
   "Hermes compact status must not display historical future failures while an earlier watermark is actively being retried"
 );
 assert.doesNotMatch(compactResumedPublishWithHistoricalFutureFailuresStatus, /失败项|20\/20|10\/10/);
@@ -3020,6 +3086,7 @@ assert.deepEqual(
   failedMiddleWithLaterPublishedProgress,
   {
     productName: "延草纲目遠紅外治療貼",
+    completed: 19,
     productIndex: 20,
     productTotal: 20,
     shopName: "10店",
@@ -3050,7 +3117,7 @@ const compactFailedMiddleStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactFailedMiddleStatus.split("\n"),
   [
-    "状态：失败｜已上架 19/20｜卡在 第16店",
+    "状态：失败｜发布已完成 19/20｜失败目标 16/20｜当前店铺 10/10｜飞书批次已完成 0/4",
     "商品：延草纲目遠紅外治療貼",
     "原因：价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。"
   ],
@@ -3118,7 +3185,7 @@ assert.equal(
 );
 assert.match(
   compactMissingTotalsStatus,
-  /飞书产品 待确认/,
+  /飞书批次待确认/,
   "Hermes compact text must render missing Feishu progress as a concrete pending label"
 );
 const compactBlankSpecStatus = formatAutoListingControllerCompactStatusText({
@@ -3138,7 +3205,7 @@ const compactBlankSpecStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactBlankSpecStatus.split("\n"),
   [
-    "状态：失败｜已上架 19/20｜卡在 第16店",
+    "状态：失败｜发布已完成 19/20｜失败目标 16/20｜当前店铺 10/10｜飞书批次已完成 0/4",
     "商品：延草纲目遠紅外治療貼",
     "原因：规格模板存在空白占位值；按模板内容为准，续跑时不补写也不删除该空白项。"
   ],
@@ -3614,7 +3681,7 @@ assert.equal(
     feishuCompleted: 0,
     feishuTotal: 1
   }),
-  "状态：正在安全暂停｜发布 15/20｜店铺 8/10｜飞书产品 0/1\n当前：延草纲目万通鉴筋骨痛膏贴\n进度：项目已收到手动暂停请求；任务会在安全边界停止并保留当前产物。继续上架会清除暂停信号并从安全断点续跑。",
+  "状态：正在安全暂停｜发布已完成 14/20｜当前目标 15/20｜当前店铺 8/10｜飞书批次已完成 0/1\n当前：延草纲目万通鉴筋骨痛膏贴\n进度：项目已收到手动暂停请求；任务会在安全边界停止并保留当前产物。继续上架会清除暂停信号并从安全断点续跑。",
   "Paused publish status must show the pause reason instead of the next-target Waiting for publish result placeholder"
 );
 assert.equal(
@@ -3731,7 +3798,7 @@ assert.deepEqual(
     feishuCompleted: 0,
     feishuTotal: 7
   }).split("\n"),
-  ["状态：待继续｜飞书产品 0/7", "进度：当前飞书批次仍有待处理产品。"],
+  ["状态：待继续｜飞书批次已完成 0/7", "进度：当前飞书批次仍有待处理产品。"],
   "A refreshed pending batch without a matching runtime must not invent product/shop progress or an unknown current product"
 );
 assert.equal(
@@ -3808,7 +3875,7 @@ assert.deepEqual(
     feishuTotal: 3
   }).split("\n"),
   [
-    "状态：失败｜已上架 17/20｜卡在 第18店",
+    "状态：失败｜发布已完成 17/20｜失败目标 18/20｜当前店铺 9/10｜飞书批次已完成 3/3",
     "商品：延草纲目李时珍牙科护理剂",
     "原因：抖店登录已失效，已停止；请在自动化浏览器完成登录后从断点续跑。"
   ],
