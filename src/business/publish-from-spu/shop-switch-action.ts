@@ -287,6 +287,7 @@ async function clickVisibleActionText(page: Page, text: string): Promise<boolean
     if (!match) {
       return false;
     }
+    match.click();
     return true;
   }, text);
 
@@ -368,6 +369,7 @@ async function clickShopSwitchEntry(page: Page): Promise<boolean> {
     if (!item) {
       return false;
     }
+    item.click();
     return true;
   });
 
@@ -376,6 +378,62 @@ async function clickShopSwitchEntry(page: Page): Promise<boolean> {
   }
   await page.waitForTimeout(900);
   return true;
+}
+
+async function recoverTransientShopSwitchError(page: Page): Promise<boolean> {
+  const errorDialogs = page
+    .locator("div[role='dialog'], div[aria-modal='true'], .semi-modal, .ant-modal, .ecom-g-modal, [class*='modal']")
+    .filter({ hasText: "似乎出现了一些错误" });
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const dialogCount = await errorDialogs.count().catch(() => 0);
+    let errorDialog: Locator | null = null;
+    for (let index = 0; index < dialogCount; index += 1) {
+      const candidate = errorDialogs.nth(index);
+      if (!(await candidate.isVisible().catch(() => false))) {
+        continue;
+      }
+      const normalizedText = await candidate
+        .innerText()
+        .then((value) => value.replace(/\s+/g, "").trim())
+        .catch(() => "");
+      if (!normalizedText.includes("似乎出现了一些错误")) {
+        continue;
+      }
+      const retryButtons = candidate.getByRole("button", { name: "重试", exact: true });
+      const visibleRetryCount = await retryButtons.count().catch(() => 0);
+      if (visibleRetryCount !== 1 || !(await retryButtons.first().isVisible().catch(() => false))) {
+        continue;
+      }
+      errorDialog = candidate;
+      break;
+    }
+
+    if (!errorDialog) {
+      return false;
+    }
+
+    logWarn(`Doudian shop switch returned a transient platform error; clicking scoped retry (${attempt + 1}/2)`);
+    const retryClicked = await errorDialog
+      .getByRole("button", { name: "重试", exact: true })
+      .click({ timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!retryClicked) {
+      return false;
+    }
+
+    for (let readbackAttempt = 0; readbackAttempt < 8; readbackAttempt += 1) {
+      await page.waitForTimeout(500);
+      if (await waitForChooseShopDialog(page)) {
+        return true;
+      }
+      if (!(await errorDialog.isVisible().catch(() => false))) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 async function waitForChooseShopDialog(page: Page): Promise<boolean> {
@@ -923,8 +981,14 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
     }
 
     let dialogVisible = await waitForChooseShopDialog(page);
+    if (!dialogVisible && await recoverTransientShopSwitchError(page)) {
+      dialogVisible = await waitForChooseShopDialog(page);
+    }
     if (!dialogVisible) {
       await clickShopSwitchEntry(page).catch(() => false);
+      dialogVisible = await waitForChooseShopDialog(page);
+    }
+    if (!dialogVisible && await recoverTransientShopSwitchError(page)) {
       dialogVisible = await waitForChooseShopDialog(page);
     }
     if (!dialogVisible) {

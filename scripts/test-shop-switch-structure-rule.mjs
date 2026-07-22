@@ -16,6 +16,7 @@ for (const name of [
   "clickTopRightShopMenu",
   "clickVisibleActionText",
   "clickShopSwitchEntry",
+  "recoverTransientShopSwitchError",
   "selectShopFromDialogExact",
   "selectShopFromDialogByVisibleText",
   "selectShopFromDialog",
@@ -41,6 +42,16 @@ assert.match(
   functionBody("clickShopSwitchEntry"),
   /getByText\("切换组织\/店铺", \{ exact: true \}\)/,
   "Shop switching must click the visible structural text entry for 切换组织/店铺"
+);
+assert.match(
+  functionBody("clickVisibleActionText"),
+  /match\.click\(\)/,
+  "Visible action text fallback must click the matched action instead of only reporting it found"
+);
+assert.match(
+  functionBody("clickShopSwitchEntry"),
+  /item\.click\(\)/,
+  "Shop switch DOM fallback must click the matched entry instead of only reporting it found"
 );
 assert.match(
   source,
@@ -76,6 +87,21 @@ assert.match(
   functionBody("ensureShopContextAttempt"),
   /if \(!dialogVisible\) \{[\s\S]*isDoudianLoginRequired\(page\)[\s\S]*Doudian login required[\s\S]*shop-switch-dialog-missing/,
   "A missing shop switch dialog must be reclassified as login expiry when the page has landed on the Doudian login screen"
+);
+assert.match(
+  functionBody("recoverTransientShopSwitchError"),
+  /filter\(\{ hasText: "似乎出现了一些错误" \}\)[\s\S]*getByRole\("button", \{ name: "重试", exact: true \}\)/,
+  "Shop switching must scope the exact retry button to the transient Doudian error modal"
+);
+assert.match(
+  functionBody("recoverTransientShopSwitchError"),
+  /waitForChooseShopDialog\(page\)[\s\S]*errorDialog\.isVisible/,
+  "Transient shop-switch recovery must read back either the chooser dialog or dismissal of the error modal"
+);
+assert.match(
+  functionBody("ensureShopContextAttempt"),
+  /if \(!dialogVisible\) \{[\s\S]*recoverTransientShopSwitchError\(page\)/,
+  "A missing shop chooser must attempt bounded recovery of the Doudian transient error modal"
 );
 
 console.log("shop switch structure rule passed");
