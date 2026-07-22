@@ -524,8 +524,8 @@ assert.deepEqual(
     policyCompatiblePromptDigest: "policy-digest",
     nowMs: Date.parse("2026-06-18T01:21:00.000Z")
   }),
-  { usePolicyCompatiblePrompt: true, deferMs: 0 },
-  "Two accepted provider timeouts must switch only the failed fixed slot to the stability-compatible prompt"
+  { usePolicyCompatiblePrompt: false, deferMs: 2 * 60 * 1000 },
+  "Two accepted provider timeouts must open the fixed-slot cooldown without changing the original prompt"
 );
 assert.deepEqual(
   resolvePaidImageProviderTimeoutRetry({
@@ -546,8 +546,8 @@ assert.deepEqual(
     policyCompatiblePromptDigest: "policy-digest",
     nowMs: Date.parse("2026-06-18T01:21:00.000Z")
   }),
-  { usePolicyCompatiblePrompt: true, deferMs: 0 },
-  "Queued/pending stale expiry plus poll timeout must count as two accepted-task timeouts and switch to the fallback prompt"
+  { usePolicyCompatiblePrompt: false, deferMs: 2 * 60 * 1000 },
+  "Queued/pending stale expiry plus poll timeout must open the cooldown while preserving the original prompt"
 );
 assert.deepEqual(
   resolvePaidImageFixedSlotRecovery({
@@ -569,7 +569,7 @@ assert.deepEqual(
     nowMs: Date.parse("2026-06-18T01:41:00.000Z")
   }),
   { usePolicyCompatiblePrompt: true, deferMs: 2 * 60 * 1000 },
-  "A stability-compatible slot that still times out must enter a fixed-slot cooldown capped at three minutes instead of immediate paid resubmission"
+  "A historically policy-compatible slot that later times out must retain its identity and enter the fixed-slot cooldown"
 );
 assert.match(source, /mode\?: "videos-base64"/);
 assert.match(source, /buildVideosBase64JsonBody/);
@@ -684,8 +684,13 @@ assert.match(
 );
 assert.match(
   source,
-  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*fixedSlotRecovery\.usePolicyCompatiblePrompt[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)[\s\S]*shouldAllowPaidImagePolicyCompatibilityIdentityTransition/,
-  "Repeated provider timeouts must explicitly authorize the one-time fixed-slot digest switch to the stability-compatible prompt"
+  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)[\s\S]*shouldAllowPaidImagePolicyCompatibilityIdentityTransition/,
+  "Only an explicit content-policy failure may authorize the one-time fixed-slot digest switch"
+);
+assert.doesNotMatch(
+  source.match(/const allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*?;\n/)?.[0] || "",
+  /fixedSlotRecovery\.usePolicyCompatiblePrompt/,
+  "Generic provider timeouts must never authorize a request or prompt digest change"
 );
 assert.match(source, /submitSlots/);
 assert.match(source, /roundStartImageIndex \+ missingLocalIndexes\[itemIndex\] - 1/);

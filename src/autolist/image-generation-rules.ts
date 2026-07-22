@@ -375,19 +375,23 @@ export function resolvePaidImageProviderTimeoutRetry(input: {
   const repeatedTimeout =
     isAcceptedPaidImageTaskTimeoutReason(input.failureReason) && timeoutFailures.length >= timeoutThreshold;
   if (!repeatedTimeout) {
-    return { usePolicyCompatiblePrompt: false, deferMs: 0 };
+    return {
+      usePolicyCompatiblePrompt:
+        Boolean(input.recordedPromptDigest) && input.recordedPromptDigest === input.policyCompatiblePromptDigest,
+      deferMs: 0
+    };
   }
   const alreadyPolicyCompatible =
     Boolean(input.recordedPromptDigest) && input.recordedPromptDigest === input.policyCompatiblePromptDigest;
-  if (!alreadyPolicyCompatible) {
-    return { usePolicyCompatiblePrompt: true, deferMs: 0 };
-  }
   const latestFailureMs = Math.max(
     ...timeoutFailures.map((entry) => Date.parse(entry.at || "")).filter((value) => Number.isFinite(value)),
     0
   );
   return {
-    usePolicyCompatiblePrompt: true,
+    // A generic provider timeout is availability evidence, not content-policy
+    // evidence. Preserve a historically compatible prompt if the slot already
+    // owns one, but never authorize a digest change from timeout alone.
+    usePolicyCompatiblePrompt: alreadyPolicyCompatible,
     deferMs: Math.max(0, latestFailureMs + cooldownMs - input.nowMs)
   };
 }

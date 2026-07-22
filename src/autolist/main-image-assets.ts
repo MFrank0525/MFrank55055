@@ -998,8 +998,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
             }));
         const allowFailedAfterAcceptanceDigestChange =
           slotAction.action === "retry_failed_after_acceptance" &&
-          (fixedSlotRecovery.usePolicyCompatiblePrompt ||
-            isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason)) &&
+          isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason) &&
           shouldAllowPaidImagePolicyCompatibilityIdentityTransition({
             recordedRequestDigest: slotAction.record?.requestDigest || "",
             recordedPromptDigest: slotAction.record?.promptDigest || "",
