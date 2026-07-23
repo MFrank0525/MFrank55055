@@ -37,6 +37,31 @@ assert.match(
 );
 assert.match(
   recoverySource,
+  /isExpectedRemoteBrowserProcessRunning\(userDataDir, port\)[\s\S]*return await connectBrowser\(\)/,
+  "CDP recovery must verify the listening browser belongs to the requested user-data-dir before connecting"
+);
+assert.match(
+  launchSource,
+  /const REMOTE_DEBUGGING_PORTS = \[[^\]]*9555[^\]]*9666[^\]]*\]/,
+  "Reusable browser launch must include project fallback ports beyond shared 9333/9444"
+);
+assert.match(
+  launchSource,
+  /remote debugging port.*occupied by another browser profile.*skipping/i,
+  "A port owned by another browser profile must be skipped without closing or connecting to it"
+);
+assert.match(
+  launchSource,
+  /spawnSync\("lsof", \["-nP", `-iTCP:\$\{port\}`, "-sTCP:LISTEN", "-Fp"\]/,
+  "Browser profile validation must resolve the actual listening PID instead of trusting competing Chrome command lines"
+);
+assert.match(
+  launchSource,
+  /return listenerPids\.every\(/,
+  "A shared port is safe only when every listening PID belongs to the requested browser profile"
+);
+assert.match(
+  recoverySource,
   /for \(const port of REMOTE_DEBUGGING_PORTS\)[\s\S]*activeRemoteDebuggingPort = port[\s\S]*return await connectBrowser\(\)/,
   "CDP recovery must first try to reuse an already-listening browser through the real Playwright connection before launching a new Chrome"
 );
@@ -45,10 +70,10 @@ assert.match(
   /killRemoteDebuggingBrowserProcesses\(userDataDir, activeRemoteDebuggingPort\)/,
   "CDP connect recovery must terminate the stale browser for the profile and port before retrying"
 );
-assert.doesNotMatch(
+assert.match(
   recoverySource,
-  /if \(await isDebugEndpointReady\(port\)\)[\s\S]{0,400}killRemoteDebuggingBrowserProcesses\(userDataDir, port\)/,
-  "CDP connect recovery must not depend on shallow /json/version readiness before killing stale profile browsers"
+  /if \(!isExpectedRemoteBrowserProcessRunning\(userDataDir, port\)\)[\s\S]*if \(await isDebugEndpointReady\(port\)\)[\s\S]*killRemoteDebuggingBrowserProcesses\(userDataDir, port\)/,
+  "Shared-port recovery may relocate only this project's profile after listener-owner validation fails"
 );
 assert.match(
   recoverySource,

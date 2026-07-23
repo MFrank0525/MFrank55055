@@ -513,7 +513,7 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
     return false;
   }
 
-  const cards = dialog.locator(".index_roleItem__1-Hwe");
+  const cards = dialog.getByText(expectedShopName, { exact: true });
   const normalizeText = (value: string): string => value.replace(/\s+/g, "").trim();
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -524,8 +524,6 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
         continue;
       }
       const nameText = await card
-        .locator(".index_introName__fRtLx")
-        .first()
         .textContent()
         .then((value) => normalizeText(value || ""))
         .catch(() => "");
@@ -545,18 +543,8 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
         .catch(() => {});
       await page.waitForTimeout(350);
       const domClicked = await card
-        .locator(".index_introName__fRtLx")
-        .first()
         .evaluate((nameNode) => {
-          const cardNode = nameNode.closest(".index_roleItem__1-Hwe") as HTMLElement | null;
-          const target =
-            (cardNode?.querySelector(".index_rightArrowIcon__24nod") as HTMLElement | null) ||
-            (cardNode?.querySelector("svg, [role='button'], button") as HTMLElement | null) ||
-            cardNode;
-          if (!target) {
-            return false;
-          }
-          target.click();
+          (nameNode as HTMLElement).click();
           return true;
         })
         .catch((error) => {
@@ -572,12 +560,11 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
           return true;
         }
       }
-      const arrow = card.locator(".index_rightArrowIcon__24nod").first();
-      const arrowClicked = await arrow
+      const textClicked = await card
         .click({ timeout: 2000 })
         .then(() => true)
         .catch(() => false);
-      if (!arrowClicked) {
+      if (!textClicked) {
         continue;
       }
       await page.waitForTimeout(1800);
@@ -588,7 +575,7 @@ async function selectShopFromDialogExact(page: Page, expectedShopName: string): 
     }
 
     const scrolled = await dialog
-      .locator(".index_roleList__2YMEN, div, ul")
+      .locator("div, ul")
       .evaluateAll((nodes) => {
         const candidates = nodes
           .map((node) => node as HTMLElement)
@@ -685,12 +672,7 @@ async function selectShopFromDialogByVisibleText(page: Page, expectedShopName: s
     card.scrollIntoView({ block: "center", inline: "nearest" });
 
     const cardRect = card.getBoundingClientRect();
-    const clickTarget =
-      (Array.from(card.querySelectorAll("svg, [role='button'], button"))
-        .map((node) => node as HTMLElement)
-        .filter((el) => isVisible(el))
-        .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0] as HTMLElement | undefined) ||
-      card;
+    const clickTarget = nameNode;
     const targetRect = clickTarget.getBoundingClientRect();
     if (targetRect.width <= 0 || targetRect.height <= 0 || cardRect.bottom < containerRect.top || cardRect.top > containerRect.bottom) {
       return false;
@@ -710,7 +692,7 @@ async function selectShopFromDialogByVisibleText(page: Page, expectedShopName: s
   return !(await waitForChooseShopDialog(page));
 }
 
-async function selectShopFromDialog(page: Page, expectedShopName: string): Promise<boolean> {
+export async function selectShopFromDialog(page: Page, expectedShopName: string): Promise<boolean> {
   const visibleTextMatched = await selectShopFromDialogByVisibleText(page, expectedShopName);
   if (visibleTextMatched) {
     return true;
@@ -751,6 +733,9 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
   await page.waitForTimeout(500);
   const normalizedExpected = normalizeShopName(expectedShopName);
   for (let attempt = 0; attempt < 16; attempt += 1) {
+    if (await selectShopFromDialogByVisibleText(page, expectedShopName)) {
+      return true;
+    }
     const candidate = await page.evaluate((target) => {
       const normalize = (value: string): string => value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
       const modal = Array.from(document.querySelectorAll("body *"))
@@ -849,16 +834,7 @@ async function selectShopFromDialog(page: Page, expectedShopName: string): Promi
 
       if (cards[0]) {
         const card = cards[0].card as HTMLElement;
-        const targetNode =
-          (Array.from(card.querySelectorAll("svg, [role='button'], button"))
-            .map((node) => node as HTMLElement)
-            .filter((el) => {
-              const rect = el.getBoundingClientRect();
-              const style = window.getComputedStyle(el);
-              return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-            })
-            .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0] as HTMLElement | undefined) ||
-          card;
+        const targetNode = card;
         targetNode.click();
         return {
           found: true,
@@ -1005,6 +981,7 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
 
     const selected = await selectShopFromDialog(page, expectedShopName);
     if (!selected) {
+      await saveShopSwitchDomSnapshot(page, runtimeDir, "shop-switch-target-missing.html").catch(() => "");
       const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-target-missing.png").catch(() => "");
       throw new Error(`Shop switch failed: target shop not found in selector for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
     }

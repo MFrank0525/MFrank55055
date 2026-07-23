@@ -70,19 +70,25 @@ assert.match(
 );
 assert.match(
   functionBody("selectShopFromDialogByVisibleText"),
-  /clickTarget\.click\(\)/,
-  "Visible-text shop selection fallback must actually click the matched target instead of only reporting it found"
+  /const clickTarget = nameNode;[\s\S]*clickTarget\.click\(\)/,
+  "Visible-text shop selection must click the exact shop-name node instead of a decorative SVG"
 );
 assert.match(
   functionBody("selectShopFromDialogExact"),
-  /target\.click\(\)/,
-  "Exact shop selection fallback must actually click the matched target instead of only reporting it found"
+  /getByText\(expectedShopName, \{ exact: true \}\)[\s\S]*nameNode as HTMLElement\)\.click\(\)/,
+  "Exact shop selection fallback must use the exact visible shop text without obsolete hashed classes"
 );
 assert.match(
   functionBody("selectShopFromDialog"),
   /targetNode\.click\(\)/,
   "Generic shop selection fallback must actually click the matched target instead of only reporting it found"
 );
+for (const name of ["selectShopFromDialogExact", "selectShopFromDialogByVisibleText", "selectShopFromDialog"]) {
+  assert.ok(
+    !functionBody(name).includes('querySelectorAll("svg'),
+    `${name} must not choose decorative SVG nodes as the shop-card click target`
+  );
+}
 assert.match(
   functionBody("ensureShopContextAttempt"),
   /if \(!dialogVisible\) \{[\s\S]*isDoudianLoginRequired\(page\)[\s\S]*Doudian login required[\s\S]*shop-switch-dialog-missing/,
@@ -102,6 +108,11 @@ assert.match(
   functionBody("ensureShopContextAttempt"),
   /if \(!dialogVisible\) \{[\s\S]*recoverTransientShopSwitchError\(page\)/,
   "A missing shop chooser must attempt bounded recovery of the Doudian transient error modal"
+);
+assert.match(
+  functionBody("ensureShopContextAttempt"),
+  /if \(!selected\) \{[\s\S]*shop-switch-target-missing\.html[\s\S]*shop-switch-target-missing\.png/,
+  "A target-selection failure must retain both DOM and screenshot evidence"
 );
 
 console.log("shop switch structure rule passed");

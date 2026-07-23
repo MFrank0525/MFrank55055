@@ -6,7 +6,7 @@ import { assertNoGptPlusWebUrl, installGptPlusQuotaGuard } from "../utils/gpt-pl
 import { logInfo, logWarn } from "../utils/logger.js";
 import { getFallbackUserDataDir, getUserDataDir } from "./session.js";
 
-const REMOTE_DEBUGGING_PORTS = [9333, 9444];
+const REMOTE_DEBUGGING_PORTS = [9333, 9444, 9555, 9666];
 const DEBUG_ENDPOINT_REQUEST_TIMEOUT_MS = 3000;
 const CDP_CONNECT_TIMEOUT_MS = 10000;
 let activeRemoteDebuggingPort = REMOTE_DEBUGGING_PORTS[0];
@@ -98,7 +98,35 @@ async function waitForDebugEndpoint(port = activeRemoteDebuggingPort, timeoutMs 
   throw new Error("Remote debugging browser did not become ready in time.");
 }
 
-async function canConnectOverCdp(port = activeRemoteDebuggingPort): Promise<boolean> {
+function isExpectedRemoteBrowserProcessRunning(userDataDir: string, port: number): boolean {
+  if (process.platform === "win32") {
+    return false;
+  }
+  const listenerResult = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fp"], { encoding: "utf8" });
+  if (listenerResult.status !== 0 || !listenerResult.stdout) {
+    return false;
+  }
+  const listenerPids = listenerResult.stdout
+    .split(/\r?\n/)
+    .filter((line) => /^p\d+$/.test(line))
+    .map((line) => Number(line.slice(1)))
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
+  if (!listenerPids.length) {
+    return false;
+  }
+  const userDataArg = normalizeUserDataDirArg(userDataDir);
+  const portArg = `--remote-debugging-port=${port}`;
+  return listenerPids.every((pid) => {
+    const processResult = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+    const command = processResult.status === 0 ? processResult.stdout.trim() : "";
+    return command.includes(userDataArg) && command.includes(portArg) && !command.includes(" --type=");
+  });
+}
+
+async function canConnectOverCdp(userDataDir: string, port = activeRemoteDebuggingPort): Promise<boolean> {
+  if (!isExpectedRemoteBrowserProcessRunning(userDataDir, port)) {
+    return false;
+  }
   try {
     const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
       signal: AbortSignal.timeout(DEBUG_ENDPOINT_REQUEST_TIMEOUT_MS)
@@ -164,13 +192,21 @@ async function ensureRemoteBrowser(userDataDir: string, excludedPorts = new Set<
       continue;
     }
     const endpointReady = await isDebugEndpointReady(port);
-    const cdpUsable = await canConnectOverCdp(port);
+    const cdpUsable = await canConnectOverCdp(userDataDir, port);
     if (cdpUsable) {
       activeRemoteDebuggingPort = port;
       return;
     }
+    if (endpointReady && !isExpectedRemoteBrowserProcessRunning(userDataDir, port)) {
+      const relocated = killRemoteDebuggingBrowserProcesses(userDataDir, port);
+      if (relocated.length) {
+        logWarn(`terminated this profile's browser on shared port ${port} before relocating: ${relocated.join(", ")}`);
+      }
+      logWarn(`remote debugging port ${port} is occupied by another browser profile; skipping`);
+      continue;
+    }
     if (endpointReady) {
-      logWarn(`remote debugging endpoint on port ${port} is reachable but not Playwright-compatible; trying another port`);
+      logWarn(`remote debugging endpoint on port ${port} belongs to this profile but is not Playwright-compatible; trying another port`);
       const killed = killRemoteDebuggingBrowserProcesses(userDataDir, port);
       if (killed.length) {
         logWarn(`terminated stale remote debugging browser process(es) on port ${port}: ${killed.join(", ")}`);
@@ -244,6 +280,16 @@ async function connectBrowser(): Promise<Browser> {
 
 async function connectBrowserWithRecovery(userDataDir: string): Promise<Browser> {
   for (const port of REMOTE_DEBUGGING_PORTS) {
+    if (!isExpectedRemoteBrowserProcessRunning(userDataDir, port)) {
+      if (await isDebugEndpointReady(port)) {
+        const relocated = killRemoteDebuggingBrowserProcesses(userDataDir, port);
+        if (relocated.length) {
+          logWarn(`terminated this profile's browser on shared port ${port} before relocating: ${relocated.join(", ")}`);
+        }
+        logWarn(`remote debugging port ${port} is occupied by another browser profile; skipping`);
+      }
+      continue;
+    }
     activeRemoteDebuggingPort = port;
     try {
       return await connectBrowser();
