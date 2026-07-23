@@ -63,6 +63,37 @@ interface OpenAiCompatibleImageConfig {
   acceptedQueueStaleMs?: number;
 }
 
+export const MAIN_IMAGE_ASPECT_RATIO = "1:1";
+export const MAIN_IMAGE_PROVIDER_SIZE = "1024x1024";
+const MAIN_IMAGE_SQUARE_PROMPT_CONTRACT =
+  "强制画幅约束：最终输出必须为严格的1:1正方形画布（宽度=高度）；不得输出3:4、4:3、2:3、3:2或其他非正方形画幅。完整商品与所有文字、装饰均须在正方形安全区内，不得依赖后续裁剪。";
+const NON_SQUARE_MAIN_IMAGE_PROMPT_DIRECTIVE =
+  /(?:3\s*[:：]\s*4|4\s*[:：]\s*3|2\s*[:：]\s*3|3\s*[:：]\s*2|9\s*[:：]\s*16|16\s*[:：]\s*9|竖版|竖屏|横版|横屏|portrait\s+(?:image|canvas|layout|orientation)|landscape\s+(?:image|canvas|layout|orientation))/iu;
+
+export function assertSquareMainImageProviderConfig(config: {
+  size?: string;
+  videoMetadata?: Record<string, unknown>;
+}): void {
+  const configuredSize = config.size || MAIN_IMAGE_PROVIDER_SIZE;
+  const metadataAspectRatio = config.videoMetadata?.aspect_ratio;
+  const metadataSize = config.videoMetadata?.size;
+  if (configuredSize !== MAIN_IMAGE_PROVIDER_SIZE) {
+    throw new Error(
+      `Main image generation size must be ${MAIN_IMAGE_PROVIDER_SIZE}; received ${configuredSize}.`
+    );
+  }
+  if (metadataAspectRatio !== undefined && metadataAspectRatio !== MAIN_IMAGE_ASPECT_RATIO) {
+    throw new Error(
+      `Main image generation aspect_ratio must be ${MAIN_IMAGE_ASPECT_RATIO}; received ${String(metadataAspectRatio)}.`
+    );
+  }
+  if (metadataSize !== undefined && metadataSize !== MAIN_IMAGE_PROVIDER_SIZE) {
+    throw new Error(
+      `Main image generation metadata.size must be ${MAIN_IMAGE_PROVIDER_SIZE}; received ${String(metadataSize)}.`
+    );
+  }
+}
+
 interface ConcurrencyGate {
   run<T>(work: () => Promise<T>): Promise<T>;
 }
@@ -511,7 +542,13 @@ export function buildImageEditPromptFromWord(options: {
   if (cleaned.some((item) => !item)) {
     throw new Error("Prompt Word file had empty required paragraph: " + options.promptWordFile);
   }
-  return cleaned.join("\n");
+  const conflictingDirective = cleaned.find((item) => NON_SQUARE_MAIN_IMAGE_PROMPT_DIRECTIVE.test(item));
+  if (conflictingDirective) {
+    throw new Error(
+      `Main image prompt contains a non-square aspect directive and cannot be submitted: ${options.promptWordFile}.`
+    );
+  }
+  return `${cleaned.join("\n")}\n\n${MAIN_IMAGE_SQUARE_PROMPT_CONTRACT}`;
 }
 
 function readOpenAiCompatibleImageConfig(configFile: string): OpenAiCompatibleImageConfig {
@@ -539,6 +576,7 @@ function readOpenAiCompatibleImageConfig(configFile: string): OpenAiCompatibleIm
   if (parsed.model !== "gpt-image-2") {
     throw new Error("OpenAI-compatible image generation model must be gpt-image-2: " + resolved);
   }
+  assertSquareMainImageProviderConfig(parsed);
   return {
     ...parsed,
     apiKey
@@ -743,8 +781,8 @@ async function generateWithOpenAiCompatibleProvider(options: {
     prompt: promptText,
     metadata: {
       ...(config.videoMetadata || {}),
-      aspect_ratio: "1:1",
-      size: config.size || "1024x1024",
+      aspect_ratio: MAIN_IMAGE_ASPECT_RATIO,
+      size: MAIN_IMAGE_PROVIDER_SIZE,
       urls: [sourceImageToDataUrl(options.sourceImagePath)]
     }
   });
@@ -762,7 +800,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
               statusUrl: "",
               model: config.model,
               mode,
-              size: config.size || "1024x1024",
+              size: MAIN_IMAGE_PROVIDER_SIZE,
               videoMetadata: config.videoMetadata || {},
               requestExtra: config.requestExtra || {}
             })

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  assertSquareMainImageProviderConfig,
   buildImageEditPromptFromWord,
   generateMainImageAssets,
   observeVideosBase64AcceptedTask,
@@ -207,6 +208,17 @@ assert.equal(example.mode, "videos-base64");
 assert.equal(example.apiUrl.endsWith("/v1/videos"), true);
 assert.equal(example.size, "1024x1024");
 assert.equal(example.videoMetadata.aspect_ratio, "1:1");
+assert.doesNotThrow(() => assertSquareMainImageProviderConfig(example));
+assert.throws(
+  () => assertSquareMainImageProviderConfig({ size: "1024x1536", videoMetadata: { aspect_ratio: "3:4" } }),
+  /size must be 1024x1024/,
+  "portrait config copied from another project must fail closed before any paid request"
+);
+assert.throws(
+  () => assertSquareMainImageProviderConfig({ size: "1024x1024", videoMetadata: { aspect_ratio: "3:4" } }),
+  /aspect_ratio must be 1:1/,
+  "conflicting metadata must fail closed before any paid request"
+);
 assert.equal(example.submitConcurrency, 2);
 assert.equal(example.timeoutMs, 180000);
 assert.equal(example.maxPollMs, 30 * 60 * 1000);
@@ -983,6 +995,24 @@ const unsafeRestartPromptText = buildImageEditPromptFromWord({
   paragraphs: unsafeRestartPromptParagraphs,
   promptWordFile: unsafeRestartPromptFile
 });
+assert.match(
+  unsafeRestartPromptText,
+  /强制画幅约束：最终输出必须为严格的1:1正方形画布（宽度=高度）/,
+  "every paid main-image prompt must repeat the square-canvas contract even when the provider ignores metadata"
+);
+assert.match(
+  unsafeRestartPromptText,
+  /不得输出3:4、4:3、2:3、3:2或其他非正方形画幅/,
+  "the prompt contract must explicitly reject portrait and landscape aspect ratios"
+);
+assert.throws(
+  () => buildImageEditPromptFromWord({
+    paragraphs: ["请生成3:4竖版主图", "selling points", "DeepSeek prompt", "positive prompt", "negative prompt"],
+    promptWordFile: "copied-from-content-posting.docx"
+  }),
+  /non-square aspect directive/,
+  "a portrait directive copied from the content-posting project must fail before paid submission"
+);
 const unsafeRestartRequestBody = JSON.stringify({
   model: unsafeRestartConfig.model,
   prompt: unsafeRestartPromptText,

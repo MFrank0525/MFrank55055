@@ -59,3 +59,14 @@
 | Prevent cross-project Chrome attachment | CDP reuse verifies the requested `user-data-dir` before connecting; ports owned by another profile are skipped without termination, with 9555/9666 fallbacks | Red-before-green `test-browser-cdp-recovery-rule.mjs`; competing 9444 profile observed in process evidence | verified |
 | Validate real external dependencies | All doctor modes, representative simulation, real Feishu 23-field check, and isolated-profile headed Doudian 20-shop read-only audit passed | Shop-access audit `20260723-141846`: dedicated 9333 listener PID/profile verified, 20/20 exact name readbacks, no publish or form mutation | verified |
 | Prove safe recovery on the original failed target | Resume reused batch `39e5c10f35f9e8208402140e`, skipped the seven confirmed targets, selected shop 08 through the isolated profile, and completed the original target before advancing to shop 09 | Controller log `auto-listing-controller-20260723-142430.log`: shop 08 `publish_signal_confirmed` | verified |
+
+## 2026-07-23 Native square main-image contract
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Distinguish provider output from actual upload assets | Inspected all 20 provider-original files and all 20 first-product shop upload sources | Provider originals: 0/20 square; upload sources: 20/20 square | verified |
+| Prove whether another project's 3:4 setting was copied | Persisted paid request sends `metadata.aspect_ratio=1:1` and `metadata.size=1024x1024`; the five-part prompt contained no portrait directive | Request evidence under run `20260723-122318`, task `image-001` | verified |
+| Reject future cross-project configuration drift before cost | `assertSquareMainImageProviderConfig` accepts only `1024x1024` and compatible `1:1` metadata | `test-image-provider-videos-base64-rule.mjs` rejects 1024x1536 and 3:4 metadata | verified |
+| Reinforce providers that ignore metadata | Every paid prompt appends an explicit square-canvas contract and rejects pre-existing non-square aspect directives | Red-before-green prompt/config regressions | verified |
+| Preserve the user's accepted first product | Existing 20 paid outputs, normalized raw images, watermarks, and shop distributions remain untouched; completed ledger slots remain reusable | File dimension/readback audit; no regeneration command executed | verified |
+| Keep the upload boundary fail closed | Existing publish asset classifier reads every main image's real dimensions before browser upload; exact-section selection excludes `主图3:4` | `test-progress-state.mjs`, `test-publish-module-sequence-rule.mjs`, and 20/20 current upload-source readback | verified |
