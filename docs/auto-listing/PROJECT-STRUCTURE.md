@@ -92,7 +92,7 @@ npm run rules:check
 
 Hermes/飞书只允许调用 `auto-listing:hermes-start`、`auto-listing:hermes-continue` 和 `auto-listing:hermes-status` 兼容命令。start 表示先刷新飞书再开始刷新后的批次；continue 表示不刷新、只恢复锁定批次。命令只薄转发到项目控制器；恢复、飞书刷新、流程脚本和发布动作全部由项目自身完成。
 
-Hermes gateway 在执行 start、continue 或 status 时必须记录该命令的精确消息 origin（平台、chat、thread 和触发消息），后续 watcher 通知只投递到这个 origin。飞书通知必须拿到非空 `message_id` 回执才允许更新去重状态；没有回执的通知保持待发送并在下一轮重试，不能用 API 调用未报错冒充用户已收到。
+Hermes gateway 在执行 start、continue 或 status 时必须记录该命令的精确消息 origin（平台、chat、thread 和触发消息），后续 watcher 通知只投递到这个 origin，并通过 `reply_to` 直接回复触发命令。origin 缺失时必须失败关闭并保留待发送状态，禁止从 channel directory、home channel 或历史线程猜测目的地。飞书通知必须拿到非空 `message_id` 回执才允许更新去重状态；没有回执的通知保持待发送并在下一轮重试，不能用 API 调用未报错冒充用户已收到。
 
 状态汇报同样由项目控制器负责生成，Hermes 只转发。发布进度必须按 canonical `batchFingerprint + recordId + taskId` 对当前商品的 20 个待上架目标分组，禁止按可能重复的展示名或通用名聚合；完成数、当前目标序号、当前店铺序号、飞书 processed 完成数和当前飞书 record 序号必须分别标注，禁止把多个商品或多个续跑清单的发布条目累加后截断成 `20/20`，也禁止把“当前第5/6”冒充“已完成5/6”。店铺总数必须来自完整发布计划或类目固定计划，不能用当前 `publish-manifest.json` 已触达的店铺数量当分母。状态文本必须按当前业务阶段选择单一进度源：生图阶段展示生图进度；进入发布/上架阶段后只展示发布心跳或发布清单进度，暂停后的有效发布断点也不得退回已完成生图信息。JSON 状态面向 Hermes 的唯一自动反馈入口是 `hermesProgress`；发布阶段不得在顶层暴露 `imageProgress`。`hermesProgress.key` 必须包含当前 recordId、商品组和店铺组进度，不能再写入原始累计值；`hermesProgress.message` 必须携带飞书批次完成数、当前 record 序号、当前商品安全完成数和当前目标/店铺，并优先显示飞书用户认知名。Hermes gateway 的自动 watcher 必须记录完整 key 作为心跳、按稳定消息 key 去重，并在暂停/停止通知中直接播报 `hermesProgress.message`；禁止回退到隐藏字段显示 `0/?`，也禁止用历史商品名或跨 run watcher key 压制当前商品新进度。控制器终态原因仍必须优先覆盖普通进度。
 

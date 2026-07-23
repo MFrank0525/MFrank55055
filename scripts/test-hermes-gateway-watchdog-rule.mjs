@@ -54,6 +54,20 @@ assert.match(
 );
 assert.match(
   source,
+  /adapter\.send\([\s\S]{0,240}reply_to\s*=\s*reply_to_message_id/,
+  "every proactive notice must be a direct reply to the exact start/continue/status command message"
+);
+const noticeSender = source.slice(
+  source.indexOf("async def _send_autolist_notice"),
+  source.indexOf("async def _autolist_watchdog")
+);
+assert.doesNotMatch(
+  noticeSender,
+  /channel_directory|get_home_channel/,
+  "proactive notices must fail closed instead of guessing a stale directory or home channel"
+);
+assert.match(
+  source,
   /if\s+not\s+delivered:[\s\S]{0,300}state\s*=\s*state_before_notice/,
   "a failed delivery must not advance the watchdog dedupe state and suppress all retries"
 );

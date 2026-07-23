@@ -37,6 +37,11 @@ const modelPrompt = buildImageEditPromptFromWord({
   paragraphs,
   promptWordFile: wordFiles[0]
 });
-assert.equal(modelPrompt, paragraphs.join("\n"));
+assert.equal(modelPrompt.startsWith(`${paragraphs.join("\n")}\n`), true);
+assert.match(
+  modelPrompt,
+  /强制画幅约束：最终输出必须为严格的1:1正方形画布（宽度=高度）/,
+  "dynamic Feishu prompts must retain the paid main-image square-canvas contract"
+);
 assert.equal(modelPrompt.includes("主图输出文字护栏"), false);
 assert.equal(modelPrompt.includes("本轮第1张"), false);

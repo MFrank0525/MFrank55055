@@ -75,8 +75,8 @@
 
 | Requirement | Implementation | Verification | Status |
 | --- | --- | --- | --- |
-| Explain why 宝元堂 publish progress was not visible | Project and gateway logs prove 20/20 publish progress signals existed; the watcher sent proactive notices to the base Feishu chat while the operator was using a Feishu topic thread | Timeline reconciliation from 16:36 through 17:23 | verified |
-| Keep proactive progress in the command conversation | Start, continue, and status commands persist the exact platform/chat/thread/message origin; the watcher routes only to that bound origin | Structural gateway regression | verified |
+| Explain why 宝元堂 publish progress was not visible | Project and gateway logs prove 20/20 publish progress signals existed, but proactive sends created standalone messages instead of replying to the exact visible command; a stale channel-directory thread was then incorrectly guessed during recovery | Inbound-command and delivery timeline reconciliation from 12:19 through 17:23 | verified |
+| Keep proactive progress in the command conversation | Start, continue, and status commands persist the exact platform/chat/thread/message origin; every watcher notice directly replies to that command message, and missing origin fails closed instead of guessing channel-directory or home-channel targets | Structural gateway regression plus live Feishu reply receipt | verified |
 | Reject false delivery success | Feishu delivery requires `SendResult.success` and a concrete API `message_id` receipt | Live receipt `om_x100b692b427f0c80b4b94c26cb94c6b` in the bound thread | verified |
 | Retry failed notices instead of silently dropping them | Failed delivery restores the pre-notice dedupe state, so the same terminal/progress notice remains eligible on the next watchdog cycle | Structural gateway regression | verified |
 | Preserve origin across gateway restart | Bound origin is persisted under the project control directory and reloaded after restart | Gateway PID replacement and live thread delivery | verified |
