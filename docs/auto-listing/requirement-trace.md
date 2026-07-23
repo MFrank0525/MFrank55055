@@ -70,3 +70,13 @@
 | Reinforce providers that ignore metadata | Every paid prompt appends an explicit square-canvas contract and rejects pre-existing non-square aspect directives | Red-before-green prompt/config regressions | verified |
 | Preserve the user's accepted first product | Existing 20 paid outputs, normalized raw images, watermarks, and shop distributions remain untouched; completed ledger slots remain reusable | File dimension/readback audit; no regeneration command executed | verified |
 | Keep the upload boundary fail closed | Existing publish asset classifier reads every main image's real dimensions before browser upload; exact-section selection excludes `主图3:4` | `test-progress-state.mjs`, `test-publish-module-sequence-rule.mjs`, and 20/20 current upload-source readback | verified |
+
+## 2026-07-23 Hermes origin-bound delivery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why 宝元堂 publish progress was not visible | Project and gateway logs prove 20/20 publish progress signals existed; the watcher sent proactive notices to the base Feishu chat while the operator was using a Feishu topic thread | Timeline reconciliation from 16:36 through 17:23 | verified |
+| Keep proactive progress in the command conversation | Start, continue, and status commands persist the exact platform/chat/thread/message origin; the watcher routes only to that bound origin | Structural gateway regression | verified |
+| Reject false delivery success | Feishu delivery requires `SendResult.success` and a concrete API `message_id` receipt | Live receipt `om_x100b692b427f0c80b4b94c26cb94c6b` in the bound thread | verified |
+| Retry failed notices instead of silently dropping them | Failed delivery restores the pre-notice dedupe state, so the same terminal/progress notice remains eligible on the next watchdog cycle | Structural gateway regression | verified |
+| Preserve origin across gateway restart | Bound origin is persisted under the project control directory and reloaded after restart | Gateway PID replacement and live thread delivery | verified |

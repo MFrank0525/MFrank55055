@@ -37,6 +37,31 @@ assert.match(
   /last_hermes_progress_message/,
   "Hermes gateway watchdog must remember the last delivered hermesProgress.message"
 );
+assert.match(
+  source,
+  /_handle_autolist_command\(action,\s*event\)/,
+  "auto-listing commands must pass their exact message origin into the controller bridge"
+);
+assert.match(
+  source,
+  /_save_autolist_watchdog_origin\(event\.source\)/,
+  "start, continue, and status commands must bind proactive progress to the user's active chat/thread"
+);
+assert.match(
+  source,
+  /reply_to_message_id/,
+  "thread-bound proactive progress must reply inside the originating Feishu thread"
+);
+assert.match(
+  source,
+  /if\s+not\s+delivered:[\s\S]{0,300}state\s*=\s*state_before_notice/,
+  "a failed delivery must not advance the watchdog dedupe state and suppress all retries"
+);
+assert.match(
+  source,
+  /platform\s*==\s*Platform\.FEISHU[\s\S]{0,180}message_id/,
+  "Feishu delivery is not confirmed unless the API returns a concrete message ID"
+);
 assert.doesNotMatch(
   source,
   /summary\["safelyPublished"\]\s*>\s*int\(state\.get\("last_safely_published"\)/,
