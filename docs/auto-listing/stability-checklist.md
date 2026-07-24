@@ -148,7 +148,7 @@
 2. 每个商品固定使用 `01-20` 共 20 个付费 slot，并以持久账本中的 slot 状态驱动恢复。`submitted` 只轮询原 task ID，`completed` 只复用结果，只有明确可重提的同一 slot 才能补交；禁止整轮或整批重放。
 3. 每个 slot 的 provider task ID、provider 提交响应 `response-XX.json` 和状态响应 `response-XX-status-N.json` 均必须持久化；`request-XX.json` 也必须落盘，项目级账本还必须保存状态、响应摘要和最终结果证据。
 4. 3 分钟只是操作层等待、退避和状态展示阈值，不是付费重提权限；已受理任务必须观察同一 task ID，到固定 30 分钟上限时先做最终状态查询，只有最终仍为 `queued`/`pending` 才能按同一 slot 的状态恢复。
-5. 权限、余额、额度、计费、身份不明、`reserved` 或 `ambiguous` 都是付费安全阻断，不得自动重提；provider 明确证明未受理，或账本状态明确允许的有界同 slot 恢复，才可提交。
+5. 权限、余额、额度、计费、身份不明、`reserved` 或 `ambiguous` 都是付费安全阻断，不得自动重提；provider 明确证明未受理，或账本状态明确允许的有界同 slot 恢复，才可提交。`failed_before_acceptance` 且没有 `non_replayable` 证据时必须以未受理终态为准；超长 reason 被安全脱敏成 `[redacted]` 不得反向覆盖该终态并永久卡死固定 slot。
 6. 不扫描、不导入旧 runtime 或历史 run 的付费账本，不提供历史迁移或其他 provider 兼容路径。
 7. 实际消费文案严格来自 Word 可采纳内容，不自行增删；`audit:auto-listing` 必须审计每个提示词 4 张、类目总数达标，以及声明的主图文件和产品文件夹真实存在。
 
@@ -236,6 +236,7 @@
 36. 动作层必须在 auto-listing CLI 写出终态后统一释放当前进程建立的 CDP 自动化连接。若资源句柄仍阻止 child 自然退出，项目 supervisor 必须在 terminal 宽限期后终止该已登记进程组，并按 terminal result 的真实成功/失败结果继续规则层决策。
 37. 图片供应商返回 `429/502/503/504`、`temporarily unavailable`、gateway unavailable、资源过载，或主图生成阶段出现 `fetch failed`、socket reset、timeout、`UND_ERR` 等传输失败时，规则层必须归类为外部服务可用性故障。3 分钟是操作层外部服务等待、退避和慢服务阈值：此类控制等待最多等待 3 分钟且不再指数增长，但不得把它当作已受理付费任务的观察上限，也不得据此重新提交付费任务。必须保留当前飞书批次、当前产品断点、付费账本 task ID 和已验证 raw 图片，且不消耗普通流程有限恢复预算。`videos-base64` 已受理付费任务必须使用同一 task ID 观察，固定观察上限为 30 分钟；供应商明确成功或失败立即退出，到达 30 分钟必须执行最终状态查询，只有最终结果仍为 `queued`/`pending` 才可 stale 并只补同一固定 slot。`completed` slot 永不重新生成。权限拒绝、access forbidden、业务校验错误和可能产生不确定外部副作用的错误禁止套用此规则。
 37.1 `videos-base64` 已受理任务明确终态超时时，不得把第一个固定 slot 超时泛化成整条生图服务不可用。动作层必须在当前子进程重读持久账本并只补同一固定 slot，其他 `completed` slot 必须原样复用。只有该 slot 达到超时熔断条件时才能升级给 supervisor，并按规则层返回的精确冷却时间等待；权限、余额、计费和受理状态不明确仍必须安全阻断。
+37.2 任意外层 HTTP 状态的嵌套供应商正文只要包含 `upstream_error`、`upstream-error`、`upstream error`、`do_request_failed` 或 `do-request-failed`，都必须进入同一固定 slot 的长退避；禁止因外层 400 或错误码分隔符差异提前终止子流程。重试耗尽且供应商明确未受理时写入 `failed_before_acceptance`，只补该 slot；已经取得 task ID 时仍只轮询该任务。
 38. 任何历史运行资产恢复，包括 raw/staged 主图、异步任务响应、Word 提示词、标题、店铺商品目录、发布计划和发布清单，都必须先验证运行记录中的飞书批次指纹与当前缓存批次完全一致。指纹缺失或不一致时必须失败关闭，禁止用源图路径、recordId、SPU、产品名、文件夹名或“已有产物数量”推断为同一批次；Word 只允许从当前 `runtimeDir/tasks/<taskId>` 恢复，店铺目录只允许按 resume job 的精确文件夹清单恢复。
 39. 项目 supervisor 以独立进程组运行。状态检查优先验证 PID 与命令；受限环境禁止 Node 读取 `ps` 命令行时，必须用该 supervisor 的独立进程组存活信号确认运行中，不能误报任务结束并允许重复启动。
 40. 外部服务长退避期间，动作层必须写入独立 `external_service_wait` 控制状态，包含等待原因、等待次数和下次重试时间；项目状态必须优先展示该等待态。开始下一次执行时清除等待状态，禁止把正在自动等待供应商恢复误报为永久失败或正常执行中。

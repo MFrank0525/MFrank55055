@@ -17,6 +17,40 @@ export interface DeepAuditIssue {
   count?: number;
 }
 
+export interface CanonicalPublishTaskScope {
+  batchFingerprint: string;
+  recordId: string;
+  taskId: string;
+}
+
+export function scopeCanonicalPublishManifestKeys(input: {
+  taskScopes: CanonicalPublishTaskScope[];
+  entries: Array<{
+    targetKey?: string;
+    targetIdentity?: Partial<CanonicalPublishTaskScope>;
+  }>;
+}): string[] {
+  const scopes = input.taskScopes.map((scope) => ({
+    ...scope,
+    prefix: [scope.batchFingerprint, scope.recordId, scope.taskId].map(encodeURIComponent).join("__") + "__"
+  }));
+  return input.entries.flatMap((entry) => {
+    const targetKey = String(entry.targetKey || "");
+    if (!targetKey) {
+      return [];
+    }
+    const identity = entry.targetIdentity;
+    const belongsToAuditedTask = scopes.some(
+      (scope) =>
+        (identity?.batchFingerprint === scope.batchFingerprint &&
+          identity?.recordId === scope.recordId &&
+          identity?.taskId === scope.taskId) ||
+        targetKey.startsWith(scope.prefix)
+    );
+    return belongsToAuditedTask ? [targetKey] : [];
+  });
+}
+
 export function shouldRequirePublishTargetIdentity(input: {
   recordId?: string;
   status?: string;

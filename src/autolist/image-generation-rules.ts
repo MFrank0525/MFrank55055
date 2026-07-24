@@ -178,7 +178,7 @@ export function resolveImageGenerationHttpRetryPolicy(input: ImageGenerationHttp
       reason: "provider_gateway_unavailable"
     };
   }
-  if (/do_request_failed|upstream error|upstream.*failed/i.test(input.responseText)) {
+  if (/do[_ -]?request[_ -]?failed|upstream[_ -]?error|upstream.*failed/i.test(input.responseText)) {
     return {
       maxRetries: longMaxRetries,
       delayMs: longDelayMs,

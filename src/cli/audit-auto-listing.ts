@@ -9,6 +9,7 @@ import {
   auditRuleContradictions,
   auditRuntimeControllerConsistency,
   runDeepAuditRules,
+  scopeCanonicalPublishManifestKeys,
   shouldRequireCompletePublishAudit,
   shouldRequirePublishTargetIdentity,
   type DeepAuditIssue
@@ -436,6 +437,7 @@ async function main(): Promise<void> {
   }
 
   const expectedTargetKeys: string[] = [];
+  const auditedTaskScopes: Array<{ batchFingerprint: string; recordId: string; taskId: string }> = [];
   const identityBuildErrors: DeepAuditIssue[] = [];
   for (const task of state?.tasks || []) {
     if (
@@ -451,14 +453,20 @@ async function main(): Promise<void> {
       continue;
     }
     try {
-      expectedTargetKeys.push(...buildCanonicalPublishTargetKeys({
+      const taskScope = {
         batchFingerprint: state?.feishuBatchFingerprint || "",
+        recordId: task.feishuProductRecord?.recordId || "",
+        taskId: task.taskId
+      };
+      expectedTargetKeys.push(...buildCanonicalPublishTargetKeys({
+        batchFingerprint: taskScope.batchFingerprint,
         tasks: [{
-          taskId: task.taskId,
-          recordId: task.feishuProductRecord?.recordId,
+          taskId: taskScope.taskId,
+          recordId: taskScope.recordId,
           productCategory: task.feishuProductRecord?.productCategory
         }]
       }));
+      auditedTaskScopes.push(taskScope);
     } catch (error) {
       identityBuildErrors.push({
         code: "publish_target_identity_invalid",
@@ -468,7 +476,7 @@ async function main(): Promise<void> {
   }
   const identityAudit = auditCanonicalPublishEvidence({
     expectedTargetKeys,
-    manifestTargetKeys: manifest.entries.map((entry) => entry.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey)),
+    manifestTargetKeys: scopeCanonicalPublishManifestKeys({ taskScopes: auditedTaskScopes, entries: manifest.entries }),
     artifactTargetKeys: (state?.tasks || []).flatMap((task) => task.publishArtifact?.results.map((result) => result.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey)) || []),
     requireComplete: requireCompletePublishAudit
   });

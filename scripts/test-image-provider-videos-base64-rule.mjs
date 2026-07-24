@@ -14,6 +14,7 @@ import {
 import {
   providerExplicitlyProvesNoPaidTaskAccepted,
   submitTransportFailureProvesNoPaidTaskAccepted,
+  resolveImageGenerationHttpRetryPolicy,
   resolveOpenAiCompatibleImageMode,
   resolvePaidImageLedgerFailureDisposition,
   resolveMissingFixedImageIndexes,
@@ -822,6 +823,18 @@ assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(429, "rate limited"), false);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(502, "upstream error"), false);
+assert.deepEqual(
+  resolveImageGenerationHttpRetryPolicy({
+    status: 400,
+    responseText: '{"code":"fail_to_fetch_task","message":"{\\"error\\":{\\"code\\":\\"upstream_error\\",\\"message\\":\\"400 Bad Request openresty\\"}}"}'
+  }),
+  {
+    maxRetries: 8,
+    delayMs: [60000, 90000, 120000, 180000, 180000, 180000, 180000, 180000],
+    reason: "provider_upstream_failed"
+  },
+  "nested upstream_error submit rejections must stay inside long self-driven retry instead of terminating the child"
+);
 assert.equal(
   providerExplicitlyProvesNoPaidTaskAccepted(
     503,
@@ -1752,15 +1765,26 @@ recordPaidImageFailedBeforeAcceptance({
   reason: "[redacted]"
 });
 const legacyRedactedSlotFile = path.join(legacyRedactedLedger.productDir, "slots", "01.json");
-const legacyRedactedSlotBeforeRestart = fs.readFileSync(legacyRedactedSlotFile, "utf8");
 let legacyRedactedTransportCalls = 0;
-globalThis.fetch = async () => {
-  legacyRedactedTransportCalls += 1;
-  throw new Error("legacy redacted slot must fail closed before transport");
+globalThis.fetch = async (url, init) => {
+  if (init?.method === "POST") {
+    legacyRedactedTransportCalls += 1;
+    return new Response(JSON.stringify({ id: "redacted-no-acceptance-retry-task" }), { status: 200 });
+  }
+  if (String(url).endsWith("/redacted-no-acceptance-retry-task")) {
+    return new Response(JSON.stringify({
+      id: "redacted-no-acceptance-retry-task",
+      status: "completed",
+      result_url: "https://provider.example/redacted-no-acceptance-result.png"
+    }), { status: 200 });
+  }
+  if (String(url) === "https://provider.example/redacted-no-acceptance-result.png") {
+    return new Response(fs.readFileSync(completedPng), { status: 200, headers: { "content-type": "image/png" } });
+  }
+  throw new Error(`unexpected redacted no-acceptance retry transport: ${url}`);
 };
 try {
-  await assert.rejects(
-    () => generateMainImageAssets({
+  await generateMainImageAssets({
       runtimeDir: path.join(unsafeRestartRoot, "legacy-redacted-restart-runtime"),
       taskId: "image-001",
       shopRootDir: unsafeRestartShopRoot,
@@ -1779,17 +1803,19 @@ try {
       feishuBatchFingerprint: "legacy-redacted-batch",
       paidImageSubmissionLedgerDir: legacyRedactedLedgerRoot,
       simulateOnly: false
-    }),
-    /redacted|not safe to replay/i
-  );
+    });
 } finally {
   globalThis.fetch = originalFetch;
 }
-assert.equal(legacyRedactedTransportCalls, 0, "legacy redacted retry evidence must block restart transport");
 assert.equal(
-  fs.readFileSync(legacyRedactedSlotFile, "utf8"),
-  legacyRedactedSlotBeforeRestart,
-  "legacy redacted slot must remain byte-for-byte unchanged after restart"
+  legacyRedactedTransportCalls,
+  1,
+  "failed-before-acceptance state without a non-replayable disposition must retry exactly its fixed slot"
+);
+assert.equal(
+  JSON.parse(fs.readFileSync(legacyRedactedSlotFile, "utf8")).state,
+  "completed",
+  "lossy reason redaction must not override definitive no-acceptance state"
 );
 
 const unsafeTerminalLedgerRoot = path.join(unsafeRestartRoot, "unsafe-terminal-ledger");

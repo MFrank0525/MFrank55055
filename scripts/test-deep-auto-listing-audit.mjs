@@ -6,6 +6,7 @@ import {
   auditRuntimeControllerConsistency,
   auditRuleContradictions,
   runDeepAuditRules,
+  scopeCanonicalPublishManifestKeys,
   shouldRequireCompletePublishAudit,
   shouldRequirePublishTargetIdentity
 } from "../dist/src/autolist/deep-audit-rules.js";
@@ -939,6 +940,37 @@ assert.deepEqual(resumableIdentityAudit.warnings.map((item) => item.code), [
   "publish_manifest_identity_pending",
   "publish_artifact_identity_pending"
 ]);
+const scopedSharedManifestKeys = scopeCanonicalPublishManifestKeys({
+  taskScopes: [{ batchFingerprint: "batch-current", recordId: "record-current", taskId: "task-current" }],
+  entries: [
+    {
+      targetKey: "batch-current__record-current__task-current__01__01",
+      targetIdentity: { batchFingerprint: "batch-current", recordId: "record-current", taskId: "task-current" }
+    },
+    {
+      targetKey: "batch-current__record-current__task-current__99__99",
+      targetIdentity: { batchFingerprint: "batch-current", recordId: "record-current", taskId: "task-current" }
+    },
+    {
+      targetKey: "batch-current__record-previous__task-previous__01__01",
+      targetIdentity: { batchFingerprint: "batch-current", recordId: "record-previous", taskId: "task-previous" }
+    }
+  ]
+});
+assert.deepEqual(scopedSharedManifestKeys, [
+  "batch-current__record-current__task-current__01__01",
+  "batch-current__record-current__task-current__99__99"
+]);
+assert.equal(
+  auditCanonicalPublishEvidence({
+    expectedTargetKeys: ["batch-current__record-current__task-current__01__01"],
+    manifestTargetKeys: scopedSharedManifestKeys,
+    artifactTargetKeys: [],
+    requireComplete: false
+  }).errors[0]?.code,
+  "publish_manifest_identity_unexpected",
+  "scoping must exclude other tasks without hiding unexpected targets inside the current task"
+);
 assert.doesNotMatch(
   auditCliSource,
   /expectedTargetKeySet[\s\S]*filter\(.*expectedTargetKeySet\.has/s,
@@ -946,8 +978,8 @@ assert.doesNotMatch(
 );
 assert.match(
   auditCliSource,
-  /buildCanonicalPublishTargetKeys\([\s\S]*manifestTargetKeys:\s*manifest\.entries\.map\([\s\S]*artifactTargetKeys:/,
-  "Deep audit must derive the full category plan and compare all manifest and artifact identities"
+  /buildCanonicalPublishTargetKeys\([\s\S]*scopeCanonicalPublishManifestKeys\(\{\s*taskScopes:\s*auditedTaskScopes,\s*entries:\s*manifest\.entries\s*\}\)[\s\S]*artifactTargetKeys:/,
+  "Deep audit must derive the full category plan and scope a shared manifest by canonical task identity"
 );
 
 const contradictionAudit = auditRuleContradictions({

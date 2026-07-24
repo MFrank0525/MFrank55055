@@ -993,9 +993,13 @@ async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action !== "missing" &&
           "record" in slotAction &&
           slotAction.record?.replayDisposition === "non_replayable";
+        const definitiveNoAcceptanceWithLossyReason =
+          slotAction.action === "retry_failed_before_acceptance" &&
+          failedRetryReason.trim().toLowerCase() === "[redacted]";
         if (
           slotAction.action !== "missing" &&
-          (persistedNonReplayable || isUnsafePaidImageReplayReason(failedRetryReason))
+          (persistedNonReplayable ||
+            (!definitiveNoAcceptanceWithLossyReason && isUnsafePaidImageReplayReason(failedRetryReason)))
         ) {
           const safeFailedRetryReason = sanitizeImageGenerationProviderErrorText(
             failedRetryReason,
