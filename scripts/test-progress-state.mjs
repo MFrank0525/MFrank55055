@@ -67,6 +67,10 @@ import {
   compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import {
+  isDoudianLoginRequiredFailure,
+  resolveDoudianLoginRecoveryPollMs
+} from "../dist/src/autolist/doudian-login-recovery-rules.js";
+import {
   resolvePaidImageChildStallTimeoutMs,
   resolvePaidImageChildWatchdogDecision,
   resolvePaidImageWaitStatus,
@@ -3892,6 +3896,12 @@ assert.equal(
   false,
   "Doudian login loss is an external manual blocker and must not be treated as project self-recoverable"
 );
+assert.equal(isDoudianLoginRequiredFailure(doudianLoginFailureMessage), true);
+assert.equal(
+  resolveDoudianLoginRecoveryPollMs(),
+  30_000,
+  "Login recovery must use a bounded read-only polling interval without consuming ordinary retry budget"
+);
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
     childMode: "resume",
@@ -3904,7 +3914,19 @@ assert.equal(
     maxRecoveryAttempts: 12
   }),
   false,
-  "Supervisor must stop on Doudian login loss so Hermes can notify the user instead of looping"
+  "Supervisor must not restart the publish child while Doudian login remains unavailable"
+);
+assert.equal(
+  resolveAutoListingControllerRuntimeStatus({
+    running: true,
+    activeWaitState: false,
+    activeLoginWaitState: true,
+    completed: false,
+    failed: false,
+    hasPendingFeishuProducts: true
+  }),
+  "doudian_login_wait",
+  "A live supervisor waiting for the fixed headed browser login must remain observable instead of becoming terminal failed"
 );
 
 assert.equal(

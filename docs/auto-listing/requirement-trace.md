@@ -89,3 +89,14 @@
 | Reject false delivery success | Feishu delivery requires `SendResult.success` and a concrete API `message_id` receipt | Live receipt `om_x100b692b427f0c80b4b94c26cb94c6b` in the bound thread | verified |
 | Retry failed notices instead of silently dropping them | Failed delivery restores the pre-notice dedupe state, so the same terminal/progress notice remains eligible on the next watchdog cycle | Structural gateway regression | verified |
 | Preserve origin across gateway restart | Bound origin is persisted under the project control directory and reloaded after restart | Gateway PID replacement and live thread delivery | verified |
+
+## 2026-07-25 Doudian login recovery and shop-menu readiness
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Identify the live stall without risking duplicate publication | Runtime, failure screenshot and manifest show Doudian login expiry before target 6; targets 1–5 are confirmed and target 6 is `not_checked` | Run `20260725-003455`; deep audit reports `unconfirmed=0` and matching batch fingerprint | verified |
+| Preserve the external authentication boundary | Recovery never enters credentials, OTPs or QR data; it keeps the fixed headed profile and reports a dedicated `doudian_login_wait` state | Red-before-green login recovery rules and supervisor structural tests | verified |
+| Resume automatically after the user restores login | Supervisor periodically runs only the read-only Doudian session preflight; it does not restart a publish child or consume ordinary recovery budget while logged out | `test-progress-state.mjs` and `test-doudian-publish-session-preflight-rule.mjs` | verified |
+| Prevent full-flow replay after publish-stage login loss | A publish-stage login failure must prepare a manifest-backed resume job; only a pre-paid `preflight` failure may return to the locked full flow | Supervisor recovery branch and structural regression | verified |
+| Remove shop-menu loading false positives | Menu-open and anchor-ready checks no longer accept whole-page “退出/切换组织” text; evidence is restricted to visible top-right DOM | Red-before-green `test-shop-switch-structure-rule.mjs`; headed card-action regression | verified |
+| Validate real external dependencies | Real Feishu 23-field check and a standalone headed 20-shop audit exercise the fixed profile without publish/form mutation | Feishu `check`; shop-access audit `20260725-133807` | verified |

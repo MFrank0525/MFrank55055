@@ -143,10 +143,6 @@ async function clickTopRightShopMenu(page: Page): Promise<boolean> {
   const menuVisible = async (): Promise<boolean> =>
     page.evaluate(() => {
       const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-      const bodyText = normalize(document.body.innerText || "");
-      if (bodyText.includes("切换组织/店铺") || bodyText.includes("退出")) {
-        return true;
-      }
       return Array.from(document.querySelectorAll("body *"))
         .map((node) => node as HTMLElement)
         .some((el) => {
@@ -158,6 +154,8 @@ async function clickTopRightShopMenu(page: Page): Promise<boolean> {
             (text.includes("切换组织/店铺") || text.includes("退出")) &&
             rect.width > 0 &&
             rect.height > 0 &&
+            rect.top < 180 &&
+            rect.left > window.innerWidth * 0.68 &&
             style.display !== "none" &&
             style.visibility !== "hidden"
           );
@@ -229,10 +227,6 @@ async function waitForTopRightShopMenuAnchor(page: Page, timeoutMs = 12000): Pro
     const found = await page
       .evaluate(() => {
         const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-        const bodyText = normalize(document.body?.innerText || "");
-        if (bodyText.includes("切换组织/店铺") || bodyText.includes("退出")) {
-          return true;
-        }
         return Array.from(document.querySelectorAll("body *"))
           .map((node) => node as HTMLElement)
           .some((el) => {

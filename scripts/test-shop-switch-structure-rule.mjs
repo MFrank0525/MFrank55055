@@ -33,6 +33,21 @@ assert.match(
   /headerShopName/,
   "Top-right shop menu opening must target the Doudian header shop-name structure"
 );
+assert.doesNotMatch(
+  functionBody("clickTopRightShopMenu"),
+  /document\.body\??\.innerText|document\.body\.innerText/,
+  "Shop menu visibility must not use whole-page text because loading shells and unrelated menus can create false positives"
+);
+assert.match(
+  functionBody("clickTopRightShopMenu"),
+  /rect\.top < 180[\s\S]*rect\.left > window\.innerWidth \* 0\.68/,
+  "Shop menu visibility evidence must be scoped to the visible top-right header region"
+);
+assert.doesNotMatch(
+  functionBody("waitForTopRightShopMenuAnchor"),
+  /document\.body\??\.innerText|document\.body\.innerText/,
+  "Shop menu anchor readiness must not treat unrelated whole-page text as a ready header"
+);
 assert.match(
   functionBody("clickTopRightShopMenu"),
   /locator\(/,

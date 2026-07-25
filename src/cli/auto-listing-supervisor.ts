@@ -16,6 +16,8 @@ import {
   shouldRefreshFeishuAssetsBeforeFullFlow,
   type FullFlowContinuationReason
 } from "../autolist/batch-continuation-rules.js";
+import { isDoudianLoginRequiredFailure, resolveDoudianLoginRecoveryPollMs } from "../autolist/doudian-login-recovery-rules.js";
+import { assertDoudianPublishSessionReady } from "../business/publish-from-spu.js";
 import {
   resolvePaidImageChildWatchdogDecision,
   shouldRefreshProgressSeenAtForPaidImageWait
@@ -59,6 +61,7 @@ const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
 const childControlFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-child.json");
 const externalServiceWaitFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-wait.json");
+const pauseSignalFile = path.resolve(rootDir, "data/auto-listing/control/pause.requested");
 const childStallExitCode = 124;
 const terminalResultGracePeriodMs = 5000;
 const childStallTimeoutMs = Math.max(180000, Number(process.env.AUTO_LISTING_CHILD_STALL_TIMEOUT_MS || 12 * 60 * 1000));
@@ -252,14 +255,45 @@ function clearAutoListingControllerChildControl(pid: number): void {
   }
 }
 
-function writeExternalServiceWait(reason: string, retryDelayMs: number, attempt: number): void {
+function writeWaitState(status: "external_service_wait" | "doudian_login_wait", reason: string, retryDelayMs: number, attempt: number): void {
   atomicWriteJson(externalServiceWaitFile, {
     supervisorPid: process.pid,
-    status: "external_service_wait",
+    status,
     reason,
     attempt,
     retryAt: new Date(Date.now() + retryDelayMs).toISOString()
   });
+}
+
+function writeExternalServiceWait(reason: string, retryDelayMs: number, attempt: number): void {
+  writeWaitState("external_service_wait", reason, retryDelayMs, attempt);
+}
+
+async function waitForDoudianLoginRecovery(reason: string): Promise<boolean> {
+  const retryDelayMs = resolveDoudianLoginRecoveryPollMs();
+  let attempt = 0;
+  while (true) {
+    if (fs.existsSync(pauseSignalFile)) {
+      clearExternalServiceWait();
+      return false;
+    }
+    attempt += 1;
+    writeWaitState("doudian_login_wait", reason, retryDelayMs, attempt);
+    try {
+      await assertDoudianPublishSessionReady({
+        runtimeDir: path.resolve(rootDir, "data/auto-listing/control/doudian-login-recovery"),
+        label: "doudian-login-recovery",
+        timeoutMs: 15_000
+      });
+      clearExternalServiceWait();
+      console.log("Doudian login recovered in the fixed headed browser; resuming the exact manifest-backed checkpoint.");
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      writeWaitState("doudian_login_wait", isDoudianLoginRequiredFailure(message) ? reason : message, retryDelayMs, attempt);
+      await sleep(retryDelayMs);
+    }
+  }
 }
 
 function clearExternalServiceWait(): void {
@@ -577,6 +611,25 @@ async function main(): Promise<void> {
       exitCode === childStallExitCode
         ? `child made no progress before watchdog timeout during ${failureProgress.activeStep || "unknown"}: ${failureProgress.activeMessage || ""}`.trim()
         : latestFailureMessage();
+    if (isDoudianLoginRequiredFailure(failureMessage)) {
+      const resumePrepared = prepareResumeJob();
+      const failedBeforePaidWork = childMode === "full" && /preflight/i.test(`${failureProgress.activeStep || ""} ${failureProgress.activeMessage || ""}`);
+      if (!resumePrepared && !failedBeforePaidWork) {
+        console.error("Doudian login wait requires an exact manifest-backed resume job, but resume preparation failed.");
+        process.exitCode = 1;
+        return;
+      }
+      console.log("Doudian login is unavailable; preserving the fixed headed browser and exact checkpoint while waiting for read-only session recovery.");
+      if (!(await waitForDoudianLoginRecovery(failureMessage))) {
+        process.exitCode = 0;
+        return;
+      }
+      nextMode = resumePrepared ? "resume" : "full";
+      fullFlowReason = "same_batch_pending";
+      childRecoveryAttempts = 0;
+      externalServiceWaitAttempts = 0;
+      continue;
+    }
     if (
       shouldRecoverFullFlowAfterChildFailure({
         childMode,

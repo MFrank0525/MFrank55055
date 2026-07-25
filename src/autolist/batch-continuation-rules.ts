@@ -2,7 +2,8 @@ import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js
 import { formatAutoListingBatchProgressLabel, formatAutoListingPublishProgressLabel, replaceAutoListingPublishProgressProductName, resolveAutoListingPublishGroupIdentity } from "./status-progress-rules.js";
 import { imageServiceWaitCeilingMs, isUnsafePaidImageReplayReason } from "./image-generation-rules.js";
 import { isPaidImageAcceptedTaskHeartbeatText } from "./paid-image-wait-rules.js";
-
+import { isDoudianLoginRequiredFailure } from "./doudian-login-recovery-rules.js";
+export { formatAutoListingControllerExternalServiceWaitSummary } from "./doudian-login-recovery-rules.js";
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
   batchComplete: boolean;
@@ -119,7 +120,7 @@ function isDeterministicDetailQualificationFailure(message: string): boolean {
 function isRetryablePreSubmitShippingPreconditionFailure(message: string): boolean { return /价格库存发货前置模块未完成|Price-inventory shipping precondition failed/i.test(message) && /Missing price-inventory precondition fields: (?:shippingMode|shippingTime|shippingMode, shippingTime)/i.test(message); }
 
 function isRetryablePublishPageFailure(message: string): boolean {
-  if (/Doudian login (?:is )?required|抖店登录/i.test(message)) {
+  if (isDoudianLoginRequiredFailure(message)) {
     return false;
   }
   return (
@@ -131,7 +132,7 @@ function isRetryablePublishPageFailure(message: string): boolean {
 }
 
 function isRetryablePrePaidDoudianReadinessFailure(message: string): boolean {
-  if (/Doudian login (?:is )?required|抖店登录/i.test(message)) {
+  if (isDoudianLoginRequiredFailure(message)) {
     return false;
   }
   return /Platform SPU query page was not ready|Platform SPU query controls are incomplete|publish create page did not become ready|page context was lost|Execution context was destroyed|Target closed/i.test(
@@ -1053,7 +1054,7 @@ export type AutoListingControllerResolvedStatus =
   | "paused"
   | "completed"
   | "failed"
-  | "external_service_wait"
+  | "external_service_wait" | "doudian_login_wait"
   | "pending_products"
   | "exited_unknown";
 
@@ -1080,7 +1081,7 @@ export function resolveAutoListingControllerIdleStatus(input: {
 
 export type AutoListingControllerRuntimeStatusInput = {
   running: boolean;
-  activeWaitState: boolean;
+  activeWaitState: boolean; activeLoginWaitState?: boolean;
   pauseSignalExists?: boolean;
   completed: boolean;
   failed: boolean;
@@ -1094,6 +1095,7 @@ export function resolveAutoListingControllerRuntimeStatus(input: AutoListingCont
   if (input.pauseSignalExists) {
     return "pause_requested";
   }
+  if (input.activeLoginWaitState) return "doudian_login_wait";
   if (input.activeWaitState) {
     return "external_service_wait";
   }
@@ -1128,7 +1130,7 @@ function normalizeAutoListingControllerStatusLabel(status?: string): string {
   if (status === "paused") return "已暂停";
   if (status === "failed") return "失败";
   if (status === "completed") return "完成";
-  if (status === "external_service_wait") return "等待生图服务";
+  if (status === "external_service_wait" || status === "doudian_login_wait") return status === "external_service_wait" ? "等待生图服务" : "等待抖店登录";
   if (status === "pending_products") return "待继续";
   if (status === "idle") return "空闲";
   return status || "未知";
@@ -1378,24 +1380,6 @@ function shouldPreferAutoListingControllerPublishProgress(input: AutoListingCont
   return /发布|publish|basic_info|商品|店铺|spu/i.test(input.latestProgress);
 }
 
-export function formatAutoListingControllerExternalServiceWaitSummary(input: {
-  retryAt?: string;
-  nowMs: number;
-  reason?: string;
-}): string {
-  const retryAtMs = Date.parse(input.retryAt || "");
-  const remainingSeconds = Number.isFinite(retryAtMs)
-    ? Math.max(0, Math.ceil((retryAtMs - input.nowMs) / 1000))
-    : undefined;
-  const countdown =
-    remainingSeconds === undefined
-      ? "供应商恢复后"
-      : `${Math.floor(remainingSeconds / 60)}分${remainingSeconds % 60}秒后`;
-  const slot = /timeout circuit open for slot\s+(\d+)/i.exec(input.reason || "")?.[1];
-  const slotText = slot ? `槽位 ${slot}；` : "";
-  return `图片服务冷却中：${slotText}${countdown}（${input.retryAt || "时间待定"}）自动重试。`;
-}
-
 export function formatAutoListingControllerCompactStatusText(input: AutoListingControllerCompactStatusTextInput): string {
   const productTotal = input.publishProductTotal ?? 20;
   const mainImageTotal = input.mainImageExpected ?? productTotal;
@@ -1465,7 +1449,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const active = cleanAutoListingControllerProductName(input.activeItemName || input.productName);
   lines.push(`当前：${active}`);
   const latestProgress =
-    input.status === "external_service_wait" || input.status === "pause_requested" || input.status === "paused"
+    input.status === "external_service_wait" || input.status === "doudian_login_wait" || input.status === "pause_requested" || input.status === "paused"
       ? input.summary
       : preferPublishProgress
         ? input.latestProgress

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   compactAutoListingTerminalFailureMessage, formatAutoListingControllerCompactStatusText,
-  formatAutoListingControllerExternalServiceWaitSummary, isAutoListingControllerChildProcessCommand,
+  isAutoListingControllerChildProcessCommand,
   isAutoListingControllerRunningProcessConfirmed, isAutoListingControllerSupervisorProcessCommand,
   isAutoListingDirectRunProcessCommand, isExternalMainImageRawReuseMessage,
   resolveAutoListingControllerDryRunStartDecision, resolveAutoListingControllerEffectiveProgressTimestamp,
@@ -23,6 +23,7 @@ import {
   shouldUseExpectedResultFileInRunningStatus, summarizeAutoListingControllerImageGenerationEvents,
   type AutoListingControllerLaunchIntent
 } from "../autolist/batch-continuation-rules.js";
+import { formatAutoListingControllerWaitSummary, resolveDoudianLoginWaitRealtimeMessage } from "../autolist/doudian-login-recovery-rules.js";
 import { resolvePaidImageWaitStatus } from "../autolist/paid-image-wait-rules.js";
 import { shouldFailAutoListingControllerStatusForFeishuCacheInvalid, shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid } from "../autolist/controller-cache-status-rules.js";
 import { formatAutoListingPublishProgressLabel, shouldRetainStoppedControllerPublishCheckpoint } from "../autolist/status-progress-rules.js";
@@ -80,7 +81,7 @@ interface DirectAutoListingProcess {
 }
 interface ExternalServiceWait {
   supervisorPid?: number;
-  status?: "external_service_wait";
+  status?: "external_service_wait" | "doudian_login_wait";
   reason?: string;
   attempt?: number;
   retryAt?: string;
@@ -1538,7 +1539,7 @@ function existingStatus(): Record<string, unknown> {
   const running = isRunnerJobRunning(job);
   const waitState = readJsonFile<ExternalServiceWait>(externalServiceWaitFile);
   const activeWaitState =
-    running && waitState?.status === "external_service_wait" && waitState.supervisorPid === job.pid
+    running && ["external_service_wait", "doudian_login_wait"].includes(String(waitState?.status || "")) && waitState?.supervisorPid === job.pid
       ? waitState
       : undefined;
   const activeRuntimeDir = findActiveRuntimeDirFromLog(job.logFile);
@@ -1732,7 +1733,7 @@ function existingStatus(): Record<string, unknown> {
         : undefined;
   const baseResolvedStatus = resolveAutoListingControllerRuntimeStatus({
     running,
-    activeWaitState: Boolean(activeWaitState),
+    activeWaitState: activeWaitState?.status === "external_service_wait", activeLoginWaitState: activeWaitState?.status === "doudian_login_wait",
     pauseSignalExists: fs.existsSync(pauseFile),
     completed: Boolean(completed),
     failed: Boolean(failed),
@@ -1810,7 +1811,7 @@ function existingStatus(): Record<string, unknown> {
       ? compactAutoListingTerminalFailureMessage(failureSummary || "自动上架失败，请查看项目终态结果。")
       : resolvedStatus === "external_service_wait" && terminalFailureMessage
         ? `图片服务暂时不可用：${terminalFailureMessage}`
-        : undefined;
+        : resolveDoudianLoginWaitRealtimeMessage(resolvedStatus);
   const publishGroupProgress = publishProgress?.publishGroupProgress as Record<string, unknown> | undefined;
   const realtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
     jobStartedAt: job.startedAt,
@@ -1874,12 +1875,8 @@ function existingStatus(): Record<string, unknown> {
     summary:
       (resolvedStatus === "pause_requested"
         ? formatPauseSignalSummary(pauseSignal)
-        : resolvedStatus === "external_service_wait"
-        ? formatAutoListingControllerExternalServiceWaitSummary({
-            retryAt: activeWaitState?.retryAt,
-            nowMs: Date.now(),
-            reason: externalWaitReason
-          })
+        : resolvedStatus === "external_service_wait" || resolvedStatus === "doudian_login_wait"
+        ? formatAutoListingControllerWaitSummary({ status: resolvedStatus, retryAt: activeWaitState?.retryAt, nowMs: Date.now(), reason: externalWaitReason })
         : resolvedStatus === "failed"
         ? failureSummary || stateSummary
         : shouldUsePublishRealtime
