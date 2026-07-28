@@ -60,7 +60,7 @@
 2. 继续前清除暂停信号：
    - `npm run auto-listing:resume-ready`
 3. 继续上架：
-   - `npm run auto-listing:hermes-start`
+   - `npm run auto-listing:hermes-continue`
 4. 继续时不要清理 `data/auto-listing/runs/<runId>`、真实主图工作目录、真实标题目录、店铺产物目录，否则可复用产物会丢失。
 
 边界：

@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   compactAutoListingTerminalFailureMessage, formatAutoListingControllerCompactStatusText,
   isAutoListingControllerChildProcessCommand,
-  isAutoListingControllerRunningProcessConfirmed, isAutoListingControllerSupervisorProcessCommand,
+  isAutoListingControllerSupervisorProcessCommand,
   isAutoListingDirectRunProcessCommand, isExternalMainImageRawReuseMessage,
   resolveAutoListingControllerDryRunStartDecision, resolveAutoListingControllerEffectiveProgressTimestamp,
   resolveAutoListingControllerFeishuBatchDisplayCounts, resolveAutoListingControllerFeishuProgressDisplayMode,
@@ -37,6 +37,7 @@ import { assertAutoListingControllerImageGenerationContract } from "../autolist/
 import type { ImageGenerationProvider } from "../autolist/image-generation-provider.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { resolveControllerJobClosure, type ControllerJobStatus } from "../autolist/maintenance-rules.js";
+import { cleanupInertControllerSupervisor, isControllerRunnerJobRunning } from "./controller-process-liveness.js";
 import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-manifest.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
@@ -397,14 +398,11 @@ function isPidRunning(pid: number | undefined): boolean {
 }
 
 function isRunnerJobRunning(job: RunnerJob): boolean {
-  if (job.status !== "running") {
-    return false;
-  }
-  const command = readProcessCommand(job.pid);
-  return isAutoListingControllerRunningProcessConfirmed({
-    pidAlive: isPidRunning(job.pid),
-    processGroupAlive: isProcessGroupRunning(job.pid),
-    command
+  return isControllerRunnerJobRunning({
+    job,
+    childControlFile,
+    waitStateFile: externalServiceWaitFile,
+    latestResultFile: findLatestResultFile()
   });
 }
 
@@ -464,7 +462,6 @@ async function cleanupRecordedAutoListingControllerChild(): Promise<void> {
   }
   fs.rmSync(childControlFile, { force: true });
 }
-
 function timestampForFile(date = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return [
@@ -2819,6 +2816,12 @@ async function start(
     return;
   }
   if (!dryRun) {
+    await cleanupInertControllerSupervisor({
+      job: current,
+      childControlFile,
+      waitStateFile: externalServiceWaitFile,
+      latestResultFile: findLatestResultFile()
+    });
     await cleanupRecordedAutoListingControllerChild();
   }
 

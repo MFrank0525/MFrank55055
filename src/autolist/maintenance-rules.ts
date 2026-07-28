@@ -31,6 +31,26 @@ export function resolveControllerJobClosure(input: {
   return { action: "clear_stale", status: "failed" };
 }
 
+export function shouldTreatControllerSupervisorAsInert(input: {
+  processConfirmed: boolean;
+  childProcessRecorded: boolean;
+  waitStateRecorded: boolean;
+  terminalResultFound: boolean;
+  terminalResultAgeMs: number;
+  controllerLogAdvancedAfterTerminalResult: boolean;
+  gracePeriodMs?: number;
+}): boolean {
+  const gracePeriodMs = Math.max(30_000, input.gracePeriodMs ?? 2 * 60 * 1000);
+  return (
+    input.processConfirmed &&
+    !input.childProcessRecorded &&
+    !input.waitStateRecorded &&
+    input.terminalResultFound &&
+    input.terminalResultAgeMs >= gracePeriodMs &&
+    !input.controllerLogAdvancedAfterTerminalResult
+  );
+}
+
 function normalizePath(value: string): string {
   return path.resolve(value);
 }

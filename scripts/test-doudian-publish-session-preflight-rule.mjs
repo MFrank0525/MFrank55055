@@ -22,6 +22,15 @@ assert.match(
   /export async function assertDoudianPublishSessionReady/,
   "Publish module must expose a reusable Doudian publish session preflight"
 );
+const doudianSessionProbeSource = publishSource.slice(
+  publishSource.indexOf("export async function assertDoudianPublishSessionReady"),
+  publishSource.indexOf("export async function queryPlatformSpu")
+);
+assert.match(
+  doudianSessionProbeSource,
+  /try\s*\{[\s\S]*ensurePlatformSpuQueryPageActive[\s\S]*finally\s*\{[\s\S]*context\.browser\(\)\?\.close\(\)/,
+  "Every read-only Doudian session probe must disconnect its Playwright CDP client on success and failure"
+);
 
 assert.match(
   publishSource,

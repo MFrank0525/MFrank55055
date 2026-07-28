@@ -66,6 +66,7 @@ import {
   shouldSuppressTerminalFailureBehindNewerProgress,
   compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
+import { shouldTreatControllerSupervisorAsInert } from "../dist/src/autolist/maintenance-rules.js";
 import {
   isDoudianLoginRequiredFailure,
   resolveDoudianLoginRecoveryPollMs
@@ -228,6 +229,7 @@ const mergedResumeArtifact = mergePublishArtifactWithSafeManifest({
 assert.deepEqual(mergedResumeArtifact.results.map((item) => item.targetKey), ["safe-1"]);
 
 const hermesRunnerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
+const controllerProcessLivenessSource = fs.readFileSync("src/cli/controller-process-liveness.ts", "utf8");
 const hermesSupervisorSource = fs.readFileSync("src/cli/auto-listing-supervisor.ts", "utf8");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const processedCompletionRulesSource = fs.readFileSync("src/autolist/processed-completion-rules.ts", "utf8");
@@ -2663,6 +2665,52 @@ assert.equal(
     command: "node dist/src/cli/auto-listing-supervisor.js --initial full"
   }),
   true
+);
+assert.equal(
+  shouldTreatControllerSupervisorAsInert({
+    processConfirmed: true,
+    childProcessRecorded: false,
+    waitStateRecorded: false,
+    terminalResultFound: true,
+    terminalResultAgeMs: 7 * 60 * 60 * 1000,
+    controllerLogAdvancedAfterTerminalResult: false
+  }),
+  true,
+  "A supervisor kept alive only by leaked handles after its child wrote a terminal result must be recycled"
+);
+assert.equal(
+  shouldTreatControllerSupervisorAsInert({
+    processConfirmed: true,
+    childProcessRecorded: false,
+    waitStateRecorded: true,
+    terminalResultFound: true,
+    terminalResultAgeMs: 7 * 60 * 60 * 1000,
+    controllerLogAdvancedAfterTerminalResult: false
+  }),
+  false,
+  "A supervisor in an explicit external-service or Doudian-login wait remains active"
+);
+assert.equal(
+  shouldTreatControllerSupervisorAsInert({
+    processConfirmed: true,
+    childProcessRecorded: true,
+    waitStateRecorded: false,
+    terminalResultFound: true,
+    terminalResultAgeMs: 7 * 60 * 60 * 1000,
+    controllerLogAdvancedAfterTerminalResult: false
+  }),
+  false,
+  "A supervisor with a recorded child must not be recycled by the terminal-result heuristic"
+);
+assert.match(
+  hermesRunnerSource,
+  /cleanupInertControllerSupervisor\([\s\S]*cleanupRecordedAutoListingControllerChild\(\)/,
+  "Continue/start must recycle an inert supervisor before cleaning stale child control and launching replacement work"
+);
+assert.match(
+  controllerProcessLivenessSource,
+  /isAutoListingControllerSupervisorProcessCommand[\s\S]*process\.kill\(-job\.pid,\s*"SIGTERM"\)/,
+  "Inert supervisor cleanup must verify the exact project supervisor command before terminating its process group"
 );
 const compactFailedStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",

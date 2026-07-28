@@ -601,19 +601,23 @@ export async function assertDoudianPublishSessionReady(options: {
   label?: string;
 }): Promise<void> {
   const context = await launchPersistentBrowser();
-  const page =
-    context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/spu-record")) ||
-    context.pages().find((item) => !item.isClosed() && !item.url().includes("/ffa/g/create")) ||
-    (await context.newPage());
-  attachSafeDialogHandler(page);
-  await closeCreatePagesExcept(context, [page]);
-  await page.bringToFront();
-  await ensurePlatformSpuQueryPageActive(
-    page,
-    options.runtimeDir,
-    options.label || "doudian-publish-session-preflight",
-    options.timeoutMs || 30000
-  );
+  try {
+    const page =
+      context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/spu-record")) ||
+      context.pages().find((item) => !item.isClosed() && !item.url().includes("/ffa/g/create")) ||
+      (await context.newPage());
+    attachSafeDialogHandler(page);
+    await closeCreatePagesExcept(context, [page]);
+    await page.bringToFront();
+    await ensurePlatformSpuQueryPageActive(
+      page,
+      options.runtimeDir,
+      options.label || "doudian-publish-session-preflight",
+      options.timeoutMs || 30000
+    );
+  } finally {
+    await context.browser()?.close().catch(() => {});
+  }
 }
 
 export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, shopFolder?: string, retryNo = 0): Promise<{

@@ -110,3 +110,14 @@
 | Prevent full-flow replay after publish-stage login loss | A publish-stage login failure must prepare a manifest-backed resume job; only a pre-paid `preflight` failure may return to the locked full flow | Supervisor recovery branch and structural regression | verified |
 | Remove shop-menu loading false positives | Menu-open and anchor-ready checks no longer accept whole-page “退出/切换组织” text; evidence is restricted to visible top-right DOM | Red-before-green `test-shop-switch-structure-rule.mjs`; headed card-action regression | verified |
 | Validate real external dependencies | Real Feishu 23-field check and a standalone headed 20-shop audit exercise the fixed profile without publish/form mutation | Feishu `check`; shop-access audit `20260725-133807` | verified |
+
+## 2026-07-28 Hermes continue inert-supervisor recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why the accepted continue command did not restart work | Gateway evidence confirms the natural-language router received “继续上架” and replied within one second; the recorded supervisor PID remained alive for hours after the pause result while its log stopped, no child/wait control file existed, and eight CDP sockets remained open | Gateway timeline, controller log/result mtimes, `ps`, and `lsof` evidence | verified |
+| Release read-only Doudian probe resources | `assertDoudianPublishSessionReady` disconnects its Playwright CDP client in `finally` without terminating the reusable headed Chrome profile | `test-doudian-publish-session-preflight-rule.mjs` | verified |
+| Reject PID-only false running state | Controller liveness now requires a real child or explicit service/login wait after a recent terminal result; an old terminal result with neither is classified as an inert supervisor | `test-progress-state.mjs`; live status changed from false `running` to the actual terminal pause failure | verified |
+| Recycle an inert supervisor before continuing | A continue/start request terminates only a command-verified inert project supervisor process group, then rebuilds the exact cached-batch resume job and launches a fresh supervisor | `test-progress-state.mjs`; live continuation is the post-push delivery step | verified |
+| Keep pause and continue documentation consistent | Stability checklist uses `auto-listing:hermes-continue`; start remains reserved for refreshing and locking a new batch | Full `rules:check` and obsolete-path search | verified |
+| Revalidate real read-only dependencies before delivery | Current Feishu API exposes all 23 mapped fields; fixed-profile Doudian audit reads back all 20 exact shop identities without publish or form mutation | `feishu:check`; shop-access audit `20260728-225143` passed 20/20 with `publishAttempted=false`, `formMutationAttempted=false` | verified |
