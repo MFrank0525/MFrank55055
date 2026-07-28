@@ -2712,6 +2712,14 @@ assert.match(
   /isAutoListingControllerSupervisorProcessCommand[\s\S]*process\.kill\(-job\.pid,\s*"SIGTERM"\)/,
   "Inert supervisor cleanup must verify the exact project supervisor command before terminating its process group"
 );
+const inertCleanupSource = controllerProcessLivenessSource.slice(
+  controllerProcessLivenessSource.indexOf("export async function cleanupInertControllerSupervisor")
+);
+assert.doesNotMatch(
+  inertCleanupSource,
+  /isControllerRunnerJobRunning/,
+  "Cleanup must consume the controller's already-established inert decision instead of racing a second liveness classification"
+);
 const compactFailedStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",
   summary: "发布基础信息未完成：Expected short-title field is missing from the SPU-prefilled publish page.；系统会按发布页控件未就绪处理并重试。",

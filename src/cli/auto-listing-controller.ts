@@ -2816,12 +2816,7 @@ async function start(
     return;
   }
   if (!dryRun) {
-    await cleanupInertControllerSupervisor({
-      job: current,
-      childControlFile,
-      waitStateFile: externalServiceWaitFile,
-      latestResultFile: findLatestResultFile()
-    });
+    await cleanupInertControllerSupervisor({ job: current });
     await cleanupRecordedAutoListingControllerChild();
   }
 

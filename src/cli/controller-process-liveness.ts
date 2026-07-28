@@ -111,12 +111,9 @@ export function isControllerRunnerJobRunning(input: {
 
 export async function cleanupInertControllerSupervisor(input: {
   job?: ControllerRunnerJob;
-  childControlFile: string;
-  waitStateFile: string;
-  latestResultFile?: string;
 }): Promise<void> {
   const job = input.job;
-  if (!job || !isPidRunning(job.pid) || isControllerRunnerJobRunning({ ...input, job })) {
+  if (!job || !isPidRunning(job.pid)) {
     return;
   }
   const command = readProcessCommand(job.pid);
