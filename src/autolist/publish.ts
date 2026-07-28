@@ -32,6 +32,7 @@ import type { FeishuProductRecord } from "../feishu/types.js";
 import type { PublishTargetIdentity } from "./publish-identity.js";
 import type { PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
 import type { PublishArtifact } from "./types.js";
+import { initializePublishAttemptState } from "./publish-attempt-state.js";
 
 type ProductWorkbookFields = {
   title: string;
@@ -687,6 +688,7 @@ export async function publishDistributedProducts(options: {
       message: "Publish flow is running.",
       ...productIdentityFields
     });
+    initializePublishAttemptState(path.join(options.runtimeDir, "publish", runtimeKey));
 
     let publishResult = await runPublishFromSpuJob(
       {

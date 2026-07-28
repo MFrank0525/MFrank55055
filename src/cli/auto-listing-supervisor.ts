@@ -29,6 +29,7 @@ import { findSharedFeishuWhiteBackgroundLocalFile, loadFeishuProductRecords } fr
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { cleanupStaleRunHistory } from "../autolist/cleanup.js";
 import { removePaidImageBatchLedger } from "../autolist/paid-image-submission-ledger.js";
+import { readPublishAttemptState, type PublishAttemptState } from "../autolist/publish-attempt-state.js";
 
 type InitialMode = "resume" | "full";
 
@@ -70,6 +71,32 @@ const maxChildRecoveryAttempts = Math.max(
   Number(process.env.AUTO_LISTING_CHILD_RECOVERY_ATTEMPTS || resolveDefaultRetryableChildFailureRecoveryAttempts())
 );
 let latestChildStallProgress: { activeStep?: string; activeMessage?: string } = {};
+
+function latestPendingPublishAttemptState(): PublishAttemptState {
+  const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
+  if (!fs.existsSync(runsDir)) {
+    return "attempted_or_unknown";
+  }
+  const manifests = fs
+    .readdirSync(runsDir)
+    .map((runId) => ({
+      runtimeDir: path.join(runsDir, runId),
+      file: path.join(runsDir, runId, "publish-manifest.json")
+    }))
+    .filter((item) => fs.existsSync(item.file))
+    .map((item) => ({ ...item, mtimeMs: fs.statSync(item.file).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const item of manifests) {
+    const manifest = readJsonFile<{ entries?: Array<{ status?: string; runtimeKey?: string; updatedAt?: string }> }>(item.file);
+    const pending = (manifest?.entries || [])
+      .filter((entry) => entry.status === "pending" && entry.runtimeKey)
+      .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
+    if (pending?.runtimeKey) {
+      return readPublishAttemptState(path.join(item.runtimeDir, "publish", pending.runtimeKey));
+    }
+  }
+  return "attempted_or_unknown";
+}
 
 function readJsonFile<T>(file: string): T | undefined {
   if (!fs.existsSync(file)) {
@@ -577,8 +604,8 @@ async function main(): Promise<void> {
   let externalServiceWaitAttempts = 0;
   while (nextMode) {
     clearExternalServiceWait();
-    const childMode = nextMode;
-    const exitCode = childMode === "resume" ? await runResume() : await runFullFlow(fullFlowReason);
+    const childMode: InitialMode = nextMode;
+    const exitCode: number | null = childMode === "resume" ? await runResume() : await runFullFlow(fullFlowReason);
     fullFlowReason = "initial_full";
     const currentBatch = readBatchProgress();
     if (
@@ -603,14 +630,16 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const failureProgress =
+    const failureProgress: { activeStep?: string; activeMessage?: string } =
       latestChildStallProgress.activeStep || latestChildStallProgress.activeMessage
         ? latestChildStallProgress
         : latestProgressSnapshot();
-    const failureMessage =
+    const failureMessage: string =
       exitCode === childStallExitCode
         ? `child made no progress before watchdog timeout during ${failureProgress.activeStep || "unknown"}: ${failureProgress.activeMessage || ""}`.trim()
         : latestFailureMessage();
+    const publishAttemptState: PublishAttemptState =
+      exitCode === childStallExitCode ? latestPendingPublishAttemptState() : "attempted_or_unknown";
     if (isDoudianLoginRequiredFailure(failureMessage)) {
       const resumePrepared = prepareResumeJob();
       const failedBeforePaidWork = childMode === "full" && /preflight/i.test(`${failureProgress.activeStep || ""} ${failureProgress.activeMessage || ""}`);
@@ -638,6 +667,7 @@ async function main(): Promise<void> {
         retryableFailureMessage: failureMessage,
         activeStep: failureProgress.activeStep,
         activeMessage: failureProgress.activeMessage,
+        publishAttemptState,
         recoveryAttempts: childRecoveryAttempts,
         maxRecoveryAttempts: maxChildRecoveryAttempts
       })
@@ -653,7 +683,10 @@ async function main(): Promise<void> {
         failureMessage,
         externalServiceWaitAttempts: Math.max(0, externalServiceWaitAttempts - 1)
       });
-      const recoveryMode = resolveSupervisorRecoveryChildMode(failureMessage);
+      const recoveryMode: InitialMode =
+        publishAttemptState === "not_attempted" && /no progress|watchdog/i.test(failureMessage)
+          ? "resume"
+          : resolveSupervisorRecoveryChildMode(failureMessage);
       if (recoveryMode === "resume" && !prepareResumeJob()) {
         console.error("Safe resume transition was detected, but the project controller could not rebuild a resume job.");
         process.exitCode = 1;

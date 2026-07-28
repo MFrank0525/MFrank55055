@@ -1,5 +1,15 @@
 # Auto-listing Requirement Trace
 
+## 2026-07-28 Hermes hard routing and publish-stall recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why “开始上架” triggered thinking | Gateway source and the live inbound timeline proved only `/autolist-*` slash commands bypassed the agent; the natural-language phrase entered the ordinary LLM path and replied about 30 seconds later | Gateway source inspection; `agent.log` timeline for the exact inbound message | verified |
+| Make Hermes a hard launcher, pauser, and reporter | User plugin `auto-listing-command-router` rewrites exact natural-language start/continue/pause/status intents to project-owned slash commands in `pre_gateway_dispatch`, before session or LLM dispatch | Direct plugin routing test; gateway restart reports one discovered and enabled plugin | verified |
+| Survive Hermes package upgrades | The router is installed under `~/.hermes/plugins` and enabled in user config instead of patching package-owned `gateway/run.py` | `test-hermes-gateway-watchdog-rule.mjs` audits plugin files and enablement | verified |
+| Explain why the listing stopped instead of self-healing | Run `20260728-005050` stalled before shop 15 produced any module evidence; the 12-minute watchdog terminated it, while the old rule rejected every publish-stage watchdog recovery as uncertain | Controller log, run log, state and manifest reconciliation | verified |
+| Resume only provably pre-submit stalls | Each target writes a monotonic `publish-submit-attempt.json`; it starts as `not_attempted` and is atomically changed before the publish click. Supervisor only rebuilds an exact resume when this durable state is still `not_attempted` | `test-progress-state.mjs` covers missing, safe, attempted, monotonic, recoverable and fail-closed cases | verified |
+
 ## 2026-07-17 Main-image shape recovery
 
 | Requirement | Implementation | Verification | Status |

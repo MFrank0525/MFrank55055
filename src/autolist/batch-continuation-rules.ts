@@ -194,6 +194,7 @@ export type SupervisorFullFlowRecoveryInput = FeishuBatchRetryAfterFailureInput 
   childMode: SupervisorChildMode;
   activeStep?: string;
   activeMessage?: string;
+  publishAttemptState?: "not_attempted" | "attempted_or_unknown";
 };
 
 export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlowRecoveryInput): boolean {
@@ -204,9 +205,14 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
   const activeText = `${input.activeStep || ""} ${input.activeMessage || ""}`;
   const retryablePublishFailure = isRetryablePublishPageFailure(failureMessage);
   const safeManifestBackedPublishResume = isSafeManifestBackedPublishResumeFailure(failureMessage);
+  const safePreSubmitWatchdogResume =
+    isChildWatchdogFailure(failureMessage) &&
+    input.publishAttemptState === "not_attempted" &&
+    /published|Publishing product folder/i.test(activeText);
   if (
     /published|Publishing product folder|Retrying publish|Publish failed/i.test(activeText) &&
-    !safeManifestBackedPublishResume
+    !safeManifestBackedPublishResume &&
+    !safePreSubmitWatchdogResume
   ) {
     return false;
   }
@@ -217,6 +223,7 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
     input.childMode === "full" ||
     isSafeResumeTransitionFailure(failureMessage) ||
     safeManifestBackedPublishResume ||
+    safePreSubmitWatchdogResume ||
     input.childMode === "resume" && retryablePublishFailure ||
     isChildWatchdogFailure(failureMessage)
   );

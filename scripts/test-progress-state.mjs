@@ -79,6 +79,11 @@ import {
 import { shouldRefreshFeishuAssetsToCandidateCache } from "../dist/src/autolist/feishu-refresh-rules.js";
 import { shouldRetainStoppedControllerPublishCheckpoint } from "../dist/src/autolist/status-progress-rules.js";
 import {
+  initializePublishAttemptState,
+  markPublishAttemptStarted,
+  readPublishAttemptState
+} from "../dist/src/autolist/publish-attempt-state.js";
+import {
   shouldFailAutoListingControllerStatusForFeishuCacheInvalid,
   shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid
 } from "../dist/src/autolist/controller-cache-status-rules.js";
@@ -4633,11 +4638,39 @@ assert.equal(
     retryableFailureMessage: "child made no progress before watchdog timeout",
     activeStep: "published",
     activeMessage: "Publishing product folder: product-1 (shop-1)",
+    publishAttemptState: "attempted_or_unknown",
     recoveryAttempts: 0,
     maxRecoveryAttempts: 3
   }),
   false,
   "AutoListingController must not automatically retry an interrupted publish with uncertain external side effects"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 124,
+    batchComplete: false,
+    retryableFailureMessage: "child made no progress before watchdog timeout",
+    activeStep: "published",
+    activeMessage: "Publishing product folder: product-1 (shop-1)",
+    publishAttemptState: "not_attempted",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 3
+  }),
+  true,
+  "A watchdog kill with durable proof that the publish button was never attempted must resume the exact manifest-backed target"
+);
+const publishAttemptRuntime = fs.mkdtempSync(path.join(os.tmpdir(), "publish-attempt-state-"));
+assert.equal(readPublishAttemptState(publishAttemptRuntime), "attempted_or_unknown");
+initializePublishAttemptState(publishAttemptRuntime);
+assert.equal(readPublishAttemptState(publishAttemptRuntime), "not_attempted");
+markPublishAttemptStarted(publishAttemptRuntime);
+assert.equal(readPublishAttemptState(publishAttemptRuntime), "attempted_or_unknown");
+initializePublishAttemptState(publishAttemptRuntime);
+assert.equal(
+  readPublishAttemptState(publishAttemptRuntime),
+  "attempted_or_unknown",
+  "A recorded publish attempt must be monotonic and must never reset to safe before manifest verification"
 );
 const doudianPrePaidPreflightNotReady =
   "Platform SPU query page was not ready after navigation: Platform SPU query controls are incomplete.";

@@ -3,6 +3,9 @@ import fs from "node:fs";
 
 const gatewayRunPath =
   "/Users/mfrank/.local/share/uv/tools/hermes-agent/lib/python3.11/site-packages/gateway/run.py";
+const autoListingRouterPluginPath =
+  "/Users/mfrank/.hermes/plugins/auto-listing-command-router/__init__.py";
+const hermesConfigPath = "/Users/mfrank/.hermes/config.yaml";
 
 assert.equal(
   fs.existsSync(gatewayRunPath),
@@ -11,6 +14,23 @@ assert.equal(
 );
 
 const source = fs.readFileSync(gatewayRunPath, "utf8");
+assert.equal(
+  fs.existsSync(autoListingRouterPluginPath),
+  true,
+  "Hermes must install a user plugin that survives package upgrades and routes natural-language auto-listing controls before the LLM"
+);
+const routerSource = fs.readFileSync(autoListingRouterPluginPath, "utf8");
+const hermesConfigSource = fs.readFileSync(hermesConfigPath, "utf8");
+assert.match(routerSource, /pre_gateway_dispatch/);
+assert.match(routerSource, /开始上架[\s\S]*\/autolist-start/);
+assert.match(routerSource, /继续上架[\s\S]*\/autolist-continue/);
+assert.match(routerSource, /暂停上架[\s\S]*\/autolist-pause/);
+assert.match(routerSource, /上架(?:状态|进度)[\s\S]*\/autolist-status/);
+assert.match(
+  hermesConfigSource,
+  /plugins:\s*[\s\S]*enabled:\s*[\s\S]*auto-listing-command-router/,
+  "The durable natural-language router plugin must be explicitly enabled"
+);
 
 assert.match(
   source,

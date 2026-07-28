@@ -5,6 +5,7 @@ import { normalizeProductCategory } from "../../autolist/product-category.js";
 import { launchPersistentBrowser } from "../../browser/launch.js";
 import { getSelectAllShortcut } from "../../utils/platform.js";
 import { logInfo, logWarn } from "../../utils/logger.js";
+import { markPublishAttemptStarted } from "../../autolist/publish-attempt-state.js";
 import {
   PublishCreatePageReopenRequiredError,
   attachSafeDialogHandler,
@@ -585,6 +586,7 @@ export async function clickPublishProductOnPage(
         break;
       } else {
         await publishButton.scrollIntoViewIfNeeded().catch(() => {});
+        markPublishAttemptStarted(runtimeDir);
         await publishButton.click({ timeout: 5000, noWaitAfter: true });
         publishClickAttempted = true;
         await activePage.waitForTimeout(1200).catch(() => {});
