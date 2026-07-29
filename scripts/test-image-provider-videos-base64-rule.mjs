@@ -25,6 +25,7 @@ import {
   isUnsafePaidImageReplayPayload,
   isUnsafePaidImageReplayReason,
   resolvePaidImageProviderTimeoutRetry,
+  resolvePaidImageProviderServiceRetry,
   resolvePaidImageFixedSlotRecovery
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
@@ -573,6 +574,53 @@ assert.deepEqual(
   { action: "defer_to_supervisor", usePolicyCompatiblePrompt: true, deferMs: 2 * 60 * 1000 },
   "A policy-compatible fixed slot that still times out must defer with a cooldown capped at the project three-minute ceiling"
 );
+const repeatedProviderServiceErrorAudit = [
+  {
+    state: "failed_after_acceptance",
+    at: "2026-07-28T18:43:00.000Z",
+    reason:
+      'provider task failed: {"code":"service_error","message":"任务处理失败","error":{"category":"service","code":"service_error","type":"服务异常","message":"任务处理失败","retryable":false}}'
+  },
+  {
+    state: "failed_after_acceptance",
+    at: "2026-07-28T18:46:00.000Z",
+    reason:
+      'provider task failed: {"code":"service_error","message":"任务处理失败","error":{"category":"service","code":"service_error","type":"服务异常","message":"任务处理失败","retryable":false}}'
+  }
+];
+assert.deepEqual(
+  resolvePaidImageProviderServiceRetry({
+    failureReason: repeatedProviderServiceErrorAudit[1].reason,
+    audit: repeatedProviderServiceErrorAudit,
+    nowMs: Date.parse("2026-07-28T18:47:00.000Z")
+  }),
+  { deferMs: 5 * 60 * 1000 },
+  "Repeated accepted provider service errors must exponentially cool down instead of immediately resubmitting paid work"
+);
+assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: repeatedProviderServiceErrorAudit[1].reason,
+    audit: repeatedProviderServiceErrorAudit,
+    recordedPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-07-28T18:47:00.000Z")
+  }),
+  { action: "defer_to_supervisor", usePolicyCompatiblePrompt: false, deferMs: 5 * 60 * 1000 },
+  "Explicit service_error failures must open a fixed-slot circuit and preserve prompt identity"
+);
+assert.deepEqual(
+  resolvePaidImageProviderServiceRetry({
+    failureReason: repeatedProviderServiceErrorAudit[1].reason,
+    audit: Array.from({ length: 12 }, (_, index) => ({
+      state: "failed_after_acceptance",
+      at: new Date(Date.parse("2026-07-28T12:00:00.000Z") + index * 60_000).toISOString(),
+      reason: repeatedProviderServiceErrorAudit[1].reason
+    })),
+    nowMs: Date.parse("2026-07-28T12:12:00.000Z")
+  }),
+  { deferMs: 6 * 60 * 60 * 1000 - 60 * 1000 },
+  "Persistent provider service outages must cap automatic paid retries at one attempt per six hours"
+);
 assert.deepEqual(
   resolvePaidImageProviderTimeoutRetry({
     failureReason: "provider task failed: 失败了超时 请重试",
@@ -647,8 +695,8 @@ assert.ok(
 );
 assert.match(
   source,
-  /defer_to_supervisor[\s\S]*paid image provider timeout circuit open for slot \$\{ledgerSlot\}; retry after \$\{recovery\.deferMs\}ms/s,
-  "Only an opened fixed-slot timeout circuit may defer the child back to the supervisor"
+  /defer_to_supervisor[\s\S]*paid image provider circuit open for slot \$\{ledgerSlot\}; retry after \$\{recovery\.deferMs\}ms/s,
+  "Only an opened fixed-slot provider circuit may defer the child back to the supervisor"
 );
 assert.match(source, /readVideosBase64SubmittedTask/);
 assert.match(source, /resuming submitted videos-base64 task/);
@@ -796,8 +844,13 @@ assert.match(
 assert.match(ruleDoc, /超时熔断.*3 分钟/s, "Fixed-slot timeout circuit cooldown must be three minutes");
 assert.match(
   stabilityChecklist,
-  /外部服务.*最多等待 3 分钟.*不再指数增长/s,
-  "External image-service waits must stay at or below three minutes instead of growing exponentially"
+  /普通外部服务.*固定为 3 分钟.*不再指数增长/s,
+  "Ordinary image-service waits must stay at three minutes instead of growing exponentially"
+);
+assert.match(
+  stabilityChecklist,
+  /service_error.*3 分钟起.*最长 6 小时.*指数熔断/s,
+  "Explicit provider service outages must use bounded exponential cooldown to prevent paid retry storms"
 );
 assert.equal(
   hasCanonicalProviderRuleItem(stabilityChecklist),

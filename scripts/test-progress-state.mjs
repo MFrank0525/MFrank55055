@@ -4327,6 +4327,29 @@ assert.equal(
   true,
   "videos-base64 accepted-task provider failures must consume recovery attempts to avoid unlimited paid resubmissions"
 );
+const videosBase64ExplicitServiceFailure =
+  'failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; reasons: videos-base64 task task_service failed: {"code":"service_error","message":"任务处理失败","error":{"category":"service","code":"service_error","type":"服务异常","message":"任务处理失败","retryable":false}}';
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(videosBase64ExplicitServiceFailure),
+  true,
+  "Explicit provider service_error is an availability outage even when retryable:false applies to the finished task"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(videosBase64ExplicitServiceFailure),
+  false,
+  "Provider service outages must not exhaust the generic child-recovery budget"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64ExplicitServiceFailure,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "Provider service outages must remain self-driven after the generic recovery budget is exhausted"
+);
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
     exitCode: 1,
@@ -4451,8 +4474,8 @@ assert.equal(
     failureMessage: videosBase64ProviderCircuitOpen,
     externalServiceWaitAttempts: 0
   }),
-  3 * 60 * 1000,
-  "The supervisor must cap every slot cooldown at the requested three-minute wait"
+  29 * 60 * 1000,
+  "The supervisor must honor a bounded fixed-slot circuit instead of collapsing it into a three-minute paid retry loop"
 );
 assert.equal(
   resolveSupervisorRecoveryDelayMs({

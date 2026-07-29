@@ -1,6 +1,10 @@
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
 import { formatAutoListingBatchProgressLabel, formatAutoListingPublishProgressLabel, replaceAutoListingPublishProgressProductName, resolveAutoListingPublishGroupIdentity } from "./status-progress-rules.js";
-import { imageServiceWaitCeilingMs, isUnsafePaidImageReplayReason } from "./image-generation-rules.js";
+import {
+  imageServiceWaitCeilingMs,
+  isAcceptedPaidImageTaskServiceAvailabilityReason,
+  isUnsafePaidImageReplayReason
+} from "./image-generation-rules.js";
 import { isPaidImageAcceptedTaskHeartbeatText } from "./paid-image-wait-rules.js";
 import { isDoudianLoginRequiredFailure } from "./doudian-login-recovery-rules.js";
 export { formatAutoListingControllerExternalServiceWaitSummary } from "./doudian-login-recovery-rules.js";
@@ -82,7 +86,8 @@ export function isRetryableExternalServiceAvailabilityFailure(message: string): 
   }
   return (
     isRetryableVideosBase64AcceptedQueueWait(message) ||
-    /paid image provider timeout circuit open/i.test(message) ||
+    /paid image provider (?:timeout |service )?circuit open/i.test(message) ||
+    isAcceptedPaidImageTaskServiceAvailabilityReason(message) ||
     (!isRetryableVideosBase64NoAcceptanceTransportFailure(message) && isPaidMainImageTransportFailure(message)) ||
     (/main_images_generated/i.test(message) && /videos-base64 task .*did not finish/i.test(message)) ||
     (/main_images_generated|image generation|main image/i.test(message) &&
@@ -104,10 +109,13 @@ export function resolveSupervisorRecoveryDelayMs(input: {
     return 10000;
   }
   const normalDelayMs = imageServiceWaitCeilingMs;
-  const retryMatch = /paid image provider timeout circuit open[\s\S]*?retry after\s+(\d+)ms/i.exec(input.failureMessage);
+  const retryMatch =
+    /paid image provider (?:timeout |service )?circuit open[\s\S]*?retry after\s+(\d+)ms/i.exec(
+      input.failureMessage
+    );
   const slotDelayMs = retryMatch ? Number(retryMatch[1]) : Number.NaN;
   const validSlotDelay = slotDelayMs >= 1000 && slotDelayMs <= 6 * 60 * 60 * 1000;
-  return validSlotDelay ? Math.min(normalDelayMs, slotDelayMs) : normalDelayMs;
+  return validSlotDelay ? slotDelayMs : normalDelayMs;
 }
 
 function isDeterministicDetailQualificationFailure(message: string): boolean {

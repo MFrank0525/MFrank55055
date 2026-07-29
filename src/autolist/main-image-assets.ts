@@ -1025,7 +1025,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
             : { action: "bubble" as const, usePolicyCompatiblePrompt: false, deferMs: 0 };
         if (fixedSlotRecovery.action === "defer_to_supervisor") {
           throw normalizeImageGenerationError(
-            `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${fixedSlotRecovery.deferMs}ms.`
+            `paid image provider circuit open for slot ${ledgerSlot}; retry after ${fixedSlotRecovery.deferMs}ms.`
           );
         }
         const keepPolicyCompatiblePrompt =
@@ -1306,15 +1306,13 @@ async function generateWithOpenAiCompatibleProvider(options: {
         });
         if (recovery.action === "defer_to_supervisor") {
           throw normalizeImageGenerationError(
-            `paid image provider timeout circuit open for slot ${ledgerSlot}; retry after ${recovery.deferMs}ms.`
+            `paid image provider circuit open for slot ${ledgerSlot}; retry after ${recovery.deferMs}ms.`
           );
         }
         if (recovery.action !== "retry_fixed_slot_now") {
           throw error;
         }
-        options.onProgress?.(
-          `Image ${absoluteImageIndex}: provider task timed out; retrying fixed paid slot ${ledgerSlot} in current run.`
-        );
+        options.onProgress?.(`Image ${absoluteImageIndex}: provider recovered; retrying fixed paid slot ${ledgerSlot}.`);
       }
     }
   };

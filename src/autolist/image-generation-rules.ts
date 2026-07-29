@@ -396,6 +396,40 @@ export function resolvePaidImageProviderTimeoutRetry(input: {
   };
 }
 
+export function isAcceptedPaidImageTaskServiceAvailabilityReason(reason: string): boolean {
+  return (
+    /provider task failed|videos-base64 task .* failed/i.test(reason) &&
+    (/"category"\s*:\s*"service"/i.test(reason) ||
+      /"code"\s*:\s*"service_error"/i.test(reason) ||
+      /服务异常/.test(reason)) &&
+    !isUnsafePaidImageReplayReason(reason)
+  );
+}
+
+export function resolvePaidImageProviderServiceRetry(input: {
+  failureReason: string;
+  audit: Array<{ state?: string; at?: string; reason?: string }>;
+  nowMs: number;
+}): { deferMs: number } {
+  if (!isAcceptedPaidImageTaskServiceAvailabilityReason(input.failureReason)) {
+    return { deferMs: 0 };
+  }
+  const serviceFailures = input.audit.filter(
+    (entry) =>
+      entry.state === "failed_after_acceptance" &&
+      isAcceptedPaidImageTaskServiceAvailabilityReason(entry.reason || "")
+  );
+  const failureCount = Math.max(1, serviceFailures.length);
+  const cooldownMs = Math.min(6 * 60 * 60 * 1000, imageServiceWaitCeilingMs * 2 ** (failureCount - 1));
+  const latestFailureMs = Math.max(
+    ...serviceFailures.map((entry) => Date.parse(entry.at || "")).filter((value) => Number.isFinite(value)),
+    0
+  );
+  return {
+    deferMs: Math.max(0, latestFailureMs + cooldownMs - input.nowMs)
+  };
+}
+
 export function resolvePaidImageFixedSlotRecovery(input: {
   failureReason: string;
   audit: Array<{ state?: string; at?: string; reason?: string }>;
@@ -409,6 +443,21 @@ export function resolvePaidImageFixedSlotRecovery(input: {
 } {
   const failureReason = input.failureReason || "";
   const unsafeReplay = isUnsafePaidImageReplayReason(failureReason);
+  const explicitServiceAvailability = isAcceptedPaidImageTaskServiceAvailabilityReason(failureReason);
+  if (explicitServiceAvailability && !unsafeReplay) {
+    const serviceRetry = resolvePaidImageProviderServiceRetry(input);
+    return serviceRetry.deferMs > 0
+      ? {
+          action: "defer_to_supervisor",
+          usePolicyCompatiblePrompt: false,
+          deferMs: serviceRetry.deferMs
+        }
+      : {
+          action: "retry_fixed_slot_now",
+          usePolicyCompatiblePrompt: false,
+          deferMs: 0
+        };
+  }
   const explicitAcceptedTaskTimeout = isAcceptedPaidImageTaskTimeoutReason(failureReason);
   if (!explicitAcceptedTaskTimeout || unsafeReplay) {
     return { action: "bubble", usePolicyCompatiblePrompt: false, deferMs: 0 };
