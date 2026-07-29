@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { disconnectAutomationBrowserConnections } from "../browser/launch.js";
 import { validateShopAccessAuditReport } from "../autolist/shop-access-audit-rules.js";
@@ -7,6 +8,35 @@ import { formatTimestamp } from "../utils/path-names.js";
 interface CliOptions {
   runtimeRoot: string;
   json: boolean;
+}
+
+function assertNoActiveAutoListingBrowserOwner(): void {
+  const childFile = path.resolve("data", "auto-listing", "control", "auto-listing-child.json");
+  if (!fs.existsSync(childFile)) {
+    return;
+  }
+  let child: { pid?: number; label?: string };
+  try {
+    child = JSON.parse(fs.readFileSync(childFile, "utf8")) as { pid?: number; label?: string };
+  } catch {
+    throw new Error(`Shop access audit refused: unreadable listing child ownership record ${childFile}.`);
+  }
+  if (typeof child.pid !== "number" || !Number.isInteger(child.pid) || child.pid <= 0) {
+    throw new Error(`Shop access audit refused: invalid listing child ownership record ${childFile}.`);
+  }
+  try {
+    process.kill(child.pid, 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+      return;
+    }
+    if ((error as NodeJS.ErrnoException).code !== "EPERM") {
+      throw error;
+    }
+  }
+  throw new Error(
+    `Shop access audit refused: active listing child PID ${child.pid} (${child.label || "unknown"}) owns the shared Doudian browser context. Pause listing at a safe boundary before auditing.`
+  );
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -34,6 +64,7 @@ function parseArgs(argv: string[]): CliOptions {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+  assertNoActiveAutoListingBrowserOwner();
   const runtimeDir = path.join(options.runtimeRoot, formatTimestamp());
   const report = await runShopAccessAudit({ runtimeDir });
   const validation = validateShopAccessAuditReport(report);

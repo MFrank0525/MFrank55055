@@ -72,6 +72,7 @@ import {
   resolveDoudianLoginRecoveryPollMs
 } from "../dist/src/autolist/doudian-login-recovery-rules.js";
 import {
+  formatPaidImageAcceptedTaskWaitSummary,
   resolvePaidImageChildStallTimeoutMs,
   resolvePaidImageChildWatchdogDecision,
   resolvePaidImageWaitStatus,
@@ -3585,6 +3586,16 @@ const compactPaidLedgerDerivedWait = formatAutoListingControllerCompactStatusTex
 });
 assert.match(compactPaidLedgerDerivedWait, /主图 17\/20/);
 assert.match(compactPaidLedgerDerivedWait, /等待生图服务/);
+assert.equal(
+  formatPaidImageAcceptedTaskWaitSummary({
+    completed: 19,
+    expected: 20,
+    submitted: 1,
+    latestProgressAt: "2026-07-29T09:03:38.139Z"
+  }),
+  "生图仍在运行：主图 19/20；1 个已受理任务正在供应商队列中，项目持续查询同一 task ID。最近查询：2026-07-29T09:03:38.139Z。",
+  "Accepted paid tasks must be reported as active polling, not as an unknown provider cooldown"
+);
 assert.equal(
   typeof resolvePaidImageWaitStatus,
   "function",

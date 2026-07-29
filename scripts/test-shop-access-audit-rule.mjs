@@ -123,6 +123,16 @@ const cliSource = fs.readFileSync("src/cli/audit-shop-access.ts", "utf8");
 const shopSwitchSource = fs.readFileSync("src/business/publish-from-spu/shop-switch-action.ts", "utf8");
 assert.match(cliSource, /--runtime-root/, "shop access audit CLI must support an explicit runtime evidence root");
 assert.match(cliSource, /runShopAccessAudit/, "shop access audit CLI must invoke the dedicated read-only orchestrator");
+assert.match(
+  cliSource,
+  /assertNoActiveAutoListingBrowserOwner\(\)[\s\S]*runShopAccessAudit/,
+  "shop access audit must fail closed before opening a browser when an active listing child owns the shared context"
+);
+assert.match(
+  cliSource,
+  /auto-listing-child\.json[\s\S]*process\.kill\(child\.pid,\s*0\)/,
+  "shop access audit must verify the recorded listing child PID is still alive"
+);
 assert.match(cliSource, /process\.exitCode\s*=\s*1/, "shop access audit CLI must fail closed with a nonzero exit code");
 assert.match(cliSource, /JSON\.stringify/, "shop access audit CLI must expose machine-readable evidence");
 assert.ok(!cliSource.includes("--allow-publish"), "shop access audit CLI must not accept a publishing authorization flag");

@@ -1,12 +1,21 @@
 # Auto-listing Requirement Trace
 
+## 2026-07-29 Hermes image-wait liveness reporting
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Distinguish active accepted-task polling from a stopped image process | Paid-ledger status formats submitted slots as “生图仍在运行”, with completed/expected counts, submitted count, same-task polling contract, and latest query timestamp | `test-progress-state.mjs`; live status against the 19/20 ledger | verified |
+| Keep reporting during an unchanged provider queue | Hermes watchdog repeats a verified service-wait liveness notice every 10 minutes while continuing to ingest the full project heartbeat | `test-hermes-gateway-watchdog-rule.mjs`; gateway source audit | verified |
+| Reply to the exact triggering command | Gateway reads the reply anchor from `MessageEvent`; the durable router plugin independently persists `event.message_id`; missing IDs fail closed and do not advance dedupe state | Gateway/plugin source audit and Python compile | verified |
+| Make the origin fix recoverable after upgrades | Canonical router source is versioned at `integrations/hermes/auto-listing-command-router` and the installed plugin must match it byte-for-byte | `test-hermes-gateway-watchdog-rule.mjs` | verified |
+
 ## 2026-07-28 Hermes hard routing and publish-stall recovery
 
 | Requirement | Implementation | Verification | Status |
 | --- | --- | --- | --- |
 | Explain why “开始上架” triggered thinking | Gateway source and the live inbound timeline proved only `/autolist-*` slash commands bypassed the agent; the natural-language phrase entered the ordinary LLM path and replied about 30 seconds later | Gateway source inspection; `agent.log` timeline for the exact inbound message | verified |
 | Make Hermes a hard launcher, pauser, and reporter | User plugin `auto-listing-command-router` rewrites exact natural-language start/continue/pause/status intents to project-owned slash commands in `pre_gateway_dispatch`, before session or LLM dispatch | Direct plugin routing test; gateway restart reports one discovered and enabled plugin | verified |
-| Survive Hermes package upgrades | The router is installed under `~/.hermes/plugins` and enabled in user config instead of patching package-owned `gateway/run.py` | `test-hermes-gateway-watchdog-rule.mjs` audits plugin files and enablement | verified |
+| Survive Hermes package upgrades | The router is versioned under `integrations/hermes`, installed under `~/.hermes/plugins`, and enabled in user config instead of relying on package-owned routing | `test-hermes-gateway-watchdog-rule.mjs` requires the installed plugin to exactly match the canonical project source | verified |
 | Explain why the listing stopped instead of self-healing | Run `20260728-005050` stalled before shop 15 produced any module evidence; the 12-minute watchdog terminated it, while the old rule rejected every publish-stage watchdog recovery as uncertain | Controller log, run log, state and manifest reconciliation | verified |
 | Resume only provably pre-submit stalls | Each target writes a monotonic `publish-submit-attempt.json`; it starts as `not_attempted` and is atomically changed before the publish click. Supervisor only rebuilds an exact resume when this durable state is still `not_attempted` | `test-progress-state.mjs` covers missing, safe, attempted, monotonic, recoverable and fail-closed cases | verified |
 
@@ -121,3 +130,4 @@
 | Recycle an inert supervisor before continuing | A continue/start request consumes its established inert decision, verifies the exact supervisor command, terminates that process group without racing a second classification, then launches replacement work | Red-before-green `test-progress-state.mjs`; live recovery advanced the locked batch from 14/22 to 15/22 and the old PID was independently confirmed inert before termination | verified |
 | Keep pause and continue documentation consistent | Stability checklist uses `auto-listing:hermes-continue`; start remains reserved for refreshing and locking a new batch | Full `rules:check` and obsolete-path search | verified |
 | Revalidate real read-only dependencies before delivery | Current Feishu API exposes all 23 mapped fields; fixed-profile Doudian audit reads back all 20 exact shop identities without publish or form mutation | `feishu:check`; shop-access audit `20260728-225143` passed 20/20 with `publishAttempted=false`, `formMutationAttempted=false` | verified |
+| Prevent read-only audit from disrupting active publishing | Shop-access audit checks the durable listing-child ownership record and live PID before any browser action; an active owner fails closed and requires a safe-boundary pause | `scripts/test-shop-access-audit-rule.mjs`; shop-access audit `20260729-172024` passed 20/20 only after safe pause, with no publish/form mutation | verified |

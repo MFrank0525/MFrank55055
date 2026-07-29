@@ -21,6 +21,16 @@ export function isPaidImageAcceptedTaskHeartbeatText(message: string): boolean {
   return /videos-base64 task \S+ status (?:queued|pending)\s+0(?!\.\d|\d)/i.test(message);
 }
 
+export function formatPaidImageAcceptedTaskWaitSummary(input: {
+  completed: number;
+  expected: number;
+  submitted: number;
+  latestProgressAt?: string;
+}): string {
+  const latestQuery = input.latestProgressAt ? `最近查询：${input.latestProgressAt}。` : "项目会持续更新最近查询时间。";
+  return `生图仍在运行：主图 ${input.completed}/${input.expected}；${input.submitted} 个已受理任务正在供应商队列中，项目持续查询同一 task ID。${latestQuery}`;
+}
+
 export type PaidImageChildStallTimeoutInput = PaidImageAcceptedTaskProgress & {
   defaultTimeoutMs: number;
 };

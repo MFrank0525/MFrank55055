@@ -5,6 +5,8 @@ const gatewayRunPath =
   "/Users/mfrank/.local/share/uv/tools/hermes-agent/lib/python3.11/site-packages/gateway/run.py";
 const autoListingRouterPluginPath =
   "/Users/mfrank/.hermes/plugins/auto-listing-command-router/__init__.py";
+const canonicalAutoListingRouterPluginPath =
+  "integrations/hermes/auto-listing-command-router/__init__.py";
 const hermesConfigPath = "/Users/mfrank/.hermes/config.yaml";
 
 assert.equal(
@@ -20,6 +22,17 @@ assert.equal(
   "Hermes must install a user plugin that survives package upgrades and routes natural-language auto-listing controls before the LLM"
 );
 const routerSource = fs.readFileSync(autoListingRouterPluginPath, "utf8");
+assert.equal(
+  fs.existsSync(canonicalAutoListingRouterPluginPath),
+  true,
+  "The durable Hermes router source must be versioned with the project"
+);
+const canonicalRouterSource = fs.readFileSync(canonicalAutoListingRouterPluginPath, "utf8");
+assert.equal(
+  routerSource,
+  canonicalRouterSource,
+  "The installed Hermes router must exactly match the project-owned canonical source"
+);
 const hermesConfigSource = fs.readFileSync(hermesConfigPath, "utf8");
 assert.match(routerSource, /pre_gateway_dispatch/);
 assert.match(routerSource, /开始上架[\s\S]*\/autolist-start/);
@@ -64,8 +77,8 @@ assert.match(
 );
 assert.match(
   source,
-  /_save_autolist_watchdog_origin\(event\.source\)/,
-  "start, continue, and status commands must bind proactive progress to the user's active chat/thread"
+  /_save_autolist_watchdog_origin\(event\.source,\s*self\._reply_anchor_for_event\(event\)\)/,
+  "start, continue, and status commands must bind proactive progress to the exact triggering message"
 );
 assert.match(
   source,
@@ -81,6 +94,11 @@ const noticeSender = source.slice(
   source.indexOf("async def _send_autolist_notice"),
   source.indexOf("async def _autolist_watchdog")
 );
+assert.match(
+  noticeSender,
+  /if not reply_to_message_id:[\s\S]{0,240}return False/,
+  "A missing exact command message ID must fail closed instead of sending an unthreaded notice"
+);
 assert.doesNotMatch(
   noticeSender,
   /channel_directory|get_home_channel/,
@@ -90,6 +108,16 @@ assert.match(
   source,
   /if\s+not\s+delivered:[\s\S]{0,300}state\s*=\s*state_before_notice/,
   "a failed delivery must not advance the watchdog dedupe state and suppress all retries"
+);
+assert.match(
+  source,
+  /last_service_wait_notice_at[\s\S]{0,500}10\s*\*\s*60/,
+  "An unchanged accepted-task queue wait must still emit a verified liveness notice every ten minutes"
+);
+assert.match(
+  source,
+  /summary\.get\("realtimeMessage"\)[\s\S]{0,300}service_wait/,
+  "Service-wait notices must expose the project-owned realtime queue message"
 );
 assert.match(
   source,
@@ -142,4 +170,9 @@ assert.match(
   source,
   /kind == "stopped"[\s\S]*summary\.get\("realtimeMessage"\)[\s\S]*进度：\{summary\['realtimeMessage'\]\}/,
   "Hermes pause/stopped notices must use the project-owned progress message instead of hidden cumulative publish fields."
+);
+assert.match(
+  routerSource,
+  /reply_to_message_id[\s\S]*getattr\(event,\s*"message_id"/,
+  "The durable user plugin must preserve the triggering message ID across Hermes package upgrades"
 );

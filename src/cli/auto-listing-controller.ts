@@ -24,7 +24,7 @@ import {
   type AutoListingControllerLaunchIntent
 } from "../autolist/batch-continuation-rules.js";
 import { formatAutoListingControllerWaitSummary, resolveDoudianLoginWaitRealtimeMessage } from "../autolist/doudian-login-recovery-rules.js";
-import { resolvePaidImageWaitStatus } from "../autolist/paid-image-wait-rules.js";
+import { formatPaidImageAcceptedTaskWaitSummary, resolvePaidImageWaitStatus } from "../autolist/paid-image-wait-rules.js";
 import { shouldFailAutoListingControllerStatusForFeishuCacheInvalid, shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid } from "../autolist/controller-cache-status-rules.js";
 import { formatAutoListingPublishProgressLabel, shouldRetainStoppedControllerPublishCheckpoint } from "../autolist/status-progress-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
@@ -1750,6 +1750,10 @@ function existingStatus(): Record<string, unknown> {
     manualRecoveryPublishRunning && paidImageResolvedStatus !== "completed" && paidImageResolvedStatus !== "failed"
       ? "running"
       : paidImageResolvedStatus;
+  const acceptedTaskQueueSummary =
+    resolvedStatus === "external_service_wait" && !activeWaitState && Number(paidImageProgress?.submitted || 0) > 0
+      ? formatPaidImageAcceptedTaskWaitSummary({ completed: Number(paidImageProgress?.completed || 0), expected: Number(paidImageProgress?.expectedSlotCount || 20), submitted: Number(paidImageProgress?.submitted || 0), latestProgressAt: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined })
+      : undefined;
   const pauseSignal = readPauseSignalFile();
   const terminalResult = resolvedStatus === "completed" ? "completed" : resolvedStatus === "failed" ? "failed" : undefined;
   const closure = resolveControllerJobClosure({
@@ -1873,7 +1877,7 @@ function existingStatus(): Record<string, unknown> {
       (resolvedStatus === "pause_requested"
         ? formatPauseSignalSummary(pauseSignal)
         : resolvedStatus === "external_service_wait" || resolvedStatus === "doudian_login_wait"
-        ? formatAutoListingControllerWaitSummary({ status: resolvedStatus, retryAt: activeWaitState?.retryAt, nowMs: Date.now(), reason: externalWaitReason })
+        ? acceptedTaskQueueSummary || formatAutoListingControllerWaitSummary({ status: resolvedStatus, retryAt: activeWaitState?.retryAt, nowMs: Date.now(), reason: externalWaitReason })
         : resolvedStatus === "failed"
         ? failureSummary || stateSummary
         : shouldUsePublishRealtime
