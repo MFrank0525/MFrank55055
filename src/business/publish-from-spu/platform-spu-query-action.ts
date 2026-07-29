@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { launchPersistentBrowser } from "../../browser/launch.js";
+import { disconnectAutomationBrowserConnections, launchPersistentBrowser } from "../../browser/launch.js";
 import { logInfo, logWarn } from "../../utils/logger.js";
 import { PLATFORM_SPU_URL } from "./constants.js";
 import type { QueryDiagnosticError, QueryMatchCandidate } from "./types.js";
@@ -616,7 +616,7 @@ export async function assertDoudianPublishSessionReady(options: {
       options.timeoutMs || 30000
     );
   } finally {
-    await context.browser()?.close().catch(() => {});
+    await disconnectAutomationBrowserConnections();
   }
 }
 

@@ -28,8 +28,8 @@ const doudianSessionProbeSource = publishSource.slice(
 );
 assert.match(
   doudianSessionProbeSource,
-  /try\s*\{[\s\S]*ensurePlatformSpuQueryPageActive[\s\S]*finally\s*\{[\s\S]*context\.browser\(\)\?\.close\(\)/,
-  "Every read-only Doudian session probe must disconnect its Playwright CDP client on success and failure"
+  /try\s*\{[\s\S]*ensurePlatformSpuQueryPageActive[\s\S]*finally\s*\{[\s\S]*disconnectAutomationBrowserConnections\(\)/,
+  "Every read-only Doudian session probe must disconnect its CDP client and release the cross-process profile lease"
 );
 
 assert.match(

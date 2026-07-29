@@ -106,8 +106,13 @@ for (const name of ["selectShopFromDialogExact", "selectShopFromDialogByVisibleT
 }
 assert.match(
   functionBody("ensureShopContextAttempt"),
-  /if \(!dialogVisible\) \{[\s\S]*isDoudianLoginRequired\(page\)[\s\S]*Doudian login required[\s\S]*shop-switch-dialog-missing/,
+  /if \(!dialogVisible\) \{[\s\S]*confirmDoudianLoginRequired\(page\)[\s\S]*Doudian login required[\s\S]*shop-switch-dialog-missing/,
   "A missing shop switch dialog must be reclassified as login expiry when the page has landed on the Doudian login screen"
+);
+assert.match(
+  functionBody("confirmDoudianLoginRequired"),
+  /isDoudianLoginRequired\(page\)[\s\S]*gotoWithTolerance\(page,\s*PLATFORM_SPU_URL[\s\S]*isDoudianLoginRequired\(page\)/,
+  "Shop switching must confirm a login redirect after bounded canonical navigation before stopping the batch"
 );
 assert.match(
   functionBody("recoverTransientShopSwitchError"),

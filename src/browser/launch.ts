@@ -4,6 +4,7 @@ import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { assertNoGptPlusWebUrl, installGptPlusQuotaGuard } from "../utils/gpt-plus-guard.js";
 import { logInfo, logWarn } from "../utils/logger.js";
+import { acquireBrowserProfileLease, releaseBrowserProfileLease } from "./profile-lease.js";
 import { getFallbackUserDataDir, getUserDataDir } from "./session.js";
 
 const REMOTE_DEBUGGING_PORTS = [9333, 9444, 9555, 9666];
@@ -13,6 +14,8 @@ let activeRemoteDebuggingPort = REMOTE_DEBUGGING_PORTS[0];
 const DOUYIN_SHOP_URL = "https://fxg.jinritemai.com/ffa/g/spu-record";
 let playwrightDialogRaceGuardInstalled = false;
 const connectedAutomationBrowsers = new Set<Browser>();
+const browserProfileLeaseFile = path.resolve("data", "auto-listing", "control", "doudian-browser-owner.json");
+let browserProfileLeaseHeld = false;
 
 const WORKSPACE_PAGE_SPECS = [
   { key: "shop", url: DOUYIN_SHOP_URL }
@@ -361,24 +364,34 @@ export async function getWorkspacePage(context: BrowserContext, key: WorkspacePa
 
 export async function launchPersistentBrowser(): Promise<BrowserContext> {
   installPlaywrightDialogRaceGuard();
-  let browser: Browser;
+  if (!browserProfileLeaseHeld) {
+    acquireBrowserProfileLease({ leaseFile: browserProfileLeaseFile });
+    browserProfileLeaseHeld = true;
+  }
   try {
-    browser = await connectBrowserWithRecovery(getUserDataDir());
-  } catch (error) {
-    logWarn(`primary browser profile failed, retrying fallback profile: ${(error as Error).message}`);
-    browser = await connectBrowserWithRecovery(getFallbackUserDataDir());
-  }
+    let browser: Browser;
+    try {
+      browser = await connectBrowserWithRecovery(getUserDataDir());
+    } catch (error) {
+      logWarn(`primary browser profile failed, retrying fallback profile: ${(error as Error).message}`);
+      browser = await connectBrowserWithRecovery(getFallbackUserDataDir());
+    }
 
-  const existingContext = browser.contexts()[0];
-  if (existingContext) {
-    await installGptPlusQuotaGuard(existingContext);
-    await ensureWorkspacePages(existingContext);
-    return existingContext;
+    const existingContext = browser.contexts()[0];
+    if (existingContext) {
+      await installGptPlusQuotaGuard(existingContext);
+      await ensureWorkspacePages(existingContext);
+      return existingContext;
+    }
+    const context = await browser.newContext();
+    await installGptPlusQuotaGuard(context);
+    await ensureWorkspacePages(context);
+    return context;
+  } catch (error) {
+    releaseBrowserProfileLease({ leaseFile: browserProfileLeaseFile });
+    browserProfileLeaseHeld = false;
+    throw error;
   }
-  const context = await browser.newContext();
-  await installGptPlusQuotaGuard(context);
-  await ensureWorkspacePages(context);
-  return context;
 }
 
 export async function openSearchPage(context: BrowserContext, keyword: string): Promise<Page> {
@@ -423,5 +436,12 @@ export async function closeBrowser(_context: BrowserContext): Promise<void> {
 export async function disconnectAutomationBrowserConnections(): Promise<void> {
   const browsers = [...connectedAutomationBrowsers];
   connectedAutomationBrowsers.clear();
-  await Promise.all(browsers.map((browser) => browser.close().catch(() => {})));
+  try {
+    await Promise.all(browsers.map((browser) => browser.close().catch(() => {})));
+  } finally {
+    if (browserProfileLeaseHeld) {
+      releaseBrowserProfileLease({ leaseFile: browserProfileLeaseFile });
+      browserProfileLeaseHeld = false;
+    }
+  }
 }

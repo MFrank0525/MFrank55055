@@ -139,6 +139,15 @@ async function isDoudianLoginRequired(page: Page): Promise<boolean> {
   })).then((text) => isDoudianLoginPageText(text));
 }
 
+async function confirmDoudianLoginRequired(page: Page): Promise<boolean> {
+  if (!(await isDoudianLoginRequired(page))) {
+    return false;
+  }
+  await gotoWithTolerance(page, PLATFORM_SPU_URL, 5000).catch(() => {});
+  await page.waitForTimeout(1500);
+  return isDoudianLoginRequired(page);
+}
+
 async function clickTopRightShopMenu(page: Page): Promise<boolean> {
   const menuVisible = async (): Promise<boolean> =>
     page.evaluate(() => {
@@ -874,7 +883,7 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
   }
 
   const currentBefore = normalizeShopName(await detectCurrentShopName(page));
-  if (await isDoudianLoginRequired(page)) {
+  if (await confirmDoudianLoginRequired(page)) {
     const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
     throw new Error(
       `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
@@ -892,7 +901,7 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
     }
     const menuOpened = await clickTopRightShopMenu(page);
     if (!menuOpened) {
-      if (await isDoudianLoginRequired(page)) {
+      if (await confirmDoudianLoginRequired(page)) {
         const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
         throw new Error(
           `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
@@ -962,7 +971,7 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
       dialogVisible = await waitForChooseShopDialog(page);
     }
     if (!dialogVisible) {
-      if (await isDoudianLoginRequired(page)) {
+      if (await confirmDoudianLoginRequired(page)) {
         const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
         throw new Error(
           `Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`

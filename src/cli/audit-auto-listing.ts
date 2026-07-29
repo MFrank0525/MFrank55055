@@ -18,6 +18,7 @@ import { imageServiceWaitCeilingMs, videosBase64AcceptedTaskPollCeilingMs } from
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { auditCurrentPaidImageLedgers } from "../autolist/paid-image-audit.js";
+import { recoverCompleteMainImageArtifactForAudit } from "../autolist/audit-main-image-recovery.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
 import { getProductCategoryPlan, type ProductCategory } from "../autolist/product-category.js";
 import { paidImageBatchLedgerDir } from "../autolist/paid-image-submission-ledger.js";
@@ -365,8 +366,23 @@ async function main(): Promise<void> {
     records,
     processedImages
   });
+  const tasksForGenerationAudit = (state?.tasks || []).map((task) => {
+    const categoryPlan = getProductCategoryPlan(task.feishuProductRecord?.productCategory);
+    const expectedImageCount = categoryPlan.promptCount * resolved.mainImageExpectedCount;
+    if ((task.mainImageArtifact?.generatedFiles.length || 0) === expectedImageCount) {
+      return task;
+    }
+    const recoveredArtifact = recoverCompleteMainImageArtifactForAudit({
+      taskRuntimeDir: path.join(latestRuntimeDir, "tasks", task.taskId),
+      shopRootDir: resolved.shopRootDir,
+      recordId: task.feishuProductRecord?.recordId || "",
+      expectedImageCount,
+      imagesPerPrompt: resolved.mainImageExpectedCount
+    });
+    return recoveredArtifact ? { ...task, mainImageArtifact: recoveredArtifact } : task;
+  });
   const mainImageDimensions = new Map(
-    (state?.tasks || [])
+    tasksForGenerationAudit
       .flatMap((task) =>
         (task.mainImageArtifact?.generatedFiles || []).flatMap((file) =>
           [file.imageFile, file.rawImageFile].filter(Boolean) as string[]
@@ -382,7 +398,7 @@ async function main(): Promise<void> {
       })
   );
   const completedGeneration = auditMainImageGeneration({
-    tasks: state?.tasks || [],
+    tasks: tasksForGenerationAudit,
     existingFiles,
     imageDimensions: mainImageDimensions,
     expectedImagesPerPrompt: resolved.mainImageExpectedCount,
@@ -394,7 +410,7 @@ async function main(): Promise<void> {
     rootDir: resolved.paidImageSubmissionLedgerDir,
     batchFingerprint,
     completedGeneration,
-    completedProducts: (state?.tasks || [])
+    completedProducts: tasksForGenerationAudit
       .filter((task) => Boolean(task.mainImageArtifact))
       .map((task) => ({
         recordId: task.feishuProductRecord?.recordId,

@@ -11,6 +11,7 @@ import {
   shouldRequirePublishTargetIdentity
 } from "../dist/src/autolist/deep-audit-rules.js";
 import { auditCurrentPaidImageLedgers } from "../dist/src/autolist/paid-image-audit.js";
+import { recoverCompleteMainImageArtifactForAudit } from "../dist/src/autolist/audit-main-image-recovery.js";
 import { buildCanonicalPublishTargetKeys } from "../dist/src/autolist/audit-rules.js";
 import {
   initializePaidImageProductLedger,
@@ -135,6 +136,66 @@ function completePaidLedgerAuditInput() {
     ambiguous: 0
   };
 }
+
+const recoveryRuntime = fs.mkdtempSync(path.join(os.tmpdir(), "audit-main-image-recovery-"));
+const recoveryTaskDir = path.join(recoveryRuntime, "tasks", "image-001");
+const recoveryShopRoot = path.join(recoveryRuntime, "shops");
+for (let imageIndex = 1; imageIndex <= 20; imageIndex += 1) {
+  const promptIndex = Math.floor((imageIndex - 1) / 4) + 1;
+  const localIndex = ((imageIndex - 1) % 4) + 1;
+  const rawDir = path.join(recoveryTaskDir, `main-image-${String(promptIndex).padStart(2, "0")}`, "openai-compatible", "raw");
+  fs.mkdirSync(rawDir, { recursive: true });
+  fs.writeFileSync(path.join(rawDir, `generated-${String(localIndex).padStart(2, "0")}.png`), "raw");
+  const shopDir = path.join(recoveryShopRoot, `${String(imageIndex).padStart(2, "0")}测试店`);
+  const productDir = path.join(shopDir, `测试产品-record-a-水印${String(imageIndex).padStart(2, "0")}`);
+  fs.mkdirSync(productDir, { recursive: true });
+  fs.writeFileSync(path.join(productDir, `main-${imageIndex}.png`), "watermarked");
+}
+const recoveredCompleteArtifact = recoverCompleteMainImageArtifactForAudit({
+  taskRuntimeDir: recoveryTaskDir,
+  shopRootDir: recoveryShopRoot,
+  recordId: "record-a",
+  expectedImageCount: 20,
+  imagesPerPrompt: 4
+});
+assert.equal(recoveredCompleteArtifact?.generatedFiles.length, 20);
+assert.deepEqual(
+  [...new Set(recoveredCompleteArtifact?.generatedFiles.map((item) => item.promptIndex))],
+  [1, 2, 3, 4, 5]
+);
+const missingRawFile = path.join(
+  recoveryTaskDir,
+  "main-image-01",
+  "openai-compatible",
+  "raw",
+  "generated-01.png"
+);
+fs.rmSync(missingRawFile);
+assert.equal(
+  recoverCompleteMainImageArtifactForAudit({
+    taskRuntimeDir: recoveryTaskDir,
+    shopRootDir: recoveryShopRoot,
+    recordId: "record-a",
+    expectedImageCount: 20,
+    imagesPerPrompt: 4
+  }),
+  undefined,
+  "Audit recovery must fail closed when any canonical raw image is missing"
+);
+fs.writeFileSync(missingRawFile, "raw");
+const duplicateShopDir = path.join(recoveryShopRoot, "21重复店");
+fs.mkdirSync(path.join(duplicateShopDir, "重复产品-record-a-水印01"), { recursive: true });
+assert.equal(
+  recoverCompleteMainImageArtifactForAudit({
+    taskRuntimeDir: recoveryTaskDir,
+    shopRootDir: recoveryShopRoot,
+    recordId: "record-a",
+    expectedImageCount: 20,
+    imagesPerPrompt: 4
+  }),
+  undefined,
+  "Audit recovery must fail closed on duplicate canonical watermark identity"
+);
 
 const aggregatedPaidGeneration = aggregatePaidImageLedgerGeneration({
   completedProducts: [

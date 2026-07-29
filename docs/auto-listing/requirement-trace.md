@@ -1,5 +1,15 @@
 # Auto-listing Requirement Trace
 
+## 2026-07-29 Doudian session stability
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Separate platform logout from local profile loss | Runtime evidence preserves the same Chrome/profile across both login redirects; login screenshots show the real Doudian login page and new server session cookies were issued only after re-authentication | Controller timelines at 11:15 and 18:46; browser singleton/profile metadata; cookie timestamps without values | verified |
+| Prevent project-side profile contention | Every browser action acquires one atomic cross-process lease before CDP connection; a second live owner fails closed, dead leases recover, and only the owner can release | `test-browser-profile-lease-rule.mjs` | verified |
+| Reject transient login redirects without hiding real expiry | Shop switching confirms the login page again after bounded navigation to the canonical SPU page before stopping; confirmed expiry still preserves the exact pre-submit checkpoint | `test-shop-switch-structure-rule.mjs`; `test-doudian-publish-session-preflight-rule.mjs` | verified |
+| Resume safely after platform re-authentication | Supervisor polls read-only with the fixed profile, releases its lease before launching the resume child, and resumes only the manifest-backed target | `test-doudian-publish-session-preflight-rule.mjs`; `test-progress-state.mjs` | verified |
+| Keep deep audit accurate after a remaining-target resume | When resume state intentionally contains only the remaining publish subset, audit reconstructs the complete 20-image artifact only from exact `recordId` folders plus the current task runtime raw files; incomplete or duplicate evidence still fails closed | `test-deep-auto-listing-audit.mjs`; live audit of run `20260729-181109` reports generation 20/20 and publish 17/20 | verified |
+
 ## 2026-07-29 Hermes image-wait liveness reporting
 
 | Requirement | Implementation | Verification | Status |

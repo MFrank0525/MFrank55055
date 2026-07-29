@@ -94,6 +94,8 @@ Hermes/飞书只允许调用 `auto-listing:hermes-start`、`auto-listing:hermes-
 
 真实 20 店只读访问审计与上架发布共享固定抖店浏览器 profile，因此必须互斥。`src/cli/audit-shop-access.ts` 在打开浏览器前校验 `data/auto-listing/control/auto-listing-child.json` 及其 PID；发现存活的上架子进程即失败关闭，只能在安全边界暂停后执行审计。
 
+`src/browser/profile-lease.ts` 为全部抖店浏览器动作提供跨进程原子租约。租约覆盖发布、登录复检、店铺审计和诊断，而不只覆盖某个 CLI；存活 owner 会阻止第二个自动化进程连接同一 profile，owner 退出后的 stale 记录可安全恢复。该机制防止项目自身争抢或重启会话，但不绕过抖店服务端的登录期限和风控注销。
+
 Hermes gateway 在执行 start、continue 或 status 时必须从 `MessageEvent` 而不是 `SessionSource` 记录该命令的精确消息 origin（平台、chat、thread 和触发消息）；项目持有的 durable router plugin 必须独立持久化同一个 `event.message_id`，避免 Hermes 包升级后再次丢失回复锚点。后续 watcher 通知只投递到这个 origin，并通过 `reply_to` 直接回复触发命令。origin 缺失时必须失败关闭并保留待发送状态，禁止发送无回复锚点的散落消息，也禁止从 channel directory、home channel 或历史线程猜测目的地。飞书通知必须拿到非空 `message_id` 回执才允许更新去重状态；没有回执的通知保持待发送并在下一轮重试，不能用 API 调用未报错冒充用户已收到。
 
 状态汇报同样由项目控制器负责生成，Hermes 只转发。发布进度必须按 canonical `batchFingerprint + recordId + taskId` 对当前商品的 20 个待上架目标分组，禁止按可能重复的展示名或通用名聚合；完成数、当前目标序号、当前店铺序号、飞书 processed 完成数和当前飞书 record 序号必须分别标注，禁止把多个商品或多个续跑清单的发布条目累加后截断成 `20/20`，也禁止把“当前第5/6”冒充“已完成5/6”。店铺总数必须来自完整发布计划或类目固定计划，不能用当前 `publish-manifest.json` 已触达的店铺数量当分母。状态文本必须按当前业务阶段选择单一进度源：生图阶段展示生图进度；进入发布/上架阶段后只展示发布心跳或发布清单进度，暂停后的有效发布断点也不得退回已完成生图信息。已受理图片 task 仍在 `queued/pending` 时必须明确表述“生图仍在运行、持续查询同一 task ID、最近查询时间”，禁止写成无法区分存活性的“冷却中、时间待定”。JSON 状态面向 Hermes 的唯一自动反馈入口是 `hermesProgress`；发布阶段不得在顶层暴露 `imageProgress`。`hermesProgress.key` 必须包含当前 recordId、商品组和店铺组进度，不能再写入原始累计值；`hermesProgress.message` 必须携带飞书批次完成数、当前 record 序号、当前商品安全完成数和当前目标/店铺，并优先显示飞书用户认知名。Hermes gateway 的自动 watcher 必须记录完整 key 作为心跳、按稳定消息 key 去重；外部图片队列即使业务消息不变，也必须每 10 分钟回复一次经回执确认的存活状态。在暂停/停止通知中必须直接播报 `hermesProgress.message`；禁止回退到隐藏字段显示 `0/?`，也禁止用历史商品名或跨 run watcher key 压制当前商品新进度。控制器终态原因仍必须优先覆盖普通进度。
