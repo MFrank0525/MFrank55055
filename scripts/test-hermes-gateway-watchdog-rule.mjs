@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import fs from "node:fs";
 
 const gatewayRunPath =
@@ -35,14 +36,24 @@ assert.equal(
 );
 const hermesConfigSource = fs.readFileSync(hermesConfigPath, "utf8");
 assert.match(routerSource, /pre_gateway_dispatch/);
-assert.match(routerSource, /开始上架[\s\S]*\/autolist-start/);
-assert.match(routerSource, /继续上架[\s\S]*\/autolist-continue/);
-assert.match(routerSource, /暂停上架[\s\S]*\/autolist-pause/);
-assert.match(routerSource, /上架(?:状态|进度)[\s\S]*\/autolist-status/);
+assert.match(routerSource, /"开始上架":\s*"start"/);
+assert.match(routerSource, /"继续上架":\s*"continue"/);
+assert.match(routerSource, /"暂停上架":\s*"pause"/);
+assert.match(routerSource, /"上架(?:状态|进度)":\s*"status"/);
+assert.match(
+  routerSource,
+  /"action":\s*"skip"[\s\S]*"auto-listing-control-handled"/,
+  "Natural-language controls must finish gateway dispatch immediately instead of entering the synchronous slash-command path"
+);
 assert.match(
   hermesConfigSource,
   /plugins:\s*[\s\S]*enabled:\s*[\s\S]*auto-listing-command-router/,
   "The durable natural-language router plugin must be explicitly enabled"
+);
+childProcess.execFileSync(
+  "/Users/mfrank/.local/share/uv/tools/hermes-agent/bin/python",
+  ["scripts/test-hermes-auto-listing-command-router.py"],
+  { cwd: process.cwd(), stdio: "inherit" }
 );
 
 assert.match(

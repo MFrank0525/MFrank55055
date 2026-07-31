@@ -1,5 +1,13 @@
 # Auto-listing Requirement Trace
 
+## 2026-07-31 Hermes visible-thinking elimination
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why “开始上架” still looked like Hermes reasoning | The router did rewrite this message before agent dispatch, but the rewritten slash command synchronously waited up to 30 seconds for the project controller. The exact 30-second response was the gateway timeout, not an LLM turn | Gateway inbound timeline; `_handle_autolist_command` timeout boundary; live plugin discovery state | verified |
+| End gateway dispatch before slow controller work | The durable user plugin now owns exact natural-language controls, returns `skip` immediately, sends an acknowledgement, and runs the project controller in an event-loop background task | `test-hermes-auto-listing-command-router.py` loads the installed plugin and asserts skip, immediate reply, exact origin, and background controller action | verified |
+| Prevent source-only tests from declaring a broken deployment healthy | The gateway rule test now executes the Hermes Python runtime, forces plugin discovery, verifies the registered hook, and invokes it with a fake Feishu event/gateway | `test-hermes-gateway-watchdog-rule.mjs` | verified |
+
 ## 2026-07-29 Doudian session stability
 
 | Requirement | Implementation | Verification | Status |
