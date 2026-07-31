@@ -15,6 +15,7 @@ const IMMEDIATE_FAILURE_CLASSES = new Set([
   "doudian_login_required",
   "shop_context_mismatch",
   "spec_template_configuration_missing",
+  "transient_overlay_blocked",
   "final_publish_state_uncertain"
 ]);
 

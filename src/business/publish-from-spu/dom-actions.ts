@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 
 export async function clickVisibleText(page: Page, text: string): Promise<boolean> {
   const target = page.getByText(text, { exact: true }).first();
@@ -118,6 +118,91 @@ export async function isRadioSelectedByLabel(page: Page, labelText: string): Pro
   }, labelText);
 }
 
+async function firstVisibleLocator(locator: Locator): Promise<Locator | null> {
+  const count = await locator.count();
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function findDoudianGuideAction(guideRoot: Locator): Promise<Locator | null> {
+  const controlledActions = ["我知道了", "知道了", "完成", "跳过", "下一步", "关闭"];
+  for (const label of controlledActions) {
+    const roleButton = await firstVisibleLocator(guideRoot.getByRole("button", { name: label, exact: true }));
+    if (roleButton) {
+      return roleButton;
+    }
+    const exactTextControl = await firstVisibleLocator(
+      guideRoot.locator("button, [role='button'], a").filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) })
+    );
+    if (exactTextControl) {
+      return exactTextControl;
+    }
+  }
+
+  const closeControls = guideRoot.locator(
+    [
+      "button[aria-label*='关闭']",
+      "button[title*='关闭']",
+      "[role='button'][aria-label*='关闭']",
+      "[role='button'][title*='关闭']",
+      "button[aria-label*='close' i]",
+      "button[title*='close' i]",
+      "[role='button'][aria-label*='close' i]",
+      "[role='button'][title*='close' i]",
+      "button[class*='close' i]",
+      "[role='button'][class*='close' i]"
+    ].join(", ")
+  );
+  return firstVisibleLocator(closeControls);
+}
+
+async function dismissDoudianGuideOverlays(page: Page): Promise<void> {
+  for (let step = 0; step < 8; step += 1) {
+    const visibleGuideRoots: Locator[] = [];
+    const roots = page.locator(".ecom-guide-single-content-wrapper");
+    for (let index = 0; index < (await roots.count()); index += 1) {
+      const root = roots.nth(index);
+      if (await root.isVisible().catch(() => false)) {
+        visibleGuideRoots.push(root);
+      }
+    }
+    if (!visibleGuideRoots.length) {
+      return;
+    }
+    if (visibleGuideRoots.length !== 1) {
+      throw new Error(`Doudian guide overlay target was ambiguous: visible=${visibleGuideRoots.length}`);
+    }
+
+    const guideRoot = visibleGuideRoots[0];
+    const beforeText = (await guideRoot.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+    const action = await findDoudianGuideAction(guideRoot);
+    if (!action) {
+      throw new Error(`Doudian guide overlay has no controlled close/advance action: text=${beforeText || "<empty>"}`);
+    }
+    await action.click({ timeout: 1500 });
+    await page.waitForTimeout(300);
+
+    const stillVisible = await guideRoot.isVisible().catch(() => false);
+    if (!stillVisible) {
+      continue;
+    }
+    const afterText = (await guideRoot.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+    if (afterText === beforeText) {
+      throw new Error(`Doudian guide overlay did not advance after structured click: text=${afterText || "<empty>"}`);
+    }
+  }
+
+  const remaining = await firstVisibleLocator(page.locator(".ecom-guide-single-content-wrapper"));
+  if (remaining) {
+    throw new Error("Doudian guide overlay remained visible after 8 controlled actions.");
+  }
+}
+
 export async function dismissTransientOverlays(page: Page): Promise<void> {
   if (page.isClosed()) {
     return;
@@ -129,6 +214,8 @@ export async function dismissTransientOverlays(page: Page): Promise<void> {
     await page.keyboard.press("Escape").catch(() => {});
     await page.waitForTimeout(250);
   }
+
+  await dismissDoudianGuideOverlays(page);
 
   const cropDialogVisible = await page.evaluate(() => {
     const text = document.body.innerText || "";

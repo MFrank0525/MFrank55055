@@ -292,6 +292,23 @@ async function findSpecTemplateDropdownClickTargetOnPage(page: Page): Promise<Lo
   return findSpecTemplateInputInFieldRootOnPage(page);
 }
 
+async function clickSpecTemplateDropdownTargetWithOverlayRecovery(page: Page): Promise<void> {
+  const initialTarget = await findSpecTemplateDropdownClickTargetOnPage(page);
+  try {
+    await initialTarget.click({ timeout: 1000 });
+    return;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/intercepts pointer events|Timeout/i.test(message)) {
+      throw error;
+    }
+  }
+
+  await dismissTransientOverlays(page);
+  const retryTarget = await findSpecTemplateDropdownClickTargetOnPage(page);
+  await retryTarget.click({ timeout: 1500 });
+}
+
 const specTemplateOptionMarker = "data-auto-spec-template-option";
 
 async function markVisibleSpecTemplateOption(page: Page, keywords: string[]): Promise<string> {
@@ -380,15 +397,14 @@ async function clickSpecTemplateOptionByDomStructure(page: Page, keywords: strin
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
   await dismissTransientOverlays(page);
   const candidates = resolveSpecTemplateKeywordCandidates(keyword);
-  const clickTarget = await findSpecTemplateDropdownClickTargetOnPage(page);
-  await clickTarget.click({ timeout: 1000 });
+  await clickSpecTemplateDropdownTargetWithOverlayRecovery(page);
   const visibleClickedText = await clickSpecTemplateOptionByDomStructure(page, candidates);
   if (isMatchingSpecTemplateValue(visibleClickedText, keyword)) {
     return visibleClickedText;
   }
   const input = await findSpecTemplateInputInFieldRootOnPage(page);
   for (const candidate of candidates) {
-    await clickTarget.click({ timeout: 1000 });
+    await clickSpecTemplateDropdownTargetWithOverlayRecovery(page);
     await input.fill(candidate).catch(async () => {
       await page.keyboard.press(getSelectAllShortcut());
       await page.keyboard.type(candidate, { delay: 20 });

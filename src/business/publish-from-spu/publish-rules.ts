@@ -473,6 +473,13 @@ export function classifyPublishFailure(message: string): string {
     return "platform_page_not_ready";
   }
   if (
+    text.includes("Doudianguideoverlay") ||
+    text.includes("ecom-guide-single-content-wrapper") ||
+    text.includes("interceptspointerevents")
+  ) {
+    return "transient_overlay_blocked";
+  }
+  if (
     text.includes("Novisiblefreighttemplateoptionmatchedkeyword") ||
     text.includes("Novisiblefreighttemplatecomboboxmatchedkeyword") ||
     text.includes("Servicesectionfreightlabelisnotvisibleaftertabactivation")
@@ -604,6 +611,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "final_publish_submit_transient",
     "service_section_not_ready",
     "basic_info_field_not_ready",
+    "transient_overlay_blocked",
     "price_inventory_not_ready",
     "page_context_lost",
     "shop_switch_entry_unavailable",
@@ -626,6 +634,7 @@ export function shouldStopPublishBatchAfterFailure(
     "doudian_login_required",
     "shop_context_mismatch",
     "spec_template_configuration_missing",
+    "transient_overlay_blocked",
     "final_publish_state_uncertain"
   ]);
   const systemicClasses = new Set(["spec_template_not_ready", "service_section_not_ready", "basic_info_field_not_ready"]);

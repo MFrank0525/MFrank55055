@@ -166,6 +166,7 @@ const publishActionSource = [
   fs.readFileSync("src/business/publish-from-spu/actions/submit-action.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/publish-submit-page-action.ts", "utf8")
 ].join("\n");
+const domActionsSource = fs.readFileSync("src/business/publish-from-spu/dom-actions.ts", "utf8");
 for (const obsoleteAction of [
   "createFixedSpecTypeAndValues",
   "fillSpecEditorText",
@@ -348,7 +349,7 @@ assert.doesNotMatch(
 );
 assert.match(
   publishSource,
-  /const clickTarget = await findSpecTemplateDropdownClickTargetOnPage\(page\);[\s\S]*await clickTarget\.click\(\{ timeout: 1000 \}\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\)/,
+  /await clickSpecTemplateDropdownTargetWithOverlayRecovery\(page\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\)/,
   "spec template selection must atomically open the goods-spec template dropdown before looking for the search input or clicking a visible matching option"
 );
 assert.match(
@@ -356,7 +357,7 @@ assert.match(
     publishSource.indexOf("async function chooseSpecTemplateKeywordFromDropdown"),
     publishSource.indexOf("async function scrollMainFormContainerToBottom")
   ),
-  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*const clickTarget = await findSpecTemplateDropdownClickTargetOnPage\(page\);[\s\S]*await clickTarget\.click\(\{ timeout: 1000 \}\);/,
+  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*await clickSpecTemplateDropdownTargetWithOverlayRecovery\(page\);/,
   "spec template selection must find the 商品规格/规格模板 control and open it immediately"
 );
 assert.doesNotMatch(
@@ -419,6 +420,21 @@ assert.match(
 const chooseSpecTemplateSource = publishSource.slice(
   publishSource.indexOf("async function findSpecTemplateFieldRootOnPage"),
   publishSource.indexOf("async function scrollMainFormContainerToBottom")
+);
+assert.match(
+  domActionsSource,
+  /async function dismissDoudianGuideOverlays[\s\S]*ecom-guide-single-content-wrapper[\s\S]*guideRoot[\s\S]*click\(\{ timeout: 1500 \}\)[\s\S]*Doudian guide overlay/,
+  "transient overlay recovery must close Doudian guide overlays through a scoped Playwright locator and fail clearly when readback stays visible"
+);
+assert.match(
+  domActionsSource,
+  /我知道了[\s\S]*知道了[\s\S]*完成[\s\S]*跳过[\s\S]*下一步[\s\S]*关闭/,
+  "Doudian guide recovery must use a controlled list of guide actions instead of arbitrary page clicks"
+);
+assert.match(
+  chooseSpecTemplateSource,
+  /clickSpecTemplateDropdownTargetWithOverlayRecovery[\s\S]*intercepts pointer events[\s\S]*dismissTransientOverlays\(page\)/,
+  "spec template dropdown opening must dismiss a late guide overlay and retry the same structured target once"
 );
 assert.doesNotMatch(
   chooseSpecTemplateSource,

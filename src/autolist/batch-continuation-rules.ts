@@ -1327,6 +1327,8 @@ function compactAutoListingControllerReason(summary?: string): string {
   if (/Doudian login (?:is )?required|抖店登录/i.test(text)) {
     return "抖店登录已失效，已停止；请在自动化浏览器完成登录后从断点续跑。";
   }
+  if (/Doudian guide overlay|ecom-guide-single-content-wrapper|intercepts pointer events/i.test(text))
+    return "抖店引导遮罩拦截了表单控件；已安全停止，续跑会先结构化关闭遮罩并读回确认。";
   if (/Spec template left .*blank required spec value input|Spectemplateleft.*blankspecvalueinput/i.test(text)) {
     return "规格模板存在空白占位值；按模板内容为准，续跑时不补写也不删除该空白项。";
   }

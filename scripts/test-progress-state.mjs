@@ -528,7 +528,7 @@ assert.doesNotMatch(
 );
 assert.match(
   specTemplateSelectionSource,
-  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*const clickTarget = await findSpecTemplateDropdownClickTargetOnPage\(page\);[\s\S]*await clickTarget\.click\(\{ timeout: 1000 \}\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return visibleClickedText;[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);[\s\S]*await clickTarget\.click\(\{ timeout: 1000 \}\);[\s\S]*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(80\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return clickedText;/,
+  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*await clickSpecTemplateDropdownTargetWithOverlayRecovery\(page\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return visibleClickedText;[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);[\s\S]*await clickSpecTemplateDropdownTargetWithOverlayRecovery\(page\);[\s\S]*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(80\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return clickedText;/,
   "spec-template selection must open the goods-spec dropdown before clicking a visible option and return the clicked template without waiting for expansion"
 );
 assert.doesNotMatch(
@@ -1406,6 +1406,16 @@ assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 0), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 3), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 4), false);
 assert.equal(shouldRetryPublishFailure("validation_blocked", 0), false);
+const guideOverlayClass = classifyPublishFailure(
+  "Sequential publish flow stopped: 价格库存模块未完成。locator.click: <div class=\"ecom-guide-single-content-wrapper\"> intercepts pointer events"
+);
+assert.equal(guideOverlayClass, "transient_overlay_blocked");
+assert.equal(shouldRetryPublishFailure(guideOverlayClass, 0), true);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([{ stage: "published", errorClass: guideOverlayClass }]),
+  true,
+  "a guide overlay that survives the in-target recovery budget must stop later targets instead of repeating the same systemic failure"
+);
 const freightDropdownClass = classifyPublishFailure(
   "No visible freight template option matched keyword: 延草运费; visibleOptions=商品类目 > 标题推荐 > 必填项进度"
 );
@@ -3188,6 +3198,23 @@ assert.deepEqual(
     "原因：价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。"
   ],
   "Hermes compact status must not report a failed middle watermark as the latest publish position"
+);
+const compactGuideOverlayStatus = formatAutoListingControllerCompactStatusText({
+  status: "failed",
+  summary:
+    "Sequential publish flow stopped: 价格库存模块未完成。locator.click: <div class=\"ecom-guide-single-content-wrapper\"> intercepts pointer events",
+  productName: "延草纲目凡士林胶原蛋白唇膏",
+  publishSafelyPublished: 0,
+  publishFailed: 1,
+  publishShopIndex: 1,
+  publishShopTotal: 20,
+  feishuCompleted: 0,
+  feishuTotal: 12
+});
+assert.match(
+  compactGuideOverlayStatus,
+  /原因：抖店引导遮罩拦截了表单控件；已安全停止，续跑会先结构化关闭遮罩并读回确认。/,
+  "Hermes must report a guide overlay root cause before the generic price/inventory module wrapper"
 );
 const reviewMiddleWithLaterPublishedProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: [
