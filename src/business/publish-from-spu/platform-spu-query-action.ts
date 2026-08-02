@@ -545,6 +545,34 @@ async function waitForPlatformSpuQueryPageReady(page: Page, timeoutMs = 45000): 
   return { ready: false, issue: lastIssue || "Platform SPU query page did not become ready before timeout." };
 }
 
+async function ensurePlatformSpuTabActive(page: Page, runtimeDir: string): Promise<void> {
+  const platformTab = page.getByRole("tab", { name: "\u5E73\u53F0\u6807\u54C1", exact: true });
+  const tabCount = await platformTab.count();
+  if (tabCount !== 1) {
+    const error = new Error(`Platform SPU tab lookup was ambiguous. expected=1; actual=${tabCount}`) as QueryDiagnosticError;
+    error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-tab-ambiguous.png");
+    throw error;
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const selected = await platformTab.getAttribute("aria-selected").catch(() => null);
+    if (selected === "true") {
+      return;
+    }
+    await platformTab.click({ timeout: 5000 });
+    await page.waitForTimeout(1000 + attempt * 500);
+  }
+
+  const selected = await platformTab.getAttribute("aria-selected").catch(() => null);
+  if (selected !== "true") {
+    const error = new Error(
+      `Platform SPU tab did not become active after click. aria-selected=${selected || "<missing>"}`
+    ) as QueryDiagnosticError;
+    error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-tab-not-active.png");
+    throw error;
+  }
+}
+
 async function clickNextPlatformSpuResultPageByDom(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
@@ -645,11 +673,7 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
       await ensurePlatformSpuQueryPageActive(page, runtimeDir, "platform-spu-query-after-shop-switch", 45000);
     }
 
-    const platformTab = page.getByText("\u5E73\u53F0\u6807\u54C1", { exact: true });
-    if (await platformTab.count()) {
-      await platformTab.click({ timeout: 5000 }).catch(() => {});
-      await page.waitForTimeout(800);
-    }
+    await ensurePlatformSpuTabActive(page, runtimeDir);
 
     const queryPageReady = await waitForPlatformSpuQueryPageReady(page);
     if (!queryPageReady.ready) {
@@ -834,6 +858,15 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
       candidates = await readCandidates();
       allCandidates.push(...candidates);
       matched = pickMatchedCandidate(candidates);
+    }
+
+    if (!allCandidates.length && retryNo < maxPlatformSpuQueryRetries) {
+      logWarn(
+        `platform spu query returned no visible publish rows; retrying verified platform-tab query ${retryNo + 1}/${maxPlatformSpuQueryRetries}. brand=${brand}; spu=${spu}`
+      );
+      await savePageScreenshot(page, runtimeDir, `platform-spu-query-no-rows-retry-${retryNo + 1}.png`).catch(() => "");
+      await page.waitForTimeout(1200 + retryNo * 800);
+      return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
     }
 
     if (!allCandidates.length) {

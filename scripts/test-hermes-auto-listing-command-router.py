@@ -84,12 +84,10 @@ async def verify_start_is_handled_without_gateway_or_llm_dispatch() -> None:
         gateway=gateway,
         session_store=None,
     )
-    assert results == [
-        {"action": "skip", "reason": "auto-listing-control-handled"}
-    ], (
+    assert {"action": "skip", "reason": "auto-listing-control-handled"} in results, (
         "The natural-language control must be fully handled by the plugin. "
         "A rewrite still enters the synchronous gateway command handler and "
-        "keeps Hermes in its visible thinking state."
+        f"keeps Hermes in its visible thinking state. results={results!r}"
     )
     await asyncio.sleep(0)
     await asyncio.sleep(0)

@@ -1,5 +1,13 @@
 # Auto-listing Requirement Trace
 
+## 2026-08-01 Platform-SPU tab activation
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why shop 08 reported an empty SPU result while shops 01-07 succeeded | Failure screenshot and live DOM inspection show `我的标品` remained selected. The old exact-text locator matched both the tab wrapper and its inner role node, so Playwright rejected the ambiguous click; an empty catch hid that failure | Runtime `platform-spu-query-no-rows.png`; live tab DOM reports two text nodes but one unique `role=tab`, with `我的标品 aria-selected=true` | verified |
+| Never query from the wrong SPU tab | The query action now selects the unique `平台标品` tab by semantic role and requires `aria-selected=true`; ambiguous, missing, or inactive tab state fails with screenshot evidence | `test-platform-spu-query-page-rule.mjs`; live read-only Doudian DOM check | verified |
+| Recover bounded transient empty results without hiding a real absence | A verified platform-tab query retries at most four times, preserving the exact shop/product identity; terminal empty results are classified as `spu_query_or_match_failed` instead of `unknown_publish_failure` | `test-platform-spu-query-page-rule.mjs`; representative simulation and deep audit | verified |
+
 ## 2026-07-31 Hermes visible-thinking elimination
 
 | Requirement | Implementation | Verification | Status |

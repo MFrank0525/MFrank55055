@@ -76,6 +76,17 @@ const emptyBrandInputClass = classifyPublishFailure(
 assert.equal(emptyBrandInputClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(emptyBrandInputClass, 0), true);
 
+const inactivePlatformTabClass = classifyPublishFailure(
+  "Platform SPU tab did not become active after click. aria-selected=false"
+);
+assert.equal(inactivePlatformTabClass, "platform_page_not_ready");
+assert.equal(shouldRetryPublishFailure(inactivePlatformTabClass, 0), true);
+
+assert.equal(
+  classifyPublishFailure("No visible publish rows found in result table."),
+  "spu_query_or_match_failed"
+);
+
 const loginFailureClass = classifyPublishFailure("Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing 延草纲目");
 assert.equal(loginFailureClass, "doudian_login_required");
 assert.equal(shouldRetryPublishFailure(loginFailureClass, 0), false);
@@ -152,6 +163,26 @@ assert.match(
   querySource,
   /clickPlatformBrandDropdownOption\(page, brand\)/,
   "SPU query must use the brand-input-scoped dropdown picker for brand selection"
+);
+assert.match(
+  querySource,
+  /ensurePlatformSpuTabActive\(page, runtimeDir\)/,
+  "SPU query must verify that 平台标品 is the active tab before entering query fields"
+);
+assert.match(
+  publishSource,
+  /getByRole\("tab", \{ name: "\\u5E73\\u53F0\\u6807\\u54C1", exact: true \}\)[\s\S]*aria-selected/,
+  "SPU query must target the unique platform tab role and confirm its selected state"
+);
+assert.doesNotMatch(
+  querySource,
+  /getByText\("\\u5E73\\u53F0\\u6807\\u54C1", \{ exact: true \}\)[\s\S]{0,180}click\([^)]*\)\.catch\(\(\) => \{\}\)/,
+  "SPU query must not silently swallow an ambiguous 平台标品 text click"
+);
+assert.match(
+  querySource,
+  /!allCandidates\.length && retryNo < maxPlatformSpuQueryRetries[\s\S]*platform-spu-query-no-rows-retry-[\s\S]*queryPlatformSpu\(runtimeDir, brand, spu, shopFolder, retryNo \+ 1\)/,
+  "SPU query must retry a verified platform-tab query before treating an empty result table as terminal"
 );
 assert.doesNotMatch(
   querySource,

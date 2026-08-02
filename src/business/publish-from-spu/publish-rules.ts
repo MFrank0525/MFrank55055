@@ -461,6 +461,12 @@ export function classifyPublishFailure(message: string): string {
     return "platform_page_not_ready";
   }
   if (
+    text.includes("PlatformSPUtablookupwasambiguous") ||
+    text.includes("PlatformSPUtabdidnotbecomeactive")
+  ) {
+    return "platform_page_not_ready";
+  }
+  if (
     (text.includes("SPUinputvaluemismatchaftertyping") || text.includes("Brandinputvaluemismatchaftertyping")) &&
     text.includes("actual=<empty>")
   ) {
@@ -587,7 +593,7 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("店铺") || text.includes("shop")) {
     return "shop_context_mismatch";
   }
-  if (text.includes("SPU") || text.includes("标品")) {
+  if (text.includes("Novisiblepublishrowsfoundinresulttable") || text.includes("SPU") || text.includes("标品")) {
     return "spu_query_or_match_failed";
   }
   return "unknown_publish_failure";
