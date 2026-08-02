@@ -1266,7 +1266,8 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
   const productIndex = groupComplete
     ? productTotal
     : Math.max(1, Math.min(productTotal, (failed > 0 && latestAttemptedWatermark > activeWatermark ? latestAttemptedWatermark : activeWatermark) || latestAttemptedWatermark || maxCompletedWatermark || safelyPublished.length + (failed > 0 ? 1 : 0) || 1));
-  const shopNames = Array.from(new Set(scopeEntries.map((entry) => cleanAutoListingControllerProductName(publishShopFolderFromEntry(entry))).filter(Boolean)))
+  const shopScopeEntries = plannedGroupEntries.length ? [...groupEntries, ...plannedGroupEntries] : groupEntries;
+  const shopNames = Array.from(new Set(shopScopeEntries.map((entry) => cleanAutoListingControllerProductName(publishShopFolderFromEntry(entry))).filter(Boolean)))
     .sort((a, b) => (publishShopIndexFromName(a) || 0) - (publishShopIndexFromName(b) || 0) || a.localeCompare(b, "zh-CN"));
   const completedDisplayEntry = groupComplete
     ? [...safelyPublished].sort((a, b) => publishWatermarkNoFromEntry(b) - publishWatermarkNoFromEntry(a))[0]
@@ -1293,7 +1294,6 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
     ...(failed > 0 && latestAttemptedWatermark ? { latestAttemptedWatermarkNo: latestAttemptedWatermark } : {})
   };
 }
-
 function compactAutoListingControllerReason(summary?: string): string {
   const text = String(summary || "").replace(/\s+/g, " ").trim();
   const translated = translateAutoListingControllerOperatorMessage(text);

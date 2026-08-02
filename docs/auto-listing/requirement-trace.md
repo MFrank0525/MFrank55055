@@ -1,5 +1,12 @@
 # Auto-listing Requirement Trace
 
+## 2026-08-02 Resume shop-total status accuracy
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why a 20-shop medical-device run displayed `当前店铺 11/13` | Resume plan contains only remaining shops 08-20, while the status reducer previously preferred that 13-entry subset and omitted historical manifest shops 01-10 from its shop-total set | Live controller status and generated resume plan/manifest reconciliation | verified |
+| Report the full canonical shop denominator during resume | Publish progress now unions same-identity historical manifest entries with remaining plan entries before deduplicating shops; active index still comes from the canonical shop prefix | `test-progress-state.mjs`; live status changed from `11/13` to `11/20` without restarting the publisher | verified |
+
 ## 2026-08-01 Platform-SPU tab activation
 
 | Requirement | Implementation | Verification | Status |

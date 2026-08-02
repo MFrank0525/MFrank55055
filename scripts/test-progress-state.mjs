@@ -3047,6 +3047,33 @@ assert.deepEqual(
   },
   "AutoListingController publish display must use the full publish plan for shop total instead of currently touched shops"
 );
+
+const medicalResumeWithRemainingPlanProgress = resolveAutoListingControllerPublishGroupProgress({
+  entries: Array.from({ length: 11 }, (_, index) => ({
+    targetIdentity: { batchFingerprint: "batch-medical", recordId: "recv-medical", taskId: "image-001" },
+    productFolder: `/shops/${String(index + 1).padStart(2, "0")}店/延草纲目医用敷料-recv-medical-水印${String(index + 1).padStart(2, "0")}`,
+    shopFolder: `/shops/${String(index + 1).padStart(2, "0")}店`,
+    runtimeKey: `medical-${index + 1}`,
+    watermarkNo: index + 1,
+    status: index === 10 ? "pending" : "published",
+    finalVerifyStatus: index === 10 ? "not_checked" : "publish_signal_confirmed",
+    updatedAt: `2026-08-02T10:${String(index).padStart(2, "0")}:00.000Z`
+  })),
+  planEntries: Array.from({ length: 13 }, (_, index) => ({
+    targetIdentity: { batchFingerprint: "batch-medical", recordId: "recv-medical", taskId: "image-001" },
+    productFolder: `/shops/${String(index + 8).padStart(2, "0")}店/延草纲目医用敷料-recv-medical-水印${String(index + 8).padStart(2, "0")}`,
+    shopFolder: `/shops/${String(index + 8).padStart(2, "0")}店`,
+    runtimeKey: `medical-${index + 8}`,
+    watermarkNo: index + 8
+  })),
+  activeRuntimeKey: "medical-11"
+});
+assert.equal(medicalResumeWithRemainingPlanProgress.shopIndex, 11);
+assert.equal(
+  medicalResumeWithRemainingPlanProgress.shopTotal,
+  20,
+  "A medical-device resume must combine historical manifest shops with the remaining plan instead of reporting remaining-plan length as the full shop total"
+);
 const resumedHistoricalFailureShopNames = [
   "01延草纲目大药房专营店",
   "02延草纲目药品专营店",
