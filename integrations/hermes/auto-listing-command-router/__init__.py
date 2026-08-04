@@ -19,6 +19,12 @@ _CONTROL_ROUTES = {
     "上架进度": "status",
     "查看上架状态": "status",
     "查看上架进度": "status",
+    "状态": "status",
+    "进度": "status",
+    "查询状态": "status",
+    "查询进度": "status",
+    "查看状态": "status",
+    "查看进度": "status",
 }
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
 _LOGGER = logging.getLogger(__name__)

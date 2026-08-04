@@ -97,6 +97,19 @@ async def verify_start_is_handled_without_gateway_or_llm_dispatch() -> None:
     assert "已接收" in str(first["content"])
     assert first["reply_to"] == event.message_id
 
+    status_event = Event(text="状态", source=Source(), message_id="status-message")
+    status_results = invoke_hook(
+        "pre_gateway_dispatch",
+        event=status_event,
+        gateway=gateway,
+        session_store=None,
+    )
+    assert {"action": "skip", "reason": "auto-listing-control-handled"} in status_results
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert gateway.actions[-1] == "status"
+    assert gateway.adapter.messages[-1]["content"] == "finished:status"
+
 
 asyncio.run(verify_start_is_handled_without_gateway_or_llm_dispatch())
 print("Hermes auto-listing command router integration test passed.")

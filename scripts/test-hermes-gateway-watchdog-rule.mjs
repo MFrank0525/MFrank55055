@@ -4,6 +4,8 @@ import fs from "node:fs";
 
 const gatewayRunPath =
   "/Users/mfrank/.local/share/uv/tools/hermes-agent/lib/python3.11/site-packages/gateway/run.py";
+const gatewayBasePath =
+  "/Users/mfrank/.local/share/uv/tools/hermes-agent/lib/python3.11/site-packages/gateway/platforms/base.py";
 const hermesHome = process.env.HERMES_HOME || "/Users/mfrank/.hermes/profiles/doudian-listing";
 const autoListingRouterPluginPath = `${hermesHome}/plugins/auto-listing-command-router/__init__.py`;
 const canonicalAutoListingRouterPluginPath =
@@ -17,6 +19,12 @@ assert.equal(
 );
 
 const source = fs.readFileSync(gatewayRunPath, "utf8");
+const baseSource = fs.readFileSync(gatewayBasePath, "utf8");
+assert.match(
+  baseSource,
+  /if get_active_profile_name\(\) == "doudian-listing":[\s\S]{0,300}_PLAINTEXT_AUTOLIST_COMMANDS/,
+  "Generic plaintext status must be rewritten to /autolist-status only in the listing profile"
+);
 assert.equal(
   fs.existsSync(autoListingRouterPluginPath),
   true,
@@ -40,6 +48,7 @@ assert.match(routerSource, /"开始上架":\s*"start"/);
 assert.match(routerSource, /"继续上架":\s*"continue"/);
 assert.match(routerSource, /"暂停上架":\s*"pause"/);
 assert.match(routerSource, /"上架(?:状态|进度)":\s*"status"/);
+assert.match(routerSource, /"状态":\s*"status"/);
 assert.match(
   routerSource,
   /"action":\s*"skip"[\s\S]*"auto-listing-control-handled"/,
@@ -53,13 +62,27 @@ assert.match(
 childProcess.execFileSync(
   "/Users/mfrank/.local/share/uv/tools/hermes-agent/bin/python",
   ["scripts/test-hermes-auto-listing-command-router.py"],
-  { cwd: process.cwd(), stdio: "inherit" }
+  {
+    cwd: process.cwd(),
+    env: { ...process.env, HERMES_HOME: hermesHome, HERMES_PROJECT_ID: "douyin-auto-listing" },
+    stdio: "inherit"
+  }
 );
 
 assert.match(
   source,
   /hermesProgress/,
   "Hermes gateway watchdog must consume the project-owned hermesProgress payload"
+);
+assert.match(
+  source,
+  /if self\._active_profile_name\(\) == "doudian-listing":\s*\n\s*asyncio\.create_task\(self\._autolist_watchdog\(\)\)/,
+  "The auto-listing watchdog must start only in its dedicated Hermes profile"
+);
+assert.match(
+  source,
+  /if not _plugin_manager\._hooks\.get\("pre_gateway_dispatch"\):[\s\S]{0,500}_discover_plugins\(force=True\)/,
+  "Gateway message dispatch must self-heal when Hermes loses registered plugin hooks"
 );
 assert.match(
   source,

@@ -4,8 +4,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const REQUIRED_SCOPES = Object.freeze([
+  "im:chat:readonly",
   "im:message",
   "im:message.group_at_msg:readonly",
+  "im:message.p2p_msg:readonly",
 ]);
 
 function hasInboundProof(inboundState) {
