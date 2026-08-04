@@ -1,5 +1,12 @@
 # Auto-listing Requirement Trace
 
+## 2026-08-04 Dedicated Feishu Hermes channel
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Isolate the auto-listing bot from the other three Doudian projects | Dedicated `HERMES_HOME`, `HERMES_PROJECT_ID=douyin-auto-listing`, project-owned plugin, skill, and SOUL installer | `npm run hermes:profile-verify`; gateway profile status and Feishu bot probe | verified |
+| Preserve deterministic start/continue/pause/status behavior without a model turn | `integrations/hermes/auto-listing-command-router` | executable router test, gateway watchdog rule test, and `rules:check` | verified |
+
 ## 2026-08-02 Resume shop-total status accuracy
 
 | Requirement | Implementation | Verification | Status |

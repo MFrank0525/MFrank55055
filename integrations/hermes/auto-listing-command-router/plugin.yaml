@@ -1,0 +1,6 @@
+name: auto-listing-command-router
+version: "1.0.0"
+description: Route deterministic Douyin auto-listing controls before any LLM turn.
+kind: standalone
+provides_hooks:
+  - pre_gateway_dispatch

@@ -18,6 +18,8 @@
     "auto-listing:hermes-rerun-current-batch": "npm --silent run build && node dist/src/cli/auto-listing-controller.js start-new --rerun-current-batch --text",
     "auto-listing:hermes-start:dry": "npm --silent run build && node dist/src/cli/auto-listing-controller.js start-new --dry-run --text",
     "auto-listing:hermes-status": "npm --silent run build && node dist/src/cli/auto-listing-controller.js status --text",
+    "hermes:profile-install": "node scripts/install-hermes-profile.mjs",
+    "hermes:profile-verify": "node scripts/install-hermes-profile.mjs --verify",
     "auto-listing:controller-start": "npm run build && node dist/src/cli/auto-listing-controller.js start-new",
     "auto-listing:controller-continue": "npm run build && node dist/src/cli/auto-listing-controller.js continue",
     "auto-listing:controller-status": "npm run build && node dist/src/cli/auto-listing-controller.js status --text",

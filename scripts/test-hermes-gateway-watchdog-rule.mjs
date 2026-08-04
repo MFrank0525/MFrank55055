@@ -4,11 +4,11 @@ import fs from "node:fs";
 
 const gatewayRunPath =
   "/Users/mfrank/.local/share/uv/tools/hermes-agent/lib/python3.11/site-packages/gateway/run.py";
-const autoListingRouterPluginPath =
-  "/Users/mfrank/.hermes/plugins/auto-listing-command-router/__init__.py";
+const hermesHome = process.env.HERMES_HOME || "/Users/mfrank/.hermes/profiles/doudian-listing";
+const autoListingRouterPluginPath = `${hermesHome}/plugins/auto-listing-command-router/__init__.py`;
 const canonicalAutoListingRouterPluginPath =
   "integrations/hermes/auto-listing-command-router/__init__.py";
-const hermesConfigPath = "/Users/mfrank/.hermes/config.yaml";
+const hermesConfigPath = `${hermesHome}/config.yaml`;
 
 assert.equal(
   fs.existsSync(gatewayRunPath),
