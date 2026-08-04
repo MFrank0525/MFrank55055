@@ -424,6 +424,7 @@ export function classifyPublishFailure(message: string): string {
   if (
     text.includes("保健食品类目属性模块未完成") ||
     text.includes("Health-foodfunctionoptionmustexactmatchFeishuvalue") ||
+    text.includes("Health-food保健功能checkboxoptionnotfound") ||
     text.includes("Health-foodfieldrootnotfoundforvisiblelabel:保健功能")
   ) {
     return "health_food_category_attributes_not_ready";
@@ -617,6 +618,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "final_publish_submit_transient",
     "service_section_not_ready",
     "basic_info_field_not_ready",
+    "health_food_category_attributes_not_ready",
     "transient_overlay_blocked",
     "price_inventory_not_ready",
     "page_context_lost",

@@ -118,26 +118,50 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function statIfPresent(file: string): fs.Stats | undefined {
+  try {
+    return fs.statSync(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function readMtimeMsIfPresent(file: string): number {
+  return statIfPresent(file)?.mtimeMs || 0;
+}
+
+function readDirectoryEntriesIfPresent(file: string): fs.Dirent[] {
+  try {
+    return fs.readdirSync(file, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
 function latestProgressMtimeMs(): number {
   const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
   let latest = 0;
   if (fs.existsSync(runsDir)) {
     for (const runId of fs.readdirSync(runsDir)) {
       const runtimeDir = path.join(runsDir, runId);
-      if (!fs.statSync(runtimeDir).isDirectory()) {
+      if (!statIfPresent(runtimeDir)?.isDirectory()) {
         continue;
       }
       for (const fileName of ["state.json", "events.ndjson", "result.json", "publish-manifest.json"]) {
         const file = path.join(runtimeDir, fileName);
-        if (fs.existsSync(file)) {
-          latest = Math.max(latest, fs.statSync(file).mtimeMs);
-        }
+        latest = Math.max(latest, readMtimeMsIfPresent(file));
       }
       const publishDir = path.join(runtimeDir, "publish");
       const pendingDirs = fs.existsSync(publishDir) ? [publishDir] : [];
       while (pendingDirs.length > 0) {
         const currentDir = pendingDirs.pop()!;
-        for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+        for (const entry of readDirectoryEntriesIfPresent(currentDir)) {
           const file = path.join(currentDir, entry.name);
           if (entry.isDirectory()) {
             pendingDirs.push(file);
@@ -145,7 +169,7 @@ function latestProgressMtimeMs(): number {
           }
           const relativePath = path.relative(runtimeDir, file);
           if (isAutoListingControllerProgressArtifactRelativePath(relativePath)) {
-            latest = Math.max(latest, fs.statSync(file).mtimeMs);
+            latest = Math.max(latest, readMtimeMsIfPresent(file));
           }
         }
       }
@@ -155,13 +179,13 @@ function latestProgressMtimeMs(): number {
   const ledgerDirs = fs.existsSync(paidImageLedgerDir) ? [paidImageLedgerDir] : [];
   while (ledgerDirs.length > 0) {
     const currentDir = ledgerDirs.pop()!;
-    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+    for (const entry of readDirectoryEntriesIfPresent(currentDir)) {
       const file = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {
         ledgerDirs.push(file);
         continue;
       }
-      latest = Math.max(latest, fs.statSync(file).mtimeMs);
+      latest = Math.max(latest, readMtimeMsIfPresent(file));
     }
   }
   return latest;

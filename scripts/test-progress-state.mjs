@@ -553,6 +553,11 @@ assert.match(
 );
 assert.match(
   hermesSupervisorSource,
+  /function readMtimeMsIfPresent[\s\S]*ENOENT[\s\S]*latestProgressMtimeMs[\s\S]*paid-image-submissions[\s\S]*readMtimeMsIfPresent/,
+  "supervisor watchdog must tolerate paid-image lock files disappearing between directory enumeration and stat"
+);
+assert.match(
+  hermesSupervisorSource,
   /shouldRefreshProgressSeenAtForPaidImageWait/,
   "supervisor watchdog must still classify visible progress messages before deciding whether to refresh progress time"
 );
@@ -1819,6 +1824,25 @@ assert.equal(
   shouldRetryPublishFailure(emptyPublishSectionsAfterSpuClass, 4),
   false,
   "SPU prefill empty-page failures must still stop after the extended retry budget is exhausted"
+);
+
+const delayedHealthFunctionOptionClass = classifyPublishFailure(
+  "Health-food 保健功能 checkbox option not found: 补充维生素E"
+);
+assert.equal(
+  delayedHealthFunctionOptionClass,
+  "health_food_category_attributes_not_ready",
+  "A missing asynchronously rendered health-function option must be classified as a category-attribute readiness failure"
+);
+assert.equal(
+  shouldRetryPublishFailure(delayedHealthFunctionOptionClass, 0),
+  true,
+  "A pre-submit health-function readiness failure must receive the bounded safe retry budget"
+);
+assert.equal(
+  shouldRetryPublishFailure(delayedHealthFunctionOptionClass, 2),
+  false,
+  "A genuinely invalid health-function option must still stop after the bounded retry budget"
 );
 
 assert.deepEqual(

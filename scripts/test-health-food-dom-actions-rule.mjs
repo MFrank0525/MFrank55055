@@ -96,8 +96,18 @@ assert.match(
 
 assert.match(
   source,
-  /checkHealthFunctionOptionOnPage[\s\S]*resolveHealthFoodFunctionOptionCandidateGroups\(optionText\)[\s\S]*"保健功能"[\s\S]*for \(const expectedOptions of optionGroups\)[\s\S]*for \(const expectedOption of expectedOptions\)[\s\S]*ecom-g-select-selector[\s\S]*role=['"]combobox['"][\s\S]*fill\(expectedOption[\s\S]*ecom-g-select-tree-title[\s\S]*ecom-g-select-tree-treenode[\s\S]*ecom-g-select-tree-checkbox/,
+  /checkHealthFunctionOptionOnPage[\s\S]*resolveHealthFoodFunctionOptionCandidateGroups\(optionText\)[\s\S]*"保健功能"[\s\S]*for \(const expectedOptions of optionGroups\)[\s\S]*for \(const expectedOption of expectedOptions\)[\s\S]*ecom-g-select-selector[\s\S]*role=['"]combobox['"][\s\S]*fill\(searchText[\s\S]*ecom-g-select-tree-title[\s\S]*ecom-g-select-tree-treenode[\s\S]*ecom-g-select-tree-checkbox/,
   "health function action must split compound Feishu 保健功能 values into candidate groups, search the virtualized tree, and click each exact option's structural checkbox"
+);
+assert.match(
+  source,
+  /checkHealthFunctionOptionOnPage[\s\S]*await search\.fill\(searchText[\s\S]*for \(let searchAttempt = 0; searchAttempt < [^)]+; searchAttempt \+= 1\)[\s\S]*ecom-g-select-tree-title[\s\S]*waitForTimeout/,
+  "health function search must poll for the asynchronously rendered exact tree option after changing the search text"
+);
+assert.match(
+  source,
+  /resolveHealthFoodFunctionSearchTexts[\s\S]*\\p\{Script=Han\}[\s\S]*for \(const searchText of searchTexts\)[\s\S]*search\.fill\(searchText[\s\S]*normalizeDomText\([\s\S]*expectedOption/,
+  "health function search must retry with a Han/ASCII boundary-space query while preserving normalized exact-option matching"
 );
 assert.match(
   source,

@@ -75,6 +75,11 @@ function normalizeDomLabelText(value: string): string {
   return normalizeDomText(value).replace(/^[*＊:：]+/, "");
 }
 
+function resolveHealthFoodFunctionSearchTexts(optionText: string): string[] {
+  const boundarySpaced = optionText.replace(/([\p{Script=Han}])(?=[A-Za-z0-9])/gu, "$1 ");
+  return Array.from(new Set([optionText, boundarySpaced].map((value) => value.trim()).filter(Boolean)));
+}
+
 async function readLocatorText(locator: Locator): Promise<string> {
   return locator
     .evaluate((node) => {
@@ -398,17 +403,29 @@ export async function checkHealthFunctionOptionOnPage(
         await trigger.click({ timeout: 5000, force: true });
       });
       const search = fieldRoot.locator("input[role='combobox']").first();
-      await search.fill(expectedOption, { timeout: 5000 });
-      const titles = page.locator(".ecom-g-select-tree-title").filter({ hasText: expectedOption });
+      const searchTexts = resolveHealthFoodFunctionSearchTexts(expectedOption);
       let exactTitle: Locator | null = null;
-      const titleCount = await titles.count().catch(() => 0);
-      for (let index = 0; index < titleCount; index += 1) {
-        const title = titles.nth(index);
-        if (
-          (await title.isVisible().catch(() => false)) &&
-          normalizeDomText(await title.innerText({ timeout: 500 }).catch(() => "")) === normalizeDomText(expectedOption)
-        ) {
-          exactTitle = title;
+      for (const searchText of searchTexts) {
+        await search.fill(searchText, { timeout: 5000 });
+        for (let searchAttempt = 0; searchAttempt < 20; searchAttempt += 1) {
+          const titles = page.locator(".ecom-g-select-tree-title").filter({ hasText: searchText });
+          const titleCount = await titles.count().catch(() => 0);
+          for (let index = 0; index < titleCount; index += 1) {
+            const title = titles.nth(index);
+            if (
+              (await title.isVisible().catch(() => false)) &&
+              normalizeDomText(await title.innerText({ timeout: 500 }).catch(() => "")) === normalizeDomText(expectedOption)
+            ) {
+              exactTitle = title;
+              break;
+            }
+          }
+          if (exactTitle) {
+            break;
+          }
+          await page.waitForTimeout(250);
+        }
+        if (exactTitle) {
           break;
         }
       }
