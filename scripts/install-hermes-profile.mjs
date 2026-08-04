@@ -61,6 +61,12 @@ repairHermesRuntime(
       replacement: '        if self._active_profile_name() == "doudian-listing":\n            asyncio.create_task(self._autolist_watchdog())'
     },
     {
+      name: "profile-scoped-autolist-slash-commands",
+      expected: 'if canonical in {"autolist-status", "autolist-start", "autolist-continue", "autolist-pause"}:\n            if self._active_profile_name() != "doudian-listing":',
+      legacy: '        if canonical in {"autolist-status", "autolist-start", "autolist-continue", "autolist-pause"}:\n            action = {',
+      replacement: '        if canonical in {"autolist-status", "autolist-start", "autolist-continue", "autolist-pause"}:\n            if self._active_profile_name() != "doudian-listing":\n                return "自动上架命令仅允许在抖店上架运营专用通道执行。"\n            action = {'
+    },
+    {
       name: "plugin-hook-self-heal",
       expected: 'if not _plugin_manager._hooks.get("pre_gateway_dispatch"):',
       legacy: '                from hermes_cli.plugins import invoke_hook as _invoke_hook',

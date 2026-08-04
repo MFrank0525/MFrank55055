@@ -81,6 +81,11 @@ assert.match(
 );
 assert.match(
   source,
+  /canonical in \{"autolist-status", "autolist-start", "autolist-continue", "autolist-pause"\}:\s*\n\s*if self\._active_profile_name\(\) != "doudian-listing":/,
+  "Explicit auto-listing slash commands must fail closed outside the dedicated listing profile"
+);
+assert.match(
+  source,
   /if not _plugin_manager\._hooks\.get\("pre_gateway_dispatch"\):[\s\S]{0,500}_discover_plugins\(force=True\)/,
   "Gateway message dispatch must self-heal when Hermes loses registered plugin hooks"
 );
