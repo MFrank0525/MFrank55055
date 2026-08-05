@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import fs from "node:fs";
+import "./test-hermes-profile-install-rule.mjs";
 
 const gatewayRunPath =
   "/Users/mfrank/.local/share/uv/tools/hermes-agent/lib/python3.11/site-packages/gateway/run.py";
@@ -20,10 +21,10 @@ assert.equal(
 
 const source = fs.readFileSync(gatewayRunPath, "utf8");
 const baseSource = fs.readFileSync(gatewayBasePath, "utf8");
-assert.match(
+assert.doesNotMatch(
   baseSource,
-  /if get_active_profile_name\(\) == "doudian-listing":[\s\S]{0,300}_PLAINTEXT_AUTOLIST_COMMANDS/,
-  "Generic plaintext status must be rewritten to /autolist-status only in the listing profile"
+  /_PLAINTEXT_AUTOLIST_COMMANDS|\/autolist-(?:start|continue|pause|status)/,
+  "Hermes core must not rewrite auto-listing plaintext before the dedicated profile plugin can skip agent dispatch"
 );
 assert.equal(
   fs.existsSync(autoListingRouterPluginPath),

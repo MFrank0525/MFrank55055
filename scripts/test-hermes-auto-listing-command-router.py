@@ -17,6 +17,10 @@ HERMES_SITE_PACKAGES = Path(
 sys.path.insert(0, str(HERMES_SITE_PACKAGES))
 
 from hermes_cli.plugins import discover_plugins, get_plugin_manager, invoke_hook  # noqa: E402
+from gateway.platforms.base import (  # noqa: E402
+    MessageType,
+    coerce_plaintext_gateway_command,
+)
 
 
 class Platform(Enum):
@@ -28,6 +32,7 @@ class Source:
     platform: Platform = Platform.FEISHU
     chat_id: str = "test-chat"
     thread_id: str | None = "test-thread"
+    chat_type: str = "dm"
 
 
 @dataclass
@@ -35,6 +40,7 @@ class Event:
     text: str
     source: Source
     message_id: str = "test-message"
+    message_type: MessageType = MessageType.TEXT
 
 
 class FakeAdapter:
@@ -77,38 +83,36 @@ async def verify_start_is_handled_without_gateway_or_llm_dispatch() -> None:
     )
 
     gateway = FakeGateway()
-    event = Event(text="开始上架", source=Source())
-    results = invoke_hook(
-        "pre_gateway_dispatch",
-        event=event,
-        gateway=gateway,
-        session_store=None,
-    )
-    assert {"action": "skip", "reason": "auto-listing-control-handled"} in results, (
-        "The natural-language control must be fully handled by the plugin. "
-        "A rewrite still enters the synchronous gateway command handler and "
-        f"keeps Hermes in its visible thinking state. results={results!r}"
-    )
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    assert gateway.actions == ["start"]
-    assert gateway.adapter.messages
-    first = gateway.adapter.messages[0]
-    assert "已接收" in str(first["content"])
-    assert first["reply_to"] == event.message_id
-
-    status_event = Event(text="状态", source=Source(), message_id="status-message")
-    status_results = invoke_hook(
-        "pre_gateway_dispatch",
-        event=status_event,
-        gateway=gateway,
-        session_store=None,
-    )
-    assert {"action": "skip", "reason": "auto-listing-control-handled"} in status_results
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    assert gateway.actions[-1] == "status"
-    assert gateway.adapter.messages[-1]["content"] == "finished:status"
+    for index, (alias, expected_action) in enumerate(plugin.module._CONTROL_ROUTES.items()):
+        event = Event(text=alias, source=Source(), message_id=f"message-{index}")
+        # Match the real Feishu inbound order: adapter plaintext coercion runs
+        # before GatewayRunner fires pre_gateway_dispatch.
+        coerce_plaintext_gateway_command(event)
+        assert event.text == alias, (
+            "Hermes core must leave every auto-listing alias for the dedicated "
+            f"profile plugin; alias={alias!r} preprocessed={event.text!r}"
+        )
+        messages_before = len(gateway.adapter.messages)
+        results = invoke_hook(
+            "pre_gateway_dispatch",
+            event=event,
+            gateway=gateway,
+            session_store=None,
+        )
+        assert {"action": "skip", "reason": "auto-listing-control-handled"} in results, (
+            "Every natural-language control must finish gateway dispatch "
+            f"without an LLM turn; alias={alias!r} results={results!r}"
+        )
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert gateway.actions[-1] == expected_action
+        assert len(gateway.adapter.messages) > messages_before
+        reply = gateway.adapter.messages[messages_before]
+        assert reply["reply_to"] == event.message_id
+        if expected_action in {"start", "continue"}:
+            assert "已接收" in str(reply["content"])
+        else:
+            assert reply["content"] == f"finished:{expected_action}"
 
 
 asyncio.run(verify_start_is_handled_without_gateway_or_llm_dispatch())

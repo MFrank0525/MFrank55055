@@ -1,5 +1,16 @@
 # Auto-listing Requirement Trace
 
+## 2026-08-05 Dedicated Feishu start regression
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why “开始上架” bypassed the installed router and showed thinking | The live Feishu timeline showed a 30-second response with no plugin skip log. Hermes adapter preprocessing still rewrote the phrase to `/autolist-start` before `pre_gateway_dispatch`, so the natural-language plugin could not match it and the synchronous slash handler timed out | Live `gateway.log` timeline for message `om_x100b682a9dd97ca4c491774e6ad9c33`; failing full-inbound-order regression test | verified |
+| Keep one deterministic natural-language owner | `install-hermes-profile.mjs` removes the obsolete core auto-listing plaintext coercion; the dedicated profile plugin alone captures exact controls, acknowledges immediately, returns `skip`, and runs the controller in the background | `test-hermes-auto-listing-command-router.py`; `test-hermes-gateway-watchdog-rule.mjs`; `npm run hermes:profile-verify` | verified |
+| Preserve coupon/listing runtime isolation while activating the repair | Only `ai.hermes.gateway-doudian-listing` was restarted; the coupon gateway retained its distinct `HERMES_HOME` and unchanged PID | `launchctl print` before/after; listing PID changed `29417` → `65469`, coupon PID remained `28850` | verified |
+| Refuse cross-profile installation without partial writes | The installer accepts only the exact resolved `doudian-listing` home, preflights every runtime/profile transformation before applying its write plan, and rejects unknown runtime layouts | `test-hermes-profile-install-rule.mjs` verifies coupon-target and unknown-layout failures leave profile/runtime bytes unchanged | verified |
+| Preserve unrelated Hermes plugin configuration | Plugin enablement adds only `auto-listing-command-router` under `plugins.enabled`, retains existing enabled plugins and plugin child configuration, and is idempotent | `test-hermes-profile-install-rule.mjs` | verified |
+| Exercise the real inbound order for every supported control phrase | The executable plugin test iterates all start, continue, pause, and status aliases through adapter preprocessing before `pre_gateway_dispatch` | `test-hermes-auto-listing-command-router.py` | verified |
+
 ## 2026-08-04 Dedicated Feishu Hermes channel
 
 | Requirement | Implementation | Verification | Status |
