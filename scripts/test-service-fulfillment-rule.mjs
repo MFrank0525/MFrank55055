@@ -140,8 +140,8 @@ assert.doesNotMatch(
 );
 assert.match(
   publishSource,
-  /return radioContainers\(fieldRoot\)\.some\(\(el\) => matchesOption\(el\) && isSelected\(el\)\)/,
-  "shipping-time readback must accept any selected valid option inside the parsed field root"
+  /const option = radioContainers\(document\.body\)\.find\(\(el\) => matchesOption\(el\) && belongsToField\(el\)\);[\s\S]*return Boolean\(option && isSelected\(option\)\)/,
+  "shipping-time readback must resolve the exact option associated with the requested field"
 );
 assert.match(
   publishSource,
@@ -150,8 +150,13 @@ assert.match(
 );
 assert.match(
   radioOptionClickSource,
-  /function findFieldRoot[\s\S]*label\.parentElement[\s\S]*hasMatchingOption\(node\)/,
-  "shipping radio clicks must resolve the field root from the label DOM ancestry instead of ranked global candidates"
+  /const belongsToField[\s\S]*option\.parentElement[\s\S]*targetFieldLabels\.some[\s\S]*radioContainers\(document\.body\)\.find\(\(el\) => matchesOption\(el\) && belongsToField\(el\)\)/,
+  "shipping radio clicks must associate the exact option with its nearest field ancestry instead of matching a broad page ancestor"
+);
+assert.match(
+  radioOptionClickSource,
+  /target\?\.closest\("\.ecom-g-radio-group, \[role='radiogroup'\]"\)[\s\S]*radioContainers\(radioGroup\)\.find/,
+  "shipping radio reassertion must choose an alternative only inside the target option's own radio group"
 );
 assert.doesNotMatch(
   radioOptionClickSource,
@@ -186,8 +191,8 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /function isOptionTextMatch[\s\S]*text\.includes\(targetOptionText\)/,
-  "shipping radio option matching must allow longer Doudian labels that include the requested value"
+  /function isOptionTextMatch\(text: string, targetOptionText: string\): boolean \{[\s\S]*return text === targetOptionText;/,
+  "shipping radio option matching must be exact so 现货 cannot match 现货预售混合"
 );
 assert.match(
   publishSource,
