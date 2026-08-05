@@ -28,8 +28,8 @@ const beforeFirstFreightDropdownClick = chooseFreightTemplateSource.slice(0, cho
 
 assert.match(
   publishSource,
-  /clickAlternativeRadioOptionNearFieldLabelCandidate[\s\S]*targetWasSelected[\s\S]*alternativeClicked[\s\S]*targetCleared[\s\S]*clickRadioOptionNearFieldLabelCandidate[\s\S]*firstReadback[\s\S]*secondReadback/,
-  "shipping radios must transition away from a prefilled value and back so the platform form model receives a real change event"
+  /clickAlternativeRadioOptionNearFieldLabelCandidate[\s\S]*targetWasSelected[\s\S]*alternativeTransition[\s\S]*targetCleared[\s\S]*clickRadioOptionNearFieldLabelCandidate[\s\S]*firstReadback[\s\S]*secondReadback/,
+  "shipping radios must transition away and back when possible, or prove the target is the only selectable stable value"
 );
 assert.match(
   publishSource,
@@ -155,8 +155,23 @@ assert.match(
 );
 assert.match(
   radioOptionClickSource,
-  /target\?\.closest\("\.ecom-g-radio-group, \[role='radiogroup'\]"\)[\s\S]*radioContainers\(radioGroup\)\.find/,
+  /target\?\.closest\("\.ecom-g-radio-group, \[role='radiogroup'\]"\)[\s\S]*radioContainers\(radioGroup\)\.filter[\s\S]*alternatives\.find/,
   "shipping radio reassertion must choose an alternative only inside the target option's own radio group"
+);
+assert.match(
+  radioOptionClickSource,
+  /type AlternativeRadioTransitionResult = "clicked" \| "unavailable" \| "failed"[\s\S]*const isDisabled[\s\S]*return input\?\.disabled === true[\s\S]*return alternatives\.every\(\(el\) => isDisabled\(el\)\) \? "unavailable" : "failed"/,
+  "shipping radio reassertion must distinguish an unavailable disabled alternative from a failed enabled-alternative click"
+);
+assert.match(
+  radioOptionClickSource,
+  /getAttribute\("aria-disabled"\)[\s\S]*\/\\bdisabled\\b\//,
+  "disabled-alternative detection must cover native, aria, and component-class states"
+);
+assert.match(
+  publishSource,
+  /alternativeTransition === "unavailable"[\s\S]*targetCleared[\s\S]*firstReadback[\s\S]*secondReadback/,
+  "a uniquely selectable prefilled shipping mode must pass stable readback without requiring an impossible transition"
 );
 assert.doesNotMatch(
   radioOptionClickSource,
