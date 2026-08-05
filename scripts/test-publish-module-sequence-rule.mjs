@@ -137,6 +137,14 @@ assert.match(
   /runShopSpuAction\([\s\S]*reuseOrOpenCreatePage/,
   "publish flow must reuse the create page opened by the platform SPU publish action"
 );
+const initialShopSpuStart = publishFlowSource.indexOf("let shopSpuResult:");
+const initialShopSpuEnd = publishFlowSource.indexOf("const basicResult = await runBasicInfoAction", initialShopSpuStart);
+const initialShopSpuRecoveryWindow = publishFlowSource.slice(initialShopSpuStart, initialShopSpuEnd);
+assert.match(
+  initialShopSpuRecoveryWindow,
+  /try[\s\S]*runShopSpuAction[\s\S]*catch \(error\)[\s\S]*PublishCreatePageReopenRequiredError[\s\S]*createPageResetAttempt < 2[\s\S]*runPublishFlow/,
+  "the first SPU-prefill readiness check must be inside bounded create-page recovery, not before its catch boundary"
+);
 const specPriceActionSource = sliceFunction("runSpecPriceAction", actionSources.join("\n"));
 assert.match(
   specPriceActionSource,

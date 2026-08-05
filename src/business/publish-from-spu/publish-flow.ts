@@ -214,24 +214,24 @@ export async function runPublishFlow(
       basicMetadata,
       basicInfoGuardUnexpectedFieldChanges
     };
-    const shopSpuResult = await runShopSpuAction(
-      shopSpuDeps,
-      {
-        context,
-        runtimeDir,
-        metadata,
-        shopFolder,
-        publishPageUrl
-      }
-    );
-    screenshotFiles.push(...shopSpuResult.screenshotFiles);
-    stages.push(...shopSpuResult.stages);
-    let page = shopSpuResult.page;
-    createPageUrl = shopSpuResult.createPageUrl;
-    matchedRowText = shopSpuResult.matchedRowText;
-
+    let shopSpuResult: Awaited<ReturnType<typeof runShopSpuAction>>;
     try {
-      await waitForPublishCreatePageReady(page, runtimeDir, createPageUrl, "publish-initial");
+      shopSpuResult = await runShopSpuAction(
+        shopSpuDeps,
+        {
+          context,
+          runtimeDir,
+          metadata,
+          shopFolder,
+          publishPageUrl
+        }
+      );
+      await waitForPublishCreatePageReady(
+        shopSpuResult.page,
+        runtimeDir,
+        shopSpuResult.createPageUrl,
+        "publish-initial"
+      );
     } catch (error) {
       if (error instanceof PublishCreatePageReopenRequiredError && createPageResetAttempt < 2) {
         logWarn(`Publish create page was unusable after SPU query; reopening from platform SPU. issue=${error.message}`);
@@ -260,6 +260,11 @@ export async function runPublishFlow(
       }
       throw error;
     }
+    screenshotFiles.push(...shopSpuResult.screenshotFiles);
+    stages.push(...shopSpuResult.stages);
+    let page = shopSpuResult.page;
+    createPageUrl = shopSpuResult.createPageUrl;
+    matchedRowText = shopSpuResult.matchedRowText;
 
     const basicResult = await runBasicInfoAction(
       {

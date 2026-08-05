@@ -1841,6 +1841,11 @@ const spuPrefillFailedClass = classifyPublishFailure(
   "Publish create page did not become ready after network/page-content recovery. sections=0; textLength=67; loading=false; body=spu信息填充失败"
 );
 assert.equal(spuPrefillFailedClass, "platform_spu_prefill_failed");
+assert.equal(
+  classifyPublishFailure("Publish create page reported SPU prefill failure."),
+  "platform_spu_prefill_failed",
+  "the direct prefill failure raised by readiness inspection must keep the safe retry class"
+);
 assert.equal(shouldRetryPublishFailure(spuPrefillFailedClass, 0), true);
 const emptyPublishSectionsAfterSpuClass = classifyPublishFailure(
   "Publish create page has no publish sections after SPU query."
