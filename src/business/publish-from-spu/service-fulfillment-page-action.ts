@@ -174,7 +174,7 @@ async function clickRadioOptionNearFieldLabelCandidate(
     ({ fieldLabels: targetFieldLabels, optionTexts: targetOptionTexts, markerName }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
       const isOptionTextMatch = (text: string, targetOptionText: string): boolean =>
-        text === targetOptionText || text.includes(targetOptionText);
+        text === targetOptionText;
       const isVisible = (el: HTMLElement): boolean => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
@@ -244,6 +244,86 @@ async function clickRadioOptionNearFieldLabelCandidate(
   }
 }
 
+async function clickAlternativeRadioOptionNearFieldLabelCandidate(
+  page: Page,
+  fieldLabels: string[],
+  targetOptionTexts: string[]
+): Promise<boolean> {
+  const radioOptionMarker = `data-auto-listing-radio-alternative-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const marked = await page.evaluate(
+    ({ fieldLabels: targetFieldLabels, targetOptionTexts: expectedTargetOptions, markerName }) => {
+      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+      const isVisible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      const visibleText = (el: HTMLElement): string => (isVisible(el) ? normalize(el.innerText || el.textContent || "") : "");
+      const radioContainers = (root: HTMLElement): HTMLElement[] =>
+        Array.from(root.querySelectorAll("label, [role='radio'], input[type='radio']"))
+          .map((el) => (el as HTMLElement).closest("label, [role='radio']") || el)
+          .map((el) => el as HTMLElement)
+          .filter((el, index, list) => (
+            isVisible(el)
+            && list.indexOf(el) === index
+            && el.querySelectorAll("input[type='radio']").length <= 1
+          ));
+      const isTargetOption = (el: HTMLElement): boolean => {
+        const text = visibleText(el);
+        return expectedTargetOptions.some((optionText) => text === optionText);
+      };
+      const hasTargetOption = (node: HTMLElement): boolean => radioContainers(node).some((el) => isTargetOption(el));
+      function findFieldRoot(label: HTMLElement): HTMLElement | null {
+        let node = label.parentElement;
+        while (node && node !== document.body) {
+          const text = visibleText(node);
+          if (targetFieldLabels.some((fieldLabel) => text.includes(fieldLabel)) && hasTargetOption(node)) {
+            return node;
+          }
+          node = node.parentElement;
+        }
+        return null;
+      }
+
+      for (const el of Array.from(document.querySelectorAll("body *"))) {
+        (el as HTMLElement).removeAttribute(markerName);
+      }
+      const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
+      for (const label of elements) {
+        const labelText = visibleText(label).replace(/\*/g, "").trim();
+        if (!targetFieldLabels.some((fieldLabel) => labelText === fieldLabel || labelText.includes(fieldLabel))) {
+          continue;
+        }
+        const fieldRoot = findFieldRoot(label);
+        const alternative = fieldRoot
+          ? radioContainers(fieldRoot).find((el) => Boolean(visibleText(el)) && !isTargetOption(el))
+          : undefined;
+        if (!alternative) {
+          continue;
+        }
+        alternative.scrollIntoView({ block: "center", inline: "center" });
+        alternative.setAttribute(markerName, "true");
+        return true;
+      }
+      return false;
+    },
+    { fieldLabels, targetOptionTexts, markerName: radioOptionMarker }
+  );
+  if (!marked) {
+    return false;
+  }
+  try {
+    await page.locator(`[${radioOptionMarker}="true"]`).first().click({ timeout: 3000 });
+    return true;
+  } finally {
+    await page.evaluate((markerName) => {
+      for (const el of Array.from(document.querySelectorAll(`[${markerName}="true"]`))) {
+        (el as HTMLElement).removeAttribute(markerName);
+      }
+    }, radioOptionMarker).catch(() => {});
+  }
+}
+
 async function isRadioOptionSelectedNearFieldLabel(page: Page, fieldLabel: string, optionText: string): Promise<boolean> {
   return isRadioOptionSelectedNearFieldLabelCandidate(page, [fieldLabel], [optionText]);
 }
@@ -257,7 +337,7 @@ async function isRadioOptionSelectedNearFieldLabelCandidate(
     ({ fieldLabels: targetFieldLabels, optionTexts: targetOptionTexts }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
       const isOptionTextMatch = (text: string, targetOptionText: string): boolean =>
-        text === targetOptionText || text.includes(targetOptionText);
+        text === targetOptionText;
       const isVisible = (el: HTMLElement): boolean => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
@@ -345,12 +425,21 @@ async function reassertRadioOptionNearFieldLabelCandidates(
   optionTexts: string[]
 ): Promise<boolean> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    const targetWasSelected = await isRadioOptionSelectedNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false);
+    const alternativeClicked = targetWasSelected
+      ? await clickAlternativeRadioOptionNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false)
+      : true;
+    if (targetWasSelected && alternativeClicked) {
+      await page.waitForTimeout(500);
+    }
+    const targetCleared = !targetWasSelected
+      || (alternativeClicked && !(await isRadioOptionSelectedNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => true)));
     const clicked = await clickRadioOptionNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false);
     await page.waitForTimeout(500);
     const firstReadback = await isRadioOptionSelectedNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false);
     await page.waitForTimeout(400);
     const secondReadback = await isRadioOptionSelectedNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false);
-    if (clicked && firstReadback && secondReadback) {
+    if (alternativeClicked && targetCleared && clicked && firstReadback && secondReadback) {
       return true;
     }
     await dismissTransientOverlays(page).catch(() => {});

@@ -26,7 +26,7 @@ export interface PublishResultRuleInput {
 
 export interface PublishResultRuleDecision {
   safelyPublished: boolean;
-  finalVerifyStatus: "not_checked" | "publish_signal_confirmed" | "list_verified" | "submit_accepted_unconfirmed" | "needs_manual_review";
+  finalVerifyStatus: "not_checked" | "publish_signal_confirmed" | "list_verified" | "submit_accepted_unconfirmed" | "submit_rejected_confirmed" | "needs_manual_review";
   errorClass: string;
   issue: string;
 }
@@ -401,6 +401,9 @@ export function evaluatePublishSubmissionAfterAction(
 export function classifyPublishFailure(message: string): string {
   const text = normalizeVisibleText(message);
   if (!text) return "";
+  if (text.includes("校验发货模式失败")) {
+    return "shipping_mode_rejected";
+  }
   if (text.includes("Missingrequiredhealth-foodmetadatafields")) {
     return "health_food_field_missing";
   }
@@ -697,6 +700,14 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
       finalVerifyStatus: "submit_accepted_unconfirmed",
       errorClass,
       issue: publishIssue || message || "Publish button click was accepted, but no submission success signal was observed."
+    };
+  }
+  if (input.publishClickAttempted === true && errorClass === "shipping_mode_rejected") {
+    return {
+      safelyPublished: false,
+      finalVerifyStatus: "submit_rejected_confirmed",
+      errorClass,
+      issue: publishIssue || message || "The platform explicitly rejected the shipping mode."
     };
   }
   if (errorClass === "final_publish_state_uncertain") {

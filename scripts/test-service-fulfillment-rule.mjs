@@ -27,6 +27,12 @@ const radioOptionClickSource = publishSource.slice(
 const beforeFirstFreightDropdownClick = chooseFreightTemplateSource.slice(0, chooseFreightTemplateSource.indexOf("clickTarget.click"));
 
 assert.match(
+  publishSource,
+  /clickAlternativeRadioOptionNearFieldLabelCandidate[\s\S]*targetWasSelected[\s\S]*alternativeClicked[\s\S]*targetCleared[\s\S]*clickRadioOptionNearFieldLabelCandidate[\s\S]*firstReadback[\s\S]*secondReadback/,
+  "shipping radios must transition away from a prefilled value and back so the platform form model receives a real change event"
+);
+
+assert.match(
   serviceActionSource,
   /before_service_module/,
   "publish flow must re-check basic info before entering service fulfillment"

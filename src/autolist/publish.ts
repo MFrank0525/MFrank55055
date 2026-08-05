@@ -560,6 +560,7 @@ export async function publishDistributedProducts(options: {
     const shopFolder = path.dirname(productFolder);
     const { targetIdentity, targetKey, runtimeKey } = targetContextForFolder(productFolder);
     const metadata = metadataByTargetKey.get(targetKey);
+    let confirmedRejectionRetryAttempt = 0;
     if (!metadata) {
       throw new Error(`Publish metadata was not built for canonical target: ${targetKey}`);
     }
@@ -609,40 +610,51 @@ export async function publishDistributedProducts(options: {
           failureCircuit = { signature: "", consecutive: 0, open: false };
           continue;
         }
-        const message = "Doudian 全部 tab full-title verification returned no product for an existing uncertain submit; preserving the non-idempotent boundary and refusing to replay publish.";
-        results.push({
-          targetIdentity,
-          targetKey,
-          productFolder,
-          ok: false,
-          status: "failed",
-          message,
-          resultFile: existingResultFile,
-          finalVerifyStatus: existingDecision.finalVerifyStatus,
-          errorClass: "final_publish_state_uncertain"
-        });
-        upsertPublishManifestEntry(options.runtimeDir, {
-          targetIdentity,
-          targetKey,
-          productFolder,
-          runtimeKey,
-          shopFolder,
-          watermarkNo: extractWatermarkNo(productFolder),
-          status: "failed",
-          finalVerifyStatus: existingDecision.finalVerifyStatus,
-          resultFile: existingResultFile,
-          message,
-          errorClass: "final_publish_state_uncertain",
-          ...productIdentityFields
-        });
-        openedCircuit = {
-          signature: "publish:final_publish_state_uncertain",
-          consecutive: 1,
-          open: true
-        };
-        logInfo(`publish batch stopped after unresolved existing final submit: ${targetKey}`);
-        options.onProgress?.(`Publish batch stopped after unresolved existing final submit: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
-        break;
+        if (
+          existingDecision.finalVerifyStatus === "submit_rejected_confirmed"
+          && listVerification.found === false
+        ) {
+          confirmedRejectionRetryAttempt = 1;
+          const retryMessage = "Platform confirmed rejection plus negative exact-title list verification; allowing one controlled retry through runPublishFromSpuJob.";
+          logInfo(`${retryMessage} target=${targetKey}`);
+          options.onProgress?.(`${retryMessage} ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+          clearCheckpoint(path.join(options.runtimeDir, "publish", runtimeKey));
+        } else {
+          const message = "Doudian 全部 tab full-title verification returned no product for an existing uncertain submit; preserving the non-idempotent boundary and refusing to replay publish.";
+          results.push({
+            targetIdentity,
+            targetKey,
+            productFolder,
+            ok: false,
+            status: "failed",
+            message,
+            resultFile: existingResultFile,
+            finalVerifyStatus: existingDecision.finalVerifyStatus,
+            errorClass: "final_publish_state_uncertain"
+          });
+          upsertPublishManifestEntry(options.runtimeDir, {
+            targetIdentity,
+            targetKey,
+            productFolder,
+            runtimeKey,
+            shopFolder,
+            watermarkNo: extractWatermarkNo(productFolder),
+            status: "failed",
+            finalVerifyStatus: existingDecision.finalVerifyStatus,
+            resultFile: existingResultFile,
+            message,
+            errorClass: "final_publish_state_uncertain",
+            ...productIdentityFields
+          });
+          openedCircuit = {
+            signature: "publish:final_publish_state_uncertain",
+            consecutive: 1,
+            open: true
+          };
+          logInfo(`publish batch stopped after unresolved existing final submit: ${targetKey}`);
+          options.onProgress?.(`Publish batch stopped after unresolved existing final submit: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+          break;
+        }
       }
     }
     if (shouldRunPendingTargetProductListPreflight(options.productListPreflightMode)) {
@@ -794,7 +806,7 @@ export async function publishDistributedProducts(options: {
       resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
       decision = evaluatePublishResult(resultSummary);
     }
-    if (requiresPostSubmitListVerification(decision, resultSummary)) {
+    while (requiresPostSubmitListVerification(decision, resultSummary)) {
       options.assertNotPaused?.();
       let listVerification: DoudianProductListVerificationResult | undefined;
       try {
@@ -825,12 +837,58 @@ export async function publishDistributedProducts(options: {
           issue: ""
         };
       } else if (listVerification?.found === false) {
+        if (
+          decision.finalVerifyStatus === "submit_rejected_confirmed"
+          && confirmedRejectionRetryAttempt < 1
+        ) {
+          confirmedRejectionRetryAttempt += 1;
+          const retryMessage = "Platform confirmed rejection plus negative exact-title list verification; allowing one controlled retry through runPublishFromSpuJob.";
+          logInfo(`${retryMessage} target=${targetKey}`);
+          options.onProgress?.(`${retryMessage} ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+          clearCheckpoint(path.join(options.runtimeDir, "publish", runtimeKey));
+          initializePublishAttemptState(path.join(options.runtimeDir, "publish", runtimeKey));
+          publishResult = await runPublishFromSpuJob(
+            {
+              shopFolder,
+              productFolder,
+              mode: "run_publish_flow",
+              metadata,
+              headless: false,
+              retryOnSystemError: true
+            },
+            {
+              runId: `auto-listing-${runtimeKey}-confirmed-rejection-retry-${confirmedRejectionRetryAttempt}`,
+              runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
+              onProgress: (message) => {
+                const progressMessage = `${path.basename(productFolder)}: ${message}`;
+                upsertPublishManifestEntry(options.runtimeDir, {
+                  targetIdentity,
+                  targetKey,
+                  productFolder,
+                  runtimeKey,
+                  shopFolder,
+                  watermarkNo: extractWatermarkNo(productFolder),
+                  status: "pending",
+                  finalVerifyStatus: "not_checked",
+                  resultFile: path.join(options.runtimeDir, "publish", runtimeKey, "result.json"),
+                  message: progressMessage,
+                  ...productIdentityFields
+                });
+                options.onProgress?.(progressMessage);
+              }
+            }
+          );
+          resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
+          decision = evaluatePublishResult(resultSummary);
+          continue;
+        }
         const message = `Doudian 全部 tab full-title verification returned no product after an uncertain final submit; preserving uncertainty and refusing to replay publish: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
         logInfo(message);
         options.onProgress?.(
           message
         );
       }
+      break;
     }
 
     results.push({

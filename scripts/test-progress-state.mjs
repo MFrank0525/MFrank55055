@@ -412,6 +412,11 @@ assert.match(
 );
 assert.match(
   publishSource,
+  /finalVerifyStatus === "submit_rejected_confirmed"[\s\S]*listVerification\.found === false[\s\S]*confirmed rejection plus negative exact-title list verification[\s\S]*runPublishFromSpuJob/,
+  "Only an explicit platform rejection plus a negative exact-title list check may permit one controlled republish"
+);
+assert.match(
+  publishSource,
   /requiresPostSubmitListVerification\(existingDecision,\s*existingSummary\)[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;[\s\S]*refusing to replay publish/,
   "Auto-listing resume must resolve an existing uncertain submit read-only or stop without replaying publish"
 );
@@ -1682,11 +1687,16 @@ assert.deepEqual(
   }),
   {
     safelyPublished: false,
-    finalVerifyStatus: "needs_manual_review",
-    errorClass: "validation_blocked",
+    finalVerifyStatus: "submit_rejected_confirmed",
+    errorClass: "shipping_mode_rejected",
     issue: "详看链接去查看1.操作ID:2026070518112889F05C47D0559EC9EC8D2.校验发货模式失败 | 需在“已下架”操作上架"
   },
-  "platform validation text after a publish click is still post-submit unverified and must be handled by the publish layer's full-title verification"
+  "an explicit shipping-mode rejection must require a negative read-only list check before a controlled retry"
+);
+assert.equal(
+  shouldRetryPublishFailure("shipping_mode_rejected", 0),
+  false,
+  "shipping-mode rejection must never enter the generic retry loop before read-only product-list verification"
 );
 assert.deepEqual(
   evaluatePublishResult({

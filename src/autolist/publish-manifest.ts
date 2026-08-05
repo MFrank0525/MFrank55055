@@ -8,6 +8,7 @@ export type PublishFinalVerifyStatus =
   | "publish_signal_confirmed"
   | "list_verified"
   | "submit_accepted_unconfirmed"
+  | "submit_rejected_confirmed"
   | "needs_manual_review";
 
 export const SAFE_PUBLISH_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
