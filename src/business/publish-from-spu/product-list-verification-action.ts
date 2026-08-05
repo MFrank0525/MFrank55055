@@ -88,6 +88,27 @@ async function dismissProductListBlockingOverlays(
   const deadline = Date.now() + 10000;
   let sawBlockingMask = false;
   while (Date.now() < deadline) {
+    const qualityScoreDialogs = page
+      .locator("[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .auxo-modal-wrap")
+      .filter({ visible: true })
+      .filter({ hasText: /商品质量分优化预警/ });
+    if ((await qualityScoreDialogs.count().catch(() => 0)) > 0) {
+      const acknowledgeButton = qualityScoreDialogs
+        .getByRole("button", { name: "知道了", exact: true })
+        .filter({ visible: true });
+      if ((await acknowledgeButton.count()) !== 1) {
+        throw new Error("Product list is blocked by 商品质量分优化预警 dialog, but its safe 知道了 button is not unique.");
+      }
+      await acknowledgeButton.click({ timeout: 8000 });
+      for (let readback = 0; readback < 20 && (await qualityScoreDialogs.count().catch(() => 0)) > 0; readback += 1) {
+        await page.waitForTimeout(200);
+      }
+      if ((await qualityScoreDialogs.count().catch(() => 0)) > 0) {
+        throw new Error("Product list 商品质量分优化预警 dialog remained visible after clicking 知道了.");
+      }
+      await page.waitForTimeout(350);
+      continue;
+    }
     const dialogs = page
       .locator("[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .index_autoOptmModalWrapper__yQ2hV")
       .filter({ visible: true })

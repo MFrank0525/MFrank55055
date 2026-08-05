@@ -339,6 +339,26 @@ async function ensureRadioOptionNearFieldLabelCandidates(
   return false;
 }
 
+async function reassertRadioOptionNearFieldLabelCandidates(
+  page: Page,
+  fieldLabels: string[],
+  optionTexts: string[]
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const clicked = await clickRadioOptionNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false);
+    await page.waitForTimeout(500);
+    const firstReadback = await isRadioOptionSelectedNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false);
+    await page.waitForTimeout(400);
+    const secondReadback = await isRadioOptionSelectedNearFieldLabelCandidate(page, fieldLabels, optionTexts).catch(() => false);
+    if (clicked && firstReadback && secondReadback) {
+      return true;
+    }
+    await dismissTransientOverlays(page).catch(() => {});
+    await scrollPublishSectionContentIntoView(page, "\u4ef7\u683c\u5e93\u5b58").catch(() => false);
+  }
+  return false;
+}
+
 async function readServiceFulfillmentState(page: Page, freightTemplateName: string): Promise<ServiceFulfillmentState> {
   const shippingModeSelected =
     (await isRadioOptionSelectedNearFieldLabelCandidate(page, SHIPPING_MODE_FIELD_LABEL_CANDIDATES, SHIPPING_MODE_OPTION_TEXT_CANDIDATES).catch(() => false)) ||
@@ -365,8 +385,21 @@ async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
   freightTemplateName: string;
   serviceState: ServiceFulfillmentState;
 }> {
-  await ensureRadioOptionNearFieldLabelCandidates(page, SHIPPING_MODE_FIELD_LABEL_CANDIDATES, SHIPPING_MODE_OPTION_TEXT_CANDIDATES);
-  await ensureRadioOptionNearFieldLabelCandidates(page, SHIPPING_TIME_FIELD_LABEL_CANDIDATES, SHIPPING_TIME_OPTION_TEXT_CANDIDATES);
+  // SPU-prefilled radios can look selected before the platform form model has
+  // accepted their values. Re-click both exact options near the final submit
+  // boundary and require two stable DOM readbacks so backend validation receives
+  // an explicit shipping-mode change event.
+  await ensurePublishSectionTab(page, "\u4ef7\u683c\u5e93\u5b58");
+  const shippingModeReasserted = await reassertRadioOptionNearFieldLabelCandidates(
+    page,
+    SHIPPING_MODE_FIELD_LABEL_CANDIDATES,
+    SHIPPING_MODE_OPTION_TEXT_CANDIDATES
+  );
+  const shippingTimeReasserted = await reassertRadioOptionNearFieldLabelCandidates(
+    page,
+    SHIPPING_TIME_FIELD_LABEL_CANDIDATES,
+    SHIPPING_TIME_OPTION_TEXT_CANDIDATES
+  );
   await ensureServiceSectionReady(page);
 
   const freightTemplateName = await chooseKeywordFreightTemplate(page, FIXED_FREIGHT_TEMPLATE_KEYWORD);
@@ -374,7 +407,12 @@ async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
   await clickRadioByLabel(page, "\u4e0a\u67b6").catch(() => false);
   await page.waitForTimeout(500);
 
-  const serviceState = await readServiceFulfillmentState(page, freightTemplateName);
+  const readbackState = await readServiceFulfillmentState(page, freightTemplateName);
+  const serviceState = {
+    ...readbackState,
+    shippingModeSelected: shippingModeReasserted && readbackState.shippingModeSelected,
+    shippingTimeSelected: shippingTimeReasserted && readbackState.shippingTimeSelected
+  };
   return {
     configuredFields: configuredFieldsFromServiceFulfillmentState(serviceState),
     freightTemplateName: serviceState.freightTemplateName,

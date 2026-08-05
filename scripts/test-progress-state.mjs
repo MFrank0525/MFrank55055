@@ -265,6 +265,11 @@ assert.match(
 );
 assert.match(
   productListVerificationSource,
+  /商品质量分优化预警[\s\S]*getByRole\("button", \{ name: "知道了", exact: true \}\)[\s\S]*qualityScoreDialogs\.count[\s\S]*remained visible/,
+  "product-list verification must acknowledge the quality-score warning through its unique safe button and verify dismissal"
+);
+assert.match(
+  productListVerificationSource,
   /auxo-modal-mask[\s\S]*unrecognized modal overlay/,
   "product-list verification must diagnose an unknown blocking overlay instead of timing out on the query button"
 );
@@ -395,15 +400,30 @@ assert.match(
   /requiresPostSubmitListVerification[\s\S]*publishClickAttempted === true[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"/,
   "Auto-listing publish must resolve any post-submit unverified result by read-only Doudian 全部 tab full-title verification before treating the target as unsafe"
 );
-assert.match(
+assert.doesNotMatch(
   publishSource,
-  /listVerification\?\.found === false[\s\S]*Retrying publish after Doudian list verification returned no product/,
-  "Auto-listing publish may only replay a final-submit-uncertain target after the Doudian 全部 tab full-title verification returns no product"
+  /list-verification-retry|replaying publish once|Retrying publish after Doudian list verification returned no product/,
+  "Auto-listing must never replay a final-submit-uncertain target after a read-only list lookup"
 );
 assert.match(
   publishSource,
-  /requiresPostSubmitListVerification\(existingDecision,\s*existingSummary\)[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;/,
-  "Auto-listing resume must verify an existing post-submit unverified result in the Doudian 全部 tab before replaying publish"
+  /listVerification\?\.found === false[\s\S]*preserving uncertainty and refusing to replay publish/,
+  "A negative post-submit list lookup must preserve uncertainty without crossing the irreversible boundary again"
+);
+assert.match(
+  publishSource,
+  /requiresPostSubmitListVerification\(existingDecision,\s*existingSummary\)[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;[\s\S]*refusing to replay publish/,
+  "Auto-listing resume must resolve an existing uncertain submit read-only or stop without replaying publish"
+);
+assert.match(
+  publishSource,
+  /\["not_checked", "submit_accepted_unconfirmed", "needs_manual_review"\][\s\S]*publish batch stopped at an unsafe or unresolved submit boundary[\s\S]*break;/,
+  "Any unresolved final-submit state must stop later shop targets immediately"
+);
+assert.match(
+  publishFromSpuSource,
+  /reassertRadioOptionNearFieldLabelCandidates[\s\S]*clickRadioOptionNearFieldLabelCandidate[\s\S]*firstReadback[\s\S]*secondReadback[\s\S]*ensurePublishSectionTab\(page, "\\u4ef7\\u683c\\u5e93\\u5b58"\)[\s\S]*shippingModeReasserted[\s\S]*shippingTimeReasserted[\s\S]*ensureServiceSectionReady/,
+  "Service fulfillment must emit explicit shipping radio events and require stable readback near final submit"
 );
 assert.match(
   publishSource,

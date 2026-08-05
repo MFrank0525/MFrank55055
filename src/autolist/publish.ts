@@ -564,7 +564,6 @@ export async function publishDistributedProducts(options: {
       throw new Error(`Publish metadata was not built for canonical target: ${targetKey}`);
     }
     const existingResultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
-    let listCheckedNotFound = false;
     if (fs.existsSync(existingResultFile)) {
       const existingSummary = readPublishResultSummary(existingResultFile);
       const existingDecision = evaluatePublishResult(existingSummary);
@@ -610,6 +609,18 @@ export async function publishDistributedProducts(options: {
           failureCircuit = { signature: "", consecutive: 0, open: false };
           continue;
         }
+        const message = "Doudian 全部 tab full-title verification returned no product for an existing uncertain submit; preserving the non-idempotent boundary and refusing to replay publish.";
+        results.push({
+          targetIdentity,
+          targetKey,
+          productFolder,
+          ok: false,
+          status: "failed",
+          message,
+          resultFile: existingResultFile,
+          finalVerifyStatus: existingDecision.finalVerifyStatus,
+          errorClass: "final_publish_state_uncertain"
+        });
         upsertPublishManifestEntry(options.runtimeDir, {
           targetIdentity,
           targetKey,
@@ -617,19 +628,24 @@ export async function publishDistributedProducts(options: {
           runtimeKey,
           shopFolder,
           watermarkNo: extractWatermarkNo(productFolder),
-          status: "pending",
-          finalVerifyStatus: "not_checked",
+          status: "failed",
+          finalVerifyStatus: existingDecision.finalVerifyStatus,
           resultFile: existingResultFile,
-          message: "Doudian 全部 tab full-title verification returned no product for existing uncertain submit; replaying publish once.",
+          message,
+          errorClass: "final_publish_state_uncertain",
           ...productIdentityFields
         });
-        listCheckedNotFound = true;
+        openedCircuit = {
+          signature: "publish:final_publish_state_uncertain",
+          consecutive: 1,
+          open: true
+        };
+        logInfo(`publish batch stopped after unresolved existing final submit: ${targetKey}`);
+        options.onProgress?.(`Publish batch stopped after unresolved existing final submit: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+        break;
       }
     }
-    if (
-      !listCheckedNotFound &&
-      shouldRunPendingTargetProductListPreflight(options.productListPreflightMode)
-    ) {
+    if (shouldRunPendingTargetProductListPreflight(options.productListPreflightMode)) {
       options.assertNotPaused?.();
       const preflightMessage = `Preflight checking Doudian 全部 tab for an existing exact-title product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
       logInfo(preflightMessage);
@@ -778,7 +794,6 @@ export async function publishDistributedProducts(options: {
       resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
       decision = evaluatePublishResult(resultSummary);
     }
-    let replayedAfterListVerificationNotFound = false;
     if (requiresPostSubmitListVerification(decision, resultSummary)) {
       options.assertNotPaused?.();
       let listVerification: DoudianProductListVerificationResult | undefined;
@@ -810,87 +825,11 @@ export async function publishDistributedProducts(options: {
           issue: ""
         };
       } else if (listVerification?.found === false) {
-        replayedAfterListVerificationNotFound = true;
-        logInfo(`Retrying publish after Doudian list verification returned no product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
-        options.onProgress?.(
-          `Retrying publish after Doudian list verification returned no product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`
-        );
-        upsertPublishManifestEntry(options.runtimeDir, {
-          targetIdentity,
-          targetKey,
-          productFolder,
-          runtimeKey,
-          shopFolder,
-          watermarkNo: extractWatermarkNo(productFolder),
-          status: "pending",
-          finalVerifyStatus: "not_checked",
-          resultFile: publishResult.artifacts.resultFile,
-          message: "Doudian 全部 tab full-title verification returned no product; replaying publish once.",
-          ...productIdentityFields
-        });
-        publishResult = await runPublishFromSpuJob(
-          {
-            shopFolder,
-            productFolder,
-            mode: "run_publish_flow",
-            metadata,
-            headless: false,
-            retryOnSystemError: true
-          },
-          {
-            runId: `auto-listing-${runtimeKey}-list-verification-retry`,
-            runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
-            onProgress: (message) => {
-              const progressMessage = `${path.basename(productFolder)}: ${message}`;
-              upsertPublishManifestEntry(options.runtimeDir, {
-                targetIdentity,
-                targetKey,
-                productFolder,
-                runtimeKey,
-                shopFolder,
-                watermarkNo: extractWatermarkNo(productFolder),
-                status: "pending",
-                finalVerifyStatus: "not_checked",
-                resultFile: path.join(options.runtimeDir, "publish", runtimeKey, "result.json"),
-                message: progressMessage,
-                ...productIdentityFields
-              });
-              options.onProgress?.(progressMessage);
-            }
-          }
-        );
-        resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
-        decision = evaluatePublishResult(resultSummary);
-      }
-    }
-    if (!decision.safelyPublished && replayedAfterListVerificationNotFound && requiresPostSubmitListVerification(decision, resultSummary)) {
-      options.assertNotPaused?.();
-      try {
-        const listVerification = await verifyPublishedProductInDoudianList({
-          runtimeDir: path.join(options.runtimeDir, "publish", runtimeKey),
-          shopFolder,
-          title: metadata.title || ""
-        });
-        if (listVerification.found) {
-          const message = `Read-only Doudian 全部 tab full-title verification found product after replay: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
-          markPublishResultListVerified(publishResult.artifacts.resultFile, listVerification);
-          publishResult = {
-            ...publishResult,
-            ok: true,
-            status: "published",
-            message
-          };
-          decision = {
-            safelyPublished: true,
-            finalVerifyStatus: "list_verified",
-            errorClass: "",
-            issue: ""
-          };
-        }
-      } catch (error) {
-        const message = `Doudian list full-title verification failed after replay: ${error instanceof Error ? error.message : String(error)}`;
+        const message = `Doudian 全部 tab full-title verification returned no product after an uncertain final submit; preserving uncertainty and refusing to replay publish: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
         logInfo(message);
-        options.onProgress?.(message);
+        options.onProgress?.(
+          message
+        );
       }
     }
 
@@ -927,14 +866,14 @@ export async function publishDistributedProducts(options: {
         `Publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`
       );
       clearCheckpoint(checkpointFile);
-      if (decision.finalVerifyStatus === "not_checked") {
+      if (["not_checked", "submit_accepted_unconfirmed", "needs_manual_review"].includes(decision.finalVerifyStatus)) {
         openedCircuit = {
-          signature: `publish:${decision.errorClass || "not_checked"}`,
+          signature: `publish:${decision.errorClass || decision.finalVerifyStatus}`,
           consecutive: 1,
           open: true
         };
-        logInfo(`publish batch stopped after unsafe pre-submit failure: ${openedCircuit.signature}`);
-        options.onProgress?.(`Publish batch stopped after unsafe pre-submit failure: ${openedCircuit.signature}`);
+        logInfo(`publish batch stopped at an unsafe or unresolved submit boundary: ${openedCircuit.signature}`);
+        options.onProgress?.(`Publish batch stopped at an unsafe or unresolved submit boundary: ${openedCircuit.signature}`);
         break;
       }
       failureCircuit = recordPublishFailure(failureCircuit, {
