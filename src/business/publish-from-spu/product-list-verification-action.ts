@@ -179,6 +179,7 @@ async function waitForProductListQuerySettlement(
 ): Promise<{ countText: string }> {
   const deadline = Date.now() + timeoutMs;
   let lastEvidence = "query-not-observed";
+  let stableEmptyEvidenceCount = 0;
   while (Date.now() < deadline) {
     const pageUrl = page.url();
     let queryTitle = "";
@@ -213,10 +214,22 @@ async function waitForProductListQuerySettlement(
       `emptyStates=${visibleEmptyStates}`,
       `loading=${visibleLoadingIndicators}`
     ].join(",");
-    if (queryMatches && Number.isFinite(count) && visibleLoadingIndicators === 0) {
-      if ((count === 0 && visibleEmptyStates > 0) || (count > 0 && visibleResultRows > 0)) {
+    if (queryMatches && Number.isFinite(count) && count === 0 && visibleEmptyStates > 0) {
+      stableEmptyEvidenceCount += 1;
+      if (stableEmptyEvidenceCount >= 3) {
         return { countText };
       }
+    } else {
+      stableEmptyEvidenceCount = 0;
+    }
+    if (
+      queryMatches
+      && Number.isFinite(count)
+      && count > 0
+      && visibleResultRows > 0
+      && visibleLoadingIndicators === 0
+    ) {
+      return { countText };
     }
     await page.waitForTimeout(400);
   }
@@ -253,7 +266,7 @@ export async function verifyPublishedProductInDoudianList(input: {
     );
     await searchInput.fill(title, { timeout: 15000 });
     await clickProductListSearch(page, searchInput);
-    await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
     const { countText } = await waitForProductListQuerySettlement(page, title);
 
     const normalizedTitle = normalizeText(title);

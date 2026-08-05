@@ -298,6 +298,16 @@ assert.match(
   /waitForProductListQuerySettlement[\s\S]*searchParams\.get\("product_id"\)[\s\S]*共\\s\*\\d\+\\s\*条[\s\S]*暂无数据[\s\S]*visibleResultRows/,
   "product-list verification must prove query identity and a settled row-or-empty result before returning not-found"
 );
+assert.match(
+  productListVerificationSource,
+  /stableEmptyEvidenceCount[\s\S]*count === 0[\s\S]*visibleEmptyStates > 0[\s\S]*stableEmptyEvidenceCount >= 3/,
+  "an exact query with a stable zero count and visible empty state must settle even when the product list keeps a permanent scroll spinner mounted"
+);
+assert.match(
+  productListVerificationSource,
+  /waitForLoadState\("networkidle", \{ timeout: 5000 \}\)/,
+  "background page traffic must not add a second thirty-second false wait before structural list settlement"
+);
 assert.doesNotMatch(
   productListVerificationSource,
   /waitForTimeout\(2500\)/,
