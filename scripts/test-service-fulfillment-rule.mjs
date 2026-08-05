@@ -31,6 +31,11 @@ assert.match(
   /clickAlternativeRadioOptionNearFieldLabelCandidate[\s\S]*targetWasSelected[\s\S]*alternativeClicked[\s\S]*targetCleared[\s\S]*clickRadioOptionNearFieldLabelCandidate[\s\S]*firstReadback[\s\S]*secondReadback/,
   "shipping radios must transition away from a prefilled value and back so the platform form model receives a real change event"
 );
+assert.match(
+  publishSource,
+  /ensureServiceSectionReady[\s\S]*serviceReadbackState[\s\S]*ensurePublishSectionTab\(page, "\\u4ef7\\u683c\\u5e93\\u5b58"\)[\s\S]*finalShippingReadback[\s\S]*ensureServiceSectionReady[\s\S]*shippingModeSelected: shippingModeReasserted && finalShippingReadback\.shippingModeSelected/,
+  "shipping readback must run on the price-inventory tab after service settings, then return to service fulfillment before combining both tab-specific states"
+);
 
 assert.match(
   serviceActionSource,

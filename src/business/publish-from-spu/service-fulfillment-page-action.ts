@@ -448,13 +448,18 @@ async function reassertRadioOptionNearFieldLabelCandidates(
   return false;
 }
 
-async function readServiceFulfillmentState(page: Page, freightTemplateName: string): Promise<ServiceFulfillmentState> {
+async function readShippingSelectionState(page: Page): Promise<Pick<ServiceFulfillmentState, "shippingModeSelected" | "shippingTimeSelected">> {
   const shippingModeSelected =
     (await isRadioOptionSelectedNearFieldLabelCandidate(page, SHIPPING_MODE_FIELD_LABEL_CANDIDATES, SHIPPING_MODE_OPTION_TEXT_CANDIDATES).catch(() => false)) ||
     (await isRadioSelectedByLabel(page, "\u73b0\u8d27").catch(() => false));
   const shippingTimeSelected =
     (await isRadioOptionSelectedNearFieldLabelCandidate(page, SHIPPING_TIME_FIELD_LABEL_CANDIDATES, SHIPPING_TIME_OPTION_TEXT_CANDIDATES).catch(() => false)) ||
     (await isRadioSelectedByLabel(page, "48\u5c0f\u65f6").catch(() => false));
+  return { shippingModeSelected, shippingTimeSelected };
+}
+
+async function readServiceFulfillmentState(page: Page, freightTemplateName: string): Promise<ServiceFulfillmentState> {
+  const { shippingModeSelected, shippingTimeSelected } = await readShippingSelectionState(page);
   const productStatusSelected =
     (await isRadioOptionSelectedNearFieldLabel(page, "\u5546\u54c1\u72b6\u6001", "\u4e0a\u67b6").catch(() => false)) ||
     (await isRadioSelectedByLabel(page, "\u4e0a\u67b6").catch(() => false));
@@ -496,11 +501,14 @@ async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
   await clickRadioByLabel(page, "\u4e0a\u67b6").catch(() => false);
   await page.waitForTimeout(500);
 
-  const readbackState = await readServiceFulfillmentState(page, freightTemplateName);
+  const serviceReadbackState = await readServiceFulfillmentState(page, freightTemplateName);
+  await ensurePublishSectionTab(page, "\u4ef7\u683c\u5e93\u5b58");
+  const finalShippingReadback = await readShippingSelectionState(page);
+  await ensureServiceSectionReady(page);
   const serviceState = {
-    ...readbackState,
-    shippingModeSelected: shippingModeReasserted && readbackState.shippingModeSelected,
-    shippingTimeSelected: shippingTimeReasserted && readbackState.shippingTimeSelected
+    ...serviceReadbackState,
+    shippingModeSelected: shippingModeReasserted && finalShippingReadback.shippingModeSelected,
+    shippingTimeSelected: shippingTimeReasserted && finalShippingReadback.shippingTimeSelected
   };
   return {
     configuredFields: configuredFieldsFromServiceFulfillmentState(serviceState),
