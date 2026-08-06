@@ -133,6 +133,7 @@ import {
   evaluateDetailImageCompletion,
   evaluatePriceInventoryEntryRule,
   evaluatePublishCreatePageReadiness,
+  evaluatePublishSubmission,
   evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
@@ -1709,6 +1710,18 @@ assert.equal(
   "shipping-mode rejection must never enter the generic retry loop before read-only product-list verification"
 );
 const platformSystemExceptionIssue = "1. 操作ID:2026080611514994A2BEE931106AF92453 2. 系统异常,请重试 | 需在已下架操作上架 | 必填项进度100%";
+assert.deepEqual(
+  evaluatePublishSubmission({
+    url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",
+    bodyText: "必填项进度 100%\n系统异常，请重试\n操作ID：2026080611514994A2BEE931106AF92453"
+  }),
+  {
+    submitted: false,
+    issue: "系统异常，请重试（操作ID：2026080611514994A2BEE931106AF92453）",
+    freshCreatePage: false
+  },
+  "short-lived system rejection must outrank static required-field text and retain its operation ID"
+);
 assert.equal(
   classifyPublishFailure(platformSystemExceptionIssue),
   "final_publish_submit_transient",

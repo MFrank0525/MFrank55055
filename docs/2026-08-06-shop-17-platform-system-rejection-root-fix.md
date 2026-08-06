@@ -12,14 +12,15 @@
 
 ## Root cause
 
-The publish error collector persisted the whole page text. Although it contained the explicit platform system-error banner, it also contained unrelated static strings such as `必填项进度100%`. Failure classification had no reachable rule for the platform system exception and therefore fell through to `validation_blocked`. The post-submit safety layer correctly refused a blind replay, but only shipping-mode rejection was eligible for a negative-list-verified controlled retry. The target consequently remained permanently stopped despite two conclusive absence checks.
+The post-submit poll dismissed transient overlays before reading the page, so Doudian's short-lived system-error toast disappeared and the stored issue fell back to unrelated static text such as `必填项进度100%`. Failure classification then resolved to `validation_blocked`. Even after the classifier and controlled-retry path were added, the old checkpoint remained uncertain because its persisted JSON no longer contained the toast visible in the screenshot. The safety layer correctly refused a blind replay, but the target consequently remained stopped despite conclusive absence checks.
 
 ## Permanent correction
 
 1. An explicit `系统异常` combined with `请重试`, `稍后重试`, or `操作ID` is classified before generic form text as `final_publish_submit_transient`.
-2. Once the final click was attempted, this class is persisted as `submit_rejected_confirmed`, never sent through the generic retry loop.
-3. The existing stable, target-shop, full-title `全部`-tab query remains mandatory. A found product becomes `list_verified`; only an explicit zero result permits one controlled rebuild and retry of the same canonical target.
-4. The single retry ceiling remains unchanged. A second rejection, ambiguous list state, identity mismatch, or any unknown submit result fails closed and prevents later targets.
+2. Both page and browser-context pollers now read the submission state before any overlay dismissal. A system rejection returns immediately with its operation ID, preserving the strongest evidence instead of overwriting it with static page copy.
+3. Once the final click was attempted, this class is persisted as `submit_rejected_confirmed`, never sent through the generic retry loop.
+4. The existing stable, target-shop, full-title `全部`-tab query remains mandatory. A found product becomes `list_verified`; only an explicit zero result permits one controlled rebuild and retry of the same canonical target.
+5. The single retry ceiling remains unchanged. A second rejection, ambiguous list state, identity mismatch, or any unknown submit result fails closed and prevents later targets.
 
 ## Acceptance evidence
 

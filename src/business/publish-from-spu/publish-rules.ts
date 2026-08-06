@@ -376,6 +376,21 @@ export function evaluatePublishSubmission(snapshot: PublishPageSnapshot): Publis
     return { submitted: true, issue: "", freshCreatePage: false };
   }
 
+  // Doudian renders final-submit system rejections as short-lived toast text. This
+  // signal must outrank static form copy such as “必填项进度 100%”, otherwise the
+  // caller cannot distinguish a confirmed rejection from an uncertain submit.
+  if (
+    bodyText.includes("系统异常")
+    && (bodyText.includes("请重试") || bodyText.includes("稍后重试") || bodyText.includes("操作ID"))
+  ) {
+    const operationId = snapshot.bodyText.match(/操作\s*ID\s*[：:]?\s*([A-Za-z0-9]+)/i)?.[1] || "";
+    return {
+      submitted: false,
+      issue: `系统异常，请重试${operationId ? `（操作ID：${operationId}）` : ""}`,
+      freshCreatePage: false
+    };
+  }
+
   const freshCreatePage = isFreshPublishCreatePage(snapshot);
   const issue =
     bodyText

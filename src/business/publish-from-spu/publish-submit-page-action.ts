@@ -439,6 +439,10 @@ async function readPublishSubmissionState(page: Page): Promise<{ submitted: bool
 async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolean; issue: string }> {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     await page.waitForTimeout(1500).catch(() => {});
+    const beforeDismiss = await readPublishSubmissionState(page).catch(() => null);
+    if (beforeDismiss?.submitted || beforeDismiss?.issue.includes("系统异常")) {
+      return beforeDismiss;
+    }
     await clickVisibleDialogAction(page, ["确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
     await dismissTransientOverlays(page);
     const state = await readPublishSubmissionState(page).catch((error) => ({
@@ -516,6 +520,16 @@ async function waitForPublishSubmissionFromContext(
         candidate.waitForLoadState("domcontentloaded", { timeout: 2500 }).catch(() => {}),
         candidate.waitForTimeout(1200).catch(() => {})
       ]);
+      const beforeDismiss = await candidate
+        .evaluate(() => ({ bodyText: document.body?.innerText || "", url: window.location.href }))
+        .then((snapshot) => evaluatePublishSubmissionAfterAction(snapshot, publishClickAttempted))
+        .catch(() => null);
+      if (beforeDismiss?.submitted) {
+        return { page: candidate, submitted: true, issue: "" };
+      }
+      if (beforeDismiss?.issue.includes("系统异常")) {
+        return { page: candidate, submitted: false, issue: beforeDismiss.issue };
+      }
       await clickVisibleDialogAction(candidate, ["确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
       await dismissTransientOverlays(candidate).catch(() => {});
       const state = await candidate
