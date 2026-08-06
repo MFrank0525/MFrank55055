@@ -613,6 +613,9 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("主图") || text.includes("白底图") || text.includes("3:4") || text.includes("详情")) {
     return "image_section_blocked";
   }
+  if (text.includes("Spectemplatefieldrootwasnotfoundin商品规格/规格模板DOMstructure")) {
+    return "spec_template_surface_missing";
+  }
   if (text.includes("Spectemplateisnotconfiguredforcurrentshop") || text.includes("规格模板未配置")) {
     return "spec_template_configuration_missing";
   }
@@ -633,6 +636,8 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
         ? Math.max(maxRetryAttempts, 4)
       : errorClass === "price_inventory_not_ready"
         ? Math.max(maxRetryAttempts, 3)
+      : errorClass === "spec_template_surface_missing"
+        ? Math.max(maxRetryAttempts, 3)
       : maxRetryAttempts;
   if (retryAttempt >= effectiveMaxRetryAttempts) {
     return false;
@@ -645,6 +650,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "health_food_category_attributes_not_ready",
     "transient_overlay_blocked",
     "price_inventory_not_ready",
+    "spec_template_surface_missing",
     "page_context_lost",
     "shop_switch_entry_unavailable",
     "browser_remote_debugging_unavailable"
@@ -666,6 +672,7 @@ export function shouldStopPublishBatchAfterFailure(
     "doudian_login_required",
     "shop_context_mismatch",
     "spec_template_configuration_missing",
+    "spec_template_surface_missing",
     "transient_overlay_blocked",
     "final_publish_state_uncertain"
   ]);

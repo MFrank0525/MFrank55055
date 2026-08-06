@@ -192,3 +192,12 @@
 | Give the explicit rejection higher priority than unrelated full-page text | `classifyPublishFailure` recognizes the platform system-error banner before generic “必填” classification | Red-before-green `test-progress-state.mjs` assertion using the production-shaped error text | verified |
 | Never blindly replay a post-click request | Generic retry excludes `final_publish_submit_transient`; an attempted request becomes `submit_rejected_confirmed` and must pass negative list verification before one controlled retry | `evaluatePublishResult` and `shouldRetryPublishFailure` regressions | verified |
 | Preserve fail-closed behavior | A found product is accepted as `list_verified`; inconclusive lookup or a second rejection remains terminal and later shops do not run | Existing manifest-backed post-submit verification and one-retry ceiling | verified |
+
+## 2026-08-06 Missing specification-template surface recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Identify the actual shop 07 failure | Failed screenshot and live DOM show `商品规格/添加规格类型/规格预览` but no `规格模板` control; the final publish click was never attempted | Run `20260806-123037`, target `recvrqk61WtR3I/image-001/07/07`; read-only CDP inspection | verified |
+| Use the user-verified recovery path | The dedicated `spec_template_surface_missing` class re-runs `runPublishFromSpuJob` without a create-page URL; `queryPlatformSpu` closes stale create pages, returns to 标品管理, re-enters brand/SPU and opens a new publish page | Rule regression and existing `runShopSpuAction/queryPlatformSpu` action contract | verified |
+| Bound retries and preserve the target | The same canonical target gets at most three SPU-entry rebuilds; no final-submit/list verification path is used because the failure occurs before submit | `shouldRetryPublishFailure` regression at attempts 0, 2 and 3 | verified |
+| Report the real failure | Hermes status gives the missing-template-surface recovery message before the generic price/inventory summary | Compact-status regression with the production error | verified |

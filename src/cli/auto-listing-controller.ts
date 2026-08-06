@@ -521,6 +521,7 @@ function compactStatusLine(line: string): string {
       .replace(/Model spec input not found on publish page\./i, "型号规格输入框未稳定识别");
     return `发布基础信息未完成：${detail}；系统会按发布页控件未就绪处理并重试。`;
   }
+  if (/Spec template field root was not found in 商品规格\/规格模板 DOM structure/i.test(compact)) return "当前商品发布页缺少规格模板栏；系统会关闭异常发布页，回到标品管理重新查询品牌和 SPU 后重建当前目标。";
   const finalPublishFailure = /(?:Sequential publish flow stopped:\s*)?最终发布动作未完成。(.+)/i.exec(compact);
   if (finalPublishFailure) {
     const detail = finalPublishFailure[1];

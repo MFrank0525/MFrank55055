@@ -1524,6 +1524,16 @@ const missingShopSpecTemplateClass = classifyPublishFailure(
   "Spec template is not configured for current shop: 商品规格 surface only exposes 添加规格类型（0/3） and 规格预览."
 );
 assert.equal(missingShopSpecTemplateClass, "spec_template_configuration_missing");
+assert.equal(
+  classifyPublishFailure(
+    "Sequential publish flow stopped: 价格库存模块未完成。Spec template field root was not found in 商品规格/规格模板 DOM structure.; keyword=买二送一"
+  ),
+  "spec_template_surface_missing",
+  "the production missing-template DOM failure must restart from the SPU query instead of falling through to unknown_publish_failure"
+);
+assert.equal(shouldRetryPublishFailure("spec_template_surface_missing", 0), true);
+assert.equal(shouldRetryPublishFailure("spec_template_surface_missing", 2), true);
+assert.equal(shouldRetryPublishFailure("spec_template_surface_missing", 3), false);
 assert.equal(shouldRetryPublishFailure(missingShopSpecTemplateClass, 0), false);
 assert.equal(
   shouldStopPublishBatchAfterFailure([
@@ -3335,6 +3345,24 @@ assert.deepEqual(
     "原因：价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。"
   ],
   "Hermes compact status must not report a failed middle watermark as the latest publish position"
+);
+const compactMissingSpecSurfaceStatus = formatAutoListingControllerCompactStatusText({
+  status: "failed",
+  summary:
+    "Publish failed for /shops/07店/商品水印07: Sequential publish flow stopped: 价格库存模块未完成。Spec template field root was not found in 商品规格/规格模板 DOM structure.; keyword=买二送一",
+  productName: "延草纲目李时珍腰椎远红外凝胶",
+  publishSafelyPublished: 6,
+  publishFailed: 1,
+  publishFailedWatermarkNo: 7,
+  publishShopIndex: 7,
+  publishShopTotal: 20,
+  feishuCompleted: 10,
+  feishuTotal: 13
+});
+assert.match(
+  compactMissingSpecSurfaceStatus,
+  /缺少规格模板栏；续跑会关闭异常发布页，返回标品管理重新输入品牌和 SPU 后重建当前目标/,
+  "Hermes must report the SPU-query recovery path instead of a false price/inventory failure"
 );
 const compactGuideOverlayStatus = formatAutoListingControllerCompactStatusText({
   status: "failed",

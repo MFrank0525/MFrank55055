@@ -1341,9 +1341,8 @@ function compactAutoListingControllerReason(summary?: string): string {
     return `主图上传失败：重试后仅确认 ${Number(mainImageUploadFailure[2])}/${Number(mainImageUploadFailure[1])} 张。`;
   }
   const mainImageReadbackFailure = /Main image slots did not contain\s+(\d+)\s+images after upload;\s*actual=(\d+)/i.exec(text);
-  if (mainImageReadbackFailure) {
-    return `主图上传失败：最终读回 ${Number(mainImageReadbackFailure[2])}/${Number(mainImageReadbackFailure[1])} 张，已安全停止。`;
-  }
+  if (mainImageReadbackFailure) return `主图上传失败：最终读回 ${Number(mainImageReadbackFailure[2])}/${Number(mainImageReadbackFailure[1])} 张，已安全停止。`;
+  if (/Spec template field root was not found in 商品规格\/规格模板 DOM structure/i.test(text)) return "当前商品发布页缺少规格模板栏；续跑会关闭异常发布页，返回标品管理重新输入品牌和 SPU 后重建当前目标。";
   if (/Price\/inventory verification failed|价格库存模块未完成/i.test(text)) {
     return "价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。";
   }
