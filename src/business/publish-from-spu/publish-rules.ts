@@ -404,6 +404,12 @@ export function classifyPublishFailure(message: string): string {
   if (text.includes("校验发货模式失败")) {
     return "shipping_mode_rejected";
   }
+  if (
+    text.includes("系统异常")
+    && (text.includes("请重试") || text.includes("稍后重试") || text.includes("操作ID"))
+  ) {
+    return "final_publish_submit_transient";
+  }
   if (text.includes("Missingrequiredhealth-foodmetadatafields")) {
     return "health_food_field_missing";
   }
@@ -619,7 +625,6 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   return [
     "platform_page_not_ready",
     "platform_spu_prefill_failed",
-    "final_publish_submit_transient",
     "service_section_not_ready",
     "basic_info_field_not_ready",
     "health_food_category_attributes_not_ready",
@@ -703,12 +708,15 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
       issue: publishIssue || message || "Publish button click was accepted, but no submission success signal was observed."
     };
   }
-  if (input.publishClickAttempted === true && errorClass === "shipping_mode_rejected") {
+  if (
+    input.publishClickAttempted === true
+    && (errorClass === "shipping_mode_rejected" || errorClass === "final_publish_submit_transient")
+  ) {
     return {
       safelyPublished: false,
       finalVerifyStatus: "submit_rejected_confirmed",
       errorClass,
-      issue: publishIssue || message || "The platform explicitly rejected the shipping mode."
+      issue: publishIssue || message || "The platform explicitly rejected the publish request."
     };
   }
   if (errorClass === "final_publish_state_uncertain") {

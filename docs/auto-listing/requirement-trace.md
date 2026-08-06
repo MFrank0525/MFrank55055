@@ -182,3 +182,13 @@
 | Keep pause and continue documentation consistent | Stability checklist uses `auto-listing:hermes-continue`; start remains reserved for refreshing and locking a new batch | Full `rules:check` and obsolete-path search | verified |
 | Revalidate real read-only dependencies before delivery | Current Feishu API exposes all 23 mapped fields; fixed-profile Doudian audit reads back all 20 exact shop identities without publish or form mutation | `feishu:check`; shop-access audit `20260728-225143` passed 20/20 with `publishAttempted=false`, `formMutationAttempted=false` | verified |
 | Prevent read-only audit from disrupting active publishing | Shop-access audit checks the durable listing-child ownership record and live PID before any browser action; an active owner fails closed and requires a safe-boundary pause | `scripts/test-shop-access-audit-rule.mjs`; shop-access audit `20260729-172024` passed 20/20 only after safe pause, with no publish/form mutation | verified |
+
+## 2026-08-06 Explicit platform submit-rejection recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Identify why shop 17 stopped without risking a duplicate listing | Runtime screenshot shows Doudian operation ID `2026080611514994A2BEE931106AF92453` and “系统异常,请重试” after the click; submit intent remains `attempted_or_unknown` | Original target runtime and controller log; no automatic replay occurred | verified |
+| Prove the failed request did not create a delayed product | Re-ran the stable read-only exact-full-title query in target shop 17 more than ten minutes after rejection | Doudian “全部” tab returned `共0条`, with exact title in URL and explicit empty result | verified |
+| Give the explicit rejection higher priority than unrelated full-page text | `classifyPublishFailure` recognizes the platform system-error banner before generic “必填” classification | Red-before-green `test-progress-state.mjs` assertion using the production-shaped error text | verified |
+| Never blindly replay a post-click request | Generic retry excludes `final_publish_submit_transient`; an attempted request becomes `submit_rejected_confirmed` and must pass negative list verification before one controlled retry | `evaluatePublishResult` and `shouldRetryPublishFailure` regressions | verified |
+| Preserve fail-closed behavior | A found product is accepted as `list_verified`; inconclusive lookup or a second rejection remains terminal and later shops do not run | Existing manifest-backed post-submit verification and one-retry ceiling | verified |

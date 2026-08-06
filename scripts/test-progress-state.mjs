@@ -1708,6 +1708,34 @@ assert.equal(
   false,
   "shipping-mode rejection must never enter the generic retry loop before read-only product-list verification"
 );
+const platformSystemExceptionIssue = "1. 操作ID:2026080611514994A2BEE931106AF92453 2. 系统异常,请重试 | 需在已下架操作上架 | 必填项进度100%";
+assert.equal(
+  classifyPublishFailure(platformSystemExceptionIssue),
+  "final_publish_submit_transient",
+  "an explicit platform system exception must outrank unrelated required-field text from the full publish page"
+);
+assert.deepEqual(
+  evaluatePublishResult({
+    ok: true,
+    status: "published",
+    publishClickAttempted: true,
+    publishClicked: false,
+    publishIssue: platformSystemExceptionIssue,
+    message: "Publish button click was issued; platform success signal was not observed."
+  }),
+  {
+    safelyPublished: false,
+    finalVerifyStatus: "submit_rejected_confirmed",
+    errorClass: "final_publish_submit_transient",
+    issue: platformSystemExceptionIssue
+  },
+  "an explicit post-click platform system rejection must require a negative list check before one controlled retry"
+);
+assert.equal(
+  shouldRetryPublishFailure("final_publish_submit_transient", 0),
+  false,
+  "a post-click platform system rejection must never enter the generic retry loop before read-only product-list verification"
+);
 assert.deepEqual(
   evaluatePublishResult({
     ok: true,
