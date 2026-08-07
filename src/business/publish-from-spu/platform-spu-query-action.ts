@@ -6,7 +6,7 @@ import type { QueryDiagnosticError, QueryMatchCandidate } from "./types.js";
 import { clickVisibleText } from "./dom-actions.js";
 import { ensureShopContext } from "./shop-switch-action.js";
 import { recoverUsablePageFromContext } from "./publish-page-readiness.js";
-import { evaluatePlatformSpuQueryPageReadiness } from "./publish-rules.js";
+import { evaluatePlatformSpuQueryPageReadiness, isStablePlatformBrandSelection } from "./publish-rules.js";
 import {
   attachSafeDialogHandler,
   closeCreatePagesExcept,
@@ -116,25 +116,20 @@ async function clickPlatformBrandDropdownOption(page: Page, expected: string): P
     };
     function findPlatformBrandFieldInput(): HTMLInputElement | null {
       const targetLabel = "品牌";
-      const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
+      const formItems = Array.from(document.querySelectorAll(".ecom-g-form-item"))
         .map((el) => el as HTMLElement)
-        .filter((el) => {
-          const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
-          return text === targetLabel && visible(el);
-        })
+        .filter((item) => visible(item) && Array.from(item.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label"))
+          .some((label) => (label.textContent || "").replace(/\s+/g, " ").trim() === targetLabel))
         .sort((a, b) => {
           const ar = a.getBoundingClientRect();
           const br = b.getBoundingClientRect();
           return ar.y - br.y || ar.x - br.x;
         });
-      for (const label of labels) {
-        let root: HTMLElement | null = label;
-        for (let depth = 0; root && depth < 8; depth += 1) {
-          const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
-          if (input && visible(input)) {
-            return input;
-          }
-          root = root.parentElement;
+      for (const item of formItems) {
+        const inputs = Array.from(item.querySelectorAll("input[type='search'], input[role='combobox']"))
+          .filter((input) => visible(input as HTMLElement)) as HTMLInputElement[];
+        if (inputs.length === 1) {
+          return inputs[0];
         }
       }
       return null;
@@ -214,20 +209,15 @@ async function isPlatformQueryInputAvailable(page: Page, kind: "brand" | "spu"):
     };
     function findPlatformBrandFieldInput(): HTMLInputElement | null {
       const targetLabel = "品牌";
-      const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
+      const formItems = Array.from(document.querySelectorAll(".ecom-g-form-item"))
         .map((el) => el as HTMLElement)
-        .filter((el) => {
-          const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
-          return text === targetLabel && visible(el);
-        });
-      for (const label of labels) {
-        let root: HTMLElement | null = label;
-        for (let depth = 0; root && depth < 8; depth += 1) {
-          const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
-          if (input && visible(input)) {
-            return input;
-          }
-          root = root.parentElement;
+        .filter((item) => visible(item) && Array.from(item.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label"))
+          .some((label) => (label.textContent || "").replace(/\s+/g, " ").trim() === targetLabel));
+      for (const item of formItems) {
+        const inputs = Array.from(item.querySelectorAll("input[type='search'], input[role='combobox']"))
+          .filter((input) => visible(input as HTMLElement)) as HTMLInputElement[];
+        if (inputs.length === 1) {
+          return inputs[0];
         }
       }
       return null;
@@ -253,8 +243,8 @@ async function isPlatformQueryInputAvailable(page: Page, kind: "brand" | "spu"):
 }
 
 async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", value: string): Promise<void> {
-  await page.evaluate(
-    ({ targetKind, nextValue }) => {
+  if (kind === "brand") {
+    const focused = await page.evaluate(() => {
       const visible = (el: HTMLElement): boolean => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
@@ -262,29 +252,52 @@ async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", val
       };
       function findPlatformBrandFieldInput(): HTMLInputElement | null {
         const targetLabel = "品牌";
-        const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
+        const formItems = Array.from(document.querySelectorAll(".ecom-g-form-item"))
           .map((el) => el as HTMLElement)
-          .filter((el) => {
-            const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
-            return text === targetLabel && visible(el);
-          })
+          .filter((item) => visible(item) && Array.from(item.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label"))
+            .some((label) => (label.textContent || "").replace(/\s+/g, " ").trim() === targetLabel))
           .sort((a, b) => {
             const ar = a.getBoundingClientRect();
             const br = b.getBoundingClientRect();
             return ar.y - br.y || ar.x - br.x;
           });
-        for (const label of labels) {
-          let root: HTMLElement | null = label;
-          for (let depth = 0; root && depth < 8; depth += 1) {
-            const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
-            if (input && visible(input)) {
-              return input;
-            }
-            root = root.parentElement;
+        for (const item of formItems) {
+          const inputs = Array.from(item.querySelectorAll("input[type='search'], input[role='combobox']"))
+            .filter((input) => visible(input as HTMLElement)) as HTMLInputElement[];
+          if (inputs.length === 1) {
+            return inputs[0];
           }
         }
         return null;
       }
+      const target = findPlatformBrandFieldInput();
+      if (!target) {
+        return false;
+      }
+      const selector = (target.closest(".ecom-g-select, .ant-select, .semi-select, [class*='select'], [class*='Select']") ||
+        target.parentElement) as HTMLElement | null;
+      const trigger = (selector?.querySelector(".ecom-g-select-selector, .ant-select-selector, [class*='selector'], [class*='selection']") ||
+        selector ||
+        target) as HTMLElement;
+      trigger.click();
+      target.focus();
+      return document.activeElement === target;
+    });
+    if (!focused) {
+      return;
+    }
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.type(value, { delay: 60 });
+    return;
+  }
+
+  await page.evaluate((nextValue) => {
+      const visible = (el: HTMLElement): boolean => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 80 && rect.height > 20 && style.display !== "none" && style.visibility !== "hidden";
+      };
       const inputs = Array.from(document.querySelectorAll("input, textarea"))
         .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
         .map((input) => {
@@ -305,49 +318,33 @@ async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", val
         })
         .filter(Boolean) as Array<{ input: HTMLInputElement | HTMLTextAreaElement; context: string; y: number; x: number }>;
 
-      const target =
-        targetKind === "brand"
-          ? findPlatformBrandFieldInput()
-          : inputs
-              .map((item) => {
-                const input = item.input as HTMLInputElement;
-                const score =
-                  (/SPU/i.test(item.context) ? 160 : 0) +
-                  (/\u540d\u79f0|ID|\u6761\u7801/i.test(item.context) ? 20 : 0) +
-                  ((input.getAttribute("type") || "") === "text" ? 10 : 0);
-                return { ...item, score };
-              })
-              .filter((item) => item.score > 0)
-              .sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x)[0]?.input;
+      const target = inputs
+        .map((item) => {
+          const input = item.input as HTMLInputElement;
+          const score =
+            (/SPU/i.test(item.context) ? 160 : 0) +
+            (/\u540d\u79f0|ID|\u6761\u7801/i.test(item.context) ? 20 : 0) +
+            ((input.getAttribute("type") || "") === "text" ? 10 : 0);
+          return { ...item, score };
+        })
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x)[0]?.input;
 
       if (!target) {
         return;
       }
 
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-      if (targetKind === "brand") {
-        const selector = (target.closest(".ecom-g-select, .ant-select, .semi-select, [class*='select'], [class*='Select']") ||
-          target.parentElement) as HTMLElement | null;
-        const trigger = (selector?.querySelector(".ecom-g-select-selector, .ant-select-selector, [class*='selector'], [class*='selection']") ||
-          selector ||
-          target) as HTMLElement;
-        trigger.click();
-      }
       target.focus();
       setter?.call(target, "");
       target.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
       setter?.call(target, nextValue);
       target.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
       target.dispatchEvent(new Event("change", { bubbles: true }));
-      if (targetKind === "brand") {
-        return;
-      }
       target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
       target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }));
       target.blur();
-    },
-    { targetKind: kind, nextValue: value }
-  );
+    }, value);
 }
 
 async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): Promise<string> {
@@ -360,20 +357,15 @@ async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): P
     };
     function findPlatformBrandFieldInput(): HTMLInputElement | null {
       const targetLabel = "品牌";
-      const labels = Array.from(document.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label, div, span"))
+      const formItems = Array.from(document.querySelectorAll(".ecom-g-form-item"))
         .map((el) => el as HTMLElement)
-        .filter((el) => {
-          const text = normalize(el.innerText || el.textContent || "");
-          return text === targetLabel && visible(el);
-        });
-      for (const label of labels) {
-        let root: HTMLElement | null = label;
-        for (let depth = 0; root && depth < 8; depth += 1) {
-          const input = root.querySelector("input[type='search'], input[role='combobox']") as HTMLInputElement | null;
-          if (input && visible(input)) {
-            return input;
-          }
-          root = root.parentElement;
+        .filter((item) => visible(item) && Array.from(item.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label"))
+          .some((label) => normalize(label.textContent || "") === targetLabel));
+      for (const item of formItems) {
+        const inputs = Array.from(item.querySelectorAll("input[type='search'], input[role='combobox']"))
+          .filter((input) => visible(input as HTMLElement)) as HTMLInputElement[];
+        if (inputs.length === 1) {
+          return inputs[0];
         }
       }
       return null;
@@ -418,8 +410,7 @@ async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): P
         return ariaValueText;
       }
 
-      const directValue = normalize((input as HTMLInputElement).value || "");
-      return directValue;
+      return "";
     };
 
     const inputs = Array.from(document.querySelectorAll("input, textarea"))
@@ -715,33 +706,30 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
 
     logInfo(`querying platform spu with brand=${brand}, spu=${spu}`);
 
-    await setPlatformQueryInputValue(page, "brand", brand);
-    await page.waitForTimeout(1200);
-    let clickedBrandOptionText = await clickPlatformBrandDropdownOption(page, brand).catch(() => "");
-    await page.waitForTimeout(800);
-    let brandValueConfirmed = await readPlatformQueryInputValue(page, "brand");
-    if (!normalizeMatchText(brandValueConfirmed).includes(normalizedBrand)) {
+    let clickedBrandOptionText = "";
+    let brandReadbacks: string[] = [];
+    for (let brandAttempt = 0; brandAttempt < 3; brandAttempt += 1) {
       await setPlatformQueryInputValue(page, "brand", brand);
-      await page.waitForTimeout(600);
-      clickedBrandOptionText = clickedBrandOptionText || (await clickPlatformBrandDropdownOption(page, brand).catch(() => ""));
+      await page.waitForTimeout(900 + brandAttempt * 300);
+      clickedBrandOptionText = await clickPlatformBrandDropdownOption(page, brand).catch(() => "");
       await page.waitForTimeout(800);
-      brandValueConfirmed = await readPlatformQueryInputValue(page, "brand");
+      const firstReadback = await readPlatformQueryInputValue(page, "brand");
+      await page.waitForTimeout(400);
+      const secondReadback = await readPlatformQueryInputValue(page, "brand");
+      brandReadbacks = [firstReadback, secondReadback];
+      if (isStablePlatformBrandSelection(brand, brandReadbacks)) {
+        break;
+      }
+      await page.keyboard.press("Escape").catch(() => {});
     }
-    if (brandValueConfirmed && !normalizeMatchText(brandValueConfirmed).includes(normalizedBrand)) {
+    if (!isStablePlatformBrandSelection(brand, brandReadbacks)) {
       const error = new Error(
-        `Brand input value mismatch after typing. expected=${brand}; actual=${brandValueConfirmed || "<empty>"}`
+        `Brand selection did not commit after bounded retries. expected=${brand}; readbacks=${brandReadbacks.map((value) => value || "<empty>").join(" | ")}; clickedOption=${clickedBrandOptionText || "<none>"}`
       ) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-value-mismatch.png");
+      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-selection-not-committed.png");
       throw error;
     }
-    const brandOptionConfirmed = normalizeMatchText(clickedBrandOptionText).includes(normalizedBrand);
-    if (!brandValueConfirmed && !brandOptionConfirmed) {
-      const error = new Error(
-        `Brand input value mismatch after typing. expected=${brand}; actual=<empty>; selectedOption=${clickedBrandOptionText || "<none>"}`
-      ) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-value-missing.png");
-      throw error;
-    }
+    const brandValueConfirmed = brandReadbacks[brandReadbacks.length - 1] || "";
 
     await setPlatformQueryInputValue(page, "spu", spu);
     await page.waitForTimeout(300);
@@ -767,7 +755,17 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
       throw error;
     }
 
-    const brandSelfCheckOk = normalizeMatchText(brandValueConfirmed).includes(normalizedBrand) || brandOptionConfirmed;
+    await page.waitForTimeout(400);
+    const brandValueAfterSpu = await readPlatformQueryInputValue(page, "brand");
+    if (!isStablePlatformBrandSelection(brand, [brandValueConfirmed, brandValueAfterSpu])) {
+      const error = new Error(
+        `Brand selection was lost after SPU entry before clicking query. expected=${brand}; beforeSpu=${brandValueConfirmed || "<empty>"}; afterSpu=${brandValueAfterSpu || "<empty>"}`
+      ) as QueryDiagnosticError;
+      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-lost-after-spu.png");
+      throw error;
+    }
+
+    const brandSelfCheckOk = isStablePlatformBrandSelection(brand, [brandValueConfirmed, brandValueAfterSpu]);
     const spuSelfCheckOk = normalizeSpuMatchText(spuValueConfirmed).includes(normalizedSpu);
     if (!brandSelfCheckOk || !spuSelfCheckOk) {
       const error = new Error(

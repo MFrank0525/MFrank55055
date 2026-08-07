@@ -224,6 +224,13 @@ export function normalizeVisibleText(value: string): string {
   return value.replace(/\s+/g, "").trim();
 }
 
+export function isStablePlatformBrandSelection(expectedBrand: string, readbacks: string[]): boolean {
+  const expected = normalizeVisibleText(expectedBrand).toLowerCase();
+  return expected.length > 0
+    && readbacks.length >= 2
+    && readbacks.every((value) => normalizeVisibleText(value).toLowerCase() === expected);
+}
+
 export function resolveSpecTemplateKeywordCandidates(expectedKeyword: string): string[] {
   const normalized = normalizeVisibleText(expectedKeyword);
   if (normalized === "买二送一" || normalized === "买2送1" || normalized === "2送1") {
@@ -495,6 +502,12 @@ export function classifyPublishFailure(message: string): string {
   if (
     (text.includes("SPUinputvaluemismatchaftertyping") || text.includes("Brandinputvaluemismatchaftertyping")) &&
     text.includes("actual=<empty>")
+  ) {
+    return "platform_page_not_ready";
+  }
+  if (
+    text.includes("Brandselectiondidnotcommitafterboundedretries")
+    || text.includes("BrandselectionwaslostafterSPUentrybeforeclickingquery")
   ) {
     return "platform_page_not_ready";
   }

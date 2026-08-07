@@ -2,10 +2,27 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   evaluatePlatformSpuQueryPageReadiness,
+  isStablePlatformBrandSelection,
   isDoudianLoginPageText,
   classifyPublishFailure,
   shouldRetryPublishFailure
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
+
+assert.equal(
+  isStablePlatformBrandSelection("延草纲目", ["", ""]),
+  false,
+  "Clicking a matching dropdown option is not proof that the brand control committed the selection"
+);
+assert.equal(
+  isStablePlatformBrandSelection("延草纲目", ["延草纲目", ""]),
+  false,
+  "A brand value that disappears on the second readback must block SPU entry"
+);
+assert.equal(
+  isStablePlatformBrandSelection("延草纲目", ["延草纲目", "延草纲目"]),
+  true,
+  "The brand gate requires two exact stable control readbacks"
+);
 
 assert.deepEqual(
   evaluatePlatformSpuQueryPageReadiness({
@@ -76,6 +93,15 @@ const emptyBrandInputClass = classifyPublishFailure(
 assert.equal(emptyBrandInputClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(emptyBrandInputClass, 0), true);
 
+for (const unstableBrandMessage of [
+  "Brand selection did not commit after bounded retries. expected=延草纲目; readbacks=<empty> | <empty>; clickedOption=延草纲目",
+  "Brand selection was lost after SPU entry before clicking query. expected=延草纲目; beforeSpu=延草纲目; afterSpu=<empty>"
+]) {
+  const failureClass = classifyPublishFailure(unstableBrandMessage);
+  assert.equal(failureClass, "platform_page_not_ready");
+  assert.equal(shouldRetryPublishFailure(failureClass, 0), true);
+}
+
 const inactivePlatformTabClass = classifyPublishFailure(
   "Platform SPU tab did not become active after click. aria-selected=false"
 );
@@ -142,8 +168,13 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /function findPlatformBrandFieldInput[\s\S]*targetLabel[\s\S]*品牌[\s\S]*ecom-g-label-wrapper-label[\s\S]*input\[type='search'\], input\[role='combobox'\]/,
-  "SPU brand input must be found from the visible 品牌 field label instead of by global search-input order"
+  /function findPlatformBrandFieldInput[\s\S]*\.ecom-g-form-item[\s\S]*ecom-g-label-wrapper-label[\s\S]*inputs\.length === 1/,
+  "SPU brand input must be the unique combobox inside the nearest visible 品牌 form item"
+);
+assert.doesNotMatch(
+  publishSource,
+  /function findPlatformBrandFieldInput[\s\S]{0,1400}root = root\.parentElement/,
+  "Brand lookup must not climb into a broad ancestor and take another field's first combobox"
 );
 assert.doesNotMatch(
   publishSource,
@@ -156,8 +187,27 @@ const setInputEnd = publishSource.indexOf("\nasync function", setInputStart + 1)
 const setInputSource = publishSource.slice(setInputStart, setInputEnd === -1 ? publishSource.length : setInputEnd);
 assert.match(
   setInputSource,
-  /if \(targetKind === "brand"\) \{[\s\S]{0,160}return;[\s\S]{0,260}KeyboardEvent\("keydown"/,
-  "SPU brand entry must keep the dropdown open for clicking the loaded same-brand option"
+  /if \(kind === "brand"\)[\s\S]*page\.keyboard\.press\("ControlOrMeta\+A"\)[\s\S]*page\.keyboard\.type\(value[\s\S]*return;/,
+  "Brand search must use real keyboard events on the focused brand combobox before selecting its option"
+);
+assert.doesNotMatch(
+  setInputSource,
+  /targetKind === "brand"[\s\S]{0,900}setter\?\.call\(target, nextValue\)/,
+  "Synthetic value assignment must not be used for the controlled readonly brand combobox"
+);
+const readInputStart = publishSource.indexOf("async function readPlatformQueryInputValue");
+assert.notEqual(readInputStart, -1, "readPlatformQueryInputValue function must exist");
+const readInputEnd = publishSource.indexOf("\nasync function", readInputStart + 1);
+const readInputSource = publishSource.slice(readInputStart, readInputEnd === -1 ? publishSource.length : readInputEnd);
+assert.match(
+  readInputSource,
+  /selectedNode[\s\S]*ariaValueText/,
+  "Brand readback must come from committed select display state"
+);
+assert.doesNotMatch(
+  readInputSource,
+  /directValue|input as HTMLInputElement\)\.value/,
+  "Uncommitted brand search text must never count as selected-brand readback"
 );
 assert.match(
   querySource,
@@ -191,13 +241,18 @@ assert.doesNotMatch(
 );
 assert.match(
   querySource,
-  /const brandSelfCheckOk =[\s\S]{0,220}brandValueConfirmed[\s\S]{0,220}brandOptionConfirmed/,
-  "SPU query must accept the same-brand dropdown option as brand confirmation before filling SPU"
+  /isStablePlatformBrandSelection\(brand,[\s\S]*brandReadbacks[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)/,
+  "SPU entry must remain blocked until two exact brand-control readbacks confirm a committed selection"
 );
 assert.match(
   querySource,
-  /if \(!brandValueConfirmed && !brandOptionConfirmed\)/,
-  "SPU query must fail missing brand readback only when the same-brand dropdown option was not confirmed"
+  /brandValueAfterSpu[\s\S]*isStablePlatformBrandSelection\(brand, \[brandValueConfirmed, brandValueAfterSpu\]\)[\s\S]*before clicking query/,
+  "SPU query must re-read the brand after SPU entry and fail before query if the selection was lost"
+);
+assert.doesNotMatch(
+  querySource,
+  /brandOptionConfirmed/,
+  "A clicked option label must never substitute for committed brand-control state"
 );
 assert.doesNotMatch(
   querySource,

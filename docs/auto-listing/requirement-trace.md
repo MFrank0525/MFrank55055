@@ -216,3 +216,14 @@
 | --- | --- | --- | --- |
 | Remove vulnerable transitive archive and development-server packages | Lock `tar` and `esbuild` to patched release lines through root overrides while retaining the current application dependency surface | `npm audit --omit=dev` reports 0 vulnerabilities | verified |
 | Preserve native Chinese tokenization after dependency resolution | Load `nodejieba` and segment a production-shaped medical-device title | Native smoke output `医用\|疼痛\|凝胶`; full `rules:check` | verified |
+
+## 2026-08-07 Committed brand gate before SPU query
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why brand-first code still issued an SPU-only query | Brand lookup climbed into a broad ancestor and could take the preceding 商品类目 combobox; the action then accepted clicked-option text despite an empty brand readback, so SPU entry proceeded without a committed brand and returned another brand with the same registration number | Run `20260807-084931`, shop 06 result and mismatch screenshot showing `葵花/晋械注准20242090092`; live DOM maps `rc_select_0` to 商品类目 and `rc_select_1` to 品牌 | verified |
+| Bind the action to the actual brand field | Every brand availability, entry, option, and readback path resolves the unique visible combobox inside the nearest `.ecom-g-form-item` carrying the exact 品牌 label; broad ancestor climbing is prohibited | Red-before-green structural regression; live DOM readback | verified |
+| Require a committed brand before SPU entry | Uncommitted search text and clicked-option text are excluded from acceptance; the select display must read back the exact Feishu brand twice consecutively | Red-before-green `test-platform-spu-query-page-rule.mjs` | verified |
+| Prevent SPU entry from silently clearing brand | Brand is read again after SPU entry and must still exactly match before the query button can be clicked | Production-shaped regression and structural ordering assertion | verified |
+| Recover safely from a transient dropdown failure | Missing or lost brand commitment maps to `platform_page_not_ready`, receives the existing bounded page rebuild retries, and never reaches query or publish | Failure classification regression and full `rules:check` | verified |
+| Verify the corrected control on the real page | Real keyboard input exposed exactly one `延草纲目` brand option and the selected display read back `延草纲目` twice; no query or publish click was issued | Headed CDP DOM check in the fixed browser profile | verified |
