@@ -71,7 +71,7 @@ function getBrowserCandidates(): string[] {
   ];
 }
 
-function getBrowserExecutable(): string {
+export function resolveBrowserExecutable(): string {
   const found = getBrowserCandidates().find((candidate) => candidate && fs.existsSync(candidate));
   if (!found) {
     throw new Error("No Chrome/Edge executable found for remote debugging browser.");
@@ -218,7 +218,7 @@ async function ensureRemoteBrowser(userDataDir: string, excludedPorts = new Set<
     }
   }
 
-  const executable = getBrowserExecutable();
+  const executable = resolveBrowserExecutable();
   let lastError: Error | null = null;
   for (const port of REMOTE_DEBUGGING_PORTS) {
     if (excludedPorts.has(port)) {

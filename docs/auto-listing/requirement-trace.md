@@ -1,5 +1,13 @@
 # Auto-listing Requirement Trace
 
+## 2026-08-07 Hermes-isolated browser doctor parity
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why the locked 13-product batch stopped before product 1 | The latest controller log shows `doctor:feishu` rejected a nonexistent Playwright Chromium path derived from the isolated Hermes `HOME`; no run, paid image ledger, browser mutation, or submit attempt was created | Controller log `auto-listing-controller-20260807-220317.log`; processed manifest remains 0/13; runtime and paid-ledger directories are empty | verified |
+| Doctor and real publisher must validate the same browser | `resolveBrowserExecutable` is the single exported candidate resolver used by both the CDP launcher and doctor; system Chrome/Edge remains preferred and the Playwright bundle is only a fallback | Red-before-green `test-browser-workspace-provider-rule.mjs`; all doctor modes resolve the production system Chrome; 20-shop audit uses the same launcher | verified |
+| Preserve fail-closed browser availability | The shared resolver still throws when no supported system or Playwright browser exists; doctor converts that exact failure into a failed check | Full doctors, browser provider rule, and 20-shop read-only audit | verified |
+
 ## 2026-08-05 Dedicated Feishu start regression
 
 | Requirement | Implementation | Verification | Status |

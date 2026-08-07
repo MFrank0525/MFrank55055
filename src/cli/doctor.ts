@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { chromium } from "playwright";
+import { resolveBrowserExecutable } from "../browser/launch.js";
 import { getShopSpecs } from "../autolist/product-category.js";
 import { readOpenAiCompatibleImageGenerationConfig } from "../autolist/image-generation-config.js";
 import {
@@ -58,12 +58,20 @@ function checkJson(filePath: string): CheckResult {
 }
 
 function checkBrowser(): CheckResult {
-  const executablePath = chromium.executablePath();
-  return {
-    name: "Playwright Chromium",
-    ok: fs.existsSync(executablePath),
-    detail: executablePath
-  };
+  try {
+    const executablePath = resolveBrowserExecutable();
+    return {
+      name: "Runtime browser executable",
+      ok: true,
+      detail: executablePath
+    };
+  } catch (error) {
+    return {
+      name: "Runtime browser executable",
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
 }
 
 function checkCommand(name: string, command: string, args: string[] = ["--version"], required = true): CheckResult {
