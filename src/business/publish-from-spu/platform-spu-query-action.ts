@@ -374,13 +374,11 @@ async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): P
       let container: HTMLElement | null = null;
       let node = input.parentElement;
       for (let depth = 0; node && depth < 8; depth += 1) {
-        const marker = [String(node.className || ""), node.getAttribute("role") || "", node.tagName].join(" ").toLowerCase();
         if (
-          marker.includes("ecom-g-select") ||
-          marker.includes("ant-select") ||
-          marker.includes("semi-select") ||
-          marker.includes("combobox") ||
-          marker.includes("dropdown")
+          node.classList.contains("ecom-g-select")
+          || node.classList.contains("ant-select")
+          || node.classList.contains("semi-select")
+          || node.getAttribute("role") === "combobox"
         ) {
           container = node;
           break;

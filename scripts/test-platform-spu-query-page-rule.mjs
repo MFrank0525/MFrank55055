@@ -204,6 +204,16 @@ assert.match(
   /selectedNode[\s\S]*ariaValueText/,
   "Brand readback must come from committed select display state"
 );
+assert.match(
+  readInputSource,
+  /classList\.contains\("ecom-g-select"\)/,
+  "Brand readback must climb to the exact select root class before looking for the selected-item sibling"
+);
+assert.doesNotMatch(
+  readInputSource,
+  /marker\.includes\("ecom-g-select"\)/,
+  "Brand readback must not mistake the inner selection-search span for the select root"
+);
 assert.doesNotMatch(
   readInputSource,
   /directValue|input as HTMLInputElement\)\.value/,
