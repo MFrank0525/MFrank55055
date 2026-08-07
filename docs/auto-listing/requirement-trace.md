@@ -201,3 +201,18 @@
 | Use the user-verified recovery path | The dedicated `spec_template_surface_missing` class re-runs `runPublishFromSpuJob` without a create-page URL; `queryPlatformSpu` closes stale create pages, returns to 标品管理, re-enters brand/SPU and opens a new publish page | Rule regression and existing `runShopSpuAction/queryPlatformSpu` action contract | verified |
 | Bound retries and preserve the target | The same canonical target gets at most three SPU-entry rebuilds; no final-submit/list verification path is used because the failure occurs before submit | `shouldRetryPublishFailure` regression at attempts 0, 2 and 3 | verified |
 | Report the real failure | Hermes status gives the missing-template-surface recovery message before the generic price/inventory summary | Compact-status regression with the production error | verified |
+
+## 2026-08-07 Post-submit list settlement and circuit closure
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Do not let an unrelated persistent spinner hide exact positive results | Exact query identity, a positive result count, and visible result rows settle the read-only lookup even if another page region retains a loading indicator | Red-before-green production-shaped regression with `count=2`, `rows=2`, `loading=1` | verified |
+| Never advance past an inconclusive post-submit lookup | A lookup exception is converted to `submit_accepted_unconfirmed/final_publish_state_uncertain`, which opens the existing batch circuit before any later shop | Structural regression in `test-progress-state.mjs` | verified |
+| Preserve the irreversible-boundary rule | Only a verified found product is marked `list_verified`; a confirmed negative result remains the sole gate for the one bounded explicit-rejection retry | Existing publish-state regressions | verified |
+
+## 2026-08-07 Dependency audit closure
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Remove vulnerable transitive archive and development-server packages | Lock `tar` and `esbuild` to patched release lines through root overrides while retaining the current application dependency surface | `npm audit --omit=dev` reports 0 vulnerabilities | verified |
+| Preserve native Chinese tokenization after dependency resolution | Load `nodejieba` and segment a production-shaped medical-device title | Native smoke output `医用\|疼痛\|凝胶`; full `rules:check` | verified |

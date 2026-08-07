@@ -143,6 +143,7 @@ import {
   shouldStopPublishBatchAfterFailure,
   evaluatePublishResult
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
+import { isSettledExactTitlePositiveEvidence } from "../dist/src/business/publish-from-spu/product-list-verification-action.js";
 import {
   mergePublishArtifactWithSafeManifest,
   publishDistributedProducts,
@@ -157,6 +158,16 @@ const canonicalIdentity = {
   watermarkNo: 1
 };
 assert.equal(shouldRunPendingTargetProductListPreflight("known_sequence"), false);
+assert.equal(
+  isSettledExactTitlePositiveEvidence({
+    queryMatches: true,
+    count: 2,
+    visibleResultRows: 2,
+    visibleLoadingIndicators: 1
+  }),
+  true,
+  "Exact-title rows plus a positive count must settle even when an unrelated persistent spinner remains visible"
+);
 assert.equal(shouldRunPendingTargetProductListPreflight("unresolved_disorder"), true);
 assert.equal(
   resolveProductListPreflightMode({
@@ -420,6 +431,11 @@ assert.match(
   publishSource,
   /listVerification\?\.found === false[\s\S]*preserving uncertainty and refusing to replay publish/,
   "A negative post-submit list lookup must preserve uncertainty without crossing the irreversible boundary again"
+);
+assert.match(
+  publishSource,
+  /if \(!listVerification\)[\s\S]*finalVerifyStatus:\s*"submit_accepted_unconfirmed"[\s\S]*errorClass:\s*"final_publish_state_uncertain"/,
+  "An inconclusive post-submit list lookup must be converted to an unresolved boundary so later shops cannot run"
 );
 assert.match(
   publishSource,

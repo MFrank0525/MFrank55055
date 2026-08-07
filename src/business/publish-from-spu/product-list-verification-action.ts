@@ -172,6 +172,18 @@ async function clickProductListSearch(
   throw lastError instanceof Error ? lastError : new Error("Product list query click failed after retries.");
 }
 
+export function isSettledExactTitlePositiveEvidence(input: {
+  queryMatches: boolean;
+  count: number;
+  visibleResultRows: number;
+  visibleLoadingIndicators: number;
+}): boolean {
+  return input.queryMatches
+    && Number.isFinite(input.count)
+    && input.count > 0
+    && input.visibleResultRows > 0;
+}
+
 async function waitForProductListQuerySettlement(
   page: Awaited<ReturnType<typeof getWorkspacePage>>,
   title: string,
@@ -222,13 +234,12 @@ async function waitForProductListQuerySettlement(
     } else {
       stableEmptyEvidenceCount = 0;
     }
-    if (
-      queryMatches
-      && Number.isFinite(count)
-      && count > 0
-      && visibleResultRows > 0
-      && visibleLoadingIndicators === 0
-    ) {
+    if (isSettledExactTitlePositiveEvidence({
+      queryMatches,
+      count,
+      visibleResultRows,
+      visibleLoadingIndicators
+    })) {
       return { countText };
     }
     await page.waitForTimeout(400);

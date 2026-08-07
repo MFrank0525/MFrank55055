@@ -821,6 +821,15 @@ export async function publishDistributedProducts(options: {
         options.onProgress?.(message);
       }
 
+      if (!listVerification) {
+        decision = {
+          safelyPublished: false,
+          finalVerifyStatus: "submit_accepted_unconfirmed",
+          errorClass: "final_publish_state_uncertain",
+          issue: "Post-submit exact-title verification was inconclusive; later shop targets must remain blocked."
+        };
+      }
+
       if (listVerification?.found) {
         const message = `Read-only Doudian 全部 tab full-title verification found product: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
         markPublishResultListVerified(publishResult.artifacts.resultFile, listVerification);
