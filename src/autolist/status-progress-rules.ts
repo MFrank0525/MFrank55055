@@ -36,6 +36,28 @@ export function formatAutoListingPublishProgressLabel(input: {
   return `发布已完成 ${completed}/${total}｜当前目标 ${current}/${total}｜当前店铺 ${shopCurrent}/${shopTotal}`;
 }
 
+export type AutoListingControllerPublishProgressExposureInput = {
+  running: boolean;
+  publishProgressAvailable: boolean;
+  currentTaskStatus?: string;
+  currentTaskRecordId?: string;
+  publishRecordId?: string;
+  stateProgressTimestamp?: string;
+  publishProgressTimestamp?: string;
+};
+
+export function shouldExposePublishProgressInAutoListingControllerStatus(
+  input: AutoListingControllerPublishProgressExposureInput
+): boolean {
+  if (!input.publishProgressAvailable) return false;
+  const currentRecordId = input.currentTaskRecordId?.trim();
+  const publishRecordId = input.publishRecordId?.trim();
+  if (currentRecordId && publishRecordId && currentRecordId !== publishRecordId) return false;
+  if (!input.running || input.currentTaskStatus === "published") return true;
+  if (!input.stateProgressTimestamp || !input.publishProgressTimestamp) return true;
+  return Date.parse(input.publishProgressTimestamp) >= Date.parse(input.stateProgressTimestamp);
+}
+
 export function shouldRetainStoppedControllerPublishCheckpoint(input: {
   controllerStatus?: string;
   currentTaskStatus?: string;

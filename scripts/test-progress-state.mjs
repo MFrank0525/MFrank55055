@@ -2722,6 +2722,28 @@ assert.equal(
 );
 assert.equal(
   shouldExposePublishProgressInAutoListingControllerStatus({
+    running: false,
+    publishProgressAvailable: true,
+    currentTaskStatus: "failed",
+    currentTaskRecordId: "rec-current-main-image",
+    publishRecordId: "rec-previous-published"
+  }),
+  false,
+  "A stopped main-image failure must not inherit the previous Feishu product's publish manifest."
+);
+assert.equal(
+  shouldExposePublishProgressInAutoListingControllerStatus({
+    running: false,
+    publishProgressAvailable: true,
+    currentTaskStatus: "failed",
+    currentTaskRecordId: "rec-current-publish",
+    publishRecordId: "rec-current-publish"
+  }),
+  true,
+  "A stopped publish failure may retain a publish checkpoint only when both artifacts identify the same Feishu product."
+);
+assert.equal(
+  shouldExposePublishProgressInAutoListingControllerStatus({
     running: true,
     publishProgressAvailable: true,
     currentTaskStatus: "published",

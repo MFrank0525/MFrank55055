@@ -8,6 +8,7 @@ import {
 import { isPaidImageAcceptedTaskHeartbeatText } from "./paid-image-wait-rules.js";
 import { isDoudianLoginRequiredFailure } from "./doudian-login-recovery-rules.js";
 export { formatAutoListingControllerExternalServiceWaitSummary } from "./doudian-login-recovery-rules.js";
+export { shouldExposePublishProgressInAutoListingControllerStatus } from "./status-progress-rules.js";
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
   batchComplete: boolean;
@@ -407,30 +408,6 @@ export type AutoListingControllerStartPauseSignalInput = {
 
 export function shouldClearPauseSignalOnAutoListingControllerStart(input: AutoListingControllerStartPauseSignalInput): boolean {
   return input.pauseSignalExists;
-}
-
-export type AutoListingControllerPublishProgressExposureInput = {
-  running: boolean;
-  publishProgressAvailable: boolean;
-  currentTaskStatus?: string;
-  stateProgressTimestamp?: string;
-  publishProgressTimestamp?: string;
-};
-
-export function shouldExposePublishProgressInAutoListingControllerStatus(input: AutoListingControllerPublishProgressExposureInput): boolean {
-  if (!input.publishProgressAvailable) {
-    return false;
-  }
-  if (!input.running) {
-    return true;
-  }
-  if (input.currentTaskStatus === "published") {
-    return true;
-  }
-  if (!input.stateProgressTimestamp || !input.publishProgressTimestamp) {
-    return true;
-  }
-  return Date.parse(input.publishProgressTimestamp) >= Date.parse(input.stateProgressTimestamp);
 }
 
 export type AutoListingControllerHistoricalResultSuppressionInput = {
@@ -918,6 +895,7 @@ export type AutoListingControllerPublishGroupProgressEntry = {
 };
 
 export type AutoListingControllerPublishGroupProgress = {
+  recordId?: string;
   productName: string;
   completed: number;
   productIndex: number;
@@ -1280,6 +1258,9 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
     (activeShopName && shopNames.includes(activeShopName) ? shopNames.indexOf(activeShopName) + 1 : undefined) ||
     Math.max(1, Math.ceil(productIndex / 2));
   return {
+    ...(String(activeEntry.recordId || activeEntry.targetIdentity?.recordId || "").trim()
+      ? { recordId: String(activeEntry.recordId || activeEntry.targetIdentity?.recordId).trim() }
+      : {}),
     productName,
     completed: safelyPublished.length,
     productIndex,
@@ -1422,7 +1403,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
     );
     return [
       `状态：失败｜发布已完成 ${Math.max(0, Math.min(productTotal, input.publishSafelyPublished || 0))}/${productTotal}｜失败目标 ${failedAt}/${productTotal}｜当前店铺 ${shopIndex}/${shopTotal}｜${feishuLabel}`,
-      `商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`,
+      `商品：${cleanAutoListingControllerProductName(input.activeItemName || input.productName)}`,
       `原因：${compactAutoListingControllerReason(input.summary)}`
     ].join("\n");
   }
@@ -1438,7 +1419,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   if (input.showPublishProgress === false && !input.imageGenerationProgress) {
     const lines = [`状态：${normalizeAutoListingControllerStatusLabel(input.status)}｜${feishuLabel}`];
     if (input.status === "failed") {
-      lines.push(`商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`);
+      lines.push(`商品：${cleanAutoListingControllerProductName(input.activeItemName || input.productName)}`);
       lines.push(`原因：${compactAutoListingControllerReason(input.summary)}`);
     } else if (input.summary) {
       lines.push(`进度：${compactAutoListingControllerReason(input.summary)}`);
@@ -1457,7 +1438,7 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   ];
 
   if (input.status === "failed") {
-    lines.push(`商品：${cleanAutoListingControllerProductName(input.productName || input.activeItemName)}`);
+    lines.push(`商品：${cleanAutoListingControllerProductName(input.activeItemName || input.productName)}`);
     lines.push(`原因：${compactAutoListingControllerReason(input.summary)}`);
     return lines.join("\n");
   }

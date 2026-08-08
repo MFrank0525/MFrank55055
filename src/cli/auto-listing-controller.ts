@@ -1653,9 +1653,9 @@ function existingStatus(): Record<string, unknown> {
           ? latestPublishedUpdatedAt
           : undefined;
   const exposePublishProgress = shouldExposePublishProgressInAutoListingControllerStatus({
-    running,
-    publishProgressAvailable: Boolean(publishProgress),
-    currentTaskStatus: String((state?.currentTask as Record<string, unknown> | undefined)?.status || ""),
+    running, publishProgressAvailable: Boolean(publishProgress),
+    currentTaskStatus: String(currentTask?.status || ""), currentTaskRecordId: String(currentTask?.recordId || ""),
+    publishRecordId: String((publishProgress?.publishGroupProgress as Record<string, unknown> | undefined)?.recordId || ""),
     stateProgressTimestamp: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined,
     publishProgressTimestamp
   });

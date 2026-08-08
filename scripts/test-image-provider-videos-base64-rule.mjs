@@ -1016,6 +1016,7 @@ assert.deepEqual(summarizeVideosBase64PaidResumePlan(product.productDir, [1, 2, 
 const unsafeRestartRoot = fs.mkdtempSync(path.join(os.tmpdir(), "videos-base64-unsafe-restart-"));
 const unsafeRestartLedgerRoot = path.join(unsafeRestartRoot, "ledger");
 const unsafeRestartSourceImage = path.join(unsafeRestartRoot, "source.png");
+const completedPng = path.join(unsafeRestartRoot, "completed.png");
 const unsafeRestartConfigFile = path.join(unsafeRestartRoot, "image-generation.json");
 const unsafeRestartPromptFile = path.join(unsafeRestartRoot, "prompt.docx");
 const unsafeRestartShopRoot = path.join(unsafeRestartRoot, "shops");
@@ -1036,6 +1037,10 @@ const unsafeRestartPromptParagraphs = [
   "negative prompt"
 ];
 fs.writeFileSync(unsafeRestartSourceImage, "source-image-bytes");
+fs.writeFileSync(
+  completedPng,
+  Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64")
+);
 fs.writeFileSync(unsafeRestartConfigFile, JSON.stringify(unsafeRestartConfig));
 writeSimpleWordDocument(unsafeRestartPromptFile, unsafeRestartPromptParagraphs);
 for (const shop of getShopSpecs()) {
@@ -1261,6 +1266,238 @@ assert.match(contentFailure.failureText, /content download failed.*HTTP 403.*con
 assert.doesNotMatch(contentFailure.failureText, /content-secret-token|content-signed-secret/);
 assert.doesNotMatch(contentFailure.runtimeText, /content-secret-token|content-signed-secret/);
 
+const staleResultRoot = path.join(unsafeRestartRoot, "stale-result-url");
+let staleResultSubmitCalls = 0;
+let staleResultContentCalls = 0;
+globalThis.fetch = async (url, init) => {
+  if (init?.method === "POST") {
+    staleResultSubmitCalls += 1;
+    return new Response(JSON.stringify({ id: "stale-result-task" }), { status: 200 });
+  }
+  if (String(url).endsWith("/stale-result-task/content")) {
+    staleResultContentCalls += 1;
+    return new Response(fs.readFileSync(completedPng), {
+      status: 200,
+      headers: { "content-type": "image/png" }
+    });
+  }
+  if (String(url).endsWith("/stale-result-task")) {
+    return new Response(
+      JSON.stringify({
+        id: "stale-result-task",
+        status: "completed",
+        result_url: "https://cdn.example/stale-result.png"
+      }),
+      { status: 200 }
+    );
+  }
+  if (String(url) === "https://cdn.example/stale-result.png") {
+    return new Response("Error 404 Object not found", { status: 404, statusText: "Not Found" });
+  }
+  throw new Error(`unexpected stale result transport: ${url}`);
+};
+try {
+  await generateMainImageAssets({
+    runtimeDir: path.join(staleResultRoot, "runtime"),
+    taskId: "image-001",
+    shopRootDir: unsafeRestartShopRoot,
+    sourceImagePath: unsafeRestartSourceImage,
+    sellingPointText: "test product",
+    brandedGenericName: "test product",
+    wordFiles: [unsafeRestartPromptFile],
+    imageGenerationProvider: "openai-compatible",
+    imageGenerationConfigFile: unsafeRestartConfigFile,
+    mainImageExpectedCount: 1,
+    mainImageCountStrategy: "exact",
+    promptCount: 1,
+    shopCodes: ["01"],
+    imagesPerShop: 1,
+    feishuRecordId: "stale-result-record",
+    feishuBatchFingerprint: "stale-result-batch",
+    paidImageSubmissionLedgerDir: path.join(staleResultRoot, "ledger"),
+    simulateOnly: false
+  });
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.equal(staleResultSubmitCalls, 1, "a stale result URL must not resubmit the accepted paid task");
+assert.equal(staleResultContentCalls, 1, "a stale result URL must fall back to authenticated task content");
+
+const expiredContentRoot = path.join(unsafeRestartRoot, "expired-completed-content");
+const expiredContentLedger = initializePaidImageProductLedger({
+  rootDir: path.join(expiredContentRoot, "ledger"),
+  batchFingerprint: "expired-content-batch",
+  recordId: "expired-content-record",
+  expectedSlotCount: 1,
+  providerIdentity: unsafeRestartLedger.providerIdentity,
+  sourceImageDigest: sha256File(unsafeRestartSourceImage)
+});
+let expiredContentSubmitCalls = 0;
+globalThis.fetch = async (url, init) => {
+  if (init?.method === "POST") {
+    expiredContentSubmitCalls += 1;
+    return new Response(
+      JSON.stringify({ id: expiredContentSubmitCalls === 1 ? "expired-content-task" : "expired-content-replacement" }),
+      { status: 200 }
+    );
+  }
+  if (String(url).endsWith("/expired-content-task/content")) {
+    return new Response(JSON.stringify({ code: "object_not_found" }), { status: 404, statusText: "Not Found" });
+  }
+  if (String(url).endsWith("/expired-content-task")) {
+    return new Response(
+      JSON.stringify({
+        id: "expired-content-task",
+        status: "completed",
+        result_url: "https://cdn.example/expired-content.png"
+      }),
+      { status: 200 }
+    );
+  }
+  if (String(url) === "https://cdn.example/expired-content.png") {
+    return new Response("Error 404 Object not found", { status: 404, statusText: "Not Found" });
+  }
+  if (String(url).endsWith("/expired-content-replacement")) {
+    return new Response(
+      JSON.stringify({
+        id: "expired-content-replacement",
+        status: "completed",
+        result_url: "https://provider.example/expired-content-replacement.png"
+      }),
+      { status: 200 }
+    );
+  }
+  if (String(url) === "https://provider.example/expired-content-replacement.png") {
+    return new Response(fs.readFileSync(completedPng), { status: 200, headers: { "content-type": "image/png" } });
+  }
+  throw new Error(`unexpected expired content transport: ${url}`);
+};
+try {
+  await generateMainImageAssets({
+    runtimeDir: path.join(expiredContentRoot, "runtime"),
+    taskId: "image-001",
+    shopRootDir: unsafeRestartShopRoot,
+    sourceImagePath: unsafeRestartSourceImage,
+    sellingPointText: "test product",
+    brandedGenericName: "test product",
+    wordFiles: [unsafeRestartPromptFile],
+    imageGenerationProvider: "openai-compatible",
+    imageGenerationConfigFile: unsafeRestartConfigFile,
+    mainImageExpectedCount: 1,
+    mainImageCountStrategy: "exact",
+    promptCount: 1,
+    shopCodes: ["01"],
+    imagesPerShop: 1,
+    feishuRecordId: "expired-content-record",
+    feishuBatchFingerprint: "expired-content-batch",
+    paidImageSubmissionLedgerDir: path.join(expiredContentRoot, "ledger"),
+    simulateOnly: false
+  });
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.equal(expiredContentSubmitCalls, 2, "double 404 recovery must replace only the expired fixed slot once");
+const expiredContentSlot = JSON.parse(
+  fs.readFileSync(path.join(expiredContentLedger.productDir, "slots", "01.json"), "utf8")
+);
+assert.equal(expiredContentSlot.state, "completed");
+assert.equal(expiredContentSlot.providerTaskId, "expired-content-replacement");
+assert.equal(
+  expiredContentSlot.audit.filter((entry) => entry.state === "failed_after_acceptance").length,
+  1,
+  "double 404 recovery must preserve exactly one accepted-task expiration record"
+);
+
+const expiredTaskRoot = path.join(unsafeRestartRoot, "expired-accepted-task");
+const expiredTaskLedger = initializePaidImageProductLedger({
+  rootDir: path.join(expiredTaskRoot, "ledger"),
+  batchFingerprint: "expired-task-batch",
+  recordId: "expired-task-record",
+  expectedSlotCount: 1,
+  providerIdentity: unsafeRestartLedger.providerIdentity,
+  sourceImageDigest: sha256File(unsafeRestartSourceImage)
+});
+reservePaidImageSlot({
+  productDir: expiredTaskLedger.productDir,
+  slot: 1,
+  requestDigest: sha256Text(unsafeRestartRequestBody),
+  promptDigest: sha256Text(unsafeRestartPromptText),
+  owner: { runId: "expired-first-process", taskId: "image-001" }
+});
+recordPaidImageSubmitted({
+  productDir: expiredTaskLedger.productDir,
+  slot: 1,
+  providerTaskId: "expired-provider-task"
+});
+let expiredTaskSubmitCalls = 0;
+let expiredTaskOldPollCalls = 0;
+globalThis.fetch = async (url, init) => {
+  if (init?.method === "POST") {
+    expiredTaskSubmitCalls += 1;
+    return new Response(JSON.stringify({ id: "expired-task-replacement" }), { status: 200 });
+  }
+  if (String(url).endsWith("/expired-provider-task")) {
+    expiredTaskOldPollCalls += 1;
+    return new Response(JSON.stringify({ code: "task_not_found", message: "task expired" }), {
+      status: 404,
+      statusText: "Not Found"
+    });
+  }
+  if (String(url).endsWith("/expired-task-replacement")) {
+    return new Response(
+      JSON.stringify({
+        id: "expired-task-replacement",
+        status: "completed",
+        result_url: "https://provider.example/expired-task-replacement.png"
+      }),
+      { status: 200 }
+    );
+  }
+  if (String(url) === "https://provider.example/expired-task-replacement.png") {
+    return new Response(fs.readFileSync(completedPng), {
+      status: 200,
+      headers: { "content-type": "image/png" }
+    });
+  }
+  throw new Error(`unexpected expired task transport: ${url}`);
+};
+try {
+  await generateMainImageAssets({
+    runtimeDir: path.join(expiredTaskRoot, "runtime"),
+    taskId: "image-001",
+    shopRootDir: unsafeRestartShopRoot,
+    sourceImagePath: unsafeRestartSourceImage,
+    sellingPointText: "test product",
+    brandedGenericName: "test product",
+    wordFiles: [unsafeRestartPromptFile],
+    imageGenerationProvider: "openai-compatible",
+    imageGenerationConfigFile: unsafeRestartConfigFile,
+    mainImageExpectedCount: 1,
+    mainImageCountStrategy: "exact",
+    promptCount: 1,
+    shopCodes: ["01"],
+    imagesPerShop: 1,
+    feishuRecordId: "expired-task-record",
+    feishuBatchFingerprint: "expired-task-batch",
+    paidImageSubmissionLedgerDir: path.join(expiredTaskRoot, "ledger"),
+    simulateOnly: false
+  });
+} finally {
+  globalThis.fetch = originalFetch;
+}
+assert.equal(expiredTaskOldPollCalls, 1, "an expired accepted task must be queried once before recovery");
+assert.equal(expiredTaskSubmitCalls, 1, "recovery must replace only the expired fixed paid slot once");
+const expiredTaskSlot = JSON.parse(
+  fs.readFileSync(path.join(expiredTaskLedger.productDir, "slots", "01.json"), "utf8")
+);
+assert.equal(expiredTaskSlot.state, "completed");
+assert.equal(expiredTaskSlot.providerTaskId, "expired-task-replacement");
+assert.deepEqual(
+  expiredTaskSlot.audit.map((entry) => entry.state),
+  ["reserved", "submitted", "failed_after_acceptance", "reserved", "submitted", "completed"],
+  "expired-task recovery must preserve an auditable fixed-slot transition history"
+);
+
 const malformedSubmitFailure = await captureProviderFailure("malformed-submit-secret", async (_url, init) => {
   if (init?.method === "POST") {
     return new Response(
@@ -1299,11 +1536,6 @@ const policyRestartLedger = initializePaidImageProductLedger({
   providerIdentity: unsafeRestartLedger.providerIdentity,
   sourceImageDigest: sha256File(unsafeRestartSourceImage)
 });
-const completedPng = path.join(unsafeRestartRoot, "completed.png");
-fs.writeFileSync(
-  completedPng,
-  Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64")
-);
 for (const slot of [1, 2]) {
   reservePaidImageSlot({
     productDir: policyRestartLedger.productDir,

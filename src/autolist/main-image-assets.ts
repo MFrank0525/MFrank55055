@@ -948,6 +948,26 @@ async function generateWithOpenAiCompatibleProvider(options: {
     }
   };
 
+  const downloadVideosBase64TaskContent = async (
+    taskId: string,
+    targetFile: string,
+    imageIndex: number
+  ): Promise<void> => {
+    const contentResponse = await fetchVideosBase64TaskWithTransportRetries(taskId, true, imageIndex, "content");
+    if (!contentResponse.ok) {
+      const contentError = await contentResponse.text().catch(() => "");
+      const safeContentError = sanitizeImageGenerationProviderErrorText(contentError, contentResponse.statusText);
+      throw normalizeImageGenerationError(
+        "videos-base64 content download failed with HTTP " + contentResponse.status + ": " + safeContentError
+      );
+    }
+    const contentType = contentResponse.headers.get("content-type") || "";
+    if (contentType && !/^image\/|application\/octet-stream/i.test(contentType)) {
+      throw normalizeImageGenerationError("videos-base64 content response was not an image: " + contentType);
+    }
+    fs.writeFileSync(targetFile, Buffer.from(await contentResponse.arrayBuffer()));
+  };
+
   const buildPromptForImageIndex = (_imageIndex: number): string => options.promptText;
 
   const generateVideosBase64ImageAttempt = async (absoluteImageIndex: number): Promise<{ file: string; submitId: string }> => {
@@ -1200,6 +1220,15 @@ async function generateWithOpenAiCompatibleProvider(options: {
         writeImageGenerationTextLog(path.join(options.downloadDir, "response-" + paddedImageIndex + "-status-" + pollNo + ".json"), statusText);
         if (!statusResponse.ok) {
           const safeStatusText = sanitizeImageGenerationProviderErrorText(statusText, statusResponse.statusText);
+          if (statusResponse.status === 404 && videosBase64Ledger) {
+            recordPaidImageFailedAfterAcceptance({
+              productDir: videosBase64Ledger.productDir,
+              slot: ledgerSlot,
+              providerTaskId: taskId,
+              reason: `accepted provider task expired: status endpoint returned HTTP 404 task_not_found`,
+              providerResponse: { status: statusResponse.status, message: safeStatusText }
+            });
+          }
           throw normalizeImageGenerationError(
             "videos-base64 status failed with HTTP " + statusResponse.status + ": " + safeStatusText
           );
@@ -1247,23 +1276,36 @@ async function generateWithOpenAiCompatibleProvider(options: {
       throw normalizeImageGenerationError(`videos-base64 task ${taskId} timed out after ${maxPollMs}ms.`);
     }
 
-    const resultUrl = extractVideosBase64ResultUrl(statusPayload);
-    if (resultUrl) {
-      await downloadVideosBase64ResultWithTransportRetries(resultUrl, targetFile, taskId, absoluteImageIndex);
-    } else {
-      const contentResponse = await fetchVideosBase64TaskWithTransportRetries(taskId, true, absoluteImageIndex, "content");
-      if (!contentResponse.ok) {
-        const contentError = await contentResponse.text().catch(() => "");
-        const safeContentError = sanitizeImageGenerationProviderErrorText(contentError, contentResponse.statusText);
-        throw normalizeImageGenerationError(
-          "videos-base64 content download failed with HTTP " + contentResponse.status + ": " + safeContentError
-        );
+    try {
+      const resultUrl = extractVideosBase64ResultUrl(statusPayload);
+      if (resultUrl) {
+        try {
+          await downloadVideosBase64ResultWithTransportRetries(resultUrl, targetFile, taskId, absoluteImageIndex);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!/HTTP\s+404\b/i.test(message)) {
+            throw error;
+          }
+          options.onProgress?.(
+            `Image ${absoluteImageIndex}: result URL missing; falling back to authenticated content for accepted task ${taskId}.`
+          );
+          await downloadVideosBase64TaskContent(taskId, targetFile, absoluteImageIndex);
+        }
+      } else {
+        await downloadVideosBase64TaskContent(taskId, targetFile, absoluteImageIndex);
       }
-      const contentType = contentResponse.headers.get("content-type") || "";
-      if (contentType && !/^image\/|application\/octet-stream/i.test(contentType)) {
-        throw normalizeImageGenerationError("videos-base64 content response was not an image: " + contentType);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/videos-base64 content download failed with HTTP\s+404\b/i.test(message) && videosBase64Ledger) {
+        recordPaidImageFailedAfterAcceptance({
+          productDir: videosBase64Ledger.productDir,
+          slot: ledgerSlot,
+          providerTaskId: taskId,
+          reason: "accepted provider task expired: authenticated content endpoint returned HTTP 404 after completed status",
+          providerResponse: statusPayload
+        });
       }
-      fs.writeFileSync(targetFile, Buffer.from(await contentResponse.arrayBuffer()));
+      throw error;
     }
     if (videosBase64Ledger) {
       recordPaidImageCompleted({

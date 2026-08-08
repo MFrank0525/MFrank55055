@@ -235,8 +235,11 @@ export function shouldKeepPaidImagePolicyCompatiblePrompt(input: {
 }
 
 export function isAcceptedPaidImageTaskTimeoutReason(reason: string): boolean {
-  const hasTimeout = /task_timeout|timeout|timed out|did not finish within|queued\/pending beyond|超时/i.test(reason);
-  const hasAcceptedTaskContext = /provider task failed|accepted task|submitted provider task/i.test(reason);
+  const hasTimeout =
+    /task_timeout|timeout|timed out|did not finish within|queued\/pending beyond|accepted provider task (?:expired|missing)|status endpoint returned HTTP 404|task[_ -]?not[_ -]?found|任务(?:已)?过期|任务不存在|超时/i.test(
+      reason
+    );
+  const hasAcceptedTaskContext = /provider task failed|accepted (?:provider )?task|submitted provider task/i.test(reason);
   return hasTimeout && hasAcceptedTaskContext;
 }
 
