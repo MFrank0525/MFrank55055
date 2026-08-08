@@ -137,6 +137,7 @@ import {
   evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
+  evaluateShopTargetSelectionState,
   resolveProductListPreflightMode,
   shouldRunPendingTargetProductListPreflight,
   shouldRetryPublishFailure,
@@ -2096,6 +2097,29 @@ assert.deepEqual(switchEntryUnavailable, {
   action: "retry_menu",
   issue: "Shop switch entry is unavailable while current shop does not match target."
 });
+
+assert.deepEqual(
+  evaluateShopTargetSelectionState({
+    selectionReported: false,
+    chooserVisibleAfterSelection: false
+  }),
+  {
+    action: "retry_transient_page",
+    issue: "Shop chooser disappeared before target selection could be verified."
+  },
+  "a vanished chooser plus a loading shell must retry instead of reporting the canonical shop missing"
+);
+assert.deepEqual(
+  evaluateShopTargetSelectionState({
+    selectionReported: false,
+    chooserVisibleAfterSelection: true
+  }),
+  {
+    action: "fail_target_missing",
+    issue: "Target shop is absent from the stable shop chooser."
+  },
+  "a stable chooser that truly lacks the target must still fail closed"
+);
 
 const cleanupTargets = selectCleanupTargets({
   candidates: [

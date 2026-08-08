@@ -136,6 +136,16 @@ export interface ShopSwitchMenuStateDecision {
   issue: string;
 }
 
+export interface ShopTargetSelectionStateInput {
+  selectionReported: boolean;
+  chooserVisibleAfterSelection: boolean;
+}
+
+export interface ShopTargetSelectionStateDecision {
+  action: "selected" | "retry_transient_page" | "fail_target_missing";
+  issue: string;
+}
+
 export interface PlatformSpuQueryPageReadinessInput {
   url: string;
   bodyText: string;
@@ -283,6 +293,24 @@ export function evaluateShopSwitchMenuState(input: ShopSwitchMenuStateInput): Sh
   return {
     action: "retry_menu",
     issue: "Shop switch entry is unavailable while current shop does not match target."
+  };
+}
+
+export function evaluateShopTargetSelectionState(
+  input: ShopTargetSelectionStateInput
+): ShopTargetSelectionStateDecision {
+  if (input.selectionReported) {
+    return { action: "selected", issue: "" };
+  }
+  if (!input.chooserVisibleAfterSelection) {
+    return {
+      action: "retry_transient_page",
+      issue: "Shop chooser disappeared before target selection could be verified."
+    };
+  }
+  return {
+    action: "fail_target_missing",
+    issue: "Target shop is absent from the stable shop chooser."
   };
 }
 

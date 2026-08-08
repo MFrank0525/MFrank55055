@@ -131,8 +131,13 @@ assert.match(
 );
 assert.match(
   functionBody("ensureShopContextAttempt"),
-  /if \(!selected\) \{[\s\S]*shop-switch-target-missing\.html[\s\S]*shop-switch-target-missing\.png/,
+  /if \(selectionDecision\.action !== "selected"\)[\s\S]*shop-switch-target-missing[\s\S]*`\$\{evidenceName\}\.html`[\s\S]*`\$\{evidenceName\}\.png`/,
   "A target-selection failure must retain both DOM and screenshot evidence"
+);
+assert.match(
+  functionBody("ensureShopContextAttempt"),
+  /evaluateShopTargetSelectionState\([\s\S]*chooserVisibleAfterSelection[\s\S]*retry_transient_page[\s\S]*continue/,
+  "A chooser that vanished into a loading/navigation shell must retry the bounded shop-switch attempt"
 );
 
 console.log("shop switch structure rule passed");

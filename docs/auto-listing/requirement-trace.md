@@ -235,3 +235,11 @@
 | Prevent SPU entry from silently clearing brand | Brand is read again after SPU entry and must still exactly match before the query button can be clicked | Production-shaped regression and structural ordering assertion | verified |
 | Recover safely from a transient dropdown failure | Missing or lost brand commitment maps to `platform_page_not_ready`, receives the existing bounded page rebuild retries, and never reaches query or publish | Failure classification regression and full `rules:check` | verified |
 | Verify the corrected control on the real page | Real keyboard input exposed exactly one `延草纲目` brand option and the selected display read back `延草纲目` twice; no query or publish click was issued | Headed CDP DOM check in the fixed browser profile | verified |
+
+## 2026-08-08 Vanished shop-chooser recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Distinguish a transient page reload from a truly missing canonical shop | Target absence is terminal only while the chooser remains stably visible; a vanished chooser is classified as a transient navigation/loading state | Run `20260808-183053`, target 13 screenshot and zero-byte chooser DOM; production-shaped rule regression | verified |
+| Retry without crossing the publish boundary | The action returns to the canonical SPU page and retries the same shop switch at most three times; the existing current-shop readback remains the success gate | Structural shop-switch regression; `publish-submit-attempt.json` remains `not_attempted`; live target-13 readback matched | verified |
+| Preserve fail-closed evidence | A stable chooser missing the exact shop still stops and saves DOM plus screenshot; the final unstable attempt uses its own evidence name | Rule regression for both transient and stable-missing branches; live check used no publish/form mutation | verified |

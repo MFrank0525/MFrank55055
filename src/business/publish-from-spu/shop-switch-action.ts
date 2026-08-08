@@ -9,7 +9,11 @@ import {
   savePageScreenshot
 } from "./browser-session.js";
 import { normalizeShopName, resolveExpectedShopName } from "./shop-name.js";
-import { evaluateShopSwitchMenuState, isDoudianLoginPageText } from "./publish-rules.js";
+import {
+  evaluateShopSwitchMenuState,
+  evaluateShopTargetSelectionState,
+  isDoudianLoginPageText
+} from "./publish-rules.js";
 
 async function evaluateAfterNavigationSettles<T>(
   page: Page,
@@ -983,10 +987,32 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
     }
 
     const selected = await selectShopFromDialog(page, expectedShopName);
-    if (!selected) {
-      await saveShopSwitchDomSnapshot(page, runtimeDir, "shop-switch-target-missing.html").catch(() => "");
-      const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-target-missing.png").catch(() => "");
-      throw new Error(`Shop switch failed: target shop not found in selector for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
+    const chooserVisibleAfterSelection = selected
+      ? false
+      : await waitForChooseShopDialog(page);
+    const selectionDecision = evaluateShopTargetSelectionState({
+      selectionReported: selected,
+      chooserVisibleAfterSelection
+    });
+    if (selectionDecision.action === "retry_transient_page" && attempt < 2) {
+      logWarn(
+        `shop chooser vanished before target verification; retrying from canonical page (${attempt + 1}/3)`
+      );
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + attempt * 1500).catch(() => {});
+      await page.waitForTimeout(1000 + attempt * 500);
+      await page.keyboard.press("Escape").catch(() => {});
+      continue;
+    }
+    if (selectionDecision.action !== "selected") {
+      const evidenceName = selectionDecision.action === "fail_target_missing"
+        ? "shop-switch-target-missing"
+        : "shop-switch-selection-unstable";
+      await saveShopSwitchDomSnapshot(page, runtimeDir, `${evidenceName}.html`).catch(() => "");
+      const screenshotFile = await savePageScreenshot(page, runtimeDir, `${evidenceName}.png`).catch(() => "");
+      throw new Error(
+        `Shop switch failed: ${selectionDecision.issue} target=${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
+      );
     }
 
     await page.waitForLoadState("domcontentloaded").catch(() => {});
