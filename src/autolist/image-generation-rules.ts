@@ -243,6 +243,20 @@ export function isAcceptedPaidImageTaskTimeoutReason(reason: string): boolean {
   return hasTimeout && hasAcceptedTaskContext;
 }
 
+export function shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted(input: {
+  taskCompleted: boolean;
+  resultUrlStatus?: number;
+  contentStatus?: number;
+  contentRetriesExhausted: boolean;
+}): boolean {
+  return (
+    input.taskCompleted &&
+    input.resultUrlStatus === 404 &&
+    input.contentRetriesExhausted &&
+    [502, 503, 504, 520, 521, 522, 523, 524].includes(Number(input.contentStatus || 0))
+  );
+}
+
 function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
   const hasStrongUncertainty =
     /response.*ambiguous|(?:missing|before|without|did not include).*task id|task id.*(?:missing|not received|not returned)/i.test(

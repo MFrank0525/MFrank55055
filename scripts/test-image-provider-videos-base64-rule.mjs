@@ -26,7 +26,8 @@ import {
   isUnsafePaidImageReplayReason,
   resolvePaidImageProviderTimeoutRetry,
   resolvePaidImageProviderServiceRetry,
-  resolvePaidImageFixedSlotRecovery
+  resolvePaidImageFixedSlotRecovery,
+  shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
   initializePaidImageProductLedger,
@@ -901,6 +902,27 @@ assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("ECONNRESET before r
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("videos-base64 task abc failed"), false);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 180000);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 60000), 180000);
+assert.equal(
+  shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted({
+    taskCompleted: true,
+    resultUrlStatus: 404,
+    contentStatus: 502,
+    contentRetriesExhausted: true
+  }),
+  true
+);
+for (const unsafeCase of [
+  { taskCompleted: false, resultUrlStatus: 404, contentStatus: 502, contentRetriesExhausted: true },
+  { taskCompleted: true, resultUrlStatus: 200, contentStatus: 502, contentRetriesExhausted: true },
+  { taskCompleted: true, resultUrlStatus: 404, contentStatus: 403, contentRetriesExhausted: true },
+  { taskCompleted: true, resultUrlStatus: 404, contentStatus: 502, contentRetriesExhausted: false }
+]) {
+  assert.equal(
+    shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted(unsafeCase),
+    false,
+    `result-delivery replacement must fail closed for ${JSON.stringify(unsafeCase)}`
+  );
+}
 assert.equal(resolveOpenAiCompatibleImageMode("videos-base64", "https://relay.example/v1/videos"), "videos-base64");
 assert.equal(resolveOpenAiCompatibleImageMode("videos-base64", "http://relay.example/v1/videos"), "videos-base64");
 const invalidEndpointUrls = [
@@ -1406,6 +1428,101 @@ assert.equal(
   expiredContentSlot.audit.filter((entry) => entry.state === "failed_after_acceptance").length,
   1,
   "double 404 recovery must preserve exactly one accepted-task expiration record"
+);
+
+const exhaustedGatewayRoot = path.join(unsafeRestartRoot, "completed-result-gateway-exhausted");
+const exhaustedGatewayLedger = initializePaidImageProductLedger({
+  rootDir: path.join(exhaustedGatewayRoot, "ledger"),
+  batchFingerprint: "gateway-exhausted-batch",
+  recordId: "gateway-exhausted-record",
+  expectedSlotCount: 1,
+  providerIdentity: unsafeRestartLedger.providerIdentity,
+  sourceImageDigest: sha256File(unsafeRestartSourceImage)
+});
+let exhaustedGatewaySubmitCalls = 0;
+let exhaustedGatewayContentCalls = 0;
+const originalSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (callback, delay, ...args) => originalSetTimeout(callback, Math.min(Number(delay) || 0, 1), ...args);
+globalThis.fetch = async (url, init) => {
+  if (init?.method === "POST") {
+    exhaustedGatewaySubmitCalls += 1;
+    return new Response(
+      JSON.stringify({
+        id: exhaustedGatewaySubmitCalls === 1 ? "gateway-exhausted-task" : "gateway-exhausted-replacement"
+      }),
+      { status: 200 }
+    );
+  }
+  if (String(url).endsWith("/gateway-exhausted-task/content")) {
+    exhaustedGatewayContentCalls += 1;
+    return new Response("Bad gateway", { status: 502, statusText: "Bad Gateway" });
+  }
+  if (String(url).endsWith("/gateway-exhausted-task")) {
+    return new Response(
+      JSON.stringify({
+        id: "gateway-exhausted-task",
+        status: "completed",
+        progress: 100,
+        result_url: "https://cdn.example/gateway-exhausted.png"
+      }),
+      { status: 200 }
+    );
+  }
+  if (String(url) === "https://cdn.example/gateway-exhausted.png") {
+    return new Response("Error 404 Object not found", { status: 404, statusText: "Not Found" });
+  }
+  if (String(url).endsWith("/gateway-exhausted-replacement")) {
+    return new Response(
+      JSON.stringify({
+        id: "gateway-exhausted-replacement",
+        status: "completed",
+        progress: 100,
+        result_url: "https://provider.example/gateway-exhausted-replacement.png"
+      }),
+      { status: 200 }
+    );
+  }
+  if (String(url) === "https://provider.example/gateway-exhausted-replacement.png") {
+    return new Response(fs.readFileSync(completedPng), { status: 200, headers: { "content-type": "image/png" } });
+  }
+  throw new Error(`unexpected exhausted gateway transport: ${url}`);
+};
+try {
+  await generateMainImageAssets({
+    runtimeDir: path.join(exhaustedGatewayRoot, "runtime"),
+    taskId: "image-001",
+    shopRootDir: unsafeRestartShopRoot,
+    sourceImagePath: unsafeRestartSourceImage,
+    sellingPointText: "test product",
+    brandedGenericName: "test product",
+    wordFiles: [unsafeRestartPromptFile],
+    imageGenerationProvider: "openai-compatible",
+    imageGenerationConfigFile: unsafeRestartConfigFile,
+    mainImageExpectedCount: 1,
+    mainImageCountStrategy: "exact",
+    promptCount: 1,
+    shopCodes: ["01"],
+    imagesPerShop: 1,
+    feishuRecordId: "gateway-exhausted-record",
+    feishuBatchFingerprint: "gateway-exhausted-batch",
+    paidImageSubmissionLedgerDir: path.join(exhaustedGatewayRoot, "ledger"),
+    simulateOnly: false
+  });
+} finally {
+  globalThis.fetch = originalFetch;
+  globalThis.setTimeout = originalSetTimeout;
+}
+assert.equal(exhaustedGatewayContentCalls, 9, "completed-task content must exhaust the initial read plus 8 retries");
+assert.equal(exhaustedGatewaySubmitCalls, 2, "exhausted result delivery must replace only the fixed lost-result slot");
+const exhaustedGatewaySlot = JSON.parse(
+  fs.readFileSync(path.join(exhaustedGatewayLedger.productDir, "slots", "01.json"), "utf8")
+);
+assert.equal(exhaustedGatewaySlot.state, "completed");
+assert.equal(exhaustedGatewaySlot.providerTaskId, "gateway-exhausted-replacement");
+assert.match(
+  exhaustedGatewaySlot.audit.find((entry) => entry.state === "failed_after_acceptance")?.reason || "",
+  /completed.*result URL.*404.*content.*502.*exhausted/i,
+  "the fixed-slot ledger must preserve all evidence needed to authorize the one replacement"
 );
 
 const expiredTaskRoot = path.join(unsafeRestartRoot, "expired-accepted-task");

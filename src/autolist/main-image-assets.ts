@@ -21,7 +21,8 @@ import {
   submitTransportFailureProvesNoPaidTaskAccepted,
   shouldRetryImageGenerationWithPolicyPrompt,
   shouldKeepPaidImagePolicyCompatiblePrompt,
-  resolvePaidImageFixedSlotRecovery
+  resolvePaidImageFixedSlotRecovery,
+  shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { ensureSquareMainImageFile } from "./main-image-square-action.js";
@@ -1276,6 +1277,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
       throw normalizeImageGenerationError(`videos-base64 task ${taskId} timed out after ${maxPollMs}ms.`);
     }
 
+    let resultUrlStatus: number | undefined;
     try {
       const resultUrl = extractVideosBase64ResultUrl(statusPayload);
       if (resultUrl) {
@@ -1286,6 +1288,7 @@ async function generateWithOpenAiCompatibleProvider(options: {
           if (!/HTTP\s+404\b/i.test(message)) {
             throw error;
           }
+          resultUrlStatus = 404;
           options.onProgress?.(
             `Image ${absoluteImageIndex}: result URL missing; falling back to authenticated content for accepted task ${taskId}.`
           );
@@ -1296,12 +1299,22 @@ async function generateWithOpenAiCompatibleProvider(options: {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (/videos-base64 content download failed with HTTP\s+404\b/i.test(message) && videosBase64Ledger) {
+      const contentStatusMatch = /videos-base64 content download failed with HTTP\s+(\d{3})\b/i.exec(message);
+      const contentStatus = contentStatusMatch ? Number(contentStatusMatch[1]) : undefined;
+      const completedResultDeliveryExhausted = shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted({
+        taskCompleted: videosBase64Succeeded(statusPayload),
+        resultUrlStatus,
+        contentStatus,
+        contentRetriesExhausted: true
+      });
+      if ((contentStatus === 404 || completedResultDeliveryExhausted) && videosBase64Ledger) {
         recordPaidImageFailedAfterAcceptance({
           productDir: videosBase64Ledger.productDir,
           slot: ledgerSlot,
           providerTaskId: taskId,
-          reason: "accepted provider task expired: authenticated content endpoint returned HTTP 404 after completed status",
+          reason: completedResultDeliveryExhausted
+            ? `accepted provider task missing result after completed status: result URL HTTP 404; authenticated content HTTP ${contentStatus} exhausted transient retries`
+            : "accepted provider task expired: authenticated content endpoint returned HTTP 404 after completed status",
           providerResponse: statusPayload
         });
       }
