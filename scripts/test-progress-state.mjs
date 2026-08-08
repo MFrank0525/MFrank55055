@@ -5664,6 +5664,32 @@ assert.deepEqual(
     reason: "http_transient"
   }
 );
+assert.deepEqual(
+  resolveImageGenerationHttpRetryPolicy({
+    status: 400,
+    responseText: "<html><head><title>400 Bad Request</title></head><body><center>openresty</center></body></html>",
+    configuredMaxRetries: undefined
+  }),
+  {
+    maxRetries: 8,
+    delayMs: [60000, 90000, 120000, 180000, 180000, 180000, 180000, 180000],
+    reason: "provider_upstream_failed"
+  },
+  "a proxy-generated bare openresty 400 must stay inside long retry"
+);
+assert.deepEqual(
+  resolveImageGenerationHttpRetryPolicy({
+    status: 400,
+    responseText: '{"error":{"message":"invalid request: prompt is required"}}',
+    configuredMaxRetries: undefined
+  }),
+  {
+    maxRetries: 3,
+    delayMs: [3000, 6000, 9000],
+    reason: "http_transient"
+  },
+  "a business validation 400 must not be reclassified as a proxy outage"
+);
 assert.deepEqual(evaluateImageGenerationEndpointProbe({ status: 404, statusText: "Not Found" }), {
   passed: true,
   issue: "",

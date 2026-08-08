@@ -832,14 +832,17 @@ async function generateWithOpenAiCompatibleProvider(options: {
   ): Promise<{ response: Response; text: string }> => {
     for (let attempt = 0; ; attempt += 1) {
       const result = await sendRequest(requestBody, "application/json", videosBase64SubmitTimeoutMs);
-      if (!isTransientImageProviderStatus(result.response.status)) {
-        return result;
-      }
       const retryPolicy = resolveImageGenerationHttpRetryPolicy({
         status: result.response.status,
         responseText: result.text,
         configuredMaxRetries: config.maxTransientRetries
       });
+      if (
+        !isTransientImageProviderStatus(result.response.status) &&
+        retryPolicy.reason === "http_transient"
+      ) {
+        return result;
+      }
       if (attempt >= retryPolicy.maxRetries) {
         return result;
       }

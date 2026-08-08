@@ -889,6 +889,18 @@ assert.deepEqual(
   },
   "nested upstream_error submit rejections must stay inside long self-driven retry instead of terminating the child"
 );
+assert.deepEqual(
+  resolveImageGenerationHttpRetryPolicy({
+    status: 400,
+    responseText: "<html><head><title>400 Bad Request</title></head><body><center>openresty</center></body></html>"
+  }),
+  {
+    maxRetries: 8,
+    delayMs: [60000, 90000, 120000, 180000, 180000, 180000, 180000, 180000],
+    reason: "provider_upstream_failed"
+  },
+  "bare openresty 400 responses must be treated as reverse-proxy outages"
+);
 assert.equal(
   providerExplicitlyProvesNoPaidTaskAccepted(
     503,

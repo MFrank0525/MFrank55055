@@ -178,7 +178,14 @@ export function resolveImageGenerationHttpRetryPolicy(input: ImageGenerationHttp
       reason: "provider_gateway_unavailable"
     };
   }
-  if (/do[_ -]?request[_ -]?failed|upstream[_ -]?error|upstream.*failed/i.test(input.responseText)) {
+  if (
+    /do[_ -]?request[_ -]?failed|upstream[_ -]?error|upstream.*failed/i.test(input.responseText) ||
+    (
+      input.status === 400 &&
+      /<title>\s*400\s+Bad\s+Request\s*<\/title>/i.test(input.responseText) &&
+      /(?:openresty|nginx)/i.test(input.responseText)
+    )
+  ) {
     return {
       maxRetries: longMaxRetries,
       delayMs: longDelayMs,
