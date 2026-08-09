@@ -316,3 +316,12 @@ Final evidence: full `rules:check`, all Doctor modes, live Feishu 23-field readb
 | Verify the OTC SPU with the correct category field | Service-entry safety gate reads `药品批准文号` and parses `国药准字...` for OTC instead of searching medical-device registration labels | Service-fulfillment and category-isolation regressions; live continuation passed the SPU gate and reached service fulfillment | verified |
 | Enforce OTC after-sales and freight settings without coordinates | OTC category policy selects and reads back `售后政策=不支持7天无理由退货`; all categories accept only a freight-template readback containing `延草运费`; actions use field-root/radio/dropdown DOM relationships only | Service-fulfillment regression; DOM-only and no-coordinate-click audits | implemented; live verification pending |
 | Preserve actionable evidence for service-fulfillment failures | Failure evidence proved `售后政策` is a dropdown below a separate `售后服务` checkbox. A reusable labeled-select action now resolves the dropdown through field ancestry, selects one exact option and independently reads it back; failures retain a screenshot and bounded DOM summary | Screenshot `publish-page-fixed-settings-failed.png`; service-fulfillment, DOM-only, no-coordinate and module-size regressions | implemented; live verification pending |
+
+## 2026-08-10 Operator-reviewed negative submit recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why OTC target 8 permanently stopped the batch | Initial and live read-only exact-title queries in shop 02 both returned stable `共0条` more than seven hours apart; ordinary resume correctly preserved the uncertain boundary but had no reviewed recovery path | Runtime result, attempt ledger, two `doudian-list-full-title-...-not-found.png` artifacts | verified |
+| Keep normal resume non-idempotent | Existing uncertain results still stop unless an exact identity-bound manual recovery marker exists | Existing progress-state regressions plus recovery unit test | verified |
+| Allow one reviewed recovery only on strong negative evidence | New recovery action requires an old attempted boundary, prior negative screenshot, exact shop/title identity and a second live `共0条`; it archives evidence before approval | `test-uncertain-publish-recovery.mjs`; live production recovery | implemented; live execution pending |
+| Close verifier browser ownership | Exact-title verification closes its persistent context in `finally` | Build and live verifier process exit | implemented; live verification pending |

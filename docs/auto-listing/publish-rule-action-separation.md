@@ -66,6 +66,7 @@ These files are rules-facing records. Browser actions may produce raw screenshot
 9. Failed entries must keep an `errorClass` so the next optimization can target the failure category instead of replaying the whole flow.
 10. Doudian backend page readiness failures such as platform SPU query page still loading, browser context loss, or target page loss are retryable system failures. Store that classification in `publish-rules.ts`; action code may wait, reload, and retry, but it must not mark the product safely published.
 11. Business validation failures such as missing required fields, image slot validation, shop mismatch, or SPU row mismatch are not retryable system failures unless a rule explicitly classifies them as such.
+12. A final-submit uncertainty remains non-replayable by normal resume. A separate operator-reviewed recovery action may authorize exactly one retry only when the durable attempt is older than ten minutes, an earlier exact-title `全部`-tab query was stably empty, and a new live exact-title query in the same shop again reads `共0条`. The action archives the pre-review result and both negative evidence sets before writing a one-use approval marker. A positive or inconclusive query never authorizes retry.
 
 ## Root Cause First
 

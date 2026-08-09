@@ -216,19 +216,32 @@ type PublishResultSummary = {
   publishClicked?: boolean;
   publishClickAttempted?: boolean;
   publishIssue?: string;
+  reviewedNegativeRetryApproved?: boolean;
 };
 
-function readPublishResultSummary(resultFile: string): PublishResultSummary {
+export function readPublishResultSummary(resultFile: string): PublishResultSummary {
   const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as {
     ok?: boolean;
     status?: string;
     message?: string;
     data?: {
+      shopFolder?: string;
+      metadata?: {
+        title?: string;
+        canonicalIdentity?: Record<string, unknown>;
+      };
       browser?: {
         publishClicked?: boolean;
         publishClickAttempted?: boolean;
         publishIssue?: string;
       };
+    };
+    manualRecovery?: {
+      type?: string;
+      approved?: boolean;
+      title?: string;
+      shopFolder?: string;
+      canonicalIdentity?: Record<string, unknown>;
     };
   };
   return {
@@ -237,7 +250,16 @@ function readPublishResultSummary(resultFile: string): PublishResultSummary {
     message: result.message,
     publishClicked: result.data?.browser?.publishClicked,
     publishClickAttempted: result.data?.browser?.publishClickAttempted,
-    publishIssue: result.data?.browser?.publishIssue
+    publishIssue: result.data?.browser?.publishIssue,
+    reviewedNegativeRetryApproved:
+      result.manualRecovery?.type === "operator_reviewed_stable_negative_list_verification"
+      && result.manualRecovery?.approved === true
+      && Boolean(result.manualRecovery?.title)
+      && Boolean(result.manualRecovery?.shopFolder)
+      && Boolean(result.manualRecovery?.canonicalIdentity)
+      && result.manualRecovery?.title === result.data?.metadata?.title
+      && path.resolve(result.manualRecovery?.shopFolder || "") === path.resolve(result.data?.shopFolder || "")
+      && JSON.stringify(result.manualRecovery?.canonicalIdentity || {}) === JSON.stringify(result.data?.metadata?.canonicalIdentity || {})
   };
 }
 
@@ -550,11 +572,14 @@ export async function publishDistributedProducts(options: {
           continue;
         }
         if (
-          existingDecision.finalVerifyStatus === "submit_rejected_confirmed"
+          (existingDecision.finalVerifyStatus === "submit_rejected_confirmed"
+            || existingSummary.reviewedNegativeRetryApproved === true)
           && listVerification.found === false
         ) {
           confirmedRejectionRetryAttempt = 1;
-          const retryMessage = "Platform confirmed rejection plus negative exact-title list verification; allowing one controlled retry through runPublishFromSpuJob.";
+          const retryMessage = existingSummary.reviewedNegativeRetryApproved === true
+            ? "Operator-reviewed stable negative exact-title evidence approved one controlled recovery retry through runPublishFromSpuJob."
+            : "Platform confirmed rejection plus negative exact-title list verification; allowing one controlled retry through runPublishFromSpuJob.";
           logInfo(`${retryMessage} target=${targetKey}`);
           options.onProgress?.(`${retryMessage} ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
           clearCheckpoint(path.join(options.runtimeDir, "publish", runtimeKey));

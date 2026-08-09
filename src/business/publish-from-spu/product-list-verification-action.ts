@@ -319,5 +319,7 @@ export async function verifyPublishedProductInDoudianList(input: {
     ).catch(() => "");
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`${message} failureScreenshot=${failureScreenshot || "missing"}`);
+  } finally {
+    await context.close().catch(() => {});
   }
 }
