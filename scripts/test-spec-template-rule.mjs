@@ -294,8 +294,8 @@ assert.doesNotMatch(
 );
 assert.match(
   publishSource,
-  /function resolveSpecTemplateKeyword\(title\?: string\)[\s\S]*SPEC_TEMPLATE_KEYWORD_JIUGUANG[\s\S]*SPEC_TEMPLATE_KEYWORD_DEFAULT/,
-  "spec template target keyword must keep the current title rule: 久光小泽 titles use 久光小泽, all others use 买二送一"
+  /function resolveSpecTemplateKeyword\(title\?: string, controlledTemplateKeyword\?: string\)[\s\S]*controlledTemplateKeyword[\s\S]*SPEC_TEMPLATE_KEYWORD_JIUGUANG[\s\S]*SPEC_TEMPLATE_KEYWORD_DEFAULT/,
+  "spec template target keyword must honor the category-controlled keyword before the medical-device title fallback"
 );
 assert.match(
   publishSource,
@@ -448,7 +448,7 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(
   applySpecTemplateSource,
-  /chooseDynamicSpecTemplateOnPage\(page, title\)\.catch/,
+  /chooseDynamicSpecTemplateOnPage\(page, title, controlledTemplateKeyword\)\.catch/,
   "spec template selection failures must not be swallowed and deferred to price/inventory checks"
 );
 assert.doesNotMatch(
@@ -470,7 +470,7 @@ assert.match(
 
 assert.match(
   publishSource,
-  /applySpecTemplateWithVerificationOnPage[\s\S]*chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*clickManualSpecFillAfterTemplateOnPage\(page\)/,
+  /applySpecTemplateWithVerificationOnPage[\s\S]*chooseDynamicSpecTemplateOnPage\(page, title, controlledTemplateKeyword\)[\s\S]*clickManualSpecFillAfterTemplateOnPage\(page\)/,
   "spec template application must choose the dropdown template first, then switch manual mode and expand price/inventory rows"
 );
 const switchManualSpecEntrySource = fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8");
@@ -491,7 +491,7 @@ assert.match(
 );
 assert.match(
   applySpecTemplateSource,
-  /chooseDynamicSpecTemplateOnPage\(page, title\)[\s\S]*page\.waitForTimeout\(3000\)[\s\S]*clickManualSpecFillAfterTemplateOnPage\(page\)[\s\S]*page\.waitForTimeout\(3000\)[\s\S]*evaluateSpecTemplateCompletion/,
+  /chooseDynamicSpecTemplateOnPage\(page, title, controlledTemplateKeyword\)[\s\S]*page\.waitForTimeout\(3000\)[\s\S]*clickManualSpecFillAfterTemplateOnPage\(page\)[\s\S]*page\.waitForTimeout\(3000\)[\s\S]*evaluateSpecTemplateCompletion/,
   "spec template application must wait three seconds after selecting the template and after switching manual fill before evaluating completion"
 );
 assert.doesNotMatch(
@@ -506,7 +506,7 @@ assert.doesNotMatch(
 );
 assert.doesNotMatch(
   applySpecTemplateSource,
-  /for \(let attempt = 0; attempt < 2; attempt \+= 1\)[\s\S]*chooseDynamicSpecTemplateOnPage\(page, title\)/,
+  /for \(let attempt = 0; attempt < 2; attempt \+= 1\)[\s\S]*chooseDynamicSpecTemplateOnPage\(page, title, controlledTemplateKeyword\)/,
   "spec template application must choose the template once, then switch manual mode and proceed to price/stock entry"
 );
 assert.doesNotMatch(

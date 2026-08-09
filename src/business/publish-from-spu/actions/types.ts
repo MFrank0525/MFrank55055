@@ -128,7 +128,8 @@ export type SpecPriceActionDeps = Pick<
     page: Page,
     runtimeDir: string,
     fileName: string,
-    title?: string
+    title?: string,
+    controlledTemplateKeyword?: string
   ) => Promise<{ screenshotFile: string; configuredFields: string[]; specTypeOptions: string[]; specIssue: string }>;
   applyHealthFoodSpecificationOnPage: (
     page: Page,

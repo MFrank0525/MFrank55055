@@ -1,23 +1,30 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { getPublishCategoryMutationPolicy } from "../dist/src/business/publish-from-spu/publish-category-policy.js";
+import {
+  getPublishCategoryMutationPolicy,
+  resolvePublishSpecTemplateKeyword
+} from "../dist/src/business/publish-from-spu/publish-category-policy.js";
 import { assertResolvedMetadata, resolvePublishFromSpuMetadata } from "../dist/src/business/publish-from-spu/metadata-resolution.js";
 import { buildPublishJobMetadata } from "../dist/src/autolist/publish.js";
 
 const otc = getPublishCategoryMutationPolicy("非处方药");
 assert.equal(otc.categoryAttributes, "leave_platform_state");
-assert.equal(otc.specification, "leave_platform_state");
+assert.equal(otc.specTemplateSelection, "buy_two_get_one");
+assert.equal(otc.healthFoodSpecification, false, "OTC must preserve every value supplied by the controlled template");
+assert.equal(resolvePublishSpecTemplateKeyword(otc, "久光小泽非处方药"), "买二送一");
 assert.equal(otc.healthFoodSafetyAndCategoryAttributes, false);
 assert.equal(otc.healthFoodPackagingLabel, false);
 assert.equal(otc.medicalDeviceCertificate, false);
 
 const medical = getPublishCategoryMutationPolicy("医疗器械");
 assert.equal(medical.categoryAttributes, "fill_model_spec");
-assert.equal(medical.specification, "apply_controlled_template");
+assert.equal(medical.specTemplateSelection, "title_controlled");
+assert.equal(resolvePublishSpecTemplateKeyword(medical, "久光小泽医疗器械"), "久光小泽");
 
 const healthFood = getPublishCategoryMutationPolicy("保健食品");
 assert.equal(healthFood.categoryAttributes, "fill_health_food_fields");
-assert.equal(healthFood.specification, "apply_controlled_template");
+assert.equal(healthFood.specTemplateSelection, "buy_two_get_one");
+assert.equal(resolvePublishSpecTemplateKeyword(healthFood, "久光小泽保健食品"), "买二送一");
 
 const resolvedOtc = resolvePublishFromSpuMetadata({
   metadataOverride: { productCategory: "非处方药" },
@@ -84,13 +91,13 @@ assert.match(
 const specActionSource = fs.readFileSync("src/business/publish-from-spu/actions/spec-price-action.ts", "utf8");
 assert.match(
   specActionSource,
-  /input\.categoryContext\.mutationPolicy\.specification === "apply_controlled_template"[\s\S]*deps\.applyFixedSpecsOnPage/,
-  "spec action must apply templates only under the explicit category mutation policy"
+  /resolvePublishSpecTemplateKeyword\([\s\S]*deps\.applyFixedSpecsOnPage/,
+  "spec action must apply the template selected by the explicit category policy"
 );
 assert.match(
   specActionSource,
-  /specification === "leave_platform_state"[\s\S]*leave_specification_unchanged/,
-  "OTC spec action must explicitly record that the platform specification was left unchanged"
+  /resolvePublishSpecTemplateKeyword\([\s\S]*deps\.applyFixedSpecsOnPage\([\s\S]*controlledTemplateKeyword/,
+  "spec action must resolve and pass the category-controlled template instead of inferring OTC behavior from title text"
 );
 
 console.log("OTC publish policy rule passed");

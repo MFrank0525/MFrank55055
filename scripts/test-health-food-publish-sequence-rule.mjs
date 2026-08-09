@@ -140,7 +140,7 @@ assertOrdered(
   specPriceActionSource,
   [
     "applyHealthFoodShippingBeforeSpecOnPage(page)",
-    "applyFixedSpecsOnPage(page",
+    "deps.applyFixedSpecsOnPage(",
     "page.waitForTimeout(3000)",
     "applyHealthFoodSpecificationOnPage(page, input.metadata)",
     "applyPriceInventoryOnPage("

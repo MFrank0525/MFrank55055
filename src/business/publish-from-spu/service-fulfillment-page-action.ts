@@ -637,7 +637,8 @@ export async function applyFixedSpecsOnPage(
   page: Page,
   runtimeDir: string,
   fileName: string,
-  title?: string
+  title?: string,
+  controlledTemplateKeyword?: string
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -656,7 +657,7 @@ export async function applyFixedSpecsOnPage(
   let specIssue = "";
   let specTypeOptions: string[] = [];
 
-  const specApplyResult = await applySpecTemplateWithVerificationOnPage(page, title);
+  const specApplyResult = await applySpecTemplateWithVerificationOnPage(page, title, controlledTemplateKeyword);
   if (!specApplyResult.selectedTemplate && specApplyResult.issue) {
     specIssue = specApplyResult.issue;
   } else if (specApplyResult.issue) {

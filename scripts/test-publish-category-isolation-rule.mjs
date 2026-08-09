@@ -9,7 +9,7 @@ const expected = {
     imagesPerShop: 1,
     policy: {
       categoryAttributes: "fill_model_spec",
-      specification: "apply_controlled_template",
+      specTemplateSelection: "title_controlled",
       guardUnexpectedBasicFieldChanges: true,
       healthFoodSafetyAndCategoryAttributes: false,
       healthFoodShippingBeforeSpecification: false,
@@ -25,7 +25,7 @@ const expected = {
     imagesPerShop: 4,
     policy: {
       categoryAttributes: "leave_platform_state",
-      specification: "leave_platform_state",
+      specTemplateSelection: "buy_two_get_one",
       guardUnexpectedBasicFieldChanges: true,
       healthFoodSafetyAndCategoryAttributes: false,
       healthFoodShippingBeforeSpecification: false,
@@ -41,7 +41,7 @@ const expected = {
     imagesPerShop: 1,
     policy: {
       categoryAttributes: "fill_health_food_fields",
-      specification: "apply_controlled_template",
+      specTemplateSelection: "buy_two_get_one",
       guardUnexpectedBasicFieldChanges: false,
       healthFoodSafetyAndCategoryAttributes: true,
       healthFoodShippingBeforeSpecification: true,

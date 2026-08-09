@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import type { PriceInventoryRowValue } from "../price-inventory-rules.js";
 import type { ResolvedPublishFromSpuMetadata } from "../types.js";
+import { resolvePublishSpecTemplateKeyword } from "../publish-category-policy.js";
 import type { BasicPublishMetadata, ProductCategoryContext, PublishModuleSnapshot, SpecPriceActionDeps } from "./types.js";
 
 export async function runSpecPriceAction(
@@ -50,16 +51,21 @@ export async function runSpecPriceAction(
 
   let specTypeOptions: string[] = [];
   let specIssue = "";
-  if (input.categoryContext.mutationPolicy.specification === "apply_controlled_template") {
-    const specResult = await deps.applyFixedSpecsOnPage(page, input.runtimeDir, "publish-page-spec-editor.png", input.metadata.title);
-    screenshotFiles.push(specResult.screenshotFile);
-    configuredFields.push(...specResult.configuredFields);
-    specTypeOptions = specResult.specTypeOptions;
-    specIssue = specResult.specIssue;
-  } else if (input.categoryContext.mutationPolicy.specification === "leave_platform_state") {
-    configuredFields.push("leave_specification_unchanged");
-    stages.push({ step: "leave_specification_unchanged", status: "completed" });
-  }
+  const controlledTemplateKeyword = resolvePublishSpecTemplateKeyword(
+    input.categoryContext.mutationPolicy,
+    input.metadata.title
+  );
+  const specResult = await deps.applyFixedSpecsOnPage(
+    page,
+    input.runtimeDir,
+    "publish-page-spec-editor.png",
+    input.metadata.title,
+    controlledTemplateKeyword
+  );
+  screenshotFiles.push(specResult.screenshotFile);
+  configuredFields.push(...specResult.configuredFields);
+  specTypeOptions = specResult.specTypeOptions;
+  specIssue = specResult.specIssue;
   if (input.categoryContext.mutationPolicy.healthFoodSpecification && !specIssue) {
     await page.waitForTimeout(3000);
     const healthFoodSpecResult = await deps.applyHealthFoodSpecificationOnPage(page, input.metadata);
@@ -71,11 +77,9 @@ export async function runSpecPriceAction(
       configuredFields.push("healthFoodSpecification");
     }
   }
-  if (input.categoryContext.mutationPolicy.specification === "apply_controlled_template") {
-    const specModuleError = await deps.readSpecModuleErrorOnPage(page).catch(() => "");
-    if (!specIssue && specModuleError) {
-      specIssue = `Spec module error detected: ${specModuleError}`;
-    }
+  const specModuleError = await deps.readSpecModuleErrorOnPage(page).catch(() => "");
+  if (!specIssue && specModuleError) {
+    specIssue = `Spec module error detected: ${specModuleError}`;
   }
 
   const priceEntryRule = deps.evaluatePriceInventoryEntryRule({ specIssue });

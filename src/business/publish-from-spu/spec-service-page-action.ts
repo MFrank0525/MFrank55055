@@ -1151,14 +1151,19 @@ export async function chooseKeywordFreightTemplate(page: Page, keyword: string):
   );
 }
 
-function resolveSpecTemplateKeyword(title?: string): string {
+function resolveSpecTemplateKeyword(title?: string, controlledTemplateKeyword?: string): string {
+  if (controlledTemplateKeyword) return controlledTemplateKeyword;
   return (title || "").includes(SPEC_TEMPLATE_KEYWORD_JIUGUANG)
     ? SPEC_TEMPLATE_KEYWORD_JIUGUANG
     : SPEC_TEMPLATE_KEYWORD_DEFAULT;
 }
 
-async function chooseDynamicSpecTemplateOnPage(page: Page, title?: string): Promise<string> {
-  const keyword = resolveSpecTemplateKeyword(title);
+async function chooseDynamicSpecTemplateOnPage(
+  page: Page,
+  title?: string,
+  controlledTemplateKeyword?: string
+): Promise<string> {
+  const keyword = resolveSpecTemplateKeyword(title, controlledTemplateKeyword);
   await dismissTransientOverlays(page);
   await scrollLabelIntoView(page, "规格模板").catch(() => false);
   const selectedValue = await chooseSpecTemplateKeywordFromDropdown(page, keyword);
@@ -1258,13 +1263,14 @@ async function countVisibleBlankSpecValueInputs(page: Page): Promise<number> {
 
 export async function applySpecTemplateWithVerificationOnPage(
   page: Page,
-  title?: string
+  title?: string,
+  controlledTemplateKeyword?: string
 ): Promise<{ selectedTemplate: string; filledValues: string[]; issue: string }> {
-  const keyword = resolveSpecTemplateKeyword(title);
+  const keyword = resolveSpecTemplateKeyword(title, controlledTemplateKeyword);
   let selectedTemplate = "";
 
   try {
-    selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title);
+    selectedTemplate = await chooseDynamicSpecTemplateOnPage(page, title, controlledTemplateKeyword);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {

@@ -1,16 +1,17 @@
 import { normalizeProductCategory, type ProductCategory } from "../../autolist/product-category.js";
+import { SPEC_TEMPLATE_KEYWORD_DEFAULT, SPEC_TEMPLATE_KEYWORD_JIUGUANG } from "./constants.js";
 
 export type CategoryAttributeMutationPolicy =
   | "fill_model_spec"
   | "fill_health_food_fields"
   | "leave_platform_state";
 
-export type SpecificationMutationPolicy = "apply_controlled_template" | "leave_platform_state";
+export type SpecTemplateSelectionPolicy = "title_controlled" | "buy_two_get_one";
 export type SubmitValidationPolicy = "generic_fill_check" | "health_food_packaging_gate";
 
 export interface PublishCategoryMutationPolicy {
   readonly categoryAttributes: CategoryAttributeMutationPolicy;
-  readonly specification: SpecificationMutationPolicy;
+  readonly specTemplateSelection: SpecTemplateSelectionPolicy;
   readonly guardUnexpectedBasicFieldChanges: boolean;
   readonly healthFoodSafetyAndCategoryAttributes: boolean;
   readonly healthFoodShippingBeforeSpecification: boolean;
@@ -24,7 +25,7 @@ export interface PublishCategoryMutationPolicy {
 const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutationPolicy> = {
   医疗器械: {
     categoryAttributes: "fill_model_spec",
-    specification: "apply_controlled_template",
+    specTemplateSelection: "title_controlled",
     guardUnexpectedBasicFieldChanges: true,
     healthFoodSafetyAndCategoryAttributes: false,
     healthFoodShippingBeforeSpecification: false,
@@ -36,7 +37,7 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
   },
   非处方药: {
     categoryAttributes: "leave_platform_state",
-    specification: "leave_platform_state",
+    specTemplateSelection: "buy_two_get_one",
     guardUnexpectedBasicFieldChanges: true,
     healthFoodSafetyAndCategoryAttributes: false,
     healthFoodShippingBeforeSpecification: false,
@@ -48,7 +49,7 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
   },
   保健食品: {
     categoryAttributes: "fill_health_food_fields",
-    specification: "apply_controlled_template",
+    specTemplateSelection: "buy_two_get_one",
     guardUnexpectedBasicFieldChanges: false,
     healthFoodSafetyAndCategoryAttributes: true,
     healthFoodShippingBeforeSpecification: true,
@@ -77,9 +78,6 @@ export function assertPublishCategoryPolicyIsolation(
     if (healthFoodActions.some(Boolean) && !healthFoodActions.every(Boolean)) {
       throw new Error(`${category} contains a partially enabled health-food action chain.`);
     }
-    if (policy.categoryAttributes === "leave_platform_state" && policy.specification !== "leave_platform_state") {
-      throw new Error(`${category} cannot leave category attributes unchanged while mutating specification values.`);
-    }
   }
 }
 
@@ -87,4 +85,14 @@ assertPublishCategoryPolicyIsolation(CATEGORY_MUTATION_POLICIES);
 
 export function getPublishCategoryMutationPolicy(category: string | undefined): PublishCategoryMutationPolicy {
   return Object.freeze({ ...CATEGORY_MUTATION_POLICIES[normalizeProductCategory(category)] });
+}
+
+export function resolvePublishSpecTemplateKeyword(
+  policy: PublishCategoryMutationPolicy,
+  title?: string
+): string {
+  if (policy.specTemplateSelection === "buy_two_get_one") return SPEC_TEMPLATE_KEYWORD_DEFAULT;
+  return (title || "").includes(SPEC_TEMPLATE_KEYWORD_JIUGUANG)
+    ? SPEC_TEMPLATE_KEYWORD_JIUGUANG
+    : SPEC_TEMPLATE_KEYWORD_DEFAULT;
 }
