@@ -242,9 +242,38 @@ async function clickLastMainImagePreviewDeleteControl(page: Page): Promise<boole
   return true;
 }
 
+async function clickLastDetailImagePreviewDeleteControl(page: Page): Promise<boolean> {
+  const fieldRoot = page
+    .locator("[attr-field-id='商品详情']")
+    .locator("xpath=ancestor::*[contains(@class,'goods-publish-highlight-group')][1]");
+  if ((await fieldRoot.count()) !== 1) {
+    return false;
+  }
+  const deleteControls = fieldRoot.locator("i[class*='iconDelete']");
+  if ((await deleteControls.count()) === 0) {
+    return false;
+  }
+
+  const deleteControl = deleteControls.last();
+  const sortableItem = deleteControl.locator(
+    "xpath=ancestor::*[@role='button' and @aria-roledescription='sortable'][1]"
+  );
+  if ((await sortableItem.count()) === 1) {
+    await sortableItem.hover({ timeout: 3000 });
+  }
+  await deleteControl.click({ timeout: 3000 });
+  return true;
+}
+
 export async function clickLastGraphicSectionPreviewDeleteByDom(page: Page, sectionName: string): Promise<boolean> {
   if (sectionName === "主图") {
     const clicked = await clickLastMainImagePreviewDeleteControl(page).catch(() => false);
+    if (clicked) {
+      return true;
+    }
+  }
+  if (sectionName === "商品详情" || sectionName === "详情页") {
+    const clicked = await clickLastDetailImagePreviewDeleteControl(page).catch(() => false);
     if (clicked) {
       return true;
     }

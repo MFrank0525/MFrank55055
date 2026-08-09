@@ -40,5 +40,15 @@ assert.match(
   /sectionName === "主图"[\s\S]*clickLastMainImagePreviewDeleteControl/,
   "generic graphic clearing must route main images through the exact field action"
 );
+assert.match(
+  previewActionSource,
+  /clickLastDetailImagePreviewDeleteControl[\s\S]*attr-field-id='商品详情'[\s\S]*iconDelete[\s\S]*aria-roledescription='sortable'[\s\S]*\.hover\([\s\S]*deleteControl\.click/,
+  "detail prefill clearing must scope to the exact detail field and click its current delete control"
+);
+assert.match(
+  previewActionSource,
+  /sectionName === "商品详情" \|\| sectionName === "详情页"[\s\S]*clickLastDetailImagePreviewDeleteControl/,
+  "generic graphic clearing must route both detail section labels through the exact field action"
+);
 
 console.log("graphic prefill clear rule passed");
