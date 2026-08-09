@@ -13,6 +13,7 @@ const publishSource = [
 const navigationSource = fs.readFileSync("src/business/publish-from-spu/publish-section-navigation.ts", "utf8");
 const serviceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8");
 const basicInfoSource = fs.readFileSync("src/business/publish-from-spu/basic-info-page-action.ts", "utf8");
+const labeledSelectSource = fs.readFileSync("src/business/publish-from-spu/labeled-select-page-action.ts", "utf8");
 const freightTemplateOptionClickSource = publishSource.slice(
   publishSource.indexOf("async function clickFreightTemplateDropdownOption"),
   publishSource.indexOf("async function waitForFreightTemplateReadback")
@@ -60,13 +61,23 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /const afterSalesPolicySatisfied[\s\S]*isRadioOptionSelectedNearFieldLabelCandidate[\s\S]*\["售后政策"\][\s\S]*\["不支持7天无理由退货"\]/,
-  "OTC service fulfillment must read back the exact no-seven-day-return option"
+  /readStructuredLabeledSelectValue\(page, "售后政策"\)[\s\S]*afterSalesReadback\.replace\(\/\\s\+\/g, ""\) === "不支持7天无理由退货"/,
+  "OTC service fulfillment must independently read back the exact no-seven-day-return dropdown value"
 );
 assert.match(
-  publishSource,
-  /const texts = \[el, \.\.\.Array\.from\(el\.querySelectorAll\("span, div"\)\)\][\s\S]*texts\.includes\(optionText\.replace\(\/\\s\+\/g, ""\)\)/,
-  "radio selection must allow whitespace-separated exact leaf text without accepting a broader option label"
+  labeledSelectSource,
+  /findLabeledSelectControl[\s\S]*label\.parentElement[\s\S]*root\.querySelectorAll\(controlSelector\)[\s\S]*count !== 1/,
+  "labeled-select action must resolve one control through field ancestry instead of screen coordinates"
+);
+assert.match(
+  labeledSelectSource,
+  /markExactVisibleSelectOption[\s\S]*texts\.includes\(compact\(expectedText\)\)[\s\S]*if \(count !== 1\)/,
+  "labeled-select action must choose one exact whitespace-normalized option"
+);
+assert.doesNotMatch(
+  labeledSelectSource,
+  /centerX|centerY|boundingBox|mouse\.click|elementFromPoint|dispatchEvent\(new MouseEvent/,
+  "labeled-select actions must never derive a click from coordinates"
 );
 assert.match(
   publishSource,

@@ -114,6 +114,10 @@ import {
 } from "./publish-rules.js";
 import type { PublishRuleCheck, ServiceFulfillmentState } from "./publish-rules.js";
 import { makePublishActionResult } from "./publish-actions.js";
+import {
+  chooseExactStructuredLabeledSelectOption,
+  readStructuredLabeledSelectValue
+} from "./labeled-select-page-action.js";
 
 import { fillBasicPublishPageOnPage, verifyCategoryRegistrationGateOnPage } from "./basic-info-page-action.js";
 import {
@@ -456,12 +460,11 @@ async function readServiceFulfillmentState(
   const selectedFreight = isConcreteFreightTemplateName(freightTemplateName)
     ? freightTemplateName
     : await readLabeledSelectValue(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => "");
+  const afterSalesReadback = serviceAfterSalesPolicy === "preserve_platform_state"
+    ? ""
+    : await readStructuredLabeledSelectValue(page, "售后政策").catch(() => "");
   const afterSalesPolicySatisfied = serviceAfterSalesPolicy === "preserve_platform_state" ||
-    await isRadioOptionSelectedNearFieldLabelCandidate(
-      page,
-      ["售后政策"],
-      ["不支持7天无理由退货"]
-    ).catch(() => false);
+    afterSalesReadback.replace(/\s+/g, "") === "不支持7天无理由退货";
   return {
     shippingModeSelected,
     shippingTimeSelected,
@@ -530,12 +533,12 @@ async function applyServiceFulfillmentSettingsOnPage(
 
   const freightTemplateName = await chooseKeywordFreightTemplate(page, FIXED_FREIGHT_TEMPLATE_KEYWORD);
   if (serviceAfterSalesPolicy === "unsupported_seven_day_returns") {
-    const afterSalesSelected = await ensureRadioOptionNearFieldLabel(
+    const afterSalesReadback = await chooseExactStructuredLabeledSelectOption(
       page,
       "售后政策",
       "不支持7天无理由退货"
     );
-    if (!afterSalesSelected) {
+    if (afterSalesReadback.replace(/\s+/g, "") !== "不支持7天无理由退货") {
       const diagnostics = await readAfterSalesDomDiagnostics(page).catch(() => []);
       throw new Error(
         `OTC after-sales policy did not read back as 不支持7天无理由退货. DOM=${
