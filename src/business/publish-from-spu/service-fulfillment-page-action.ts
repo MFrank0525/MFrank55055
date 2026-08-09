@@ -175,8 +175,10 @@ async function clickRadioOptionNearFieldLabelCandidate(
       };
       const visibleText = (el: HTMLElement): string => (isVisible(el) ? normalize(el.innerText || el.textContent || "") : "");
       const matchesOption = (el: HTMLElement): boolean => {
-        const text = visibleText(el);
-        return Boolean(text) && targetOptionTexts.some((optionText) => isOptionTextMatch(text, optionText));
+        const texts = [el, ...Array.from(el.querySelectorAll("span, div"))]
+          .map((node) => visibleText(node as HTMLElement).replace(/\s+/g, ""))
+          .filter(Boolean);
+        return targetOptionTexts.some((optionText) => texts.includes(optionText.replace(/\s+/g, "")));
       };
       const radioContainers = (root: HTMLElement): HTMLElement[] =>
         Array.from(root.querySelectorAll("label, [role='radio'], input[type='radio']"))
@@ -337,8 +339,10 @@ async function isRadioOptionSelectedNearFieldLabelCandidate(
       };
       const visibleText = (el: HTMLElement): string => (isVisible(el) ? normalize(el.innerText || el.textContent || "") : "");
       const matchesOption = (el: HTMLElement): boolean => {
-        const text = visibleText(el);
-        return Boolean(text) && targetOptionTexts.some((optionText) => isOptionTextMatch(text, optionText));
+        const texts = [el, ...Array.from(el.querySelectorAll("span, div"))]
+          .map((node) => visibleText(node as HTMLElement).replace(/\s+/g, ""))
+          .filter(Boolean);
+        return targetOptionTexts.some((optionText) => texts.includes(optionText.replace(/\s+/g, "")));
       };
       const radioContainers = (root: HTMLElement): HTMLElement[] =>
         Array.from(root.querySelectorAll("label, [role='radio'], input[type='radio']"))
@@ -467,6 +471,38 @@ async function readServiceFulfillmentState(
   };
 }
 
+async function readAfterSalesDomDiagnostics(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+    return Array.from(document.querySelectorAll("label, [role='radio'], input[type='radio'], button, [role='combobox']"))
+      .map((node) => node as HTMLElement)
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        const style = window.getComputedStyle(node);
+        const text = normalize(node.innerText || node.textContent || (node as HTMLInputElement).value || "");
+        if (
+          !text ||
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          (!text.includes("售后") && !text.includes("7天") && !text.includes("七天"))
+        ) {
+          return "";
+        }
+        return [
+          node.tagName.toLowerCase(),
+          node.getAttribute("role") || "",
+          node.getAttribute("aria-checked") || "",
+          (node as HTMLInputElement).checked === true ? "checked" : "",
+          text.slice(0, 120)
+        ].join("|");
+      })
+      .filter(Boolean)
+      .slice(0, 12);
+  });
+}
+
 async function applyServiceFulfillmentSettingsOnPage(
   page: Page,
   serviceAfterSalesPolicy: ServiceAfterSalesPolicy
@@ -500,7 +536,12 @@ async function applyServiceFulfillmentSettingsOnPage(
       "不支持7天无理由退货"
     );
     if (!afterSalesSelected) {
-      throw new Error("OTC after-sales policy did not read back as 不支持7天无理由退货.");
+      const diagnostics = await readAfterSalesDomDiagnostics(page).catch(() => []);
+      throw new Error(
+        `OTC after-sales policy did not read back as 不支持7天无理由退货. DOM=${
+          diagnostics.length ? diagnostics.join(" || ") : "<none>"
+        }`
+      );
     }
   }
   await ensureRadioOptionNearFieldLabel(page, "\u5546\u54c1\u72b6\u6001", "\u4e0a\u67b6");
@@ -643,7 +684,15 @@ export async function applyFixedPublishSettingsOnPage(
   );
   await ensureServiceSectionReady(page);
 
-  const settingsResult = await applyServiceFulfillmentSettingsOnPage(page, serviceAfterSalesPolicy);
+  let settingsResult;
+  try {
+    settingsResult = await applyServiceFulfillmentSettingsOnPage(page, serviceAfterSalesPolicy);
+  } catch (error) {
+    const failureFileName = fileName.replace(/\.png$/i, "-failed.png");
+    const screenshotFile = await savePageScreenshot(page, runtimeDir, failureFileName).catch(() => "");
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(screenshotFile ? `${message}; screenshot=${screenshotFile}` : message);
+  }
 
   const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
   return {

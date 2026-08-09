@@ -64,6 +64,21 @@ assert.match(
   "OTC service fulfillment must read back the exact no-seven-day-return option"
 );
 assert.match(
+  publishSource,
+  /const texts = \[el, \.\.\.Array\.from\(el\.querySelectorAll\("span, div"\)\)\][\s\S]*texts\.includes\(optionText\.replace\(\/\\s\+\/g, ""\)\)/,
+  "radio selection must allow whitespace-separated exact leaf text without accepting a broader option label"
+);
+assert.match(
+  publishSource,
+  /async function readAfterSalesDomDiagnostics[\s\S]*售后[\s\S]*7天[\s\S]*七天/,
+  "after-sales failures must retain bounded DOM evidence"
+);
+assert.match(
+  publishSource,
+  /failureFileName = fileName\.replace[\s\S]*savePageScreenshot\(page, runtimeDir, failureFileName\)/,
+  "service-fulfillment failures must save a screenshot before stopping"
+);
+assert.match(
   basicInfoSource,
   /categoryVerificationPolicy === "drug_approval_number"[\s\S]*国药准字/,
   "OTC SPU verification must parse a drug approval number"
