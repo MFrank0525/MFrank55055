@@ -12,6 +12,7 @@ const publishSource = [
 ].join("\n");
 const navigationSource = fs.readFileSync("src/business/publish-from-spu/publish-section-navigation.ts", "utf8");
 const serviceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8");
+const basicInfoSource = fs.readFileSync("src/business/publish-from-spu/basic-info-page-action.ts", "utf8");
 const freightTemplateOptionClickSource = publishSource.slice(
   publishSource.indexOf("async function clickFreightTemplateDropdownOption"),
   publishSource.indexOf("async function waitForFreightTemplateReadback")
@@ -41,6 +42,36 @@ assert.match(
   serviceActionSource,
   /before_service_module/,
   "publish flow must re-check basic info before entering service fulfillment"
+);
+assert.match(
+  serviceActionSource,
+  /serviceSpuVerification !== "none"[\s\S]*input\.categoryContext\.mutationPolicy\.serviceSpuVerification/,
+  "service SPU verification must pass the category-specific readback policy"
+);
+assert.match(
+  serviceActionSource,
+  /input\.categoryContext\.mutationPolicy\.serviceAfterSalesPolicy/,
+  "service action must pass the category-specific after-sales policy"
+);
+assert.match(
+  publishSource,
+  /serviceAfterSalesPolicy === "unsupported_seven_day_returns"[\s\S]*"售后政策"[\s\S]*"不支持7天无理由退货"/,
+  "OTC service fulfillment must select the exact no-seven-day-return option through field DOM structure"
+);
+assert.match(
+  publishSource,
+  /const afterSalesPolicySatisfied[\s\S]*isRadioOptionSelectedNearFieldLabelCandidate[\s\S]*\["售后政策"\][\s\S]*\["不支持7天无理由退货"\]/,
+  "OTC service fulfillment must read back the exact no-seven-day-return option"
+);
+assert.match(
+  basicInfoSource,
+  /categoryVerificationPolicy === "drug_approval_number"[\s\S]*国药准字/,
+  "OTC SPU verification must parse a drug approval number"
+);
+assert.match(
+  basicInfoSource,
+  /categoryVerificationPolicy === "drug_approval_number"[\s\S]*\["药品批准文号", "批准文号"\]/,
+  "OTC SPU verification must locate drug approval labels instead of medical-device registration labels"
 );
 assert.match(
   publishSource,
@@ -244,7 +275,8 @@ assert.deepEqual(
     shippingModeSelected: true,
     shippingTimeSelected: true,
     productStatusSelected: true,
-    freightTemplateName: "延草运费模板"
+    freightTemplateName: "延草运费模板",
+    afterSalesPolicySatisfied: true
   }),
   { passed: true, issue: "" }
 );
@@ -254,7 +286,8 @@ assert.deepEqual(
     shippingModeSelected: true,
     shippingTimeSelected: false,
     productStatusSelected: true,
-    freightTemplateName: "延草运费模板"
+    freightTemplateName: "延草运费模板",
+    afterSalesPolicySatisfied: true
   }),
   {
     passed: false,
@@ -267,11 +300,41 @@ assert.deepEqual(
     shippingModeSelected: true,
     shippingTimeSelected: true,
     productStatusSelected: true,
-    freightTemplateName: ""
+    freightTemplateName: "",
+    afterSalesPolicySatisfied: true
   }),
   {
     passed: false,
     issue: "Freight template was not selected. Missing configured fields: freightTemplate"
+  }
+);
+
+assert.deepEqual(
+  evaluateServiceFulfillmentCompletion({
+    shippingModeSelected: true,
+    shippingTimeSelected: true,
+    productStatusSelected: true,
+    freightTemplateName: "其他运费模板",
+    afterSalesPolicySatisfied: true
+  }),
+  {
+    passed: false,
+    issue: "Missing configured fields: freightTemplate"
+  },
+  "a non-empty but uncontrolled freight template must not satisfy the 延草运费 gate"
+);
+
+assert.deepEqual(
+  evaluateServiceFulfillmentCompletion({
+    shippingModeSelected: true,
+    shippingTimeSelected: true,
+    productStatusSelected: true,
+    freightTemplateName: "延草运费",
+    afterSalesPolicySatisfied: false
+  }),
+  {
+    passed: false,
+    issue: "Missing configured fields: afterSalesPolicy"
   }
 );
 

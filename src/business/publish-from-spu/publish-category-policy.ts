@@ -7,6 +7,8 @@ export type CategoryAttributeMutationPolicy =
   | "leave_platform_state";
 
 export type SpecTemplateSelectionPolicy = "title_controlled" | "buy_two_get_one";
+export type ServiceSpuVerificationPolicy = "medical_registration" | "drug_approval_number" | "none";
+export type ServiceAfterSalesPolicy = "unsupported_seven_day_returns" | "preserve_platform_state";
 export type SubmitValidationPolicy = "generic_fill_check" | "health_food_packaging_gate";
 
 export interface PublishCategoryMutationPolicy {
@@ -16,7 +18,8 @@ export interface PublishCategoryMutationPolicy {
   readonly healthFoodSafetyAndCategoryAttributes: boolean;
   readonly healthFoodShippingBeforeSpecification: boolean;
   readonly healthFoodSpecification: boolean;
-  readonly verifySpuInServiceSettings: boolean;
+  readonly serviceSpuVerification: ServiceSpuVerificationPolicy;
+  readonly serviceAfterSalesPolicy: ServiceAfterSalesPolicy;
   readonly healthFoodPackagingLabel: boolean;
   readonly medicalDeviceCertificate: boolean;
   readonly submitValidation: SubmitValidationPolicy;
@@ -30,7 +33,8 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
     healthFoodSafetyAndCategoryAttributes: false,
     healthFoodShippingBeforeSpecification: false,
     healthFoodSpecification: false,
-    verifySpuInServiceSettings: true,
+    serviceSpuVerification: "medical_registration",
+    serviceAfterSalesPolicy: "preserve_platform_state",
     healthFoodPackagingLabel: false,
     medicalDeviceCertificate: true,
     submitValidation: "generic_fill_check"
@@ -42,7 +46,8 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
     healthFoodSafetyAndCategoryAttributes: false,
     healthFoodShippingBeforeSpecification: false,
     healthFoodSpecification: false,
-    verifySpuInServiceSettings: true,
+    serviceSpuVerification: "drug_approval_number",
+    serviceAfterSalesPolicy: "unsupported_seven_day_returns",
     healthFoodPackagingLabel: false,
     medicalDeviceCertificate: false,
     submitValidation: "generic_fill_check"
@@ -54,7 +59,8 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
     healthFoodSafetyAndCategoryAttributes: true,
     healthFoodShippingBeforeSpecification: true,
     healthFoodSpecification: true,
-    verifySpuInServiceSettings: false,
+    serviceSpuVerification: "none",
+    serviceAfterSalesPolicy: "preserve_platform_state",
     healthFoodPackagingLabel: true,
     medicalDeviceCertificate: false,
     submitValidation: "health_food_packaging_gate"
@@ -77,6 +83,13 @@ export function assertPublishCategoryPolicyIsolation(
     ];
     if (healthFoodActions.some(Boolean) && !healthFoodActions.every(Boolean)) {
       throw new Error(`${category} contains a partially enabled health-food action chain.`);
+    }
+    const otcServiceActions = [
+      policy.serviceSpuVerification === "drug_approval_number",
+      policy.serviceAfterSalesPolicy === "unsupported_seven_day_returns"
+    ];
+    if (otcServiceActions.some(Boolean) && !otcServiceActions.every(Boolean)) {
+      throw new Error(`${category} contains a partially enabled OTC service-fulfillment action chain.`);
     }
   }
 }

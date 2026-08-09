@@ -11,6 +11,8 @@ const otc = getPublishCategoryMutationPolicy("非处方药");
 assert.equal(otc.categoryAttributes, "leave_platform_state");
 assert.equal(otc.specTemplateSelection, "buy_two_get_one");
 assert.equal(otc.healthFoodSpecification, false, "OTC must preserve every value supplied by the controlled template");
+assert.equal(otc.serviceSpuVerification, "drug_approval_number");
+assert.equal(otc.serviceAfterSalesPolicy, "unsupported_seven_day_returns");
 assert.equal(resolvePublishSpecTemplateKeyword(otc, "久光小泽非处方药"), "买二送一");
 assert.equal(otc.healthFoodSafetyAndCategoryAttributes, false);
 assert.equal(otc.healthFoodPackagingLabel, false);

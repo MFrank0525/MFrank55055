@@ -105,6 +105,7 @@ export interface ServiceFulfillmentState {
   shippingTimeSelected: boolean;
   productStatusSelected: boolean;
   freightTemplateName: string;
+  afterSalesPolicySatisfied: boolean;
 }
 
 export interface DetailUploadOutcomeRuleInput {
@@ -997,7 +998,8 @@ export function evaluateServiceFulfillmentCompletion(input: ServiceFulfillmentSt
     input.shippingModeSelected ? "" : "shippingMode",
     input.shippingTimeSelected ? "" : "shippingTime",
     input.productStatusSelected ? "" : "productStatus",
-    input.freightTemplateName ? "" : "freightTemplate"
+    input.freightTemplateName.includes("延草运费") ? "" : "freightTemplate",
+    input.afterSalesPolicySatisfied ? "" : "afterSalesPolicy"
   ].filter(Boolean);
   return evaluateServiceCompletion({
     freightTemplateName: input.freightTemplateName,

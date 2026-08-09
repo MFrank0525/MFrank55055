@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { getProductCategoryPlan } from "../dist/src/autolist/product-category.js";
-import { getPublishCategoryMutationPolicy } from "../dist/src/business/publish-from-spu/publish-category-policy.js";
+import {
+  assertPublishCategoryPolicyIsolation,
+  getPublishCategoryMutationPolicy
+} from "../dist/src/business/publish-from-spu/publish-category-policy.js";
 
 const expected = {
   医疗器械: {
@@ -14,7 +17,8 @@ const expected = {
       healthFoodSafetyAndCategoryAttributes: false,
       healthFoodShippingBeforeSpecification: false,
       healthFoodSpecification: false,
-      verifySpuInServiceSettings: true,
+      serviceSpuVerification: "medical_registration",
+      serviceAfterSalesPolicy: "preserve_platform_state",
       healthFoodPackagingLabel: false,
       medicalDeviceCertificate: true,
       submitValidation: "generic_fill_check"
@@ -30,7 +34,8 @@ const expected = {
       healthFoodSafetyAndCategoryAttributes: false,
       healthFoodShippingBeforeSpecification: false,
       healthFoodSpecification: false,
-      verifySpuInServiceSettings: true,
+      serviceSpuVerification: "drug_approval_number",
+      serviceAfterSalesPolicy: "unsupported_seven_day_returns",
       healthFoodPackagingLabel: false,
       medicalDeviceCertificate: false,
       submitValidation: "generic_fill_check"
@@ -46,7 +51,8 @@ const expected = {
       healthFoodSafetyAndCategoryAttributes: true,
       healthFoodShippingBeforeSpecification: true,
       healthFoodSpecification: true,
-      verifySpuInServiceSettings: false,
+      serviceSpuVerification: "none",
+      serviceAfterSalesPolicy: "preserve_platform_state",
       healthFoodPackagingLabel: true,
       medicalDeviceCertificate: false,
       submitValidation: "health_food_packaging_gate"
@@ -62,6 +68,18 @@ for (const [category, contract] of Object.entries(expected)) {
   assert.deepEqual(policy, contract.policy, `${category} action policy drifted`);
   assert.equal(Object.isFrozen(policy), true, `${category} action policy must be immutable at runtime`);
 }
+
+const isolatedPolicies = Object.fromEntries(
+  Object.keys(expected).map((category) => [category, { ...getPublishCategoryMutationPolicy(category) }])
+);
+assert.throws(
+  () => assertPublishCategoryPolicyIsolation({
+    ...isolatedPolicies,
+    非处方药: { ...isolatedPolicies.非处方药, serviceAfterSalesPolicy: "preserve_platform_state" }
+  }),
+  /partially enabled OTC service-fulfillment action chain/,
+  "OTC drug-approval and no-seven-day-return actions must be enabled as one fail-closed chain"
+);
 
 const actionFiles = [
   "src/business/publish-from-spu/actions/basic-info-action.ts",

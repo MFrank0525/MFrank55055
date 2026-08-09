@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "playwright";
+import type { ServiceAfterSalesPolicy, ServiceSpuVerificationPolicy } from "./publish-category-policy.js";
 import { normalizeProductCategory } from "../../autolist/product-category.js";
 import { launchPersistentBrowser } from "../../browser/launch.js";
 import { getSelectAllShortcut } from "../../utils/platform.js";
@@ -123,27 +124,19 @@ import {
 
 function isConcreteFreightTemplateName(value: string): boolean {
   const text = value.trim();
-  if (!text) {
-    return false;
-  }
-  if (text.includes(FIXED_FREIGHT_TEMPLATE_KEYWORD)) {
-    return true;
-  }
-  if (text.includes("\u5305\u90AE")) {
-    return false;
-  }
-  if (text === "\u8FD0\u8D39\u6A21\u677F") {
-    return false;
-  }
-  return true;
+  return Boolean(text) && text.includes(FIXED_FREIGHT_TEMPLATE_KEYWORD);
 }
 
-function configuredFieldsFromServiceFulfillmentState(state: ServiceFulfillmentState): string[] {
+function configuredFieldsFromServiceFulfillmentState(
+  state: ServiceFulfillmentState,
+  serviceAfterSalesPolicy: ServiceAfterSalesPolicy
+): string[] {
   return [
     state.shippingModeSelected ? "shippingMode" : "",
     state.shippingTimeSelected ? "shippingTime" : "",
     state.productStatusSelected ? "productStatus" : "",
-    state.freightTemplateName ? "freightTemplate" : ""
+    state.freightTemplateName ? "freightTemplate" : "",
+    serviceAfterSalesPolicy === "unsupported_seven_day_returns" && state.afterSalesPolicySatisfied ? "afterSalesPolicy" : ""
   ].filter(Boolean);
 }
 
@@ -447,7 +440,11 @@ async function readShippingSelectionState(page: Page): Promise<Pick<ServiceFulfi
   return { shippingModeSelected, shippingTimeSelected };
 }
 
-async function readServiceFulfillmentState(page: Page, freightTemplateName: string): Promise<ServiceFulfillmentState> {
+async function readServiceFulfillmentState(
+  page: Page,
+  freightTemplateName: string,
+  serviceAfterSalesPolicy: ServiceAfterSalesPolicy
+): Promise<ServiceFulfillmentState> {
   const { shippingModeSelected, shippingTimeSelected } = await readShippingSelectionState(page);
   const productStatusSelected =
     (await isRadioOptionSelectedNearFieldLabel(page, "\u5546\u54c1\u72b6\u6001", "\u4e0a\u67b6").catch(() => false)) ||
@@ -455,15 +452,25 @@ async function readServiceFulfillmentState(page: Page, freightTemplateName: stri
   const selectedFreight = isConcreteFreightTemplateName(freightTemplateName)
     ? freightTemplateName
     : await readLabeledSelectValue(page, "\u8fd0\u8d39\u6a21\u677f").catch(() => "");
+  const afterSalesPolicySatisfied = serviceAfterSalesPolicy === "preserve_platform_state" ||
+    await isRadioOptionSelectedNearFieldLabelCandidate(
+      page,
+      ["售后政策"],
+      ["不支持7天无理由退货"]
+    ).catch(() => false);
   return {
     shippingModeSelected,
     shippingTimeSelected,
     productStatusSelected,
-    freightTemplateName: isConcreteFreightTemplateName(selectedFreight) ? selectedFreight : ""
+    freightTemplateName: isConcreteFreightTemplateName(selectedFreight) ? selectedFreight : "",
+    afterSalesPolicySatisfied
   };
 }
 
-async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
+async function applyServiceFulfillmentSettingsOnPage(
+  page: Page,
+  serviceAfterSalesPolicy: ServiceAfterSalesPolicy
+): Promise<{
   configuredFields: string[];
   freightTemplateName: string;
   serviceState: ServiceFulfillmentState;
@@ -486,11 +493,21 @@ async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
   await ensureServiceSectionReady(page);
 
   const freightTemplateName = await chooseKeywordFreightTemplate(page, FIXED_FREIGHT_TEMPLATE_KEYWORD);
+  if (serviceAfterSalesPolicy === "unsupported_seven_day_returns") {
+    const afterSalesSelected = await ensureRadioOptionNearFieldLabel(
+      page,
+      "售后政策",
+      "不支持7天无理由退货"
+    );
+    if (!afterSalesSelected) {
+      throw new Error("OTC after-sales policy did not read back as 不支持7天无理由退货.");
+    }
+  }
   await ensureRadioOptionNearFieldLabel(page, "\u5546\u54c1\u72b6\u6001", "\u4e0a\u67b6");
   await clickRadioByLabel(page, "\u4e0a\u67b6").catch(() => false);
   await page.waitForTimeout(500);
 
-  const serviceReadbackState = await readServiceFulfillmentState(page, freightTemplateName);
+  const serviceReadbackState = await readServiceFulfillmentState(page, freightTemplateName, serviceAfterSalesPolicy);
   await ensurePublishSectionTab(page, "\u4ef7\u683c\u5e93\u5b58");
   const finalShippingReadback = await readShippingSelectionState(page);
   await ensureServiceSectionReady(page);
@@ -500,7 +517,7 @@ async function applyServiceFulfillmentSettingsOnPage(page: Page): Promise<{
     shippingTimeSelected: shippingTimeReasserted && finalShippingReadback.shippingTimeSelected
   };
   return {
-    configuredFields: configuredFieldsFromServiceFulfillmentState(serviceState),
+    configuredFields: configuredFieldsFromServiceFulfillmentState(serviceState, serviceAfterSalesPolicy),
     freightTemplateName: serviceState.freightTemplateName,
     serviceState
   };
@@ -542,7 +559,9 @@ export async function applyShippingBeforePriceInventoryOnPage(page: Page, runtim
 export async function applyFixedPublishSettings(
   runtimeDir: string,
   publishPageUrl: string,
-  expectedSpu?: string
+  expectedSpu?: string,
+  serviceSpuVerification: ServiceSpuVerificationPolicy = "medical_registration",
+  serviceAfterSalesPolicy: ServiceAfterSalesPolicy = "preserve_platform_state"
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -561,12 +580,13 @@ export async function applyFixedPublishSettings(
       page,
       runtimeDir,
       expectedSpu,
-      "publish-page-category-registration-mismatch-before-service.png"
+      "publish-page-category-registration-mismatch-before-service.png",
+      serviceSpuVerification === "none" ? "medical_registration" : serviceSpuVerification
     );
     await ensureServiceSectionReady(page);
 
     try {
-      const settingsResult = await applyServiceFulfillmentSettingsOnPage(page);
+      const settingsResult = await applyServiceFulfillmentSettingsOnPage(page, serviceAfterSalesPolicy);
 
       const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-fixed-settings.png");
       return {
@@ -593,7 +613,9 @@ export async function applyFixedPublishSettingsOnPage(
   page: Page,
   runtimeDir: string,
   fileName: string,
-  expectedSpu?: string
+  expectedSpu?: string,
+  serviceSpuVerification: ServiceSpuVerificationPolicy = "medical_registration",
+  serviceAfterSalesPolicy: ServiceAfterSalesPolicy = "preserve_platform_state"
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -616,11 +638,12 @@ export async function applyFixedPublishSettingsOnPage(
     page,
     runtimeDir,
     expectedSpu,
-    "publish-page-category-registration-mismatch-before-service.png"
+    "publish-page-category-registration-mismatch-before-service.png",
+    serviceSpuVerification === "none" ? "medical_registration" : serviceSpuVerification
   );
   await ensureServiceSectionReady(page);
 
-  const settingsResult = await applyServiceFulfillmentSettingsOnPage(page);
+  const settingsResult = await applyServiceFulfillmentSettingsOnPage(page, serviceAfterSalesPolicy);
 
   const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
   return {

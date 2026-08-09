@@ -49,7 +49,9 @@ export async function runServiceAction(
     input.page,
     input.runtimeDir,
     "publish-page-fixed-settings.png",
-    input.categoryContext.mutationPolicy.verifySpuInServiceSettings ? input.metadata.spu : undefined
+    input.categoryContext.mutationPolicy.serviceSpuVerification !== "none" ? input.metadata.spu : undefined,
+    input.categoryContext.mutationPolicy.serviceSpuVerification,
+    input.categoryContext.mutationPolicy.serviceAfterSalesPolicy
   );
   screenshotFiles.push(settingsResult.screenshotFile);
   configuredFields.push(...settingsResult.configuredFields);

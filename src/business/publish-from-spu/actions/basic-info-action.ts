@@ -88,7 +88,7 @@ export async function runBasicInfoAction(
         page = await deps.reuseOrOpenCreatePage(page.context(), createPageUrl, page);
         continue;
       }
-      const categoryMismatch = message.includes("Category registration mismatch before modelSpec fill.");
+      const categoryMismatch = message.includes("Category SPU readback mismatch.");
       if (categoryMismatch && basicAttempt === 0) {
         input.emitProgress("basic_info_reopen", message);
         const retryQueryResult = await deps.queryPlatformSpu(input.runtimeDir, input.metadata.brand, input.metadata.spu, input.shopFolder);

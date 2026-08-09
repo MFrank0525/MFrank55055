@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "playwright";
+import type { ServiceSpuVerificationPolicy } from "./publish-category-policy.js";
 import { normalizeProductCategory } from "../../autolist/product-category.js";
 import { launchPersistentBrowser } from "../../browser/launch.js";
 import { getSelectAllShortcut } from "../../utils/platform.js";
@@ -324,22 +325,31 @@ type BasicFieldSnapshot = {
   allowed: boolean;
 };
 
-async function readCategoryRegistrationNumber(page: Page): Promise<string> {
-  return page.evaluate(() => {
+async function readCategoryRegistrationNumber(
+  page: Page,
+  verificationPolicy: Exclude<ServiceSpuVerificationPolicy, "none"> = "medical_registration"
+): Promise<string> {
+  return page.evaluate((categoryVerificationPolicy) => {
     const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
     const extractRegistrationNumber = (value: string): string => {
       const text = normalize(value);
       if (!text) {
         return "";
       }
-      const exactMatch = text.match(/[\u4e00-\u9fa5]{1,4}械(?:注准|注许|备)\d{5,}/);
+      const exactMatch = categoryVerificationPolicy === "drug_approval_number"
+        ? text.match(/国药准字[A-Z]\d{5,}/i)
+        : text.match(/[\u4e00-\u9fa5]{1,4}械(?:注准|注许|备)\d{5,}/);
       if (exactMatch) {
         return exactMatch[0];
       }
-      const fuzzyMatch = text.match(/[\u4e00-\u9fa5]{1,6}(?:备案|注册|注准|注许)\d{5,}/);
+      const fuzzyMatch = categoryVerificationPolicy === "drug_approval_number"
+        ? text.match(/(?:药品批准文号)?国药准字[A-Z]\d{5,}/i)
+        : text.match(/[\u4e00-\u9fa5]{1,6}(?:备案|注册|注准|注许)\d{5,}/);
       return fuzzyMatch ? fuzzyMatch[0] : "";
     };
-    const labelKeywords = ["医疗器械备案/注册号", "医疗器械注册号", "备案/注册号", "注册号"];
+    const labelKeywords = categoryVerificationPolicy === "drug_approval_number"
+      ? ["药品批准文号", "批准文号"]
+      : ["医疗器械备案/注册号", "医疗器械注册号", "备案/注册号", "注册号"];
     const excludeTexts = ["举报", "修改", "展开更多"];
     const elements = Array.from(document.querySelectorAll("body *")).map((el) => el as HTMLElement);
     const visible = elements
@@ -420,16 +430,17 @@ async function readCategoryRegistrationNumber(page: Page): Promise<string> {
     }
 
     return "";
-  });
+  }, verificationPolicy);
 }
 
 async function assertCategoryRegistrationMatchesWorkbookSpu(
   page: Page,
   runtimeDir: string,
   expectedSpu: string,
-  screenshotFileName: string
+  screenshotFileName: string,
+  verificationPolicy: Exclude<ServiceSpuVerificationPolicy, "none"> = "medical_registration"
 ): Promise<string> {
-  const actualRegistration = await readCategoryRegistrationNumber(page);
+  const actualRegistration = await readCategoryRegistrationNumber(page, verificationPolicy);
   const normalizedExpected = normalizeSpuMatchText(expectedSpu);
   const normalizedActual = normalizeSpuMatchText(actualRegistration);
   if (!normalizedExpected) {
@@ -438,7 +449,7 @@ async function assertCategoryRegistrationMatchesWorkbookSpu(
   if (!normalizedActual || normalizedActual !== normalizedExpected) {
     const screenshotFile = await savePageScreenshot(page, runtimeDir, screenshotFileName).catch(() => "");
     throw new Error(
-      `Category registration mismatch before modelSpec fill. expectedSpu=${expectedSpu}; actualRegistration=${actualRegistration || "<empty>"}${
+      `Category SPU readback mismatch. verification=${verificationPolicy}; expectedSpu=${expectedSpu}; actualRegistration=${actualRegistration || "<empty>"}${
         screenshotFile ? `; screenshot=${screenshotFile}` : ""
       }`
     );
@@ -450,7 +461,8 @@ export async function verifyCategoryRegistrationGateOnPage(
   page: Page,
   runtimeDir: string,
   expectedSpu?: string,
-  screenshotFileName = "publish-page-category-registration-mismatch.png"
+  screenshotFileName = "publish-page-category-registration-mismatch.png",
+  verificationPolicy: Exclude<ServiceSpuVerificationPolicy, "none"> = "medical_registration"
 ): Promise<void> {
   if (!expectedSpu) {
     return;
@@ -458,7 +470,7 @@ export async function verifyCategoryRegistrationGateOnPage(
   await ensurePublishSectionTab(page, "\u57fa\u7840\u4fe1\u606f");
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" })).catch(() => {});
   await page.waitForTimeout(600);
-  await assertCategoryRegistrationMatchesWorkbookSpu(page, runtimeDir, expectedSpu, screenshotFileName);
+  await assertCategoryRegistrationMatchesWorkbookSpu(page, runtimeDir, expectedSpu, screenshotFileName, verificationPolicy);
 }
 
 async function snapshotBasicInfoFields(page: Page): Promise<BasicFieldSnapshot[]> {

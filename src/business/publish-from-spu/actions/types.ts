@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import type { ProductCategory } from "../../../autolist/product-category.js";
 import type { PublishCategoryMutationPolicy } from "../publish-category-policy.js";
+import type { ServiceAfterSalesPolicy, ServiceSpuVerificationPolicy } from "../publish-category-policy.js";
 import type { PriceInventoryRowValue } from "../price-inventory-rules.js";
 import type { PublishRuleCheck, ServiceFulfillmentState } from "../publish-rules.js";
 import type { ProductAssets, PublishActionResult, PublishFlowStage, ResolvedPublishFromSpuMetadata } from "../types.js";
@@ -156,7 +157,9 @@ export type ServiceActionDeps = Pick<BasicInfoActionDeps, "assertBasicPublishCom
     page: Page,
     runtimeDir: string,
     fileName: string,
-    expectedSpu?: string
+    expectedSpu?: string,
+    serviceSpuVerification?: ServiceSpuVerificationPolicy,
+    serviceAfterSalesPolicy?: ServiceAfterSalesPolicy
   ) => Promise<{
     screenshotFile: string;
     configuredFields: string[];

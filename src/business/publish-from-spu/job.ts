@@ -112,6 +112,7 @@ import {
 } from "./publish-rules.js";
 import type { PublishRuleCheck, ServiceFulfillmentState } from "./publish-rules.js";
 import { makePublishActionResult } from "./publish-actions.js";
+import { getPublishCategoryMutationPolicy } from "./publish-category-policy.js";
 
 import { applyFixedPublishSettings } from "./service-fulfillment-page-action.js";
 import { runGraphicFlow, runPublishFlow } from "./publish-flow.js";
@@ -169,6 +170,7 @@ export async function runPublishFromSpuJob(
         metadataOverride,
         workbook
       });
+      const categoryPolicy = getPublishCategoryMutationPolicy(resolvedMetadata.productCategory);
       if (mode !== "open_platform_spu") {
         assertResolvedMetadata(resolvedMetadata, mode);
       }
@@ -323,17 +325,29 @@ export async function runPublishFromSpuJob(
       let servicePublishPageUrl = input.publishPageUrl;
       let settingsResult;
       try {
-        settingsResult = await applyFixedPublishSettings(runtimeDir, servicePublishPageUrl, resolvedMetadata.spu);
+        settingsResult = await applyFixedPublishSettings(
+          runtimeDir,
+          servicePublishPageUrl,
+          categoryPolicy.serviceSpuVerification !== "none" ? resolvedMetadata.spu : undefined,
+          categoryPolicy.serviceSpuVerification,
+          categoryPolicy.serviceAfterSalesPolicy
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const categoryMismatch = message.includes("Category registration mismatch before modelSpec fill.");
+        const categoryMismatch = message.includes("Category SPU readback mismatch.");
         if (!categoryMismatch || !resolvedMetadata.brand || !resolvedMetadata.spu) {
           throw error;
         }
         const queryResult = await queryPlatformSpu(runtimeDir, resolvedMetadata.brand, resolvedMetadata.spu, shopFolder);
         screenshots.push(queryResult.screenshotFile);
         servicePublishPageUrl = queryResult.createPageUrl;
-        settingsResult = await applyFixedPublishSettings(runtimeDir, servicePublishPageUrl, resolvedMetadata.spu);
+        settingsResult = await applyFixedPublishSettings(
+          runtimeDir,
+          servicePublishPageUrl,
+          categoryPolicy.serviceSpuVerification !== "none" ? resolvedMetadata.spu : undefined,
+          categoryPolicy.serviceSpuVerification,
+          categoryPolicy.serviceAfterSalesPolicy
+        );
         browserData = {
           pageUrl: queryResult.pageUrl,
           pageTitle: queryResult.pageTitle,
