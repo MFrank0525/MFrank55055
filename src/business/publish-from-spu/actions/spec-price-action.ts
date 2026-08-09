@@ -36,7 +36,7 @@ export async function runSpecPriceAction(
   let createPageUrl = input.createPageUrl;
   let matchedRowText = "";
 
-  if (input.categoryContext.productCategory === "保健食品") {
+  if (input.categoryContext.mutationPolicy.healthFoodShippingBeforeSpecification) {
     const shippingRule = await deps.applyHealthFoodShippingBeforeSpecOnPage(page);
     if (!shippingRule.passed) {
       stages.push({ step: "apply_health_food_shipping_before_spec", status: "failed" });
@@ -60,7 +60,7 @@ export async function runSpecPriceAction(
     configuredFields.push("leave_specification_unchanged");
     stages.push({ step: "leave_specification_unchanged", status: "completed" });
   }
-  if (input.categoryContext.productCategory === "保健食品" && !specIssue) {
+  if (input.categoryContext.mutationPolicy.healthFoodSpecification && !specIssue) {
     await page.waitForTimeout(3000);
     const healthFoodSpecResult = await deps.applyHealthFoodSpecificationOnPage(page, input.metadata);
     if (!healthFoodSpecResult.ok) {

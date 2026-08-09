@@ -4,7 +4,11 @@ import { getPublishCategoryMutationPolicy } from "../dist/src/business/publish-f
 import { assertResolvedMetadata, resolvePublishFromSpuMetadata } from "../dist/src/business/publish-from-spu/metadata-resolution.js";
 
 const otc = getPublishCategoryMutationPolicy("非处方药");
-assert.deepEqual(otc, { categoryAttributes: "leave_platform_state", specification: "leave_platform_state" });
+assert.equal(otc.categoryAttributes, "leave_platform_state");
+assert.equal(otc.specification, "leave_platform_state");
+assert.equal(otc.healthFoodSafetyAndCategoryAttributes, false);
+assert.equal(otc.healthFoodPackagingLabel, false);
+assert.equal(otc.medicalDeviceCertificate, false);
 
 const medical = getPublishCategoryMutationPolicy("医疗器械");
 assert.equal(medical.categoryAttributes, "fill_model_spec");

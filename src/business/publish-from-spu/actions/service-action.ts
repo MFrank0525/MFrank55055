@@ -49,7 +49,7 @@ export async function runServiceAction(
     input.page,
     input.runtimeDir,
     "publish-page-fixed-settings.png",
-    input.categoryContext.productCategory === "保健食品" ? undefined : input.metadata.spu
+    input.categoryContext.mutationPolicy.verifySpuInServiceSettings ? input.metadata.spu : undefined
   );
   screenshotFiles.push(settingsResult.screenshotFile);
   configuredFields.push(...settingsResult.configuredFields);
@@ -61,7 +61,7 @@ export async function runServiceAction(
   }
   stages.push({ step: "apply_fixed_publish_settings", status: "completed" });
 
-  if (input.categoryContext.productCategory === "保健食品") {
+  if (input.categoryContext.mutationPolicy.healthFoodPackagingLabel) {
     const packagingLabelResult = await deps.uploadHealthFoodPackagingLabelOnPage(input.page, input.assets.detailImages);
     if (!packagingLabelResult.ok) {
       stages.push({ step: "upload_health_food_packaging_label", status: "failed" });
@@ -71,7 +71,7 @@ export async function runServiceAction(
     stages.push({ step: "upload_health_food_packaging_label", status: "completed" });
   }
 
-  if (input.categoryContext.productCategory === "医疗器械") {
+  if (input.categoryContext.mutationPolicy.medicalDeviceCertificate) {
     const medicalCertificateResult = await deps.ensureMedicalDeviceCertificateFromFirstQualification(
       input.page,
       input.runtimeDir,

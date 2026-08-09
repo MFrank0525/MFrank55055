@@ -12,6 +12,7 @@ The rule layer decides whether the observed state satisfies publish requirements
 
 - CLI/business entrypoint: `src/business/publish-from-spu.ts`
 - Publish orchestration: `src/business/publish-from-spu/publish-flow.ts`
+- Category mutation policy: `src/business/publish-from-spu/publish-category-policy.ts`
 - Module action implementations: `src/business/publish-from-spu/actions/*.ts`
 - Page-level browser actions: `src/business/publish-from-spu/*-action.ts`
 - Health-food action implementation: `src/business/publish-from-spu/health-food-actions.ts`
@@ -23,9 +24,17 @@ The rule layer decides whether the observed state satisfies publish requirements
 
 ## Category-Specific Orchestration
 
-`runPublishFlow` resolves the normalized product category once at the beginning of the flow, then orchestrates category-specific modules from that decision.
+`runPublishFlow` resolves the normalized product category once at the beginning of the flow, then obtains one immutable action matrix from `publish-category-policy.ts`. Module action files consume that matrix and must not branch directly on category display names. This prevents the same category decision from drifting independently across basic information, specification, service, and submit modules.
 
-健康食品动作由 `src/business/publish-from-spu/health-food-actions.ts` 提供，`runPublishFlow` 只负责编排这些动作的顺序、读取 readback 结果并在失败时停止。医疗器械注册证动作只允许在医疗器械分支运行；健康食品的食品安全、类目属性、规格替换、外包装图和包装标签图动作只允许在保健食品分支运行。
+| Category | Category attributes | Specification | Category-only actions |
+| --- | --- | --- | --- |
+| 医疗器械 | 填写受控 `型号规格=盒装` | 使用受控模板，不改规格名和值 | 服务履约 SPU 读回；医疗器械注册证按空值规则处理 |
+| 非处方药 | 平台状态不变 | 平台状态不变，不查找或选择模板 | 服务履约 SPU 读回；不得运行保健食品动作或医疗器械注册证动作 |
+| 保健食品 | 填写食品安全和飞书类目属性 | 使用受控模板，只替换唯一规格值并精确读回 | 规格前发货设置、包装标签图和专用发布门禁；不得运行医疗器械注册证动作 |
+
+矩阵在模块加载时执行隔离断言：医疗器械注册证与保健食品包装标签不得同时启用；保健食品动作链不得只启用一部分；声明类目属性保持不变的策略不得同时声明改动规格。出现冲突必须在浏览器动作开始前失败。
+
+保健食品浏览器动作由 `src/business/publish-from-spu/health-food-actions.ts` 提供，`runPublishFlow` 只负责编排这些动作的顺序、读取 readback 结果并在失败时停止。医疗器械注册证动作只允许由医疗器械策略启用；食品安全、保健食品类目属性、规格替换、外包装图和包装标签图动作只允许由保健食品策略启用。
 
 医疗器械注册证动作不是通用资质补全动作。规则层只允许在“医疗器械注册证”字段为空且飞书资质图存在时要求上传第一张资质图；动作层必须精确定位“医疗器械注册证”上传控件。若精确控件不可定位，必须失败并保留断点，不得回退到“医疗器械生产许可证”、“赠品资质”或“质检报告”等相邻控件。
 

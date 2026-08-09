@@ -253,3 +253,13 @@
 | Do not change any OTC specification value | Spec/price action records `leave_specification_unchanged` and never calls the controlled template action for OTC; price and stock processing remains separate | `test-otc-publish-policy-rule.mjs`; publish module sequence rules | verified |
 | Clear platform-prefilled main and detail images before project image actions | Dedicated action module clears each required section and fails closed unless DOM readback is zero; detail order is clear → fill from main → confirm → Feishu qualification upload | `test-graphic-prefill-clear-rule.mjs`; DOM-click policy; full rule closure | verified |
 | Prove the new shop order without image generation or publishing | Category-scoped shop-access audit accepts `--category 非处方药`, consumes the canonical plan, and forbids form/publish side effects | `test-shop-access-audit-rule.mjs`; live run `20260809-171908` passed shops 01–05 with zero form/publish attempts | verified |
+
+## 2026-08-09 Category action isolation
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Prevent category behavior from drifting between publish modules | `publish-category-policy.ts` owns the complete executable action matrix; basic-info, specification, service and submit modules consume it without category-name branches | `test-publish-category-isolation-rule.mjs`; TypeScript build; full `rules:check` | verified |
+| Keep medical-device-only and health-food-only actions mutually isolated | Policy startup assertions reject certificate/packaging overlap, partial health-food action chains and contradictory leave-unchanged policies before browser work begins | Category isolation, health-food sequence and medical-device certificate regressions | verified |
+| Preserve OTC as a minimal-mutation path | OTC policy leaves category attributes and specifications unchanged, retains the generic submit gate, and disables every medical-device/health-food-only mutation | OTC policy regression; category isolation regression | verified |
+| Keep the long-term operating source aligned with repository rules | Project skill now records OTC five shops × four images, category-specific title/specification behavior and strict prefilled-image clearing | Skill and repository stale-rule search | verified |
+| Audit the separation repeatedly without generating images or publishing | Full rule closure, representative simulation, all doctor modes, live Feishu 23-field readback, category-scoped shop switching and three independent eight-dimension deep audits | OTC shop audit `20260809-180026` passed 5/5; medical-device audit `20260809-180142` passed 20/20; both report zero publish/form mutation; three deep audits each report `ok=true` in all dimensions | verified |

@@ -42,7 +42,7 @@ export async function runSubmitAction(
   let publishClickAttempted = false;
   let publishIssue = "";
 
-  if (input.categoryContext.productCategory === "保健食品") {
+  if (input.categoryContext.mutationPolicy.submitValidation === "health_food_packaging_gate") {
     checkPassed = true;
     checkMessage = "Health-food packaging label upload matched Feishu qualification image count; submit without fill-check gating.";
     checkHints = [];

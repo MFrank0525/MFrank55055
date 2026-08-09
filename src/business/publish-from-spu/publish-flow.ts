@@ -195,7 +195,7 @@ export async function runPublishFlow(
     mutationPolicy.categoryAttributes === "fill_model_spec"
       ? { title: metadata.title, shortTitle: metadata.shortTitle, modelSpec: metadata.modelSpec, spu: metadata.spu }
       : { title: metadata.title, shortTitle: metadata.shortTitle, modelSpec: undefined, spu: metadata.spu };
-  const basicInfoGuardUnexpectedFieldChanges = productCategory !== "保健食品";
+  const basicInfoGuardUnexpectedFieldChanges = mutationPolicy.guardUnexpectedBasicFieldChanges;
   const priceInventoryRows = resolveFeishuPriceInventoryRows(metadata.productPriceText || "");
 
   const context = await launchPersistentBrowser();
@@ -280,7 +280,7 @@ export async function runPublishFlow(
         runtimeDir,
         createPageUrl,
         metadata,
-        productCategory,
+        mutationPolicy,
         basicMetadata,
         shopFolder,
         assets,
@@ -328,7 +328,7 @@ export async function runPublishFlow(
       uploadedGroups = graphicResult.uploadedGroups;
       uploadIssue = graphicResult.uploadIssue;
 
-      if (productCategory === "保健食品") {
+      if (mutationPolicy.healthFoodShippingBeforeSpecification) {
         if (specAttempt === 0) {
           logInfo(`publish module started: ${"shipping_and_spec"} (${path.basename(shopFolder)})`);
         }
@@ -571,7 +571,7 @@ export async function runGraphicFlow(
         runtimeDir,
         createPageUrl,
         metadata: actionMetadata,
-        productCategory,
+        mutationPolicy,
         basicMetadata,
         shopFolder,
         assets,

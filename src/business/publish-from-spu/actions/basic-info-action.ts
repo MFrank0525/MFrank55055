@@ -1,5 +1,6 @@
 import type { Page } from "playwright";
 import type { ProductAssets, ResolvedPublishFromSpuMetadata } from "../types.js";
+import type { PublishCategoryMutationPolicy } from "../publish-category-policy.js";
 import type { BasicInfoActionDeps, BasicPublishMetadata, EmitPublishFlowProgress, PublishModuleSnapshot } from "./types.js";
 
 export async function runBasicInfoAction(
@@ -9,7 +10,7 @@ export async function runBasicInfoAction(
     runtimeDir: string;
     createPageUrl: string;
     metadata: ResolvedPublishFromSpuMetadata;
-    productCategory: string;
+    mutationPolicy: PublishCategoryMutationPolicy;
     basicMetadata: BasicPublishMetadata;
     shopFolder: string;
     assets: ProductAssets;
@@ -106,7 +107,7 @@ export async function runBasicInfoAction(
     throw new Error(`${failurePrefix}: 基础信息模块未完成。`);
   }
 
-  if (input.productCategory === "保健食品") {
+  if (input.mutationPolicy.healthFoodSafetyAndCategoryAttributes) {
     deps.logInfo(`publish module started: food_safety (${input.shopFolder.split(/[\\/]/).pop() || input.shopFolder})`);
     const foodSafetyResult = await deps.fillHealthFoodSafetyAttributesOnPage(page, input.metadata);
     if (!foodSafetyResult.ok) {

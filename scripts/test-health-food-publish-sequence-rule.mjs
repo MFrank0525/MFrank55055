@@ -91,7 +91,7 @@ assert.match(
 );
 assert.match(
   runPublishFlowSource,
-  /const\s+basicInfoGuardUnexpectedFieldChanges\s*=\s*productCategory\s*!==\s*"保健食品"/,
+  /const\s+basicInfoGuardUnexpectedFieldChanges\s*=\s*mutationPolicy\.guardUnexpectedBasicFieldChanges/,
   "health-food basic info must not use the medical-device category-attribute mutation guard"
 );
 assert.match(
@@ -173,12 +173,12 @@ assert.doesNotMatch(
 );
 assert.match(
   submitActionSource,
-  /if \(input\.categoryContext\.productCategory === "保健食品"\) \{[\s\S]*checkPassed = true[\s\S]*submit without fill-check gating[\s\S]*\} else \{[\s\S]*runPublishCheckOnPage/,
+  /if \(input\.categoryContext\.mutationPolicy\.submitValidation === "health_food_packaging_gate"\) \{[\s\S]*checkPassed = true[\s\S]*submit without fill-check gating[\s\S]*\} else \{[\s\S]*runPublishCheckOnPage/,
   "health-food flow must bypass fill-check gating while non-health-food flow still uses it"
 );
 
-const healthFoodBlockStart = serviceActionSource.indexOf('if (input.categoryContext.productCategory === "保健食品")');
-const medicalBlockStart = serviceActionSource.indexOf('if (input.categoryContext.productCategory === "医疗器械")');
+const healthFoodBlockStart = serviceActionSource.indexOf("if (input.categoryContext.mutationPolicy.healthFoodPackagingLabel)");
+const medicalBlockStart = serviceActionSource.indexOf("if (input.categoryContext.mutationPolicy.medicalDeviceCertificate)");
 assert.notEqual(healthFoodBlockStart, -1, "health-food branch not found");
 assert.notEqual(medicalBlockStart, -1, "medical-device branch not found");
 const healthFoodBlock = serviceActionSource.slice(
@@ -209,7 +209,7 @@ for (const marker of [
 }
 assert.match(
   separationManual,
-  /健康食品动作.*health-food-actions\.ts[\s\S]*runPublishFlow.*编排/,
+  /保健食品[^\n]*动作.*health-food-actions\.ts[\s\S]*runPublishFlow.*编排/,
   "rule/action separation doc must explain that health-food actions are reused by orchestration"
 );
 assert.match(
