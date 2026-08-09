@@ -34,6 +34,7 @@ import { removeInvalidRuntimeArtifactDirs } from "../autolist/runtime-artifact-l
 import { clearProcessedImagesForBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { assertAutoListingControllerImageGenerationContract } from "../autolist/image-generation-config.js";
+import { getProductCategoryPlan } from "../autolist/product-category.js";
 import type { ImageGenerationProvider } from "../autolist/image-generation-provider.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { resolveControllerJobClosure, type ControllerJobStatus } from "../autolist/maintenance-rules.js";
@@ -80,6 +81,9 @@ function formatStatusText(status: Record<string, unknown>): string {
   const paidImageProgress = status.paidImageProgress as Record<string, unknown> | undefined;
   const active = progress?.active as Record<string, unknown> | undefined;
   const publishGroupProgress = progress?.publishGroupProgress as Record<string, unknown> | undefined;
+  const currentCategoryPlan = getProductCategoryPlan(
+    typeof feishuCurrentProduct?.productCategory === "string" ? String(feishuCurrentProduct.productCategory) : undefined
+  );
   const latestArtifact = progress?.latestArtifact as Record<string, unknown> | undefined;
   const artifactIsNewerThanActive =
     typeof latestArtifact?.updatedAt === "string" &&
@@ -131,7 +135,7 @@ function formatStatusText(status: Record<string, unknown>): string {
         : undefined;
   return formatAutoListingControllerCompactStatusText({
     status: String(status.status || "unknown"),
-    showPublishProgress: Boolean(progress || currentTask || publishLogProgress),
+    showPublishProgress: Boolean(progress || publishLogProgress),
     summary: String(status.summary || latestResultFailureMessage || ""),
     productName:
       typeof publishGroupProgress?.productName === "string"
@@ -160,7 +164,10 @@ function formatStatusText(status: Record<string, unknown>): string {
     publishShopIndex:
       typeof publishGroupProgress?.shopIndex === "number" ? Number(publishGroupProgress.shopIndex) : undefined,
     publishShopTotal:
-      typeof publishGroupProgress?.shopTotal === "number" ? Number(publishGroupProgress.shopTotal) : undefined,
+      typeof publishGroupProgress?.shopTotal === "number"
+        ? Number(publishGroupProgress.shopTotal)
+        : currentCategoryPlan.shopCodes.length,
+    publishImagesPerShop: currentCategoryPlan.imagesPerShop,
     publishFailedWatermarkNo:
       typeof publishGroupProgress?.failedWatermarkNo === "number" ? Number(publishGroupProgress.failedWatermarkNo) : undefined,
     publishReviewWatermarkNo:

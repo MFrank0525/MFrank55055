@@ -116,7 +116,8 @@ export function summarizeFeishuCurrentProduct(input: {
         recordId: record.recordId,
         userCognitionName: record.userCognitionName,
         genericName: record.genericName,
-        spu: record.spu
+        spu: record.spu,
+        productCategory: record.productCategory
       };
     }
   }

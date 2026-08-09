@@ -818,7 +818,7 @@ const compactFailedStatus = formatAutoListingControllerCompactStatusText({
 assert.deepEqual(
   compactFailedStatus.split("\n"),
   [
-    "状态：失败｜发布已完成 14/20｜当前目标 15/20｜当前店铺 8/10｜飞书批次已完成 2/3",
+    "状态：失败｜发布已完成 14/20｜当前目标 15/20｜当前店铺 15/20｜飞书批次已完成 2/3",
     "商品：医用面部生物膜",
     "原因：导购短标题字段缺失，已停止，可续跑。"
   ],
@@ -960,7 +960,7 @@ const compactPlatformFailedStatus = formatAutoListingControllerCompactStatusText
 assert.deepEqual(
   compactPlatformFailedStatus.split("\n"),
   [
-    "状态：失败｜发布已完成 14/20｜当前目标 15/20｜当前店铺 8/10｜飞书批次已完成 2/3",
+    "状态：失败｜发布已完成 14/20｜当前目标 15/20｜当前店铺 15/20｜飞书批次已完成 2/3",
     "商品：医用面部生物膜",
     "原因：标品检索页控件未加载完整，已停止，可续跑。"
   ],

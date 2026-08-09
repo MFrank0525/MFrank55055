@@ -1446,7 +1446,7 @@ assert.equal(
     publishProductTotal: 20,
     publishFailedWatermarkNo: 17
   }),
-  "状态：失败｜发布已完成 16/20｜失败目标 17/20｜当前店铺 9/10｜飞书批次待确认\n商品：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n原因：主图上传失败：最终读回 0/5 张，已安全停止。",
+  "状态：失败｜发布已完成 16/20｜失败目标 17/20｜当前店铺 17/20｜飞书批次待确认\n商品：延草纲目金奥力牌苦瓜荞麦桑叶胶囊\n原因：主图上传失败：最终读回 0/5 张，已安全停止。",
   "Hermes must report a concise readback failure instead of a local product path"
 );
 assert.equal(

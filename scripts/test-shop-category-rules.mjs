@@ -58,10 +58,22 @@ assert.deepEqual(
 );
 
 const doctorSource = fs.readFileSync("src/cli/doctor.ts", "utf8");
+const controllerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
+const continuationSource = fs.readFileSync("src/autolist/batch-continuation-rules.ts", "utf8");
 assert.match(
   doctorSource,
   /const expectedName = `\$\{shop\.shopCode\}\$\{shop\.watermarkText\}`/,
   "doctor must validate the exact canonical shop folder name instead of only its numeric prefix"
+);
+assert.match(
+  controllerSource,
+  /currentCategoryPlan\.shopCodes\.length[\s\S]*publishImagesPerShop:\s*currentCategoryPlan\.imagesPerShop/,
+  "controller status must derive shop progress from the current category plan"
+);
+assert.doesNotMatch(
+  continuationSource,
+  /Math\.(?:ceil|floor)\([^\n]*\/\s*2\)/,
+  "status progress must not retain the obsolete two-targets-per-shop fallback"
 );
 
 assert.deepEqual(getProductCategoryPlan("医疗器械").shopCodes, allShopCodes);

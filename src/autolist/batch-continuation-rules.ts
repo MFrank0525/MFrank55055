@@ -862,6 +862,7 @@ export type AutoListingControllerCompactStatusTextInput = {
   publishProductTotal?: number;
   publishShopIndex?: number;
   publishShopTotal?: number;
+  publishImagesPerShop?: number;
   publishFailedWatermarkNo?: number;
   publishReviewWatermarkNo?: number;
   publishLatestAttemptedWatermarkNo?: number;
@@ -1255,11 +1256,11 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
     : undefined;
   const displayEntry = completedDisplayEntry || (failed > 0 && latestAttemptedEntry ? latestAttemptedEntry : activeEntry);
   const activeShopName = cleanAutoListingControllerProductName(publishShopFolderFromEntry(displayEntry));
-  const shopTotal = Math.max(1, plannedGroupEntries.length ? shopNames.length : Math.max(shopNames.length, Math.ceil(productTotal / 2)));
+  const shopTotal = Math.max(1, plannedGroupEntries.length ? shopNames.length : shopNames.length || productTotal);
   const shopIndex =
     publishShopIndexFromName(activeShopName) ||
     (activeShopName && shopNames.includes(activeShopName) ? shopNames.indexOf(activeShopName) + 1 : undefined) ||
-    Math.max(1, Math.ceil(productIndex / 2));
+    Math.max(1, productIndex);
   return {
     ...(String(activeEntry.recordId || activeEntry.targetIdentity?.recordId || "").trim()
       ? { recordId: String(activeEntry.recordId || activeEntry.targetIdentity?.recordId).trim() }
@@ -1385,8 +1386,9 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
   const mainImageTotal = input.mainImageExpected ?? productTotal;
   const fallbackProductIndex = (input.publishSafelyPublished || 0) + (input.publishFailed ? 1 : 0) || 1;
   const productIndex = Math.max(1, Math.min(productTotal, input.publishProductIndex ?? fallbackProductIndex));
-  const shopTotal = input.publishShopTotal ?? Math.max(1, Math.ceil(productTotal / 2));
-  const shopIndex = Math.max(1, Math.min(shopTotal, input.publishShopIndex ?? Math.ceil(productIndex / 2)));
+  const imagesPerShop = Math.max(1, input.publishImagesPerShop ?? 1);
+  const shopTotal = input.publishShopTotal ?? Math.max(1, Math.ceil(productTotal / imagesPerShop));
+  const shopIndex = Math.max(1, Math.min(shopTotal, input.publishShopIndex ?? Math.ceil(productIndex / imagesPerShop)));
   const feishuLabel = formatAutoListingBatchProgressLabel({ completed: input.feishuCompleted, current: input.feishuProductIndex, total: input.feishuTotal });
   if (input.status === "completed" && input.publishProductTotal !== undefined) {
     const published = Math.max(0, Math.min(productTotal, input.publishSafelyPublished ?? input.publishProductIndex ?? productTotal));
