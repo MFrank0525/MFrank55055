@@ -1,5 +1,14 @@
 # Auto-listing Requirement Trace
 
+## 2026-08-09 OTC dosage asterisk preservation
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Preserve the dosage separator from Feishu `标题固定后缀` | Title suffix normalization removes whitespace only and retains `*`; keyword cleanup remains separate | `test-feishu-title-keywords-rule.mjs` with `锁阳固精丸北方经开9g*10丸`; full `rules:check` | verified |
+| Refuse an OTC publish whose workbook lost the fixed-suffix `*` | Publish metadata construction requires the workbook title to end with the exact current Feishu suffix before browser actions | OTC publish-policy regression and representative simulation | verified |
+| Rebuild all 20 locked-batch workbooks without losing metadata | Distributed-title regeneration preflights exactly one canonical workbook per folder, stages all replacements, and changes only the title row | 20-workbook regression; current run deep-audit evidence `titles=20/20,unique=20` in two independent audits | verified |
+| Resume at shop 02 without replaying shop 01 | Canonical manifest keeps shop 01 watermarks 01–04 safely published; remaining-folder selection subtracts those exact identities | Read-only remaining-target check returns 16 folders, first watermark 05; two independent deep audits report safe publish 4/20 and `unconfirmed=0` | verified |
+
 ## 2026-08-07 Hermes-isolated browser doctor parity
 
 | Requirement | Implementation | Verification | Status |

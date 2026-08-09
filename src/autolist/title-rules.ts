@@ -11,6 +11,30 @@ export function countTitleCharacters(title: string): number {
   return Array.from(title).reduce((total, character) => total + (/^[\x00-\x7F]$/.test(character) ? 1 : 2), 0);
 }
 
+export function normalizeFeishuTitleFixedSuffix(value: string): string {
+  return value.replace(/\s+/g, "").trim();
+}
+
+export function assertTitlePreservesFeishuFixedSuffix(options: {
+  title: string;
+  fixedSuffixText: string;
+  productCategory?: string;
+}): void {
+  if (options.productCategory === "保健食品") {
+    return;
+  }
+  const suffix = normalizeFeishuTitleFixedSuffix(options.fixedSuffixText);
+  if (!suffix) {
+    throw new Error("Feishu 标题固定后缀 is required.");
+  }
+  if (!options.title.endsWith(suffix)) {
+    const asteriskRule = options.productCategory === "非处方药" && suffix.includes("*")
+      ? " OTC dosage separator * must be preserved."
+      : "";
+    throw new Error(`Generated title must preserve the exact Feishu fixed suffix: ${suffix}.${asteriskRule}`);
+  }
+}
+
 function truncateTitleToCharacterLimit(title: string, maxLength: number): string {
   let currentLength = 0;
   const kept: string[] = [];

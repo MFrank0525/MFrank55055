@@ -5,6 +5,11 @@ import { getProductCategoryPlan, resolveMainImageShopAssignments } from "./produ
 import { buildPublishTargetIdentity, publishTargetKey } from "./publish-identity.js";
 import type { ImageTaskState, MainImageGeneratedFile } from "./types.js";
 import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, BATCH_COMPLETION_FINAL_VERIFY_STATUSES, type PublishManifestEntry } from "./publish-manifest.js";
+import {
+  assertTitlePreservesFeishuFixedSuffix,
+  countTitleCharacters,
+  DOUDIAN_TITLE_MAX_CHARACTERS
+} from "./title-rules.js";
 
 export type AutoListingAuditSeverity = "error" | "warning";
 
@@ -22,6 +27,64 @@ export interface AutoListingContinuityAuditInput {
   existingFiles: Iterable<string>;
   discoveredRunImageCount?: number;
   expectedDiscoveredRunImageCount?: number;
+}
+
+export function auditDistributedTitleArtifacts(input: {
+  tasks: Array<{
+    taskId: string;
+    productCategory?: string;
+    fixedSuffixText: string;
+    expectedCount: number;
+    titles: string[];
+    discoveryErrors?: string[];
+  }>;
+}): { ok: boolean; errors: AutoListingAuditIssue[]; warnings: AutoListingAuditIssue[]; evidence: string[] } {
+  const errors: AutoListingAuditIssue[] = [];
+  const evidence: string[] = [];
+  for (const task of input.tasks) {
+    for (const message of task.discoveryErrors || []) {
+      errors.push({ severity: "error", code: "title_workbook_discovery_invalid", message: `${task.taskId}: ${message}` });
+    }
+    if (task.titles.length !== task.expectedCount) {
+      errors.push({
+        severity: "error",
+        code: "title_workbook_count_mismatch",
+        message: `${task.taskId}: title workbooks=${task.titles.length}, expected=${task.expectedCount}.`
+      });
+    }
+    if (new Set(task.titles).size !== task.titles.length) {
+      errors.push({ severity: "error", code: "title_workbook_duplicate", message: `${task.taskId}: distributed titles are not unique.` });
+    }
+    const maxCharacters = task.productCategory === "保健食品" ? 60 : DOUDIAN_TITLE_MAX_CHARACTERS;
+    for (const [index, title] of task.titles.entries()) {
+      if (!title.trim()) {
+        errors.push({ severity: "error", code: "title_workbook_empty", message: `${task.taskId}: title ${index + 1} is empty.` });
+        continue;
+      }
+      if (countTitleCharacters(title) > maxCharacters) {
+        errors.push({
+          severity: "error",
+          code: "title_workbook_too_long",
+          message: `${task.taskId}: title ${index + 1} exceeds ${maxCharacters} platform characters.`
+        });
+      }
+      try {
+        assertTitlePreservesFeishuFixedSuffix({
+          title,
+          fixedSuffixText: task.fixedSuffixText,
+          productCategory: task.productCategory
+        });
+      } catch (error) {
+        errors.push({
+          severity: "error",
+          code: "title_fixed_suffix_not_preserved",
+          message: `${task.taskId}: title ${index + 1}: ${error instanceof Error ? error.message : String(error)}`
+        });
+      }
+    }
+    evidence.push(`${task.taskId}:titles=${task.titles.length}/${task.expectedCount},unique=${new Set(task.titles).size}`);
+  }
+  return { ok: errors.length === 0, errors, warnings: [], evidence };
 }
 
 export interface AutoListingContinuityAuditResult {

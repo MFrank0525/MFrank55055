@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { buildTitlesFromFeishuKeywords, parseFeishuTitleKeywords } from "../dist/src/autolist/title-sheets.js";
-import { countTitleCharacters } from "../dist/src/autolist/title-rules.js";
+import os from "node:os";
+import path from "node:path";
+import {
+  buildTitlesFromFeishuKeywords,
+  parseFeishuTitleKeywords,
+  regenerateDistributedTitleWorkbooks
+} from "../dist/src/autolist/title-sheets.js";
+import { readWorkbookRows, writeSimpleWorkbook } from "../dist/src/autolist/xlsx-lite.js";
+import { auditDistributedTitleArtifacts } from "../dist/src/autolist/audit-rules.js";
+import {
+  assertTitlePreservesFeishuFixedSuffix,
+  countTitleCharacters,
+  normalizeFeishuTitleFixedSuffix
+} from "../dist/src/autolist/title-rules.js";
 
 const keywords = parseFeishuTitleKeywords(
   "唇部护理,保湿凝胶,聚乙二醇,润护敷料,干燥护理,水润修护,透明凝胶,医用敷料,唇周护理,正品护理,日常护理,管装凝胶,温和润护,唇部,润护,水润"
@@ -26,15 +38,87 @@ for (const title of medicalTitles) {
 
 const otcTitles = buildTitlesFromFeishuKeywords({
   keywordText: keywords.join(","),
-  fixedSuffixText: "医用凡士林润唇软膏",
+  fixedSuffixText: "锁阳固精丸北方经开9g*10丸",
   productCategory: "非处方药",
   titleCount: 20
 });
 assert.equal(otcTitles.length, 20);
 for (const title of otcTitles) {
   assert.ok(countTitleCharacters(title) <= 120);
-  assert.ok(title.endsWith("医用凡士林润唇软膏"));
-  assert.ok(!title.endsWith("医用凡士林润唇软膏延草纲目"));
+  assert.ok(title.endsWith("锁阳固精丸北方经开9g*10丸"));
+  assert.equal((title.match(/\*/g) || []).length, 1, "OTC dosage separator must be preserved exactly once");
+  assertTitlePreservesFeishuFixedSuffix({
+    title,
+    fixedSuffixText: "锁阳固精丸北方经开9g*10丸",
+    productCategory: "非处方药"
+  });
+}
+assert.equal(normalizeFeishuTitleFixedSuffix(" 锁阳固精丸北方经开9g*10丸 "), "锁阳固精丸北方经开9g*10丸");
+assert.throws(
+  () =>
+    assertTitlePreservesFeishuFixedSuffix({
+      title: "补肾固精锁阳固精丸北方经开9g10丸",
+      fixedSuffixText: "锁阳固精丸北方经开9g*10丸",
+      productCategory: "非处方药"
+    }),
+  /fixed suffix|固定后缀|\*/i
+);
+
+const repairRoot = fs.mkdtempSync(path.join(os.tmpdir(), "otc-title-regeneration-"));
+try {
+  const productFolders = Array.from({ length: 20 }, (_, index) => {
+    const folder = path.join(repairRoot, `product-${String(index + 1).padStart(2, "0")}`);
+    fs.mkdirSync(folder, { recursive: true });
+    writeSimpleWorkbook(path.join(folder, "title.xlsx"), [
+      ["字段", "内容"],
+      ["标题", `旧标题${index + 1}锁阳固精丸北方经开9g10丸`],
+      ["导购短标题", "BF锁阳固精丸"],
+      ["品牌", "北方经开"],
+      ["SPU信息", "国药准字Z22025007"],
+      ["型号规格", ""],
+      ["产品价格", "189,169,119.9,99.9"]
+    ]);
+    return folder;
+  });
+  const repaired = regenerateDistributedTitleWorkbooks({
+    productFolders,
+    keywordText: keywords.join(","),
+    fixedSuffixText: "锁阳固精丸北方经开9g*10丸",
+    productCategory: "非处方药",
+    productPriceText: "189,169,119.9,99.9"
+  });
+  assert.equal(repaired.generatedFiles.length, 20);
+  const auditedTitles = [];
+  for (const [index, file] of repaired.generatedFiles.entries()) {
+    const rows = readWorkbookRows(file.workbookFile);
+    auditedTitles.push(rows[1][1]);
+    assert.equal(rows[1][1], file.title);
+    assert.ok(rows[1][1].endsWith("锁阳固精丸北方经开9g*10丸"));
+    assert.equal(rows[2][1], "BF锁阳固精丸", `metadata must survive title repair at ${index + 1}`);
+    assert.equal(rows[4][1], "国药准字Z22025007");
+  }
+  assert.equal(auditDistributedTitleArtifacts({
+    tasks: [{
+      taskId: "image-001",
+      productCategory: "非处方药",
+      fixedSuffixText: "锁阳固精丸北方经开9g*10丸",
+      expectedCount: 20,
+      titles: auditedTitles
+    }]
+  }).ok, true);
+  const missingAsteriskAudit = auditDistributedTitleArtifacts({
+    tasks: [{
+      taskId: "image-001",
+      productCategory: "非处方药",
+      fixedSuffixText: "锁阳固精丸北方经开9g*10丸",
+      expectedCount: 20,
+      titles: auditedTitles.map((title, index) => index === 4 ? title.replace("*", "") : title)
+    }]
+  });
+  assert.equal(missingAsteriskAudit.ok, false);
+  assert.ok(missingAsteriskAudit.errors.some((error) => error.code === "title_fixed_suffix_not_preserved"));
+} finally {
+  fs.rmSync(repairRoot, { recursive: true, force: true });
 }
 
 const healthTitles = buildTitlesFromFeishuKeywords({
@@ -107,4 +191,5 @@ for (const manual of [titleManual, feishuSetupManual]) {
   assert.match(manual, /医疗器械[\s\S]*非处方药[\s\S]*标题固定后缀/, "medical and OTC title suffix rule must stay documented");
   assert.match(manual, /保健食品[\s\S]*不追加[\s\S]*标题固定后缀/, "health-food title suffix exception must stay documented");
   assert.match(manual, /保健食品[\s\S]*60\s*个?平台字符/, "health-food 60 platform-character limit must stay documented");
+  assert.match(manual, /非处方药[\s\S]*\*[\s\S]*保留/, "OTC dosage asterisk preservation must stay documented");
 }

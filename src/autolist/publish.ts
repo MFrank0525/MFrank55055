@@ -34,6 +34,7 @@ import type { PublishManifestEntry, PublishProductIdentity } from "./publish-man
 import type { PublishArtifact } from "./types.js";
 import { initializePublishAttemptState } from "./publish-attempt-state.js";
 import { getPublishCategoryMutationPolicy } from "../business/publish-from-spu/publish-category-policy.js";
+import { assertTitlePreservesFeishuFixedSuffix } from "./title-rules.js";
 
 type ProductWorkbookFields = {
   title: string;
@@ -61,6 +62,11 @@ export function buildPublishJobMetadata(input: {
     );
   }
   const mutationPolicy = getPublishCategoryMutationPolicy(feishuProductRecord.productCategory);
+  assertTitlePreservesFeishuFixedSuffix({
+    title: workbookFields.title,
+    fixedSuffixText: feishuProductRecord.titleSuffixText,
+    productCategory: feishuProductRecord.productCategory
+  });
   return {
     brand: feishuProductRecord.brand || workbookFields.brand,
     spu: feishuProductRecord.spu || workbookFields.spu,
@@ -434,7 +440,9 @@ export async function publishDistributedProducts(options: {
           throw error;
         }
         workbookFields = {
-          title: "",
+          title: options.feishuProductRecord?.productCategory === "保健食品"
+            ? "模拟保健食品标题"
+            : options.feishuProductRecord?.titleSuffixText || "",
           shortTitle: "",
           brand: "",
           spu: "",

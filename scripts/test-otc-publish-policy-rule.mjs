@@ -43,7 +43,7 @@ assert.equal(resolvedOtc.modelSpec, "", "OTC must not synthesize a category-attr
 assert.doesNotThrow(() => assertResolvedMetadata(resolvedOtc, "publish_from_spu"));
 
 const workbookFields = {
-  title: "测试标题",
+  title: "测试标题锁阳固精丸北方经开9g*10丸",
   shortTitle: "测试短标题",
   brand: "延草纲目",
   spu: "SPU-001",
@@ -62,7 +62,8 @@ const baseRecord = {
   brand: "延草纲目",
   spu: "SPU-001",
   shortTitle: "测试短标题",
-  productPriceText: "40,30,20,10"
+  productPriceText: "40,30,20,10",
+  titleSuffixText: "锁阳固精丸北方经开9g*10丸"
 };
 assert.equal(
   buildPublishJobMetadata({
@@ -72,6 +73,16 @@ assert.equal(
   }).modelSpec,
   "",
   "OTC publish metadata must discard a stale workbook modelSpec value before browser actions"
+);
+assert.throws(
+  () =>
+    buildPublishJobMetadata({
+      workbookFields: { ...workbookFields, title: "测试标题锁阳固精丸北方经开9g10丸" },
+      feishuProductRecord: { ...baseRecord, productCategory: "非处方药" },
+      targetIdentity
+    }),
+  /\*|fixed suffix/i,
+  "OTC publish must fail before browser actions when the workbook lost the Feishu dosage asterisk"
 );
 assert.equal(
   buildPublishJobMetadata({

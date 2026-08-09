@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readImageDimensions } from "../utils/image-dimensions.js";
-import { auditAutoListingContinuity, auditCompletedBatchResidue, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, buildCanonicalPublishTargetKeys, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { auditAutoListingContinuity, auditCompletedBatchResidue, auditDistributedTitleArtifacts, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, buildCanonicalPublishTargetKeys, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
 import {
@@ -25,6 +25,7 @@ import { paidImageBatchLedgerDir } from "../autolist/paid-image-submission-ledge
 import type { AutoListingJobFile, AutoListingRunResult, AutoListingRunState } from "../autolist/types.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
+import { readWorkbookRows } from "../autolist/xlsx-lite.js";
 
 interface Args {
   jobFile: string;
@@ -430,6 +431,35 @@ async function main(): Promise<void> {
     batchFingerprint: state?.feishuBatchFingerprint,
     allowInProgress: !requireCompletePublishAudit
   });
+  const distributedTitles = auditDistributedTitleArtifacts({
+    tasks: (state?.tasks || []).flatMap((task) => {
+      if (state?.status === "completed") return [];
+      const folders = task.generatedProductFolders || [];
+      if (!task.feishuProductRecord || folders.length === 0) return [];
+      const titles: string[] = [];
+      const discoveryErrors: string[] = [];
+      for (const folder of folders) {
+        try {
+          const workbookFiles = fs.readdirSync(folder).filter((name) => name.toLowerCase().endsWith(".xlsx"));
+          if (workbookFiles.length !== 1) {
+            discoveryErrors.push(`${folder} has ${workbookFiles.length} workbook(s), expected exactly one.`);
+            continue;
+          }
+          titles.push(readWorkbookRows(path.join(folder, workbookFiles[0]))[1]?.[1]?.trim() || "");
+        } catch (error) {
+          discoveryErrors.push(`${folder}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      return [{
+        taskId: task.taskId,
+        productCategory: task.feishuProductRecord.productCategory,
+        fixedSuffixText: task.feishuProductRecord.titleSuffixText,
+        expectedCount: getProductCategoryPlan(task.feishuProductRecord.productCategory).titleCount,
+        titles,
+        discoveryErrors
+      }];
+    })
+  });
   const runDirCount = fs.existsSync(resolved.runtimeRootDir)
     ? fs.readdirSync(resolved.runtimeRootDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[0-9]{8}-[0-9]{6}$/.test(entry.name)).length
     : 0;
@@ -517,7 +547,8 @@ async function main(): Promise<void> {
   const artifactErrors = [
     ...toDeepIssues(completedGeneration.errors),
     ...toDeepIssues(publish.errors),
-    ...currentPaidImageAudit.artifacts.errors
+    ...currentPaidImageAudit.artifacts.errors,
+    ...toDeepIssues(distributedTitles.errors)
   ];
   if (resolved.simulateOnly && (state?.tasks.length || 0) === 0) {
     artifactErrors.push({ code: "simulation_not_representative", message: "Zero-task simulation does not exercise the business workflow." });
@@ -546,11 +577,13 @@ async function main(): Promise<void> {
       warnings: [
         ...toDeepIssues(completedGeneration.warnings),
         ...toDeepIssues(publish.warnings),
-        ...currentPaidImageAudit.artifacts.warnings
+        ...currentPaidImageAudit.artifacts.warnings,
+        ...toDeepIssues(distributedTitles.warnings)
       ],
       evidence: [
         ...identityAudit.evidence,
-        ...currentPaidImageAudit.artifacts.evidence
+        ...currentPaidImageAudit.artifacts.evidence,
+        ...distributedTitles.evidence
       ]
     },
     residue: {

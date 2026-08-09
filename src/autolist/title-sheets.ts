@@ -1,8 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { formatTimestamp, sanitizeFileName } from "../utils/path-names.js";
-import { countTitleCharacters, DOUDIAN_TITLE_MAX_CHARACTERS, normalizeTitleForDoudian } from "./title-rules.js";
-import { writeSimpleWorkbook } from "./xlsx-lite.js";
+import {
+  assertTitlePreservesFeishuFixedSuffix,
+  countTitleCharacters,
+  DOUDIAN_TITLE_MAX_CHARACTERS,
+  normalizeFeishuTitleFixedSuffix,
+  normalizeTitleForDoudian
+} from "./title-rules.js";
+import { readWorkbookRows, writeSimpleWorkbook } from "./xlsx-lite.js";
 import type { TitleSheetArtifact, TitleSheetFile } from "./types.js";
 
 function cleanTitleToken(value: string): string {
@@ -72,7 +78,7 @@ export function buildTitlesFromFeishuKeywords(options: {
 }): string[] {
   const keywords = parseFeishuTitleKeywords(options.keywordText);
   const isHealthFood = options.productCategory === "保健食品";
-  const suffix = isHealthFood ? "" : cleanTitleToken(options.fixedSuffixText);
+  const suffix = isHealthFood ? "" : normalizeFeishuTitleFixedSuffix(options.fixedSuffixText);
   const maxCharacters = isHealthFood ? 60 : DOUDIAN_TITLE_MAX_CHARACTERS;
   if (!keywords.length) {
     throw new Error("Feishu 标题关键词 is required.");
@@ -98,6 +104,11 @@ export function buildTitlesFromFeishuKeywords(options: {
       continue;
     }
     seen.add(title);
+    assertTitlePreservesFeishuFixedSuffix({
+      title,
+      fixedSuffixText: options.fixedSuffixText,
+      productCategory: options.productCategory
+    });
     titles.push(title);
   }
 
@@ -107,6 +118,61 @@ export function buildTitlesFromFeishuKeywords(options: {
     );
   }
   return titles;
+}
+
+export function regenerateDistributedTitleWorkbooks(options: {
+  productFolders: string[];
+  keywordText: string;
+  fixedSuffixText: string;
+  productCategory?: string;
+  productPriceText: string;
+}): TitleSheetArtifact {
+  const titles = buildTitlesFromFeishuKeywords({
+    keywordText: options.keywordText,
+    fixedSuffixText: options.fixedSuffixText,
+    productCategory: options.productCategory,
+    titleCount: options.productFolders.length
+  });
+  const targets = options.productFolders.map((productFolder, index) => {
+    const workbookFiles = fs.readdirSync(productFolder).filter((name) => name.toLowerCase().endsWith(".xlsx"));
+    if (workbookFiles.length !== 1) {
+      throw new Error(`Title regeneration requires exactly one workbook in ${productFolder}, got ${workbookFiles.length}.`);
+    }
+    const workbookFile = path.join(productFolder, workbookFiles[0]);
+    const rows = readWorkbookRows(workbookFile);
+    if (rows[1]?.[0]?.trim() !== "标题") {
+      throw new Error(`Title regeneration could not find the canonical 标题 row in ${workbookFile}.`);
+    }
+    return { productFolder, workbookFile, rows, title: titles[index] };
+  });
+
+  const temporaryFiles: string[] = [];
+  try {
+    for (const target of targets) {
+      const temporaryFile = `${target.workbookFile}.${process.pid}.title-regenerate.tmp`;
+      const nextRows = target.rows.map((row, index) => index === 1 ? [row[0], target.title] : row);
+      writeSimpleWorkbook(temporaryFile, nextRows);
+      temporaryFiles.push(temporaryFile);
+    }
+    for (let index = 0; index < targets.length; index += 1) {
+      fs.renameSync(temporaryFiles[index], targets[index].workbookFile);
+    }
+  } finally {
+    for (const temporaryFile of temporaryFiles) {
+      if (fs.existsSync(temporaryFile)) {
+        fs.rmSync(temporaryFile, { force: true });
+      }
+    }
+  }
+
+  return {
+    generatedFiles: targets.map((target) => ({
+      title: target.title,
+      workbookFile: target.workbookFile,
+      distributedTo: target.productFolder
+    })),
+    simulated: false
+  };
 }
 
 function inferProductName(userCognitionName: string | undefined, genericName: string | undefined): string {
