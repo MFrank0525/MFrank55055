@@ -2,11 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-const maxLinesByFile = new Map([
-  ["src/business/publish-from-spu.ts", 120],
-  ["src/cli/auto-listing-controller.ts", 3000],
-  ["src/autolist/main-image-assets.ts", 2600]
-]);
+const SOURCE_MODULE_MAX_LINES = 1500;
+const TEST_MODULE_MAX_LINES = 3000;
+const maxLinesByFile = new Map([["src/business/publish-from-spu.ts", 120]]);
 
 function listSourceFiles(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -24,6 +22,14 @@ for (const file of listSourceFiles("src")) {
   assert.ok(
     lineCount <= maxLines,
     `source module is too large and must be split: ${file} has ${lineCount} lines, limit ${maxLines}`
+  );
+}
+
+for (const file of listSourceFiles("scripts")) {
+  const lineCount = fs.readFileSync(file, "utf8").split(/\r?\n/).length;
+  assert.ok(
+    lineCount <= TEST_MODULE_MAX_LINES,
+    `test module is too large and must be split: ${file} has ${lineCount} lines, limit ${TEST_MODULE_MAX_LINES}`
   );
 }
 

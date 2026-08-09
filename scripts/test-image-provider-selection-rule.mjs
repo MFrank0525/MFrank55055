@@ -236,7 +236,12 @@ try {
     );
   }
 
-  const controllerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
+  const controllerSource = [
+    "src/cli/auto-listing-controller-contract.ts",
+    "src/cli/auto-listing-controller-runtime.ts",
+    "src/cli/auto-listing-controller-status.ts",
+    "src/cli/auto-listing-controller.ts"
+  ].map((file) => fs.readFileSync(file, "utf8")).join("\n");
   assert.match(
     controllerSource,
     /const selected = selectCommand\(forceFullFlow\);[\s\S]*assertAutoListingControllerImageGenerationContract\([\s\S]*const child = spawn\(/,

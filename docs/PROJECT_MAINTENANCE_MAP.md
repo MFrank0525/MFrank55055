@@ -57,7 +57,8 @@
 
 - 卖点上下文：`src/autolist/feishu-products.ts`
 - 图片提示词：`src/autolist/deepseek-prompts.ts`
-- 主图生成 provider / 水印 / 产品文件夹：`src/autolist/main-image-assets.ts`
+- 主图 provider 请求、付费槽位与结果下载：`src/autolist/main-image-provider-action.ts`
+- 主图水印、店铺分配与产品文件夹：`src/autolist/main-image-assets.ts`
 - 标题表：`src/autolist/title-sheets.ts`
 - 商品信息回填：`src/autolist/metadata.ts`
 - 资质图：`src/autolist/qualifications.ts`
@@ -66,6 +67,15 @@
 - 清理：`src/autolist/cleanup.ts`
 
 总调度顺序只在 `src/autolist/orchestrator.ts` 调整。
+
+## 3.1 模块体积与控制器边界
+
+- 生产源码统一不得超过 1500 行，除公开薄入口 `src/business/publish-from-spu.ts` 的 120 行约束外，不允许按文件放宽。
+- 测试模块不得超过 3000 行；聚合入口只负责导入分组测试，不得重新堆积测试实现。
+- 控制器契约、运行态采集、状态汇总和命令编排分别维护在
+  `auto-listing-controller-contract.ts`、`auto-listing-controller-runtime.ts`、
+  `auto-listing-controller-status.ts` 和 `auto-listing-controller.ts`。
+- 体积门禁由 `scripts/test-module-size-boundaries.mjs` 扫描整个 `src` 与 `scripts`，禁止新增大文件例外掩盖职责混杂。
 
 ## 4. SPU 发布业务
 

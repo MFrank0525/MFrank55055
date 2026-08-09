@@ -48,7 +48,8 @@ import {
   hasProviderArtifactPersistenceRuleItem
 } from "./markdown-provider-contract.mjs";
 
-const source = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
+const source = ["src/autolist/main-image-provider-action.ts", "src/autolist/main-image-assets.ts"]
+  .map((file) => fs.readFileSync(file, "utf8")).join("\n");
 const configSource = fs.readFileSync("src/autolist/config.ts", "utf8");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 const typesSource = fs.readFileSync("src/autolist/types.ts", "utf8");

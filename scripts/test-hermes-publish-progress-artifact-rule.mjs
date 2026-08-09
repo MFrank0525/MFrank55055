@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const runnerSource = fs.readFileSync("src/cli/auto-listing-controller.ts", "utf8");
+const runnerSource = [
+  "src/cli/auto-listing-controller-contract.ts",
+  "src/cli/auto-listing-controller-runtime.ts",
+  "src/cli/auto-listing-controller-status.ts",
+  "src/cli/auto-listing-controller.ts"
+].map((file) => fs.readFileSync(file, "utf8")).join("\n");
 const continuationRuleSource = fs.readFileSync("src/autolist/batch-continuation-rules.ts", "utf8");
 
 assert.match(

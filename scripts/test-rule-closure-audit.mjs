@@ -24,7 +24,12 @@ const publishRulesSource = read("src/business/publish-from-spu/publish-rules.ts"
 const publishConstantsSource = read("src/business/publish-from-spu/constants.ts");
 const orchestratorSource = read("src/autolist/orchestrator.ts");
 const feishuProductsSource = read("src/autolist/feishu-products.ts");
-const progressTestSource = read("scripts/test-progress-state.mjs");
+const progressTestSource = [
+  "scripts/test-progress-state.mjs",
+  "scripts/test-progress-state-part-1.mjs",
+  "scripts/test-progress-state-part-2.mjs",
+  "scripts/test-progress-state-part-3.mjs"
+].map(read).join("\n");
 const specTestSource = read("scripts/test-spec-template-rule.mjs");
 const moduleTestSource = read("scripts/test-publish-module-sequence-rule.mjs");
 

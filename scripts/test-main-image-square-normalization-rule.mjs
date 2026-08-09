@@ -41,7 +41,8 @@ const reused = await ensureSquareMainImageFile({ sourceFile, evidenceDir });
 assert.equal(reused.changed, false);
 assert.deepEqual(reused.outputDimensions, { width: 3, height: 3 });
 
-const mainImageAssetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
+const mainImageAssetsSource = ["src/autolist/main-image-provider-action.ts", "src/autolist/main-image-assets.ts"]
+  .map((file) => fs.readFileSync(file, "utf8")).join("\n");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 assert.match(
   mainImageAssetsSource,

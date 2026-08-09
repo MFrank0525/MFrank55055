@@ -6,7 +6,8 @@ import { buildPosterPromptArtifactFromFeishu } from "../dist/src/autolist/deepse
 
 const mainImageRuleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
 const imageGenerationExampleConfig = fs.readFileSync("input/image-generation.config.videos-base64.example.json", "utf8");
-const mainImageAssetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
+const mainImageAssetsSource = ["src/autolist/main-image-provider-action.ts", "src/autolist/main-image-assets.ts"]
+  .map((file) => fs.readFileSync(file, "utf8")).join("\n");
 
 assert.match(
   mainImageRuleDoc,

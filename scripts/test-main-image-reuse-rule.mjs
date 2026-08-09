@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { seedCurrentProductMainImageReuse } from "../dist/src/autolist/main-image-assets.js";
 
-const mainImageAssetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
+const mainImageAssetsSource = ["src/autolist/main-image-provider-action.ts", "src/autolist/main-image-assets.ts"]
+  .map((file) => fs.readFileSync(file, "utf8")).join("\n");
 assert.doesNotMatch(
   mainImageAssetsSource,
   /seedArchivedRawMainImages\(\s*\{/,

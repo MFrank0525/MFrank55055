@@ -280,3 +280,15 @@
 | Remove unbound image discovery fallback | Feishu orchestration creates tasks only from current-record attachments or an identity-verified explicit resume source; empty current selection no longer scans the image directory for arbitrary files | Obsolete-rule regression; Feishu cache and representative simulation | verified |
 
 Final evidence: full `rules:check`, all Doctor modes, representative simulation, live Feishu 23-field readback and two independent eight-dimension audits passed. The final OTC read-only shop audit `20260809-193651` passed all five canonical shops with `publishAttempted=false` and `formMutationAttempted=false`.
+
+## 2026-08-09 Module-size and responsibility-boundary audit
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Remove hidden large-file exemptions | Replace the former 3000-line controller and 2600-line main-image allowances with a uniform 1500-line production limit; retain only the stricter 120-line public-entry limit | `test-module-size-boundaries.mjs`; full source line-count scan | verified |
+| Split the controller by responsibility | Separate shared contracts, runtime/process and artifact collection, status composition, and command/resume orchestration into four modules | TypeScript build; controller structure and progress regressions | verified |
+| Split image-provider actions from asset orchestration | Move provider request, paid-slot recovery and download actions into `main-image-provider-action.ts`; keep watermark, shop assignment and product-folder assembly in `main-image-assets.ts` | Provider, reuse, square-image, prompt and distribution regressions | verified |
+| Remove the 6338-line regression-test aggregate | Keep a thin test entry and divide assertions into three independently bounded suites; closure audits consume all suites | Progress-state regression; rule-closure audit; 3000-line test gate | verified |
+| Keep future modules bounded without per-file escape hatches | Scan every TypeScript/MJS file under `src` and `scripts` on each `rules:check` run | Full `rules:check`; stale-exemption search | verified |
+
+Final evidence: full `rules:check`, all Doctor modes, live Feishu 23-field readback, representative simulation and two independent eight-dimension audits passed. The largest production module is now 1482 lines and the largest test module is 2543 lines; neither production nor test gates contain a large-file exception.

@@ -252,7 +252,8 @@ for (const obsoleteExample of [
 }
 
 const paidLedgerSource = fs.readFileSync("src/autolist/paid-image-submission-ledger.ts", "utf8");
-const mainImageSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
+const mainImageSource = ["src/autolist/main-image-provider-action.ts", "src/autolist/main-image-assets.ts"]
+  .map((file) => fs.readFileSync(file, "utf8")).join("\n");
 for (const source of [paidLedgerSource, mainImageSource]) {
   assert.equal(
     source.includes("migrateLegacyPaidImageProductLedgers"),
