@@ -71,8 +71,7 @@ export function buildAutoListingPreflightSummary(resolved: AutoListingResolvedJo
     runId: path.basename(resolved.runtimeDir),
     simulateOnly: resolved.input.simulateOnly,
     source: {
-      feishuProductDataFile: resolved.input.feishuProductDataFile || undefined,
-      productInfoXlsx: resolved.input.productInfoXlsx || undefined,
+      feishuProductDataFile: resolved.input.feishuProductDataFile,
       feishuImageDir: resolved.input.feishuImageDir,
       mainImageWorkDir: resolved.input.mainImageWorkDir,
       qualificationDir: resolved.input.qualificationDir,

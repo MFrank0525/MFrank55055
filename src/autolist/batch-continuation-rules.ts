@@ -1201,6 +1201,9 @@ export function resolveAutoListingControllerPublishGroupProgress(input: {
     planEntries[0];
   const productName = publishGroupNameFromFolder(activeEntry.productFolder);
   const productIdentity = resolveAutoListingPublishGroupIdentity(activeEntry, productName);
+  if (!productIdentity) {
+    return undefined;
+  }
   const groupEntries = entries.filter((entry) => resolveAutoListingPublishGroupIdentity(entry, publishGroupNameFromFolder(entry.productFolder)) === productIdentity);
   const plannedGroupEntries = planEntries.filter((entry) => resolveAutoListingPublishGroupIdentity(entry, publishGroupNameFromFolder(entry.productFolder)) === productIdentity);
   const scopeEntries = plannedGroupEntries.length ? plannedGroupEntries : groupEntries;

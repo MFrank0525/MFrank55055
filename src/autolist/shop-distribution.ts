@@ -25,7 +25,7 @@ function moveDirectory(sourceDir: string, targetDir: string): void {
   }
 }
 
-function resolveShopFolder(shopRootDir: string, productFolder: string, simulateOnly: boolean): string {
+function resolveShopFolder(shopRootDir: string, productFolder: string): string {
   const baseName = path.basename(productFolder);
   const parentShopCode = shopCodeFromFolder(path.basename(path.dirname(productFolder)));
   const shopFolders = fs
@@ -38,16 +38,7 @@ function resolveShopFolder(shopRootDir: string, productFolder: string, simulateO
     return matched;
   }
 
-  if (!simulateOnly) {
-    throw new Error(`No shop folder matched product folder name: ${baseName}`);
-  }
-
-  const inferredName = baseName.match(/^(.+?)(\d{2,}.*)$/)?.[1] || "模拟店铺";
-  const fallback = path.join(shopRootDir, inferredName);
-  if (!simulateOnly) {
-    fs.mkdirSync(fallback, { recursive: true });
-  }
-  return fallback;
+  throw new Error(`No canonical shop folder matched product folder: ${baseName}`);
 }
 
 export function distributeProductFoldersToShops(options: {
@@ -62,9 +53,7 @@ export function distributeProductFoldersToShops(options: {
     };
   }
 
-  if (!options.simulateOnly) {
-    fs.mkdirSync(options.shopRootDir, { recursive: true });
-  }
+  fs.mkdirSync(options.shopRootDir, { recursive: true });
   const distributedFolders: string[] = [];
 
   for (const productFolder of options.productFolders) {
@@ -72,12 +61,8 @@ export function distributeProductFoldersToShops(options: {
       distributedFolders.push(productFolder);
       continue;
     }
-    const shopFolder = resolveShopFolder(options.shopRootDir, productFolder, options.simulateOnly);
+    const shopFolder = resolveShopFolder(options.shopRootDir, productFolder);
     const targetFolder = path.join(shopFolder, path.basename(productFolder));
-    if (options.simulateOnly) {
-      distributedFolders.push(targetFolder);
-      continue;
-    }
     if (fs.existsSync(targetFolder)) {
       throw new Error(`Refusing to overwrite existing shop product folder: ${targetFolder}`);
     }

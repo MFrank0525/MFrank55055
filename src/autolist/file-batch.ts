@@ -6,48 +6,52 @@ interface ProcessedImageManifestV2 {
   version: 2;
   currentBatchFingerprint?: string;
   batches: Record<string, string[]>;
-  legacyImages?: string[];
 }
 
 function normalizePath(value: string): string {
   return path.resolve(value);
 }
 
-function parseProcessedManifest(manifestFile: string): string[] | ProcessedImageManifestV2 {
+function emptyProcessedManifest(): ProcessedImageManifestV2 {
+  return { version: 2, batches: {} };
+}
+
+function parseProcessedManifest(manifestFile: string): ProcessedImageManifestV2 {
   if (!fs.existsSync(manifestFile)) {
-    return [];
+    return emptyProcessedManifest();
   }
 
   const raw = fs.readFileSync(manifestFile, "utf8").trim();
   if (!raw) {
-    return [];
+    return emptyProcessedManifest();
   }
 
   const parsed = JSON.parse(raw) as unknown;
   if (Array.isArray(parsed)) {
-    return parsed.map((item) => normalizePath(String(item || ""))).filter(Boolean);
+    throw new Error("Processed image manifest uses the obsolete identity-free array format; refusing to attach it to a Feishu batch.");
   }
   if (parsed && typeof parsed === "object") {
     const manifest = parsed as Partial<ProcessedImageManifestV2>;
-    const batches = manifest.batches && typeof manifest.batches === "object" ? manifest.batches : {};
+    if (manifest.version !== 2 || !manifest.batches || typeof manifest.batches !== "object") {
+      throw new Error("Processed image manifest must use version 2 with batch-scoped entries.");
+    }
+    const batches = Object.fromEntries(
+      Object.entries(manifest.batches).map(([fingerprint, images]) => [
+        fingerprint,
+        Array.isArray(images) ? images.map((item) => normalizePath(String(item || ""))).filter(Boolean) : []
+      ])
+    );
     return {
       version: 2,
       currentBatchFingerprint: manifest.currentBatchFingerprint,
-      batches,
-      legacyImages: Array.isArray(manifest.legacyImages)
-        ? manifest.legacyImages.map((item) => normalizePath(String(item || ""))).filter(Boolean)
-        : []
+      batches
     };
   }
-  return [];
+  throw new Error("Processed image manifest must be a version 2 batch-scoped object.");
 }
 
 export function readProcessedImages(manifestFile: string, batchFingerprint?: string): Set<string> {
   const parsed = parseProcessedManifest(manifestFile);
-  if (Array.isArray(parsed)) {
-    return new Set(parsed.map(normalizePath));
-  }
-
   const selectedBatch = batchFingerprint || parsed.currentBatchFingerprint || "";
   return new Set((selectedBatch ? parsed.batches[selectedBatch] || [] : []).map(normalizePath));
 }
@@ -57,9 +61,6 @@ export function clearProcessedImagesForBatch(manifestFile: string, batchFingerpr
     return false;
   }
   const parsed = parseProcessedManifest(manifestFile);
-  if (Array.isArray(parsed)) {
-    return false;
-  }
   const existing = parsed.batches[batchFingerprint] || [];
   if (existing.length === 0) {
     return false;
@@ -70,102 +71,17 @@ export function clearProcessedImagesForBatch(manifestFile: string, batchFingerpr
   return true;
 }
 
-export function migrateLegacyProcessedImagesToBatch(manifestFile: string, batchFingerprint: string | undefined): boolean {
+export function appendProcessedImages(manifestFile: string, imagePaths: string[], batchFingerprint?: string): void {
   if (!batchFingerprint) {
-    return false;
+    throw new Error("Appending processed images requires an explicit Feishu batch fingerprint.");
   }
+
   const parsed = parseProcessedManifest(manifestFile);
-  if (!Array.isArray(parsed)) {
-    return false;
-  }
-  const processed = [...new Set(parsed.map(normalizePath))];
   const manifest: ProcessedImageManifestV2 = {
     version: 2,
     currentBatchFingerprint: batchFingerprint,
-    batches: {
-      [batchFingerprint]: processed
-    },
-    legacyImages: processed
+    batches: parsed.batches || {}
   };
-  atomicWriteJson(manifestFile, manifest);
-  return true;
-}
-
-function sortBySequenceThenName(items: string[]): string[] {
-  const collator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
-  return [...items].sort((a, b) => {
-    const nameA = path.basename(a);
-    const nameB = path.basename(b);
-    const seqA = Number(nameA.match(/^(\d+)/)?.[1] || Number.MAX_SAFE_INTEGER);
-    const seqB = Number(nameB.match(/^(\d+)/)?.[1] || Number.MAX_SAFE_INTEGER);
-    if (seqA !== seqB) {
-      return seqA - seqB;
-    }
-    return collator.compare(nameA, nameB);
-  });
-}
-
-export function discoverPendingImages(
-  imageDir: string,
-  imageExtensions: string[],
-  processedManifestFile: string,
-  maxImagesPerRun: number,
-  batchFingerprint?: string
-): string[] {
-  const processed = readProcessedImages(processedManifestFile, batchFingerprint);
-  const extensions = new Set(imageExtensions.map((item) => item.toLowerCase()));
-  const allImages = fs
-    .readdirSync(imageDir)
-    .filter((name) => extensions.has(path.extname(name).toLowerCase()))
-    .map((name) => path.join(imageDir, name));
-
-  const pending = sortBySequenceThenName(allImages).filter((filePath) => !processed.has(path.resolve(filePath)));
-  if (maxImagesPerRun > 0) {
-    return pending.slice(0, maxImagesPerRun);
-  }
-  return pending;
-}
-
-export function filterPendingImages(
-  imagePaths: string[],
-  processedManifestFile: string,
-  maxImagesPerRun: number,
-  batchFingerprint?: string
-): string[] {
-  const processed = readProcessedImages(processedManifestFile, batchFingerprint);
-  const pending = imagePaths.map((filePath) => path.resolve(filePath)).filter((filePath) => !processed.has(filePath));
-  if (maxImagesPerRun > 0) {
-    return pending.slice(0, maxImagesPerRun);
-  }
-  return pending;
-}
-
-export function appendProcessedImages(manifestFile: string, imagePaths: string[], batchFingerprint?: string): void {
-  if (!batchFingerprint) {
-    const processed = readProcessedImages(manifestFile);
-    for (const filePath of imagePaths) {
-      processed.add(normalizePath(filePath));
-    }
-    atomicWriteJson(manifestFile, [...processed]);
-    return;
-  }
-
-  const parsed = parseProcessedManifest(manifestFile);
-  const manifest: ProcessedImageManifestV2 = Array.isArray(parsed)
-    ? {
-        version: 2,
-        currentBatchFingerprint: batchFingerprint,
-        batches: {
-          [batchFingerprint]: parsed.map(normalizePath)
-        },
-        legacyImages: parsed.map(normalizePath)
-      }
-    : {
-        version: 2,
-        currentBatchFingerprint: batchFingerprint,
-        batches: parsed.batches || {},
-        legacyImages: parsed.legacyImages || []
-      };
   const processed = new Set((manifest.batches[batchFingerprint] || []).map(normalizePath));
   for (const filePath of imagePaths) {
     processed.add(normalizePath(filePath));

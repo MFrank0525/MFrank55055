@@ -70,12 +70,14 @@ export function shouldRetainStoppedControllerPublishCheckpoint(input: {
 
 export function resolveAutoListingPublishGroupIdentity(
   entry: { batchFingerprint?: string; recordId?: string; taskId?: string; targetIdentity?: { batchFingerprint?: string; recordId?: string; taskId?: string } },
-  fallbackName: string
-): string {
+  _fallbackName: string
+): string | undefined {
   const identity = entry.targetIdentity || {};
+  const batchFingerprint = String(entry.batchFingerprint || identity.batchFingerprint || "").trim();
   const recordId = String(entry.recordId || identity.recordId || "").trim();
-  if (!recordId) return `name:${fallbackName}`;
-  return [entry.batchFingerprint || identity.batchFingerprint || "", recordId, entry.taskId || identity.taskId || ""].join("::");
+  const taskId = String(entry.taskId || identity.taskId || "").trim();
+  if (!batchFingerprint || !recordId || !taskId) return undefined;
+  return [batchFingerprint, recordId, taskId].join("::");
 }
 
 export function replaceAutoListingPublishProgressProductName(progressText: string, productName?: string): string {

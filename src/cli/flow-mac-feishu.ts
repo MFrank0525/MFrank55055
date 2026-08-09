@@ -5,7 +5,7 @@ import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { shouldRefreshFeishuAssetsBeforeFullFlow } from "../autolist/batch-continuation-rules.js";
 import { validateFeishuPosterPromptBatch } from "../autolist/deepseek-prompts.js";
 import { buildFeishuBatchFingerprint, buildFeishuBatchIdentityFingerprint } from "../autolist/feishu-batch-rules.js";
-import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
+import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { resolveImageGenerationProvider } from "../autolist/image-generation-provider.js";
 import type { ImageGenerationProvider } from "../autolist/image-generation-provider.js";
@@ -129,19 +129,6 @@ function printExternalCostSummary(jobFile: string, real: boolean): void {
   }
 }
 
-function migrateLegacyProcessedManifestForCurrentCache(jobFile: string): void {
-  const job = loadJobSummary(jobFile);
-  const feishuProductDataFile = path.resolve(job.input?.feishuProductDataFile || "./data/feishu/products.json");
-  const processedImageManifest = path.resolve(job.input?.processedImageManifest || "./data/auto-listing/processed-images.json");
-  if (!fs.existsSync(feishuProductDataFile)) {
-    return;
-  }
-  const fingerprint = buildFeishuBatchFingerprint(loadFeishuProductRecords(feishuProductDataFile));
-  if (migrateLegacyProcessedImagesToBatch(processedImageManifest, fingerprint)) {
-    console.log(`Migrated legacy processed-image manifest to current Feishu batch: ${fingerprint}`);
-  }
-}
-
 function readCurrentBatchComplete(jobFile: string): boolean | undefined {
   const job = loadJobSummary(jobFile);
   const feishuProductDataFile = path.resolve(job.input?.feishuProductDataFile || "./data/feishu/products.json");
@@ -231,7 +218,6 @@ function main(): void {
         ]
       : ["run", "doctor:auto-listing", "--", "--image-generation-provider", "openai-compatible"]
   );
-  migrateLegacyProcessedManifestForCurrentCache(jobFile);
   const currentBatchComplete = readCurrentBatchComplete(jobFile);
   const sameBatchRefreshAvailable =
     currentBatchComplete === false && !args.skipFeishuAssetsRefresh

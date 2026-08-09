@@ -19,9 +19,7 @@ function ensureDirExists(targetPath: string, label: string): string {
 function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput> {
   const startStep = normalizeAutoListingStep(input.startStep || "source_images_discovered");
   const endStep = normalizeAutoListingStep(input.endStep || "done");
-  const feishuProductDataFile = input.feishuProductDataFile
-    ? ensureDirExists(input.feishuProductDataFile, "Feishu product data file")
-    : "";
+  const feishuProductDataFile = ensureDirExists(input.feishuProductDataFile, "Feishu product data file");
   const simulateOnly = input.simulateOnly ?? true;
   if (!AUTO_LISTING_STEPS.includes(startStep)) {
     throw new Error(`Invalid startStep: ${startStep}`);
@@ -35,16 +33,6 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     mainImageWorkDir: ensureDirExists(input.mainImageWorkDir || "", "Main image work dir"),
     titleDir: ensureDirExists(input.titleDir, "Title dir"),
     qualificationDir: ensureDirExists(input.qualificationDir, "Qualification dir"),
-    productInfoXlsx: input.productInfoXlsx
-      ? ensureDirExists(input.productInfoXlsx, "Product info workbook")
-      : feishuProductDataFile
-        ? ""
-        : (() => {
-            throw new Error("Product info workbook not configured. Set productInfoXlsx or feishuProductDataFile.");
-          })(),
-    productInfoKeyMapFile: input.productInfoKeyMapFile
-      ? path.resolve(input.productInfoKeyMapFile)
-      : path.resolve(process.cwd(), "data", "auto-listing", "product-info-key-map.json"),
     feishuProductDataFile,
     shopRootDir: ensureDirExists(input.shopRootDir, "Shop root dir"),
     imageGenerationProvider: resolveImageGenerationProvider(

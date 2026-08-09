@@ -24,7 +24,7 @@ import {
 } from "../autolist/paid-image-wait-rules.js";
 import { shouldRefreshFeishuAssetsToCandidateCache } from "../autolist/feishu-refresh-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
-import { migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
+import { readProcessedImages } from "../autolist/file-batch.js";
 import { findSharedFeishuWhiteBackgroundLocalFile, loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { cleanupStaleRunHistory } from "../autolist/cleanup.js";
@@ -471,7 +471,6 @@ const feishuProductDataFile = path.resolve(rootDir, "data/feishu/products.json")
 const feishuRefreshCandidateFile = path.resolve(rootDir, "data/auto-listing/control/feishu-products.refresh-candidate.json");
 
 function runFeishuAssetsRefresh(options: { currentBatchComplete?: boolean } = {}): { status: number | null; outFile: string } {
-  migrateLegacyProcessedManifestForCurrentCache();
   console.log("\n== Auto-listing child: refresh-feishu-assets ==");
   const outFile = shouldRefreshFeishuAssetsToCandidateCache({ currentBatchComplete: options.currentBatchComplete })
     ? feishuRefreshCandidateFile
@@ -494,25 +493,6 @@ function runFeishuAssetsRefresh(options: { currentBatchComplete?: boolean } = {}
     throw result.error;
   }
   return { status: result.status, outFile };
-}
-
-function migrateLegacyProcessedManifestForCurrentCache(): void {
-  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
-  const feishuProductDataFile = path.resolve(
-    rootDir,
-    job?.input?.feishuProductDataFile || "data/feishu/products.json"
-  );
-  const processedManifestFile = path.resolve(
-    rootDir,
-    job?.input?.processedImageManifest || "data/auto-listing/processed-images.json"
-  );
-  if (!fs.existsSync(feishuProductDataFile)) {
-    return;
-  }
-  const fingerprint = buildFeishuBatchFingerprint(loadFeishuProductRecords(feishuProductDataFile));
-  if (migrateLegacyProcessedImagesToBatch(processedManifestFile, fingerprint)) {
-    console.log(`Migrated legacy processed-image manifest to current Feishu batch: ${fingerprint}`);
-  }
 }
 
 function readBatchProgress(): { batchComplete: boolean; fingerprint: string; recordCount: number; pendingRecordCount: number } {

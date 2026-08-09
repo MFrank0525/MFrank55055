@@ -120,7 +120,7 @@ function buildWorkbookRows(title: string, productPriceText: string): string[][] 
     ["导购短标题", ""],
     ["品牌", ""],
     ["SPU信息", ""],
-    ["型号规格", "盒装"],
+    ["型号规格", ""],
     ["产品价格", productPriceText]
   ];
 }

@@ -31,7 +31,7 @@ import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
 import { removeInvalidRuntimeArtifactDirs } from "../autolist/runtime-artifact-lifecycle.js";
-import { clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../autolist/file-batch.js";
+import { clearProcessedImagesForBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { assertAutoListingControllerImageGenerationContract } from "../autolist/image-generation-config.js";
 import type { ImageGenerationProvider } from "../autolist/image-generation-provider.js";
@@ -1086,23 +1086,7 @@ function loadFeishuEnv(configFile: string): NodeJS.ProcessEnv {
   };
 }
 
-function migrateLegacyProcessedManifestForCurrentCache(): void {
-  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
-  const feishuProductDataFile = path.resolve(rootDir, job?.input?.feishuProductDataFile || "data/feishu/products.json");
-  const processedManifestFile = path.resolve(rootDir, job?.input?.processedImageManifest || "data/auto-listing/processed-images.json");
-  if (!fs.existsSync(feishuProductDataFile)) {
-    return;
-  }
-  const records = safeLoadFeishuProductRecords(feishuProductDataFile);
-  if (!records.length) {
-    return;
-  }
-  const fingerprint = buildFeishuBatchFingerprint(records);
-  migrateLegacyProcessedImagesToBatch(processedManifestFile, fingerprint);
-}
-
 function runFeishuAssetsRefreshForStart(): number | null {
-  migrateLegacyProcessedManifestForCurrentCache();
   const result = spawnSync("npm", [
     "run",
     "feishu:assets",

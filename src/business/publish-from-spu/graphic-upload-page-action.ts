@@ -118,21 +118,15 @@ import {
   collectFileInputs,
   pickBestSectionFileInput,
   scoreMainGraphicInput,
-  scoreWhiteBackgroundGraphicInput,
   uploadDetailImagesByInputCapability,
   uploadFilesToInput,
   uploadFilesToSectionSlots,
   uploadMainImagesToSection
 } from "./graphic-file-input-action.js";
 import {
-  clickConfirmIfVisibleStrict,
   clickFillFromMainForDetailSection,
-  clickLastGraphicSectionPreviewDeleteByDom,
   countDetailImagePreviews,
   countMainImagePreviews,
-  countWhiteBackgroundPreviews,
-  getGraphicSectionPreviewRectsStrict,
-  purgeForbiddenGraphicSectionsSafe,
   readDetailIndicatorCount,
   scrollGraphicSectionIntoView,
   waitForPreviewCount
@@ -206,103 +200,6 @@ async function ensureDetailImagesFromMainThenQualifications(
     group: "",
     issue: `${detailOutcome.issue || `Detail images did not reach expected count after fill-from-main plus Feishu qualifications. expected=${expectedDetailCount}; actual=${finalCount}`} acknowledged=${uploadResult.acknowledgedCount}; qualificationImages=${assets.detailImages.length}; failedFileIndex=${uploadResult.failedFileIndex ?? "none"}`
   };
-}
-
-async function uploadWhiteBackgroundImage(page: Page, assets: ProductAssets): Promise<boolean> {
-  if (!assets.whiteBackgroundImages.length) {
-    return false;
-  }
-
-  await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
-  await scrollGraphicSectionIntoView(page, "\u767d\u5e95\u56fe").catch(() => false);
-  await page.waitForTimeout(800);
-  await dismissTransientOverlays(page);
-
-  const firstInputs = await collectFileInputs(page);
-  const firstWhiteInput = pickBestSectionFileInput(firstInputs, "\u767d\u5e95\u56fe", scoreWhiteBackgroundGraphicInput);
-  if (firstWhiteInput) {
-    await uploadFilesToInput(page, firstWhiteInput, assets.whiteBackgroundImages.slice(0, 1));
-    await page.waitForTimeout(2200);
-    if ((await countWhiteBackgroundPreviews(page)) > 0) {
-      return true;
-    }
-  }
-
-  async function clickWhiteBackgroundDeleteFallback(): Promise<boolean> {
-    return page.evaluate(() => {
-      const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-      const labels = Array.from(document.querySelectorAll("body *"))
-        .map((el) => el as HTMLElement)
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const text = normalize(el.textContent || "");
-          if (!text || rect.width <= 0 || rect.height <= 0) return null;
-          return { el, text, rect };
-        })
-        .filter(Boolean) as Array<{ el: HTMLElement; text: string; rect: DOMRect }>;
-      const current = labels.find((item) => item.text === "白底图" || item.text.startsWith("白底图"));
-      if (!current) return false;
-      const nextTop =
-        labels
-          .filter((item) => ["商品详情", "详情页"].some((label) => item.text === label || item.text.startsWith(label)) && item.rect.top > current.rect.top)
-          .sort((a, b) => a.rect.top - b.rect.top)[0]?.rect.top || current.rect.bottom + 520;
-      const deleteControls = Array.from(document.querySelectorAll("button, [role='button'], span, div, a"))
-        .map((el) => el as HTMLElement)
-        .map((el) => {
-          const rect = el.getBoundingClientRect();
-          const text = normalize(el.textContent || "");
-          const marker = [text, el.getAttribute("aria-label") || "", el.getAttribute("title") || "", String(el.className || "")]
-            .join(" ")
-            .toLowerCase();
-          if (rect.width <= 0 || rect.height <= 0 || rect.top < current.rect.bottom - 30 || rect.top > nextTop - 5) return null;
-          const looksDelete = text === "删除" || /(delete|remove|trash|icon-delete|icon-trash|semi-icon-close|close)/.test(marker);
-          if (!looksDelete) return null;
-          return { el, score: (text === "删除" ? 1000 : 0) - Math.abs(rect.top - current.rect.bottom) };
-        })
-        .filter(Boolean)
-        .sort((a, b) => (b?.score || 0) - (a?.score || 0));
-      const target = deleteControls[0]?.el || null;
-      target?.click();
-      return Boolean(target);
-    });
-  }
-
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const beforeCount = await countWhiteBackgroundPreviews(page);
-    if (!beforeCount) {
-      break;
-    }
-    const previews = await getGraphicSectionPreviewRectsStrict(page, "\u767d\u5e95\u56fe");
-    if (!previews.length) {
-      break;
-    }
-    const clicked =
-      (await clickLastGraphicSectionPreviewDeleteByDom(page, "\u767d\u5e95\u56fe").catch(() => false)) ||
-      (await clickWhiteBackgroundDeleteFallback().catch(() => false));
-    if (!clicked) {
-      break;
-    }
-    await page.waitForTimeout(500);
-    await clickConfirmIfVisibleStrict(page);
-    await dismissTransientOverlays(page);
-    const afterCount = await countWhiteBackgroundPreviews(page);
-    if (afterCount >= beforeCount) {
-      break;
-    }
-  }
-  if ((await countWhiteBackgroundPreviews(page)) > 0) {
-    return false;
-  }
-
-  const inputs = await collectFileInputs(page);
-  const whiteInput = pickBestSectionFileInput(inputs, "\u767d\u5e95\u56fe", scoreWhiteBackgroundGraphicInput);
-  if (!whiteInput) {
-    return false;
-  }
-
-  await uploadFilesToInput(page, whiteInput, assets.whiteBackgroundImages.slice(0, 1));
-  await page.waitForTimeout(1800);
-  return (await countWhiteBackgroundPreviews(page)) > 0;
 }
 
 export function graphicUploadGroupsComplete(uploadedGroups: string[]): boolean {

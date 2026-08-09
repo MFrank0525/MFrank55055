@@ -107,6 +107,7 @@ const metadata = buildPublishJobMetadata({
   feishuProductRecord: currentRecord,
   targetIdentity
 });
+assert.equal(metadata.modelSpec, "", "Health-food metadata must not retain a workbook medical-device modelSpec value.");
 
 const resolvedMetadata = resolvePublishFromSpuMetadata({
   metadataOverride: metadata,

@@ -28,9 +28,10 @@ npm run business:publish -- --job ./input/publish-from-spu.job.example.json
 
 发布业务统一执行规范见：
 
-- [docs/PUBLISH_FLOW_SOP.md](docs/PUBLISH_FLOW_SOP.md)
+- [docs/auto-listing/steps/10-publish.md](docs/auto-listing/steps/10-publish.md)
+- [docs/auto-listing/publish-rule-action-separation.md](docs/auto-listing/publish-rule-action-separation.md)
 
-AI 助手执行 `business:publish` 时，必须优先遵守这份 SOP，不允许自创字段名、步骤顺序、输入值或兜底动作。
+`docs/auto-listing/steps/*.md` 是唯一 Markdown 业务规则源。AI 助手执行 `business:publish` 时，必须优先遵守发布步骤规则，不允许自创字段名、步骤顺序、输入值或兜底动作。
 
 补充：
 

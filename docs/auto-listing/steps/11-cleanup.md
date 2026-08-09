@@ -54,6 +54,7 @@
 5. 产品完成 `cleaned` 或 `done` 后必须立即写入 `processedImageManifest`，即使后续产品失败，已完成产品也不能在下次运行中重复上架。
 5.1 后续 full-real-flow 接力或手动重启时，已写入 `processedImageManifest` 的飞书行必须先从待处理素材校验中排除；已处理行的白底图和资质图允许被清理删除，不能因为这些已处理素材缺失而阻塞同批次未处理产品继续上架。
 5.2 断点续跑只完成当前一个店铺目标时，即使子任务成功，也必须以当前类目全部计划目标的安全 manifest 覆盖为清理门禁；覆盖未完整时不得归档或删除白底图、资质图、主图结果、标题表和店铺商品目录。
+5.3 `processedImageManifest` 必须是带批次指纹的 version 2 对象；旧版无身份路径数组不得自动迁移或归入当前批次。缺少批次指纹时禁止追加已处理记录，并要求先人工清理或重建旧清单。
 6. 断点从发布步骤续跑时，如果状态文件里的主图 artifact 缺少 `rawImageFile`，必须从当前 task 运行目录下的 `openai-compatible/raw/generated-*.png` 恢复无水印主图后再归档；不能因此把已生成的 raw 主图误判为 0。
 7. 无水印主图归档来源只能是主图生成节点下的 `openai-compatible/raw/generated-*` 文件；飞书白底源图、资质图、水印图、模拟图都不能作为无水印主图归档来源。
 7.1 发布断点的主图 artifact 可能只包含本轮剩余店铺；归档时必须把其中的合法 raw 路径与当前 task 目录扫描到的合法 raw 路径合并去重，再按完整类目数量校验。`cleaned` 阶段归档失败只能从 cleanup 断点续跑，不得重新进入完整生成或发布流程。
@@ -71,6 +72,7 @@
 19. 产品安全完成后必须删除 `data/auto-listing/paid-image-submissions/<当前批次>/<recordId>`；批次完成或确认重跑当前批次时必须删除整个当前批次共享账本。正式无水印主图只保留在配置的最终归档目录，共享账本不得作为历史主图库长期保存。
 20. 完成批次审计时，历史 run 目录只允许保留最新状态 run，且当前批次共享付费账本必须不存在；任一条件不满足，`audit:auto-listing` 必须失败。
 21. 产品发布 runtime 清理必须优先使用发布结果中的 canonical `resultFile` 父目录，禁止用店铺名/产品名旧规则推导目录导致 targetKey runtime 和截图残留；`cleaned/done` 产品仍存在 publish runtime 或截图时，`audit:auto-listing` 必须失败。
+22. 发布结果没有 canonical `resultFile` 时不得按店铺名或产品文件夹名推导 runtime 删除目标；保留现场并失败关闭。
 
 ## 失败条件
 

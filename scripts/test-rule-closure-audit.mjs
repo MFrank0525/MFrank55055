@@ -6,7 +6,6 @@ const read = (file) => fs.readFileSync(file, "utf8");
 const docs = [
   read("docs/auto-listing/steps/10-publish.md"),
   read("docs/auto-listing/steps/11-cleanup.md"),
-  read("docs/PUBLISH_FLOW_SOP.md"),
   read("docs/auto-listing/stability-checklist.md")
 ].join("\n");
 const publishSource = [

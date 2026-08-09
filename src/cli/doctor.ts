@@ -209,18 +209,14 @@ function publishChecks(): CheckResult[] {
 }
 
 function checkAutoListingProductInfoSource(): CheckResult {
-  const workbook = path.resolve("input/auto-listing/product-info.xlsx");
-  if (fs.existsSync(workbook)) {
-    return { name: "auto-listing product info source", ok: true, detail: workbook };
-  }
   const feishuData = path.resolve("data/feishu/products.json");
   if (fs.existsSync(feishuData)) {
-    return { name: "auto-listing product info source", ok: true, detail: `${feishuData} (Feishu mode)` };
+    return { name: "auto-listing product info source", ok: true, detail: `${feishuData} (canonical Feishu source)` };
   }
   return {
     name: "auto-listing product info source",
     ok: false,
-    detail: `missing: ${workbook} or ${feishuData}`
+    detail: `missing canonical Feishu product data: ${feishuData}`
   };
 }
 

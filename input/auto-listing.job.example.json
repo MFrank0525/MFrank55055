@@ -6,7 +6,7 @@
     "mainImageWorkDir": "./input/auto-listing/main-images",
     "titleDir": "./input/auto-listing/titles",
     "qualificationDir": "./input/auto-listing/qualifications",
-    "productInfoXlsx": "./input/auto-listing/product-info.xlsx",
+    "feishuProductDataFile": "./data/feishu/products.json",
     "shopRootDir": "./input/auto-listing/shops",
     "imageGenerationProvider": "openai-compatible",
     "imageGenerationConfigFile": "./input/image-generation.config.json",

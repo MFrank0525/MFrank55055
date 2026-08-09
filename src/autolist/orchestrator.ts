@@ -13,7 +13,7 @@ import {
   repairMainImageArtifactShapes
 } from "./main-image-square-action.js";
 import { archiveUnwatermarkedMainImages, resolveArchiveProductName } from "./archive-main-images.js";
-import { appendProcessedImages, discoverPendingImages, readProcessedImages } from "./file-batch.js";
+import { appendProcessedImages, readProcessedImages } from "./file-batch.js";
 import { auditMainImageGeneration, auditPublishMainImageSubset, collectFeishuProductAssetFiles, summarizeFeishuBatchProgress } from "./audit-rules.js";
 import { buildFeishuBatchFingerprint } from "./feishu-batch-rules.js";
 import {
@@ -90,29 +90,6 @@ function manualReadSummary(manualReadMap: Map<string, ManualReadRecord>): Manual
     }
     return a.filePath.localeCompare(b.filePath, "zh-CN");
   });
-}
-
-function discoverFallbackImages(
-  imageDir: string,
-  extensions: string[],
-  maxImagesPerRun: number
-): string[] {
-  if (!fs.existsSync(imageDir)) {
-    return [];
-  }
-
-  return fs
-    .readdirSync(imageDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => path.join(imageDir, entry.name))
-    .filter((filePath) => extensions.includes(path.extname(filePath).toLowerCase()))
-    .map((filePath) => ({
-      filePath,
-      mtimeMs: fs.statSync(filePath).mtimeMs
-    }))
-    .sort((a, b) => a.mtimeMs - b.mtimeMs)
-    .slice(0, Math.max(1, maxImagesPerRun))
-    .map((item) => item.filePath);
 }
 
 function filterResumeSourceImage(images: string[], resumeSourceImagePath: string): string[] {
@@ -273,8 +250,6 @@ async function executeTaskChain(
   titleDir: string,
   titleCount: number,
   qualificationDir: string,
-  productInfoXlsx: string,
-  productInfoKeyMapFile: string,
   feishuProductDataFile: string,
   shopRootDir: string,
   imageGenerationProvider: ImageGenerationProvider,
@@ -713,17 +688,12 @@ async function executeTaskChain(
         .filter((item) => item.distributedTo)
         .map((item) => path.join(item.distributedTo || "", path.basename(item.workbookFile)));
       const metadataArtifact = enrichDistributedTitleSheets({
-        productInfoXlsx,
-        productInfoKeyMapFile,
-        sellingPointText: current.sellingPointArtifact.sellingPointText,
         productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact.brandedGenericName,
-        metadataOverride: current.feishuProductRecord
-          ? {
-              shortTitle: current.feishuProductRecord.shortTitle,
-              brand: current.feishuProductRecord.brand,
-              spu: current.feishuProductRecord.spu
-            }
-          : undefined,
+        metadata: {
+          shortTitle: current.feishuProductRecord?.shortTitle || "",
+          brand: current.feishuProductRecord?.brand || "",
+          spu: current.feishuProductRecord?.spu || ""
+        },
         distributedWorkbookFiles,
         simulateOnly
       });
@@ -901,8 +871,6 @@ async function executeTaskChain(
       const categoryPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
       const taskRuntimeDir = path.join(runtimeDir, "tasks", current.taskId);
       const publishRuntimeDirs = resolvePublishRuntimeDirsForCleanup({
-        runtimeDir,
-        distributedFolders: current.shopDistributionArtifact?.distributedFolders || [],
         publishResults: current.publishArtifact?.results || []
       });
       const archivedFiles = archiveUnwatermarkedMainImages({
@@ -989,15 +957,9 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   const runId = path.basename(resolved.runtimeDir);
   const startedAt = new Date().toISOString();
   const logFile = path.join(resolved.runtimeDir, "logs", "run.log");
-  const feishuBatchFingerprint =
-    resolved.input.feishuProductDataFile && fs.existsSync(resolved.input.feishuProductDataFile)
-      ? buildFeishuBatchFingerprint(loadFeishuProductRecords(resolved.input.feishuProductDataFile))
-      : undefined;
+  const feishuBatchFingerprint = buildFeishuBatchFingerprint(loadFeishuProductRecords(resolved.input.feishuProductDataFile));
   const businessRuleFingerprint = buildAutoListingBusinessRuleFingerprint();
-  const feishuProductRecords =
-    resolved.input.feishuProductDataFile && fs.existsSync(resolved.input.feishuProductDataFile)
-      ? loadFeishuProductRecords(resolved.input.feishuProductDataFile)
-      : [];
+  const feishuProductRecords = loadFeishuProductRecords(resolved.input.feishuProductDataFile);
   if (resolved.input.resumeSourceImagePath && !canResumeAutoListingArtifacts({
     currentBatchFingerprint: feishuBatchFingerprint,
     resumeBatchFingerprint: resolved.input.feishuBatchFingerprint,
@@ -1009,34 +971,13 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   const discoveredImages =
     resolved.input.resumeSourceImagePath
       ? [resolved.input.resumeSourceImagePath]
-      : resolved.input.feishuProductDataFile
-        ? resolvePendingFeishuProductSourceImagesFromRecords({
-            records: feishuProductRecords,
-            processedImages: readProcessedImages(resolved.processedImageManifest, feishuBatchFingerprint),
-            maxImagesPerRun: resolved.input.maxImagesPerRun
-          })
-        : discoverPendingImages(
-            resolved.input.feishuImageDir,
-            resolved.input.imageExtensions,
-            resolved.processedImageManifest,
-            resolved.input.maxImagesPerRun,
-            feishuBatchFingerprint
-          );
+      : resolvePendingFeishuProductSourceImagesFromRecords({
+          records: feishuProductRecords,
+          processedImages: readProcessedImages(resolved.processedImageManifest, feishuBatchFingerprint),
+          maxImagesPerRun: resolved.input.maxImagesPerRun
+        });
   const resumeFilteredDiscoveredImages = filterResumeSourceImage(discoveredImages, resolved.input.resumeSourceImagePath);
-  const shouldAllowRecoveredTask = resolved.input.startStep !== "source_images_discovered";
-  const effectiveImages =
-    resumeFilteredDiscoveredImages.length > 0
-      ? resumeFilteredDiscoveredImages
-      : shouldAllowRecoveredTask
-        ? filterResumeSourceImage(
-            discoverFallbackImages(
-              resolved.input.feishuImageDir,
-              resolved.input.imageExtensions,
-              resolved.input.maxImagesPerRun
-            ),
-            resolved.input.resumeSourceImagePath
-          )
-        : [];
+  const effectiveImages = resumeFilteredDiscoveredImages;
 
   const result: AutoListingRunResult = {
     ok: false,
@@ -1205,8 +1146,6 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
           resolved.input.titleDir,
           resolved.input.titleCount,
           resolved.input.qualificationDir,
-          resolved.input.productInfoXlsx,
-          resolved.input.productInfoKeyMapFile,
           resolved.input.feishuProductDataFile,
           resolved.input.shopRootDir,
           resolved.input.imageGenerationProvider,

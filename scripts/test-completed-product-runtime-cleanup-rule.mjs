@@ -14,7 +14,6 @@ const screenshotFile = path.join(publishRuntimeDir, "screenshots", "publish-page
 const taskRuntimeDir = path.join(tmp, "runs", "20260628-120000", "tasks", "image-001");
 const productFolder = path.join(tmp, "shops", "01shop", "product-01");
 const titleFile = path.join(tmp, "titles", "product-01.xlsx");
-const legacyPublishRuntimeDir = path.join(tmp, "runs", "20260628-120000", "publish", "01shop__product-01");
 
 for (const filePath of [sourceImagePath, qualificationPath, screenshotFile, path.join(taskRuntimeDir, "prompt.docx"), path.join(productFolder, "main.png"), titleFile]) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -62,8 +61,6 @@ assert.equal(residueBeforeCleanup.errors[0].code, "completed_product_publish_run
 
 assert.deepEqual(
   resolvePublishRuntimeDirsForCleanup({
-    runtimeDir: path.join(tmp, "runs", "20260628-120000"),
-    distributedFolders: [productFolder],
     publishResults: [
       {
         productFolder,
@@ -77,12 +74,10 @@ assert.deepEqual(
 
 assert.deepEqual(
   resolvePublishRuntimeDirsForCleanup({
-    runtimeDir: path.join(tmp, "runs", "20260628-120000"),
-    distributedFolders: [productFolder],
     publishResults: []
   }),
-  [legacyPublishRuntimeDir],
-  "cleanup may fall back to legacy folder-derived runtime names only when publish results are unavailable"
+  [],
+  "cleanup must not derive identity-free runtime names when canonical publish results are unavailable"
 );
 
 const completedCleanup = cleanupAfterPublish({

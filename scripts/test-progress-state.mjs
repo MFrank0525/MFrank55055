@@ -91,7 +91,7 @@ import {
 } from "../dist/src/autolist/controller-cache-status-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../dist/src/autolist/feishu-batch-rules.js";
 import { hasSharedFeishuWhiteBackgroundLocalFile, resolvePendingFeishuProductSourceImagesFromRecords } from "../dist/src/autolist/feishu-products.js";
-import { appendProcessedImages, clearProcessedImagesForBatch, migrateLegacyProcessedImagesToBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
+import { appendProcessedImages, clearProcessedImagesForBatch, readProcessedImages } from "../dist/src/autolist/file-batch.js";
 import { selectCleanupTargets, selectStaleRunHistoryTargets } from "../dist/src/autolist/cleanup-rules.js";
 import { cleanupStaleRunHistory } from "../dist/src/autolist/cleanup.js";
 import {
@@ -552,7 +552,7 @@ assert.match(
 );
 const exactMainPreviewCounterSource = graphicPreviewSource.slice(
   graphicPreviewSource.indexOf("export async function countMainImagePreviews"),
-  graphicPreviewSource.indexOf("export async function countWhiteBackgroundPreviews")
+  graphicPreviewSource.indexOf("export async function readDetailIndicatorCount")
 );
 assert.match(
   exactMainPreviewCounterSource,
@@ -2490,13 +2490,20 @@ assert.equal(repeatedBatchProgress.pendingRecordCount, 1);
 assert.equal(repeatedBatchProgress.batchComplete, false);
 
 const legacyManifest = path.join(tempDir, "legacy-processed-images.json");
-appendProcessedImages(legacyManifest, ["/work/input/auto-listing/feishu-images/legacy-product.png"]);
-assert.equal(migrateLegacyProcessedImagesToBatch(legacyManifest, repeatedBatchAFingerprint), true);
-assert.equal(readProcessedImages(legacyManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/legacy-product.png"), true);
-assert.equal(readProcessedImages(legacyManifest, repeatedBatchBFingerprint).has("/work/input/auto-listing/feishu-images/legacy-product.png"), false);
+fs.writeFileSync(legacyManifest, JSON.stringify(["/work/input/auto-listing/feishu-images/legacy-product.png"]));
+assert.throws(
+  () => readProcessedImages(legacyManifest, repeatedBatchAFingerprint),
+  /obsolete identity-free array format/,
+  "an identity-free legacy processed list must not be attached to the current batch"
+);
+assert.throws(
+  () => appendProcessedImages(path.join(tempDir, "identity-free-append.json"), ["/work/input/image.png"]),
+  /explicit Feishu batch fingerprint/,
+  "new processed-image entries require an explicit batch identity"
+);
 
 const appendMigratedManifest = path.join(tempDir, "append-migrated-processed-images.json");
-appendProcessedImages(appendMigratedManifest, ["/work/input/auto-listing/feishu-images/current-batch-first.png"]);
+appendProcessedImages(appendMigratedManifest, ["/work/input/auto-listing/feishu-images/current-batch-first.png"], repeatedBatchAFingerprint);
 appendProcessedImages(appendMigratedManifest, ["/work/input/auto-listing/feishu-images/current-batch-second.png"], repeatedBatchAFingerprint);
 assert.equal(readProcessedImages(appendMigratedManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/current-batch-first.png"), true);
 assert.equal(readProcessedImages(appendMigratedManifest, repeatedBatchAFingerprint).has("/work/input/auto-listing/feishu-images/current-batch-second.png"), true);
@@ -3078,6 +3085,9 @@ assert.deepEqual(
 const groupedPublishProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: [
     ...Array.from({ length: 20 }, (_, index) => ({
+      batchFingerprint: "batch-grouped-progress",
+      recordId: "record-pain-gel",
+      taskId: "task-pain-gel",
       productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目医用疼痛凝胶水印${String(index + 1).padStart(2, "0")}`,
       shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
       watermarkNo: index + 1,
@@ -3086,6 +3096,9 @@ const groupedPublishProgress = resolveAutoListingControllerPublishGroupProgress(
       updatedAt: `2026-06-13T20:${String(index).padStart(2, "0")}:00.000Z`
     })),
     ...Array.from({ length: 20 }, (_, index) => ({
+      batchFingerprint: "batch-grouped-progress",
+      recordId: "record-collagen-ointment",
+      taskId: "task-collagen-ointment",
       productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目医用重组胶原蛋白护理软膏水印${String(index + 1).padStart(2, "0")}`,
       shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
       watermarkNo: index + 1,
@@ -3094,6 +3107,9 @@ const groupedPublishProgress = resolveAutoListingControllerPublishGroupProgress(
       updatedAt: `2026-06-13T21:${String(index).padStart(2, "0")}:00.000Z`
     })),
     ...Array.from({ length: 20 }, (_, index) => ({
+      batchFingerprint: "batch-grouped-progress",
+      recordId: "record-far-infrared-patch",
+      taskId: "task-far-infrared-patch",
       productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目遠紅外治療貼水印${String(index + 1).padStart(2, "0")}`,
       shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
       watermarkNo: index + 1,
@@ -3106,6 +3122,7 @@ const groupedPublishProgress = resolveAutoListingControllerPublishGroupProgress(
 assert.deepEqual(
   groupedPublishProgress,
   {
+    recordId: "record-far-infrared-patch",
     productName: "延草纲目遠紅外治療貼",
     completed: 20,
     productIndex: 20,
@@ -3170,8 +3187,13 @@ assert.equal(sameNameDifferentRecordProgress.completed, 7);
 assert.equal(sameNameDifferentRecordProgress.productIndex, 8);
 assert.equal(sameNameDifferentRecordProgress.productTotal, 20);
 
+const progressIdentity = (recordId) => ({
+  targetIdentity: { batchFingerprint: "batch-progress-regression", recordId, taskId: `task-${recordId}` }
+});
+
 const completedResumeOutOfOrderProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: Array.from({ length: 20 }, (_, index) => ({
+    ...progressIdentity("record-completed-resume"),
     productFolder: `/shops/${String(index + 1).padStart(2, "0")}店/延草纲目宝元堂医用疼痛凝胶水印${String(index + 1).padStart(2, "0")}`,
     shopFolder: `/shops/${String(index + 1).padStart(2, "0")}店`,
     watermarkNo: index + 1,
@@ -3180,6 +3202,7 @@ const completedResumeOutOfOrderProgress = resolveAutoListingControllerPublishGro
     updatedAt: index === 18 ? "2026-07-15T08:45:00.000Z" : `2026-07-15T07:${String(index).padStart(2, "0")}:00.000Z`
   })),
   planEntries: Array.from({ length: 20 }, (_, index) => ({
+    ...progressIdentity("record-completed-resume"),
     productFolder: `/shops/${String(index + 1).padStart(2, "0")}店/延草纲目宝元堂医用疼痛凝胶水印${String(index + 1).padStart(2, "0")}`,
     shopFolder: `/shops/${String(index + 1).padStart(2, "0")}店`,
     watermarkNo: index + 1
@@ -3188,6 +3211,7 @@ const completedResumeOutOfOrderProgress = resolveAutoListingControllerPublishGro
 assert.deepEqual(
   completedResumeOutOfOrderProgress,
   {
+    recordId: "record-completed-resume",
     productName: "延草纲目宝元堂医用疼痛凝胶",
     completed: 20,
     productIndex: 20,
@@ -3202,6 +3226,7 @@ assert.deepEqual(
 
 const partialManifestWithFullPublishPlanProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: Array.from({ length: 9 }, (_, index) => ({
+    ...progressIdentity("record-partial-plan"),
     productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目宝元堂痛风医用远红外治疗凝胶水印${String(index + 1).padStart(2, "0")}`,
     shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
     watermarkNo: index + 1,
@@ -3210,6 +3235,7 @@ const partialManifestWithFullPublishPlanProgress = resolveAutoListingControllerP
     updatedAt: `2026-06-14T03:${String(index).padStart(2, "0")}:00.000Z`
   })),
   planEntries: Array.from({ length: 20 }, (_, index) => ({
+    ...progressIdentity("record-partial-plan"),
     productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目宝元堂痛风医用远红外治疗凝胶水印${String(index + 1).padStart(2, "0")}`,
     runtimeKey: `${String(Math.floor(index / 2) + 1).padStart(2, "0")}店__延草纲目宝元堂痛风医用远红外治疗凝胶水印${String(index + 1).padStart(2, "0")}`
   })),
@@ -3218,6 +3244,7 @@ const partialManifestWithFullPublishPlanProgress = resolveAutoListingControllerP
 assert.deepEqual(
   partialManifestWithFullPublishPlanProgress,
   {
+    recordId: "record-partial-plan",
     productName: "延草纲目宝元堂痛风医用远红外治疗凝胶",
     completed: 8,
     productIndex: 9,
@@ -3271,6 +3298,7 @@ const resumedHistoricalFailureShopNames = [
 const resumedPublishWithHistoricalFutureFailuresProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: [
     ...Array.from({ length: 2 }, (_, index) => ({
+      ...progressIdentity("record-resumed-historical"),
       productFolder: `/shops/01延草纲目大药房专营店/延草纲目远红外磁疗舒痛贴水印${String(index + 1).padStart(2, "0")}`,
       shopFolder: "/shops/01延草纲目大药房专营店",
       runtimeKey: `01延草纲目大药房专营店__延草纲目远红外磁疗舒痛贴水印${String(index + 1).padStart(2, "0")}`,
@@ -3280,6 +3308,7 @@ const resumedPublishWithHistoricalFutureFailuresProgress = resolveAutoListingCon
       updatedAt: `2026-06-18T16:1${index + 4}:00.000Z`
     })),
     {
+      ...progressIdentity("record-resumed-historical"),
       productFolder: "/shops/02延草纲目药品专营店/延草纲目远红外磁疗舒痛贴水印03",
       shopFolder: "/shops/02延草纲目药品专营店",
       runtimeKey: "02延草纲目药品专营店__延草纲目远红外磁疗舒痛贴水印03",
@@ -3292,6 +3321,7 @@ const resumedPublishWithHistoricalFutureFailuresProgress = resolveAutoListingCon
       const watermarkNo = index + 4;
       const shopName = resumedHistoricalFailureShopNames[Math.floor((watermarkNo - 1) / 2)];
       return {
+        ...progressIdentity("record-resumed-historical"),
         productFolder: `/shops/${shopName}/延草纲目远红外磁疗舒痛贴水印${String(watermarkNo).padStart(2, "0")}`,
         shopFolder: `/shops/${shopName}`,
         runtimeKey: `${shopName}__延草纲目远红外磁疗舒痛贴水印${String(watermarkNo).padStart(2, "0")}`,
@@ -3307,6 +3337,7 @@ const resumedPublishWithHistoricalFutureFailuresProgress = resolveAutoListingCon
 assert.deepEqual(
   resumedPublishWithHistoricalFutureFailuresProgress,
   {
+    recordId: "record-resumed-historical",
     productName: "延草纲目远红外磁疗舒痛贴",
     completed: 2,
     productIndex: 3,
@@ -3342,6 +3373,7 @@ assert.doesNotMatch(compactResumedPublishWithHistoricalFutureFailuresStatus, /�
 const failedMiddleWithLaterPublishedProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: [
     ...Array.from({ length: 15 }, (_, index) => ({
+      ...progressIdentity("record-failed-middle"),
       productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目遠紅外治療貼水印${String(index + 1).padStart(2, "0")}`,
       shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
       watermarkNo: index + 1,
@@ -3350,6 +3382,7 @@ const failedMiddleWithLaterPublishedProgress = resolveAutoListingControllerPubli
       updatedAt: `2026-06-15T01:${String(index).padStart(2, "0")}:00.000Z`
     })),
     {
+      ...progressIdentity("record-failed-middle"),
       productFolder: "/shops/08店/延草纲目遠紅外治療貼水印16",
       shopFolder: "/shops/08店",
       watermarkNo: 16,
@@ -3358,6 +3391,7 @@ const failedMiddleWithLaterPublishedProgress = resolveAutoListingControllerPubli
       updatedAt: "2026-06-15T01:16:00.000Z"
     },
     ...Array.from({ length: 4 }, (_, index) => ({
+      ...progressIdentity("record-failed-middle"),
       productFolder: `/shops/${String(Math.floor((index + 16) / 2) + 1).padStart(2, "0")}店/延草纲目遠紅外治療貼水印${String(index + 17).padStart(2, "0")}`,
       shopFolder: `/shops/${String(Math.floor((index + 16) / 2) + 1).padStart(2, "0")}店`,
       watermarkNo: index + 17,
@@ -3370,6 +3404,7 @@ const failedMiddleWithLaterPublishedProgress = resolveAutoListingControllerPubli
 assert.deepEqual(
   failedMiddleWithLaterPublishedProgress,
   {
+    recordId: "record-failed-middle",
     productName: "延草纲目遠紅外治療貼",
     completed: 19,
     productIndex: 20,
@@ -3446,6 +3481,7 @@ assert.match(
 const reviewMiddleWithLaterPublishedProgress = resolveAutoListingControllerPublishGroupProgress({
   entries: [
     ...Array.from({ length: 12 }, (_, index) => ({
+      ...progressIdentity("record-review-middle"),
       productFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店/延草纲目胶原蛋白敷料水印${String(index + 1).padStart(2, "0")}`,
       shopFolder: `/shops/${String(Math.floor(index / 2) + 1).padStart(2, "0")}店`,
       watermarkNo: index + 1,
@@ -3454,6 +3490,7 @@ const reviewMiddleWithLaterPublishedProgress = resolveAutoListingControllerPubli
       updatedAt: `2026-06-16T01:${String(index).padStart(2, "0")}:00.000Z`
     })),
     {
+      ...progressIdentity("record-review-middle"),
       productFolder: "/shops/07店/延草纲目胶原蛋白敷料水印13",
       shopFolder: "/shops/07店",
       watermarkNo: 13,
@@ -3463,6 +3500,7 @@ const reviewMiddleWithLaterPublishedProgress = resolveAutoListingControllerPubli
       updatedAt: "2026-06-16T01:13:00.000Z"
     },
     ...Array.from({ length: 5 }, (_, index) => ({
+      ...progressIdentity("record-review-middle"),
       productFolder: `/shops/${String(Math.floor((index + 13) / 2) + 1).padStart(2, "0")}店/延草纲目胶原蛋白敷料水印${String(index + 14).padStart(2, "0")}`,
       shopFolder: `/shops/${String(Math.floor((index + 13) / 2) + 1).padStart(2, "0")}店`,
       watermarkNo: index + 14,

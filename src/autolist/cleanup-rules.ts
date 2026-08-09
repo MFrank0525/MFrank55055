@@ -24,15 +24,7 @@ export function selectCleanupTargets(options: {
   return selected;
 }
 
-function legacyPublishRuntimeKey(productFolder: string): string {
-  const shopName = path.basename(path.dirname(productFolder));
-  const productName = path.basename(productFolder);
-  return `${shopName}__${productName}`.replace(/[\/\\:*?"<>|]/g, "_");
-}
-
 export function resolvePublishRuntimeDirsForCleanup(options: {
-  runtimeDir: string;
-  distributedFolders: string[];
   publishResults?: Array<{
     productFolder: string;
     resultFile?: string;
@@ -55,13 +47,6 @@ export function resolvePublishRuntimeDirsForCleanup(options: {
     }
   }
 
-  if (selected.length > 0) {
-    return selected;
-  }
-
-  for (const folder of options.distributedFolders || []) {
-    push(path.join(options.runtimeDir, "publish", legacyPublishRuntimeKey(folder)));
-  }
   return selected;
 }
 

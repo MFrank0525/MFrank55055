@@ -82,9 +82,9 @@
 
 规则：
 
-- 发布顺序和禁止事项以 `docs/PUBLISH_FLOW_SOP.md` 为最高优先级。
+- 发布顺序和禁止事项以 `docs/auto-listing/steps/10-publish.md` 为唯一 Markdown 规则源；类目动作矩阵由 `src/business/publish-from-spu/publish-category-policy.ts` 执行。
 - 不能把素材识别、工作簿解析、固定常量重新写回 `publish-from-spu.ts`。
-- 后续继续拆浏览器自动化时，按 SOP 模块拆：标品检索、基础信息、图文信息、价格库存、服务履约、发布检查。
+- 后续继续拆浏览器自动化时，按发布步骤模块拆：标品检索、基础信息、图文信息、价格库存、服务履约、发布检查。
 
 ## 5. 检查命令
 

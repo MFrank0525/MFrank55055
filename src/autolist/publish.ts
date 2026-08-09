@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { runPublishFromSpuJob } from "../business/publish-from-spu.js";
-import { clearCheckpoint, isStageCompleted, loadCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
+import { clearCheckpoint, saveCheckpoint } from "../business/publish-from-spu/checkpoint.js";
 import {
   verifyPublishedProductInDoudianList,
   type DoudianProductListVerificationResult
@@ -33,6 +33,7 @@ import type { PublishTargetIdentity } from "./publish-identity.js";
 import type { PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
 import type { PublishArtifact } from "./types.js";
 import { initializePublishAttemptState } from "./publish-attempt-state.js";
+import { getPublishCategoryMutationPolicy } from "../business/publish-from-spu/publish-category-policy.js";
 
 type ProductWorkbookFields = {
   title: string;
@@ -59,12 +60,13 @@ export function buildPublishJobMetadata(input: {
       `Feishu product recordId ${feishuProductRecord.recordId} does not match canonical identity recordId ${targetIdentity.recordId}.`
     );
   }
+  const mutationPolicy = getPublishCategoryMutationPolicy(feishuProductRecord.productCategory);
   return {
     brand: feishuProductRecord.brand || workbookFields.brand,
     spu: feishuProductRecord.spu || workbookFields.spu,
     title: workbookFields.title,
     shortTitle: feishuProductRecord.shortTitle || workbookFields.shortTitle,
-    modelSpec: workbookFields.modelSpec || "盒装",
+    modelSpec: mutationPolicy.categoryAttributes === "fill_model_spec" ? workbookFields.modelSpec || "盒装" : "",
     productPriceText: feishuProductRecord.productPriceText || workbookFields.productPriceText,
     feishuRecordId: targetIdentity.recordId,
     productCategory: feishuProductRecord.productCategory,
@@ -120,7 +122,7 @@ function readProductWorkbookFields(workbookFile: string): ProductWorkbookFields 
     shortTitle: rows[2]?.[1]?.trim() || "",
     brand: rows[3]?.[1]?.trim() || "",
     spu: rows[4]?.[1]?.trim() || "",
-    modelSpec: rows[5]?.[1]?.trim() || "盒装",
+    modelSpec: rows[5]?.[1]?.trim() || "",
     productPriceText: rows.find((row) => (row[0] || "").trim() === "产品价格")?.[1]?.trim() || ""
   };
 }
@@ -138,9 +140,6 @@ function validateWorkbookFields(fields: ProductWorkbookFields): string[] {
   }
   if (!fields.spu.trim()) {
     missing.push("spu");
-  }
-  if (!fields.modelSpec.trim()) {
-    missing.push("modelSpec");
   }
   if (!fields.productPriceText.trim()) {
     missing.push("productPriceText");
@@ -202,48 +201,6 @@ export function publishRuntimeKey(productFolder: string): string {
   const shopName = path.basename(path.dirname(productFolder));
   const productName = path.basename(productFolder);
   return `${shopName}__${productName}`.replace(/[\/\\:*?"<>|]/g, "_");
-}
-
-function wasPublishCompleted(runtimeDir: string): boolean {
-  const checkpointCompleted = isStageCompleted(loadCheckpoint(runtimeDir), "publish_flow");
-  const resultFile = path.join(runtimeDir, "result.json");
-  if (!fs.existsSync(resultFile)) {
-    if (checkpointCompleted) {
-      clearCheckpoint(runtimeDir);
-    }
-    return false;
-  }
-  try {
-    const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as {
-      ok?: boolean;
-      status?: string;
-      message?: string;
-      data?: {
-        browser?: {
-          publishClicked?: boolean;
-          publishClickAttempted?: boolean;
-          publishIssue?: string;
-        };
-      };
-    };
-    const resultCompleted = evaluatePublishResult({
-      ok: result.ok,
-      status: result.status,
-      message: result.message,
-      publishClicked: result.data?.browser?.publishClicked,
-      publishClickAttempted: result.data?.browser?.publishClickAttempted,
-      publishIssue: result.data?.browser?.publishIssue
-    }).safelyPublished;
-    if (!resultCompleted && checkpointCompleted) {
-      clearCheckpoint(runtimeDir);
-    }
-    return resultCompleted;
-  } catch {
-    if (checkpointCompleted) {
-      clearCheckpoint(runtimeDir);
-    }
-    return false;
-  }
 }
 
 type PublishResultSummary = {
@@ -462,33 +419,7 @@ export async function publishDistributedProducts(options: {
       });
       return false;
     }
-    if (productIdentity || !wasPublishCompleted(publishRuntimeDir)) {
-      return true;
-    }
-
-    upsertPublishManifestEntry(options.runtimeDir, {
-      ...targetContextForFolder(productFolder),
-      productFolder,
-      runtimeKey,
-      shopFolder: path.dirname(productFolder),
-      watermarkNo: extractWatermarkNo(productFolder),
-      status: "published",
-      finalVerifyStatus: "publish_signal_confirmed",
-      resultFile: path.join(publishRuntimeDir, "result.json"),
-      message: "Recovered from legacy completed result file.",
-      ...productIdentityFields
-    });
-    alreadyPublishedResults.push({
-      targetIdentity,
-      targetKey,
-      productFolder,
-      ok: true,
-      status: "published",
-      message: "Skipped because this product was already published in a previous run.",
-      resultFile: path.join(publishRuntimeDir, "result.json"),
-      finalVerifyStatus: "publish_signal_confirmed"
-    });
-    return false;
+    return true;
   });
 
   const preflightErrors = pendingFolders.flatMap((productFolder) => runPreflightForProductFolder(productFolder));

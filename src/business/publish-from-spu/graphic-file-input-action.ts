@@ -264,20 +264,6 @@ export function scoreMainGraphicInput(input: { parentText: string; multiple: boo
   return score;
 }
 
-export function scoreWhiteBackgroundGraphicInput(input: { parentText: string; multiple: boolean; sectionLabel?: string }): number {
-  const text = input.parentText;
-  let score = 0;
-  if (input.sectionLabel === "\u767d\u5e95\u56fe") score += 1000;
-  if (input.sectionLabel === "\u4e3b\u56fe" || input.sectionLabel === "\u4e3b\u56fe3:4") score -= 1000;
-  if (text.includes("\u767d\u5e95\u56fe")) score += 180;
-  if (text.includes("\u9891\u9053\u3001\u6d3b\u52a8")) score += 120;
-  if (text.includes("600*600") || text.includes("600\u00d7600")) score += 40;
-  if (text.includes("\u4e3b\u56fe3:4")) score -= 180;
-  if (text.includes("\u5546\u54c1\u8be6\u60c5") || text.includes("\u5546\u8be6\u56fe\u7247")) score -= 180;
-  if (text.includes("\u4e0a\u4f20\u4e3b\u56fe") && !text.includes("\u767d\u5e95\u56fe")) score -= 120;
-  return score;
-}
-
 export function scoreDetailGraphicInput(input: { parentText: string; multiple: boolean; sectionLabel?: string }): number {
   const text = input.parentText;
   let score = 0;

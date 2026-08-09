@@ -35,9 +35,7 @@ export interface AutoListingJobInput {
   mainImageWorkDir?: string;
   titleDir: string;
   qualificationDir: string;
-  productInfoXlsx?: string;
-  productInfoKeyMapFile?: string;
-  feishuProductDataFile?: string;
+  feishuProductDataFile: string;
   shopRootDir: string;
   imageGenerationProvider?: ImageGenerationProvider;
   imageGenerationConfigFile?: string;
@@ -185,8 +183,7 @@ export interface AutoListingPreflightSummary {
   runId: string;
   simulateOnly: boolean;
   source: {
-    feishuProductDataFile?: string;
-    productInfoXlsx?: string;
+    feishuProductDataFile: string;
     feishuImageDir: string;
     mainImageWorkDir: string;
     qualificationDir: string;

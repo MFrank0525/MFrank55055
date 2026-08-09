@@ -219,158 +219,6 @@ async function countGraphicSectionPreviewsSafe(page: Page, sectionName: string):
   }, sectionName);
 }
 
-async function getGraphicSectionPreviewRects(
-  page: Page,
-  sectionName: string
-): Promise<Array<{ x: number; y: number; width: number; height: number }>> {
-  return page.evaluate((targetSection) => {
-    const labels = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = (el.textContent || "").trim();
-        const rect = el.getBoundingClientRect();
-        if (!text || rect.width <= 0 || rect.height <= 0) {
-          return null;
-        }
-        return { text, top: rect.top, bottom: rect.bottom, left: rect.left };
-      })
-      .filter(Boolean) as Array<{ text: string; top: number; bottom: number; left: number }>;
-
-    const current = labels.find((item) => item.text === targetSection);
-    if (!current) {
-      return [];
-    }
-
-    const nextTop =
-      labels
-        .filter((item) => ["主图", "主图3:4", "白底图", "详情页"].includes(item.text) && item.top > current.top)
-        .sort((a, b) => a.top - b.top)[0]?.top || current.bottom + 500;
-
-    return Array.from(document.querySelectorAll("img, [style*='background-image']"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (
-          rect.width < 40 ||
-          rect.height < 40 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          style.position === "fixed" ||
-          style.position === "sticky"
-        ) {
-          return null;
-        }
-        if (rect.top < current.bottom - 20 || rect.top > nextTop - 10 || rect.left <= current.left) {
-          return null;
-        }
-        return {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height
-        };
-      })
-      .filter(Boolean) as Array<{ x: number; y: number; width: number; height: number }>;
-  }, sectionName);
-}
-
-async function clickConfirmIfVisible(page: Page): Promise<void> {
-  const confirmButton = page.getByRole("button", { name: "纭畾" }).first();
-  if (await confirmButton.count()) {
-    await confirmButton.click({ timeout: 2000 }).catch(() => {});
-    await page.waitForTimeout(600);
-  }
-}
-
-async function purgeForbiddenGraphicSections(page: Page): Promise<string[]> {
-  const removedSections: string[] = [];
-  const forbiddenSections = ["主图3:4"];
-
-  for (const sectionName of forbiddenSections) {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const previews = await getGraphicSectionPreviewRects(page, sectionName);
-      if (!previews.length) {
-        break;
-      }
-
-      const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, sectionName).catch(() => false);
-      if (!clicked) {
-        break;
-      }
-      await page.waitForTimeout(500);
-      await clickConfirmIfVisible(page);
-      await dismissTransientOverlays(page);
-
-      if (!removedSections.includes(sectionName)) {
-        removedSections.push(sectionName);
-      }
-      await page.waitForTimeout(500);
-    }
-  }
-
-  return removedSections;
-}
-
-async function getGraphicSectionPreviewRectsSafe(
-  page: Page,
-  sectionName: string
-): Promise<Array<{ x: number; y: number; width: number; height: number }>> {
-  return page.evaluate((targetSection) => {
-    const labels = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = (el.textContent || "").trim();
-        const rect = el.getBoundingClientRect();
-        if (!text || rect.width <= 0 || rect.height <= 0) {
-          return null;
-        }
-        return { text, top: rect.top, bottom: rect.bottom, left: rect.left };
-      })
-      .filter(Boolean) as Array<{ text: string; top: number; bottom: number; left: number }>;
-
-    const current = labels.find((item) => item.text === targetSection);
-    if (!current) {
-      return [];
-    }
-
-    const nextTop =
-      labels
-        .filter((item) => ["主图", "主图3:4", "白底图", "详情页"].includes(item.text) && item.top > current.top)
-        .sort((a, b) => a.top - b.top)[0]?.top || current.bottom + 500;
-
-    return Array.from(document.querySelectorAll("img, [style*='background-image']"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (
-          rect.width < 40 ||
-          rect.height < 40 ||
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          style.position === "fixed" ||
-          style.position === "sticky"
-        ) {
-          return null;
-        }
-        if (rect.top < current.bottom - 20 || rect.top > nextTop - 10 || rect.left <= current.left) {
-          return null;
-        }
-        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-      })
-      .filter(Boolean) as Array<{ x: number; y: number; width: number; height: number }>;
-  }, sectionName);
-}
-
-async function clickConfirmIfVisibleSafe(page: Page): Promise<void> {
-  const confirmButton = page.getByRole("button", { name: "纭畾" }).first();
-  if (await confirmButton.count()) {
-    await confirmButton.click({ timeout: 2000 }).catch(() => {});
-    await page.waitForTimeout(600);
-  }
-}
-
 export async function clickLastGraphicSectionPreviewDeleteByDom(page: Page, sectionName: string): Promise<boolean> {
   return page.evaluate(
     ({ targetSection, sectionLabels, uploadPlaceholderPattern }) => {
@@ -517,33 +365,6 @@ export async function clickLastGraphicSectionPreviewDeleteByDom(page: Page, sect
   );
 }
 
-export async function purgeForbiddenGraphicSectionsSafe(page: Page): Promise<string[]> {
-  const removedSections: string[] = [];
-  const forbiddenSections = ["主图3:4"];
-
-  for (const sectionName of forbiddenSections) {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const previews = await getGraphicSectionPreviewRectsSafe(page, sectionName);
-      if (!previews.length) {
-        break;
-      }
-
-      const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, sectionName).catch(() => false);
-      if (!clicked) {
-        break;
-      }
-      await page.waitForTimeout(500);
-      await clickConfirmIfVisibleSafe(page);
-      await dismissTransientOverlays(page);
-      if (!removedSections.includes(sectionName)) {
-        removedSections.push(sectionName);
-      }
-    }
-  }
-
-  return removedSections;
-}
-
 export async function resolveExactMainImageFieldRoot(page: Page): Promise<Locator | null> {
   const roots = page
     .locator("div.goods-publish-highlight-group")
@@ -660,14 +481,6 @@ export async function countMainImagePreviews(page: Page): Promise<number> {
     }
     return previewRoots.size;
   }).catch(() => 0);
-}
-
-export async function countWhiteBackgroundPreviews(page: Page): Promise<number> {
-  return countGraphicSectionPreviewsStrict(page, "\u767d\u5e95\u56fe").catch(() => 0);
-}
-
-export async function countMain34Previews(page: Page): Promise<number> {
-  return countGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe3:4").catch(() => 0);
 }
 
 export async function readDetailIndicatorCount(page: Page): Promise<number | null> {
