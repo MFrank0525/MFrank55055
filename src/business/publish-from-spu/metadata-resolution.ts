@@ -7,6 +7,7 @@ import type {
   PublishFromSpuMetadata,
   ResolvedPublishFromSpuMetadata
 } from "./types.js";
+import { getPublishCategoryMutationPolicy } from "./publish-category-policy.js";
 
 export function assertResolvedMetadata(
   metadata: {
@@ -21,6 +22,7 @@ export function assertResolvedMetadata(
   mode: string
 ): void {
   const productCategory = normalizeProductCategory(metadata.productCategory);
+  const mutationPolicy = getPublishCategoryMutationPolicy(productCategory);
   const missingFields: string[] = [];
   if (!metadata.brand.trim()) {
     missingFields.push("brand");
@@ -34,7 +36,7 @@ export function assertResolvedMetadata(
   if (!metadata.shortTitle.trim()) {
     missingFields.push("shortTitle");
   }
-  if (productCategory !== "保健食品" && !metadata.modelSpec.trim()) {
+  if (mutationPolicy.categoryAttributes === "fill_model_spec" && !metadata.modelSpec.trim()) {
     missingFields.push("modelSpec");
   }
   if (!metadata.productPriceText.trim()) {
@@ -55,6 +57,7 @@ export function resolvePublishFromSpuMetadata(input: {
 }): ResolvedPublishFromSpuMetadata {
   const metadataOverride = input.metadataOverride || {};
   const productCategory = normalizeProductCategory(metadataOverride.productCategory);
+  const mutationPolicy = getPublishCategoryMutationPolicy(productCategory);
   return {
     ...metadataOverride,
     productCategory,
@@ -62,7 +65,10 @@ export function resolvePublishFromSpuMetadata(input: {
     spu: metadataOverride.spu || input.workbook.spu || "",
     title: metadataOverride.title || input.workbook.title || "",
     shortTitle: normalizePublishShortTitle(metadataOverride.shortTitle || input.workbook.shortTitle || ""),
-    modelSpec: metadataOverride.modelSpec || input.workbook.modelSpec || (productCategory === "保健食品" ? "" : "盒装"),
+    modelSpec:
+      mutationPolicy.categoryAttributes === "fill_model_spec"
+        ? metadataOverride.modelSpec || input.workbook.modelSpec || "盒装"
+        : "",
     productPriceText: metadataOverride.productPriceText || input.workbook.productPriceText || ""
   };
 }

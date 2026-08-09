@@ -125,8 +125,6 @@ import {
   uploadMainImagesToSection
 } from "./graphic-file-input-action.js";
 import {
-  clearDetailImagePreviewsStrict,
-  clearGraphicSectionPreviewsStrict,
   clickConfirmIfVisibleStrict,
   clickFillFromMainForDetailSection,
   clickLastGraphicSectionPreviewDeleteByDom,
@@ -139,6 +137,10 @@ import {
   scrollGraphicSectionIntoView,
   waitForPreviewCount
 } from "./graphic-section-preview-action.js";
+import {
+  clearDetailPrefillAndConfirmEmpty,
+  clearMainImagePrefillAndConfirmEmpty
+} from "./graphic-prefill-clear-action.js";
 
 async function ensureDetailImagesFromMainThenQualifications(
   page: Page,
@@ -154,11 +156,7 @@ async function ensureDetailImagesFromMainThenQualifications(
     };
   }
 
-  const existingDetailCount = await countDetailImagePreviews(page).catch(() => 0);
-  if (existingDetailCount > 0) {
-    await clearDetailImagePreviewsStrict(page, Math.max(12, existingDetailCount + 3)).catch(() => 0);
-    await page.waitForTimeout(800);
-  }
+  await clearDetailPrefillAndConfirmEmpty(page);
 
   let filledFromMain = false;
   filledFromMain = await clickFillFromMainForDetailSection(page).catch(() => false);
@@ -335,17 +333,8 @@ export async function resetGraphicModuleOnPage(page: Page, runtimeDir: string, s
   await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
   await dismissTransientOverlays(page);
 
-  const mainCount = await countMainImagePreviews(page).catch(() => 0);
-  if (mainCount > 0) {
-    await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, mainCount + 3)).catch(() => 0);
-    await page.waitForTimeout(800);
-  }
-
-  const detailCount = await countDetailImagePreviews(page).catch(() => 0);
-  if (detailCount > 0) {
-    await clearDetailImagePreviewsStrict(page, Math.max(12, detailCount + 3)).catch(() => 0);
-    await page.waitForTimeout(800);
-  }
+  await clearMainImagePrefillAndConfirmEmpty(page);
+  await clearDetailPrefillAndConfirmEmpty(page);
 
   await dismissTransientOverlays(page);
   return savePageScreenshot(page, runtimeDir, screenshotFileName);
@@ -382,11 +371,7 @@ async function uploadProductImages(
 
     const mainInput = pickBestSectionFileInput(inputs, "\u4e3b\u56fe", scoreMainGraphicInput);
     if (!uploadIssue && mainInput && assets.mainImages.length) {
-      const existingMainCount = await countMainImagePreviews(page).catch(() => 0);
-      if (existingMainCount > 0) {
-        await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, existingMainCount + 3)).catch(() => 0);
-        await page.waitForTimeout(800);
-      }
+      await clearMainImagePrefillAndConfirmEmpty(page);
       const uploadedMainCount = await uploadMainImagesToSection(page, assets.mainImages);
       if (uploadedMainCount >= assets.mainImages.length) {
         uploadedGroups.push("mainImages");
@@ -487,11 +472,7 @@ export async function uploadProductImagesOnPage(
 
   const mainInput = pickBestSectionFileInput(inputs, "\u4e3b\u56fe", scoreMainGraphicInput);
   if (!uploadIssue && mainInput && assets.mainImages.length) {
-    const existingMainCount = await countMainImagePreviews(page).catch(() => 0);
-    if (existingMainCount > 0) {
-      await clearGraphicSectionPreviewsStrict(page, "\u4e3b\u56fe", Math.max(10, existingMainCount + 3)).catch(() => 0);
-      await page.waitForTimeout(800);
-    }
+    await clearMainImagePrefillAndConfirmEmpty(page);
     const uploadedMainCount = await uploadMainImagesToSection(page, assets.mainImages);
     if (uploadedMainCount >= assets.mainImages.length) {
       uploadedGroups.push("mainImages");

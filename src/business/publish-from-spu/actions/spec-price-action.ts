@@ -48,11 +48,18 @@ export async function runSpecPriceAction(
     }
   }
 
-  const specResult = await deps.applyFixedSpecsOnPage(page, input.runtimeDir, "publish-page-spec-editor.png", input.metadata.title);
-  screenshotFiles.push(specResult.screenshotFile);
-  configuredFields.push(...specResult.configuredFields);
-  const specTypeOptions = specResult.specTypeOptions;
-  let specIssue = specResult.specIssue;
+  let specTypeOptions: string[] = [];
+  let specIssue = "";
+  if (input.categoryContext.mutationPolicy.specification === "apply_controlled_template") {
+    const specResult = await deps.applyFixedSpecsOnPage(page, input.runtimeDir, "publish-page-spec-editor.png", input.metadata.title);
+    screenshotFiles.push(specResult.screenshotFile);
+    configuredFields.push(...specResult.configuredFields);
+    specTypeOptions = specResult.specTypeOptions;
+    specIssue = specResult.specIssue;
+  } else if (input.categoryContext.mutationPolicy.specification === "leave_platform_state") {
+    configuredFields.push("leave_specification_unchanged");
+    stages.push({ step: "leave_specification_unchanged", status: "completed" });
+  }
   if (input.categoryContext.productCategory === "保健食品" && !specIssue) {
     await page.waitForTimeout(3000);
     const healthFoodSpecResult = await deps.applyHealthFoodSpecificationOnPage(page, input.metadata);
@@ -64,9 +71,11 @@ export async function runSpecPriceAction(
       configuredFields.push("healthFoodSpecification");
     }
   }
-  const specModuleError = await deps.readSpecModuleErrorOnPage(page).catch(() => "");
-  if (!specIssue && specModuleError) {
-    specIssue = `Spec module error detected: ${specModuleError}`;
+  if (input.categoryContext.mutationPolicy.specification === "apply_controlled_template") {
+    const specModuleError = await deps.readSpecModuleErrorOnPage(page).catch(() => "");
+    if (!specIssue && specModuleError) {
+      specIssue = `Spec module error detected: ${specModuleError}`;
+    }
   }
 
   const priceEntryRule = deps.evaluatePriceInventoryEntryRule({ specIssue });

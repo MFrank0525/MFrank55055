@@ -4,10 +4,12 @@ import { disconnectAutomationBrowserConnections } from "../browser/launch.js";
 import { validateShopAccessAuditReport } from "../autolist/shop-access-audit-rules.js";
 import { runShopAccessAudit } from "../business/shop-access-audit.js";
 import { formatTimestamp } from "../utils/path-names.js";
+import { getProductCategoryPlan, getShopSpecs } from "../autolist/product-category.js";
 
 interface CliOptions {
   runtimeRoot: string;
   json: boolean;
+  category?: string;
 }
 
 function assertNoActiveAutoListingBrowserOwner(): void {
@@ -42,6 +44,7 @@ function assertNoActiveAutoListingBrowserOwner(): void {
 function parseArgs(argv: string[]): CliOptions {
   let runtimeRoot = path.resolve("data", "auto-listing", "shop-access-audits");
   let json = false;
+  let category: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--json") {
@@ -57,23 +60,37 @@ function parseArgs(argv: string[]): CliOptions {
       index += 1;
       continue;
     }
+    if (argument === "--category") {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("Usage: audit-shop-access [--runtime-root <directory>] [--category <产品类目>] [--json]");
+      }
+      category = value;
+      index += 1;
+      continue;
+    }
     throw new Error(`Unsupported shop access audit argument: ${argument}`);
   }
-  return { runtimeRoot, json };
+  return { runtimeRoot, json, category };
 }
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   assertNoActiveAutoListingBrowserOwner();
   const runtimeDir = path.join(options.runtimeRoot, formatTimestamp());
-  const report = await runShopAccessAudit({ runtimeDir });
-  const validation = validateShopAccessAuditReport(report);
+  const categoryPlan = options.category ? getProductCategoryPlan(options.category) : undefined;
+  const shops = categoryPlan
+    ? getShopSpecs().filter((shop) => categoryPlan.shopCodes.includes(shop.shopCode))
+    : getShopSpecs();
+  const report = await runShopAccessAudit({ runtimeDir, shops });
+  const validation = validateShopAccessAuditReport(report, shops);
   const output = {
     ok: validation.ok,
     status: report.status,
     runtimeDir: report.runtimeDir,
     resultFile: report.resultFile,
     shopCount: report.entries.length,
+    category: categoryPlan?.category,
     failure: report.failure,
     validationErrors: validation.errors,
     sideEffects: report.sideEffects

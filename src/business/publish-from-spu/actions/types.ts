@@ -1,5 +1,6 @@
 import type { Page } from "playwright";
 import type { ProductCategory } from "../../../autolist/product-category.js";
+import type { PublishCategoryMutationPolicy } from "../publish-category-policy.js";
 import type { PriceInventoryRowValue } from "../price-inventory-rules.js";
 import type { PublishRuleCheck, ServiceFulfillmentState } from "../publish-rules.js";
 import type { ProductAssets, PublishActionResult, PublishFlowStage, ResolvedPublishFromSpuMetadata } from "../types.js";
@@ -232,6 +233,7 @@ export type PublishModuleSnapshot = {
 
 export type ProductCategoryContext = {
   productCategory: ProductCategory;
+  mutationPolicy: PublishCategoryMutationPolicy;
   basicMetadata: BasicPublishMetadata;
   basicInfoGuardUnexpectedFieldChanges: boolean;
 };

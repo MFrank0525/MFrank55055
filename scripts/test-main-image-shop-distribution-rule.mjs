@@ -8,7 +8,7 @@ import { getProductCategoryPlan, getShopSpecs } from "../dist/src/autolist/produ
 
 const fixturePng = fs.readFileSync("input/fixed-main-images/辅助图02.png");
 const twentyShopCodes = Array.from({ length: 20 }, (_, index) => String(index + 1).padStart(2, "0"));
-const otcShopCodes = twentyShopCodes.slice(0, 10).flatMap((code) => [code, code]);
+const otcShopCodes = twentyShopCodes.slice(0, 5).flatMap((code) => [code, code, code, code]);
 
 function prepareShopRoot(tmp) {
   const shopRoot = path.join(tmp, "shops");

@@ -74,10 +74,10 @@ assert.equal(getProductCategoryPlan("保健食品").promptCount, 5);
 assert.equal(getProductCategoryPlan("保健食品").titleCount, 20);
 assert.equal(getProductCategoryPlan("保健食品").imagesPerShop, 1);
 
-assert.deepEqual(getProductCategoryPlan("非处方药").shopCodes, allShopCodes.slice(0, 10));
+assert.deepEqual(getProductCategoryPlan("非处方药").shopCodes, allShopCodes.slice(0, 5));
 assert.equal(getProductCategoryPlan("非处方药").promptCount, 5);
 assert.equal(getProductCategoryPlan("非处方药").titleCount, 20);
-assert.equal(getProductCategoryPlan("非处方药").imagesPerShop, 2);
+assert.equal(getProductCategoryPlan("非处方药").imagesPerShop, 4);
 
 for (const category of ["医疗器械", "非处方药", "保健食品"]) {
   const plan = getProductCategoryPlan(category);
@@ -100,7 +100,7 @@ const otcAssignments = resolveMainImageShopAssignments({
 assert.equal(otcAssignments.length, 20);
 assert.deepEqual(
   otcAssignments.map((item) => item.shopCode),
-  allShopCodes.slice(0, 10).flatMap((code) => [code, code])
+  allShopCodes.slice(0, 5).flatMap((code) => [code, code, code, code])
 );
 
 console.log("shop category rules passed");

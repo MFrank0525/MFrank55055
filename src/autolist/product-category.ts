@@ -34,10 +34,10 @@ const CATEGORY_PLANS: Record<ProductCategory, ProductCategoryPlan> = {
   },
   非处方药: {
     category: "非处方药",
-    shopCodes: getOrderedShopCodes(10),
+    shopCodes: getOrderedShopCodes(5),
     promptCount: 5,
     titleCount: 20,
-    imagesPerShop: 2,
+    imagesPerShop: 4,
     titleRule: "otc_drug",
     titleCharacterCount: 58
   },

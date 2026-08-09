@@ -243,3 +243,13 @@
 | Distinguish a transient page reload from a truly missing canonical shop | Target absence is terminal only while the chooser remains stably visible; a vanished chooser is classified as a transient navigation/loading state | Run `20260808-183053`, target 13 screenshot and zero-byte chooser DOM; production-shaped rule regression | verified |
 | Retry without crossing the publish boundary | The action returns to the canonical SPU page and retries the same shop switch at most three times; the existing current-shop readback remains the success gate | Structural shop-switch regression; `publish-submit-attempt.json` remains `not_attempted`; live target-13 readback matched | verified |
 | Preserve fail-closed evidence | A stable chooser missing the exact shop still stops and saves DOM plus screenshot; the final unstable attempt uses its own evidence name | Rule regression for both transient and stable-missing branches; live check used no publish/form mutation | verified |
+
+## 2026-08-09 OTC five-shop publishing policy
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Keep 20 generated OTC images while reducing publishing to five ordered shops | Canonical OTC category plan now resolves shops 01–05 in the requested order with four targets per shop | `test-shop-category-rules.mjs`; `test-main-image-shop-distribution-rule.mjs`; representative simulation | verified |
+| Do not change OTC category attributes after title and short title | Category mutation policy omits `modelSpec` from OTC basic metadata and removes the synthetic `盒装` fallback | `test-otc-publish-policy-rule.mjs`; full rule closure | verified |
+| Do not change any OTC specification value | Spec/price action records `leave_specification_unchanged` and never calls the controlled template action for OTC; price and stock processing remains separate | `test-otc-publish-policy-rule.mjs`; publish module sequence rules | verified |
+| Clear platform-prefilled main and detail images before project image actions | Dedicated action module clears each required section and fails closed unless DOM readback is zero; detail order is clear → fill from main → confirm → Feishu qualification upload | `test-graphic-prefill-clear-rule.mjs`; DOM-click policy; full rule closure | verified |
+| Prove the new shop order without image generation or publishing | Category-scoped shop-access audit accepts `--category 非处方药`, consumes the canonical plan, and forbids form/publish side effects | `test-shop-access-audit-rule.mjs`; live run `20260809-171908` passed shops 01–05 with zero form/publish attempts | verified |

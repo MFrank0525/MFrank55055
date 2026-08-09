@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { getShopSpecs } from "../dist/src/autolist/product-category.js";
+import { getProductCategoryPlan, getShopSpecs } from "../dist/src/autolist/product-category.js";
 import { validateShopAccessAuditReport } from "../dist/src/autolist/shop-access-audit-rules.js";
 import { runShopAccessAudit } from "../dist/src/business/shop-access-audit.js";
 
@@ -94,6 +94,27 @@ assert.equal(successReport.entries.length, 20);
 assert.deepEqual(validateShopAccessAuditReport(successReport), { ok: true, errors: [] });
 assert.deepEqual(JSON.parse(fs.readFileSync(successReport.resultFile, "utf8")), successReport);
 
+const otcShopCodes = getProductCategoryPlan("非处方药").shopCodes;
+const otcShops = shops.filter((shop) => otcShopCodes.includes(shop.shopCode));
+const otcRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "shop-access-otc-"));
+const otcCalls = [];
+const otcReport = await runShopAccessAudit({
+  runtimeDir: otcRuntimeDir,
+  shops: otcShops,
+  dependencies: {
+    openPage: async () => ({ fake: true }),
+    ensureShopContext: async (_page, _runtimeDir, shopFolder) => {
+      otcCalls.push(path.basename(shopFolder));
+      return otcShops.find((shop) => path.basename(shopFolder).startsWith(shop.shopCode))?.watermarkText || "";
+    },
+    now: deterministicNow()
+  }
+});
+assert.deepEqual(otcCalls, otcShops.map((shop) => `${shop.shopCode}${shop.watermarkText}`));
+assert.deepEqual(otcReport.entries.map((entry) => entry.shopCode), ["01", "02", "03", "04", "05"]);
+assert.equal(otcReport.expectedShopCount, 5);
+assert.deepEqual(validateShopAccessAuditReport(otcReport, otcShops), { ok: true, errors: [] });
+
 const failureRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "shop-access-failure-"));
 const failureCalls = [];
 const failureReport = await runShopAccessAudit({
@@ -122,6 +143,8 @@ assert.deepEqual(JSON.parse(fs.readFileSync(failureReport.resultFile, "utf8")), 
 const cliSource = fs.readFileSync("src/cli/audit-shop-access.ts", "utf8");
 const shopSwitchSource = fs.readFileSync("src/business/publish-from-spu/shop-switch-action.ts", "utf8");
 assert.match(cliSource, /--runtime-root/, "shop access audit CLI must support an explicit runtime evidence root");
+assert.match(cliSource, /--category/, "shop access audit CLI must support category-scoped ordered verification");
+assert.match(cliSource, /getProductCategoryPlan/, "category-scoped shop verification must consume the canonical category plan");
 assert.match(cliSource, /runShopAccessAudit/, "shop access audit CLI must invoke the dedicated read-only orchestrator");
 assert.match(
   cliSource,

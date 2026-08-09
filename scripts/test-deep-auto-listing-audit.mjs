@@ -972,7 +972,7 @@ const otcCanonicalTargets = buildCanonicalPublishTargetKeys({
 assert.equal(otcCanonicalTargets.length, 20);
 assert.match(otcCanonicalTargets[0], /__01__01$/);
 assert.match(otcCanonicalTargets[1], /__01__02$/);
-assert.match(otcCanonicalTargets[19], /__10__20$/);
+assert.match(otcCanonicalTargets[19], /__05__20$/);
 
 const identityAudit = auditCanonicalPublishEvidence({
   expectedTargetKeys,
@@ -1056,7 +1056,7 @@ const currentShopRuleText = fs.readFileSync("docs/auto-listing/steps/09-shop-dis
 const currentCategoryPlanAudit = auditRuleContradictions({
   categoryPlans: [
     { category: "医疗器械", titleCount: 20, shopCount: 20, promptCount: 5 },
-    { category: "非处方药", titleCount: 20, shopCount: 10, promptCount: 5 },
+    { category: "非处方药", titleCount: 20, shopCount: 5, promptCount: 5 },
     { category: "保健食品", titleCount: 20, shopCount: 20, promptCount: 5 }
   ],
   titleRuleText: "医疗器械：20 条标题；非处方药：20 条标题；保健食品：20 条标题",

@@ -8,7 +8,7 @@ import {
   type ShopAccessAuditEntry,
   type ShopAccessAuditReport
 } from "../autolist/shop-access-audit-rules.js";
-import { getShopSpecs } from "../autolist/shop-rules.js";
+import { getShopSpecs, type ShopSpec } from "../autolist/shop-rules.js";
 import { gotoWithTolerance } from "./publish-from-spu/browser-session.js";
 import { PLATFORM_SPU_URL } from "./publish-from-spu/constants.js";
 import { ensureShopContext } from "./publish-from-spu/shop-switch-action.js";
@@ -53,6 +53,7 @@ function errorMessage(error: unknown): string {
 
 export async function runShopAccessAudit(input: {
   runtimeDir: string;
+  shops?: readonly ShopSpec[];
   dependencies?: Partial<ShopAccessAuditDependencies>;
 }): Promise<ShopAccessAuditReport> {
   const runtimeDir = path.resolve(input.runtimeDir);
@@ -62,7 +63,7 @@ export async function runShopAccessAudit(input: {
     ensureShopContext: input.dependencies?.ensureShopContext || ensureShopContext,
     now: input.dependencies?.now || (() => new Date())
   };
-  const shops = getShopSpecs();
+  const shops = input.shops?.map((shop) => ({ ...shop })) || getShopSpecs();
   const report: ShopAccessAuditReport = {
     runId: path.basename(runtimeDir),
     runtimeDir,

@@ -71,6 +71,7 @@ import {
 import { resolveFeishuPriceInventoryRows, type PriceInventoryRowValue } from "./price-inventory-rules.js";
 import { applyPriceInventoryOnPage, countVisiblePriceInventoryRows } from "./price-inventory-action.js";
 import { readPublishRuleSummary } from "./publish-rule-text.js";
+import { getPublishCategoryMutationPolicy } from "./publish-category-policy.js";
 import type {
   PublishActionResult,
   ProductAssets,
@@ -189,20 +190,11 @@ export async function runPublishFlow(
   let createPageUrl = publishPageUrl || "";
   let matchedRowText = "";
   const productCategory = normalizeProductCategory(metadata.productCategory);
+  const mutationPolicy = getPublishCategoryMutationPolicy(productCategory);
   const basicMetadata =
-    productCategory === "保健食品"
-      ? {
-          title: metadata.title,
-          shortTitle: metadata.shortTitle,
-          modelSpec: undefined,
-          spu: metadata.spu
-        }
-      : {
-          title: metadata.title,
-          shortTitle: metadata.shortTitle,
-          modelSpec: metadata.modelSpec,
-          spu: metadata.spu
-        };
+    mutationPolicy.categoryAttributes === "fill_model_spec"
+      ? { title: metadata.title, shortTitle: metadata.shortTitle, modelSpec: metadata.modelSpec, spu: metadata.spu }
+      : { title: metadata.title, shortTitle: metadata.shortTitle, modelSpec: undefined, spu: metadata.spu };
   const basicInfoGuardUnexpectedFieldChanges = productCategory !== "保健食品";
   const priceInventoryRows = resolveFeishuPriceInventoryRows(metadata.productPriceText || "");
 
@@ -211,6 +203,7 @@ export async function runPublishFlow(
     const shopSpuDeps = createDefaultShopSpuActionDeps();
     const categoryContext = {
       productCategory,
+      mutationPolicy,
       basicMetadata,
       basicInfoGuardUnexpectedFieldChanges
     };
@@ -518,6 +511,7 @@ export async function runGraphicFlow(
   let createPageUrl = "";
   let matchedRowText = "";
   const productCategory = normalizeProductCategory(metadata.productCategory);
+  const mutationPolicy = getPublishCategoryMutationPolicy(productCategory);
   const actionMetadata: ResolvedPublishFromSpuMetadata = {
     brand: metadata.brand,
     spu: metadata.spu,
@@ -530,7 +524,10 @@ export async function runGraphicFlow(
   const basicMetadata = {
     title: actionMetadata.title,
     shortTitle: actionMetadata.shortTitle,
-    modelSpec: actionMetadata.modelSpec,
+    modelSpec:
+      mutationPolicy.categoryAttributes === "fill_model_spec"
+        ? actionMetadata.modelSpec
+        : undefined,
     spu: actionMetadata.spu
   };
 

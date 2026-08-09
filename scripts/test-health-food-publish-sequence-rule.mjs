@@ -86,8 +86,8 @@ assert.match(
 
 assert.match(
   runPublishFlowSource,
-  /const\s+basicMetadata\s*=[\s\S]*productCategory\s*===\s*"保健食品"[\s\S]*modelSpec:\s*undefined[\s\S]*modelSpec:\s*metadata\.modelSpec/,
-  "health-food basic info must not require or fill modelSpec=盒装"
+  /getPublishCategoryMutationPolicy\(productCategory\)[\s\S]*categoryAttributes === "fill_model_spec"[\s\S]*modelSpec: metadata\.modelSpec[\s\S]*modelSpec: undefined/,
+  "health-food and OTC basic info must not require or fill modelSpec=盒装 unless the category policy permits it"
 );
 assert.match(
   runPublishFlowSource,
