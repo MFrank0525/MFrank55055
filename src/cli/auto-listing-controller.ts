@@ -60,6 +60,7 @@ import {
   findLatestUnsafePublishManifestForResume as selectLatestUnsafePublishManifestForResume,
   unsafePublishEntriesForResume
 } from "../autolist/unsafe-publish-resume.js";
+import { sanitizePythonRuntimeEnv } from "../utils/platform.js";
 
 import type { RunnerJob, DirectAutoListingProcess, ExternalServiceWait, PauseSignalFile, AutoListingJobFile, AutoListingTaskFile, AutoListingResultFile, AutoListingStateFile, PublishManifestFile, PublishPlanFile, DeferredMainImageRoundFile, LocalFeishuConfig } from "./auto-listing-controller-contract.js";
 import { rootDir, controlDir, jobFile, childControlFile, externalServiceWaitFile, pauseFile, resumeJobFile, fullRealJobFile, deferredMainImageRoot, feishuConfigFile } from "./auto-listing-controller-contract.js";
@@ -1052,10 +1053,10 @@ async function start(
   const child = spawn(selected.command, selected.args, {
     cwd: rootDir,
     detached: true,
-    env: {
+    env: sanitizePythonRuntimeEnv({
       ...process.env,
       AUTO_LISTING_STARTED_BY: "project-controller"
-    },
+    }),
     stdio: ["ignore", logFd, logFd]
   });
   child.unref();

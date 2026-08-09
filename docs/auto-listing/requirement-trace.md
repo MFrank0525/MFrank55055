@@ -292,3 +292,12 @@ Final evidence: full `rules:check`, all Doctor modes, representative simulation,
 | Keep future modules bounded without per-file escape hatches | Scan every TypeScript/MJS file under `src` and `scripts` on each `rules:check` run | Full `rules:check`; stale-exemption search | verified |
 
 Final evidence: full `rules:check`, all Doctor modes, live Feishu 23-field readback, representative simulation and two independent eight-dimension audits passed. The largest production module is now 1482 lines and the largest test module is 2543 lines; neither production nor test gates contain a large-file exception.
+
+## 2026-08-09 Hermes Python environment isolation
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Reproduce the real startup failure | The latest controller log stops before creating a run because Pillow is installed in the macOS user site while an inherited `PYTHONNOUSERSITE=1` hides it; the same poisoned environment reproduces `ModuleNotFoundError: PIL` | Controller log `20260809-212752`; poisoned-shell reproduction | verified |
+| Remove upstream Python-environment contamination at the project boundary | `sanitizePythonRuntimeEnv` removes Python home/path, user-site suppression, foreign virtualenv/Conda and macOS launcher overrides; the controller applies it before spawning the real flow | `test-python-runtime-env-rule.mjs`; controller structural regression | verified |
+| Keep Doctor and real image actions consistent | Base/auto-listing Doctor, watermarking, main-image square normalization and qualification-image normalization all consume the same sanitized environment | Poisoned-environment Doctor; Python action regressions | verified |
+| Resume only the locked batch after delivery | Push the verified fix before invoking `auto-listing:hermes-continue`; do not refresh Feishu or replace batch `3891df866b4e4781b1ec7816` | Git/remote equality; controller status and progress evidence | implemented; verification pending |

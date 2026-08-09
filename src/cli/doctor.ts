@@ -11,7 +11,7 @@ import {
 import { validateFeishuProductPayload } from "../feishu/cache-contract.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
-import { getPythonCommand } from "../utils/platform.js";
+import { getPythonCommand, sanitizePythonRuntimeEnv } from "../utils/platform.js";
 
 interface CheckResult {
   name: string;
@@ -74,9 +74,15 @@ function checkBrowser(): CheckResult {
   }
 }
 
-function checkCommand(name: string, command: string, args: string[] = ["--version"], required = true): CheckResult {
+function checkCommand(
+  name: string,
+  command: string,
+  args: string[] = ["--version"],
+  required = true,
+  env: NodeJS.ProcessEnv = process.env
+): CheckResult {
   try {
-    const output = execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const output = execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env }).trim();
     return { name, ok: true, detail: output.split(/\r?\n/)[0] || command, required };
   } catch (error) {
     return {
@@ -191,7 +197,7 @@ function baseChecks(): CheckResult[] {
   checkBrowser(),
   checkJson("input/publish-from-spu.job.example.json"),
   checkJson("input/auto-listing.job.example.json"),
-  checkCommand("Python", getPythonCommand()),
+  checkCommand("Python", getPythonCommand(), ["--version"], true, sanitizePythonRuntimeEnv()),
   checkNotGitTracked("secret file guard: Feishu config", "input/feishu-bitable.config.json"),
   checkNotGitTracked("secret file guard: image generation config", "input/image-generation.config.json"),
   checkNotGitTracked("secret file guard: browser storage", "data/browser-profile"),
@@ -335,7 +341,13 @@ function autoListingChecks(options: DoctorOptions): CheckResult[] {
   }
   return [
   ...providerChecks,
-  checkCommand("Python Pillow", getPythonCommand(), ["-c", "import PIL; print(PIL.__version__)"]),
+  checkCommand(
+    "Python Pillow",
+    getPythonCommand(),
+    ["-c", "import PIL; print(PIL.__version__)"],
+    true,
+    sanitizePythonRuntimeEnv()
+  ),
   ...(options.requireImageGeneration
     ? [checkOpenAiCompatibleImageGenerationConfig(options.imageGenerationConfigFile, true)]
     : []),

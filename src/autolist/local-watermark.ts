@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { getPythonCommand } from "../utils/platform.js";
+import { getPythonCommand, sanitizePythonRuntimeEnv } from "../utils/platform.js";
 
 const execFileAsync = promisify(execFile);
 const WATERMARK_SCRIPT = path.join(process.cwd(), "src", "autolist", "local-watermark.py");
@@ -20,10 +20,10 @@ async function runWatermark(inputFile: string, outputFile: string, watermarkText
     {
       windowsHide: true,
       maxBuffer: 1024 * 1024 * 8,
-      env: {
+      env: sanitizePythonRuntimeEnv({
         ...process.env,
         PYTHONIOENCODING: "utf-8"
-      }
+      })
     }
   );
 

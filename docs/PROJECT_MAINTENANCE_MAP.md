@@ -14,6 +14,8 @@
 规则：
 
 - 不在业务脚本里硬编码 macOS、Windows、Linux 差异。
+- 所有 Python 图片动作和 Doctor 必须使用 `sanitizePythonRuntimeEnv`，不得继承 Hermes/虚拟环境注入的
+  `PYTHONNOUSERSITE`、`PYTHONPATH`、`PYTHONHOME`、`VIRTUAL_ENV` 或 Conda 环境。
 - 不在 job example 里写个人电脑绝对路径。
 - 新增基础外部工具时，必须同步加入 `npm run doctor` 检查。
 - 新增业务专项依赖时，放入对应专项检查，例如 `doctor:publish` 或 `doctor:auto-listing`。

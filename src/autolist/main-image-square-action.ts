@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { getPythonCommand } from "../utils/platform.js";
+import { getPythonCommand, sanitizePythonRuntimeEnv } from "../utils/platform.js";
 import { readImageDimensions, type ImageDimensions } from "../utils/image-dimensions.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { evaluateMainImageSquareRule } from "./main-image-shape-rules.js";
@@ -67,10 +67,10 @@ export async function ensureSquareMainImageFile(options: {
     {
       windowsHide: true,
       maxBuffer: 1024 * 1024 * 8,
-      env: {
+      env: sanitizePythonRuntimeEnv({
         ...process.env,
         PYTHONIOENCODING: "utf-8"
-      }
+      })
     }
   );
   const outputDimensions = readImageDimensions(temporaryOutput);

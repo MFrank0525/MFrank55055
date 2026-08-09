@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { getPythonCommand } from "../../utils/platform.js";
+import { getPythonCommand, sanitizePythonRuntimeEnv } from "../../utils/platform.js";
 import {
   resolveQualificationImageResize,
   verifyNormalizedQualificationImage
@@ -63,7 +63,7 @@ async function runProcessor(args: string[], context: string): Promise<ImageProbe
         windowsHide: true,
         maxBuffer: 1024 * 1024 * 8,
         encoding: "utf8",
-        env: { ...process.env, PYTHONIOENCODING: "utf-8" }
+        env: sanitizePythonRuntimeEnv({ ...process.env, PYTHONIOENCODING: "utf-8" })
       }
     );
     return parsePayload(`${stdout}\n${stderr}`, context);

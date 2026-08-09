@@ -36,6 +36,24 @@ export function getPythonCommand(): string {
   return "python3";
 }
 
+const INHERITED_PYTHON_RUNTIME_KEYS = [
+  "PYTHONHOME",
+  "PYTHONPATH",
+  "PYTHONNOUSERSITE",
+  "PYTHONEXECUTABLE",
+  "VIRTUAL_ENV",
+  "CONDA_PREFIX",
+  "__PYVENV_LAUNCHER__"
+] as const;
+
+export function sanitizePythonRuntimeEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const sanitized = { ...source };
+  for (const key of INHERITED_PYTHON_RUNTIME_KEYS) {
+    delete sanitized[key];
+  }
+  return sanitized;
+}
+
 export function getPasteShortcut(): string {
   return process.platform === "darwin" ? "Meta+V" : "Control+V";
 }
@@ -43,4 +61,3 @@ export function getPasteShortcut(): string {
 export function getSelectAllShortcut(): string {
   return process.platform === "darwin" ? "Meta+A" : "Control+A";
 }
-
