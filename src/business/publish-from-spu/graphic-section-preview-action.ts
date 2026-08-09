@@ -219,7 +219,36 @@ async function countGraphicSectionPreviewsSafe(page: Page, sectionName: string):
   }, sectionName);
 }
 
+async function clickLastMainImagePreviewDeleteControl(page: Page): Promise<boolean> {
+  const fieldRoot = await resolveExactMainImageFieldRoot(page);
+  if (!fieldRoot) {
+    return false;
+  }
+  const previews = fieldRoot.locator(".material-preview-button");
+  if ((await previews.count()) === 0) {
+    return false;
+  }
+
+  const preview = previews.last();
+  await preview.scrollIntoViewIfNeeded();
+  await preview.hover({ timeout: 3000 });
+  const deleteControl = preview
+    .locator("use[href='#icon-shanchu']")
+    .locator("xpath=ancestor::div[contains(@class,'actionAfter')][1]");
+  if ((await deleteControl.count()) !== 1) {
+    return false;
+  }
+  await deleteControl.click({ timeout: 3000 });
+  return true;
+}
+
 export async function clickLastGraphicSectionPreviewDeleteByDom(page: Page, sectionName: string): Promise<boolean> {
+  if (sectionName === "主图") {
+    const clicked = await clickLastMainImagePreviewDeleteControl(page).catch(() => false);
+    if (clicked) {
+      return true;
+    }
+  }
   return page.evaluate(
     ({ targetSection, sectionLabels, uploadPlaceholderPattern }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();

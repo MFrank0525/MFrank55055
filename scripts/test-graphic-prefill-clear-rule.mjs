@@ -3,6 +3,7 @@ import fs from "node:fs";
 
 const resetSource = fs.readFileSync("src/business/publish-from-spu/graphic-prefill-clear-action.ts", "utf8");
 const uploadSource = fs.readFileSync("src/business/publish-from-spu/graphic-upload-page-action.ts", "utf8");
+const previewActionSource = fs.readFileSync("src/business/publish-from-spu/graphic-section-preview-action.ts", "utf8");
 
 assert.match(
   resetSource,
@@ -28,6 +29,16 @@ assert.doesNotMatch(
   uploadSource,
   /clear(?:GraphicSection|DetailImage)PreviewsStrict\([^;]+\)\.catch\(\(\) => 0\)/,
   "required main/detail prefill clearing must not swallow failures"
+);
+assert.match(
+  previewActionSource,
+  /clickLastMainImagePreviewDeleteControl[\s\S]*resolveExactMainImageFieldRoot[\s\S]*\.material-preview-button[\s\S]*\.last\(\)[\s\S]*\.hover\([\s\S]*use\[href='#icon-shanchu'\][\s\S]*actionAfter[\s\S]*deleteControl\.click/,
+  "main-image prefill clearing must hover the exact last preview and click the platform delete action container"
+);
+assert.match(
+  previewActionSource,
+  /sectionName === "主图"[\s\S]*clickLastMainImagePreviewDeleteControl/,
+  "generic graphic clearing must route main images through the exact field action"
 );
 
 console.log("graphic prefill clear rule passed");
