@@ -99,6 +99,7 @@ import {
   evaluatePriceInventoryCompletion,
   evaluatePublishCheckResult,
   evaluatePublishCreatePageReadiness,
+  evaluatePublishPreSubmitReadiness,
   evaluatePlatformSpuQueryPageReadiness,
   evaluatePublishSubmission,
   evaluatePublishSubmissionAfterAction,
@@ -189,11 +190,44 @@ export async function runPublishCheckOnPage(
   await activePage.bringToFront();
   await activePage.waitForTimeout(1200);
   await dismissTransientOverlays(activePage);
-  await clickVisibleText(activePage, "\u586B\u5199\u68C0\u67E5");
-  await Promise.race([
-    activePage.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {}),
-    activePage.waitForTimeout(2500).catch(() => {})
-  ]);
+  const fillCheckButton = activePage.getByRole("button", { name: "\u586B\u5199\u68C0\u67E5" }).first();
+  if (!(await fillCheckButton.count())) {
+    throw new Error("Publish fill-check button was not found.");
+  }
+  const fillCheckElement = await fillCheckButton.elementHandle();
+  await fillCheckButton.click({ timeout: 3000 });
+  if (!fillCheckElement) {
+    throw new Error("Publish fill-check button could not be tracked after clicking it.");
+  }
+  await activePage
+    .waitForFunction(
+      (button) => {
+        const isBusy = (candidate: Element): boolean => {
+          const element = candidate as HTMLElement;
+          const marker = [
+            element.getAttribute("aria-busy") || "",
+            element.getAttribute("data-loading") || "",
+            String(element.className || "")
+          ]
+            .join(" ")
+            .toLowerCase();
+          const hasSpinner = Boolean(element.querySelector("[class*='spin' i], [class*='loading' i], [aria-label*='loading' i]"));
+          return marker.includes("true") || marker.includes("loading") || hasSpinner;
+        };
+        if (button.isConnected) {
+          return (button.textContent || "").includes("\u586B\u5199\u68C0\u67E5") && !isBusy(button);
+        }
+        return Array.from(document.querySelectorAll("button, [role='button']")).some(
+          (candidate) => (candidate.textContent || "").includes("\u586B\u5199\u68C0\u67E5") && !isBusy(candidate)
+        );
+      },
+      fillCheckElement,
+      { timeout: 20000, polling: 250 }
+    )
+    .catch(() => {
+      throw new Error("Publish fill-check did not settle within 20 seconds.");
+    });
+  await activePage.waitForTimeout(500);
   activePage = await recoverUsablePublishPage(activePage);
 
   let summary:
@@ -558,6 +592,93 @@ async function waitForPublishSubmissionFromContext(
   };
 }
 
+async function dismissSafePreSubmitDialogs(page: Page): Promise<void> {
+  const dialogSelector = "[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .semi-modal, .ant-modal, .auxo-modal";
+  const safeActionLabels = ["\u6211\u77e5\u9053\u4e86", "\u77e5\u9053\u4e86", "\u5173\u95ed", "\u53d6\u6d88"];
+  const safeCloseSelector = [
+    "button[aria-label*='\u5173\u95ed']",
+    "button[title*='\u5173\u95ed']",
+    "[role='button'][aria-label*='\u5173\u95ed']",
+    "[role='button'][title*='\u5173\u95ed']",
+    "button[aria-label*='close' i]",
+    "button[title*='close' i]",
+    "[role='button'][aria-label*='close' i]",
+    "[role='button'][title*='close' i]",
+    "button[class*='modal-close' i]",
+    "[role='button'][class*='modal-close' i]"
+  ].join(", ");
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const dialogs = page.locator(dialogSelector);
+    let visibleDialog: Locator | null = null;
+    for (let index = 0; index < (await dialogs.count()); index += 1) {
+      const candidate = dialogs.nth(index);
+      if (await candidate.isVisible().catch(() => false)) {
+        visibleDialog = candidate;
+        break;
+      }
+    }
+    if (!visibleDialog) {
+      return;
+    }
+
+    let safeAction: Locator | null = null;
+    for (const label of safeActionLabels) {
+      const candidate = visibleDialog.getByRole("button", { name: label, exact: true }).first();
+      if ((await candidate.count()) && (await candidate.isVisible().catch(() => false))) {
+        safeAction = candidate;
+        break;
+      }
+    }
+    if (!safeAction) {
+      const closeCandidate = visibleDialog.locator(safeCloseSelector).first();
+      if ((await closeCandidate.count()) && (await closeCandidate.isVisible().catch(() => false))) {
+        safeAction = closeCandidate;
+      }
+    }
+    if (!safeAction) {
+      return;
+    }
+    await safeAction.click({ timeout: 2000 });
+    await page.waitForTimeout(400);
+  }
+}
+
+async function readPublishPreSubmitReadiness(page: Page, publishButton: Locator): Promise<{ ready: boolean; issue: string }> {
+  const visibleDialogs = await page.evaluate(() =>
+    Array.from(
+      document.querySelectorAll(
+        "[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .semi-modal, .ant-modal, .auxo-modal"
+      )
+    )
+      .map((candidate) => candidate as HTMLElement)
+      .filter((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        const style = window.getComputedStyle(candidate);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      })
+      .map((candidate) => (candidate.innerText || candidate.textContent || "<dialog without text>").replace(/\s+/g, " ").trim())
+  );
+  const publishBusy = await publishButton
+    .evaluate((button) => {
+      const element = button as HTMLElement;
+      const marker = [
+        element.getAttribute("aria-busy") || "",
+        element.getAttribute("data-loading") || "",
+        String(element.className || "")
+      ]
+        .join(" ")
+        .toLowerCase();
+      return (
+        marker.includes("true") ||
+        marker.includes("loading") ||
+        Boolean(element.querySelector("[class*='spin' i], [class*='loading' i], [aria-label*='loading' i]"))
+      );
+    })
+    .catch(() => false);
+  return evaluatePublishPreSubmitReadiness({ fillCheckBusy: false, publishBusy, visibleDialogs });
+}
+
 export async function clickPublishProductOnPage(
   page: Page,
   runtimeDir: string,
@@ -589,6 +710,7 @@ export async function clickPublishProductOnPage(
       }
       activeContext = activePage.context();
       await dismissTransientOverlays(activePage);
+      await dismissSafePreSubmitDialogs(activePage);
       const publishButton = activePage.getByRole("button", { name: "\u53d1\u5e03\u5546\u54c1" }).first();
       if (!(await publishButton.count())) {
         publishIssue = "Publish product button was not found after all module checks passed.";
@@ -600,6 +722,24 @@ export async function clickPublishProductOnPage(
         break;
       } else {
         await publishButton.scrollIntoViewIfNeeded().catch(() => {});
+        const readiness = await readPublishPreSubmitReadiness(activePage, publishButton);
+        if (!readiness.ready) {
+          publishIssue = readiness.issue;
+          break;
+        }
+        try {
+          await publishButton.click({ timeout: 5000, trial: true });
+        } catch (error) {
+          publishIssue = `Pre-submit publish button actionability check failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+          break;
+        }
+        const readinessAfterTrial = await readPublishPreSubmitReadiness(activePage, publishButton);
+        if (!readinessAfterTrial.ready) {
+          publishIssue = readinessAfterTrial.issue;
+          break;
+        }
         markPublishAttemptStarted(runtimeDir);
         await publishButton.click({ timeout: 5000, noWaitAfter: true });
         publishClickAttempted = true;

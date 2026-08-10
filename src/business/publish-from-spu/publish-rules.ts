@@ -41,6 +41,28 @@ export interface PublishRuleCheck {
   issue: string;
 }
 
+export interface PublishPreSubmitReadinessInput {
+  fillCheckBusy: boolean;
+  publishBusy: boolean;
+  visibleDialogs: string[];
+}
+
+export function evaluatePublishPreSubmitReadiness(
+  input: PublishPreSubmitReadinessInput
+): { ready: boolean; issue: string } {
+  if (input.fillCheckBusy) {
+    return { ready: false, issue: "Publish fill-check is still running." };
+  }
+  if (input.publishBusy) {
+    return { ready: false, issue: "Publish button is already busy before the final submit boundary." };
+  }
+  const visibleDialog = input.visibleDialogs.map((value) => value.replace(/\s+/g, " ").trim()).find(Boolean);
+  if (visibleDialog) {
+    return { ready: false, issue: `Pre-submit dialog remained visible: ${visibleDialog.slice(0, 240)}` };
+  }
+  return { ready: true, issue: "" };
+}
+
 export type ProductListPreflightMode = "known_sequence" | "unresolved_disorder";
 
 export function resolveProductListPreflightMode(input: {
@@ -452,6 +474,14 @@ export function evaluatePublishSubmissionAfterAction(
 export function classifyPublishFailure(message: string): string {
   const text = normalizeVisibleText(message);
   if (!text) return "";
+  if (
+    text.includes("Publishfill-checkisstillrunning") ||
+    text.includes("Publishfill-checkdidnotsettle") ||
+    text.includes("Pre-submitdialogremainedvisible") ||
+    text.includes("Pre-submitpublishbuttonactionabilitycheckfailed")
+  ) {
+    return "publish_check_not_ready";
+  }
   if (text.includes("校验发货模式失败")) {
     return "shipping_mode_rejected";
   }
@@ -690,6 +720,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "service_section_not_ready",
     "basic_info_field_not_ready",
     "health_food_category_attributes_not_ready",
+    "publish_check_not_ready",
     "transient_overlay_blocked",
     "price_inventory_not_ready",
     "spec_template_surface_missing",
@@ -715,6 +746,7 @@ export function shouldStopPublishBatchAfterFailure(
     "shop_context_mismatch",
     "spec_template_configuration_missing",
     "spec_template_surface_missing",
+    "publish_check_not_ready",
     "transient_overlay_blocked",
     "final_publish_state_uncertain"
   ]);

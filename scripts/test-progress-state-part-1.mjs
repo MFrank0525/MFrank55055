@@ -133,6 +133,7 @@ import {
   evaluateDetailImageCompletion,
   evaluatePriceInventoryEntryRule,
   evaluatePublishCreatePageReadiness,
+  evaluatePublishPreSubmitReadiness,
   evaluatePublishSubmission,
   evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext,
@@ -1469,6 +1470,53 @@ assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 0), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 3), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 4), false);
 assert.equal(shouldRetryPublishFailure("validation_blocked", 0), false);
+assert.deepEqual(
+  evaluatePublishPreSubmitReadiness({
+    fillCheckBusy: true,
+    publishBusy: false,
+    visibleDialogs: []
+  }),
+  {
+    ready: false,
+    issue: "Publish fill-check is still running."
+  },
+  "final submit must wait until the asynchronous fill-check button has settled"
+);
+assert.deepEqual(
+  evaluatePublishPreSubmitReadiness({
+    fillCheckBusy: false,
+    publishBusy: false,
+    visibleDialogs: ["填写检查结果"]
+  }),
+  {
+    ready: false,
+    issue: "Pre-submit dialog remained visible: 填写检查结果"
+  },
+  "a stable fill-check dialog must remain a safe pre-submit failure instead of an uncertain publish attempt"
+);
+assert.deepEqual(
+  evaluatePublishPreSubmitReadiness({
+    fillCheckBusy: false,
+    publishBusy: false,
+    visibleDialogs: []
+  }),
+  { ready: true, issue: "" }
+);
+const publishSubmitActionSource = fs.readFileSync(
+  path.resolve("src/business/publish-from-spu/publish-submit-page-action.ts"),
+  "utf8"
+);
+const publishTrialIndex = publishSubmitActionSource.indexOf("publishButton.click({ timeout: 5000, trial: true })");
+const durableAttemptIndex = publishSubmitActionSource.indexOf("markPublishAttemptStarted(runtimeDir)", publishTrialIndex);
+const realPublishClickIndex = publishSubmitActionSource.indexOf(
+  "publishButton.click({ timeout: 5000, noWaitAfter: true })",
+  durableAttemptIndex
+);
+assert.ok(publishTrialIndex >= 0 && durableAttemptIndex > publishTrialIndex && realPublishClickIndex > durableAttemptIndex);
+assert.ok(
+  publishSubmitActionSource.indexOf("publishClickAttempted = true", realPublishClickIndex) > realPublishClickIndex,
+  "the in-memory submitted state must only change after Playwright confirms the real click was issued"
+);
 const guideOverlayClass = classifyPublishFailure(
   "Sequential publish flow stopped: 价格库存模块未完成。locator.click: <div class=\"ecom-guide-single-content-wrapper\"> intercepts pointer events"
 );
