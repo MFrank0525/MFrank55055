@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readImageDimensions } from "../utils/image-dimensions.js";
-import { auditAutoListingContinuity, auditCompletedBatchResidue, auditDistributedTitleArtifacts, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, buildCanonicalPublishTargetKeys, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { auditAutoListingContinuity, auditCompletedBatchResidue, auditDistributedTitleArtifacts, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, buildCanonicalPublishTargetKeys, resolveDistributedTitleAuditFolders, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
 import {
@@ -434,8 +434,15 @@ async function main(): Promise<void> {
   const distributedTitles = auditDistributedTitleArtifacts({
     tasks: (state?.tasks || []).flatMap((task) => {
       if (state?.status === "completed") return [];
-      const folders = task.generatedProductFolders || [];
-      if (!task.feishuProductRecord || folders.length === 0) return [];
+      if (!task.feishuProductRecord) return [];
+      const folders = resolveDistributedTitleAuditFolders({
+        batchFingerprint: state?.feishuBatchFingerprint || "",
+        recordId: task.feishuProductRecord.recordId,
+        taskId: task.taskId,
+        taskFolders: task.generatedProductFolders || [],
+        manifestEntries: manifest.entries
+      });
+      if (folders.length === 0) return [];
       const titles: string[] = [];
       const discoveryErrors: string[] = [];
       for (const folder of folders) {

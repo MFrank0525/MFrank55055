@@ -12,7 +12,10 @@ import {
 } from "../dist/src/autolist/deep-audit-rules.js";
 import { auditCurrentPaidImageLedgers } from "../dist/src/autolist/paid-image-audit.js";
 import { recoverCompleteMainImageArtifactForAudit } from "../dist/src/autolist/audit-main-image-recovery.js";
-import { buildCanonicalPublishTargetKeys } from "../dist/src/autolist/audit-rules.js";
+import {
+  buildCanonicalPublishTargetKeys,
+  resolveDistributedTitleAuditFolders
+} from "../dist/src/autolist/audit-rules.js";
 import {
   initializePaidImageProductLedger,
   paidImageBatchLedgerDir,
@@ -60,6 +63,41 @@ assert.equal(
   "A bounded asset-recovery run that stopped before publish must remain in-progress for publish evidence auditing."
 );
 assert.equal(shouldRequireCompletePublishAudit({ runStatus: "completed", taskStatuses: ["done"] }), true);
+
+const resumedTitleFolders = resolveDistributedTitleAuditFolders({
+  batchFingerprint: "batch-a",
+  recordId: "record-a",
+  taskId: "image-001",
+  taskFolders: Array.from({ length: 6 }, (_, index) => `/shops/${String(index + 1).padStart(2, "0")}/product`),
+  manifestEntries: [
+    ...Array.from({ length: 20 }, (_, index) => ({
+      targetIdentity: {
+        batchFingerprint: "batch-a",
+        recordId: "record-a",
+        taskId: "image-001",
+        shopCode: String(index + 1).padStart(2, "0"),
+        watermarkNo: index + 1
+      },
+      productFolder: `/shops/${String(index + 1).padStart(2, "0")}/product`
+    })),
+    {
+      targetIdentity: {
+        batchFingerprint: "another-batch",
+        recordId: "record-a",
+        taskId: "image-001",
+        shopCode: "21",
+        watermarkNo: 21
+      },
+      productFolder: "/shops/21/wrong-batch-product"
+    }
+  ]
+});
+assert.equal(
+  resumedTitleFolders.length,
+  20,
+  "A resume run must audit the exact canonical manifest scope instead of only its pending target subset"
+);
+assert.ok(!resumedTitleFolders.some((folder) => folder.includes("wrong-batch")));
 
 const partialPaidLedgerAudit = auditPaidImageLedgerArtifacts({
   expectedSlotCount: 20,

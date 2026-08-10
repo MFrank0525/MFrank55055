@@ -21,6 +21,28 @@ export interface AutoListingAuditIssue {
   filePath?: string;
 }
 
+export function resolveDistributedTitleAuditFolders(input: {
+  batchFingerprint: string;
+  recordId: string;
+  taskId: string;
+  taskFolders: string[];
+  manifestEntries: Array<Pick<PublishManifestEntry, "targetIdentity" | "productFolder">>;
+}): string[] {
+  const manifestFolders = input.manifestEntries
+    .filter((entry) =>
+      entry.targetIdentity.batchFingerprint === input.batchFingerprint &&
+      entry.targetIdentity.recordId === input.recordId &&
+      entry.targetIdentity.taskId === input.taskId
+    )
+    .sort((left, right) => left.targetIdentity.watermarkNo - right.targetIdentity.watermarkNo)
+    .map((entry) => entry.productFolder);
+  const uniqueFolders = new Map<string, string>();
+  for (const folder of [...manifestFolders, ...input.taskFolders]) {
+    uniqueFolders.set(path.resolve(folder), folder);
+  }
+  return [...uniqueFolders.values()];
+}
+
 export interface AutoListingContinuityAuditInput {
   records: FeishuProductRecord[];
   processedImages: Iterable<string>;
