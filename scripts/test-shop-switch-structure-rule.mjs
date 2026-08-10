@@ -54,6 +54,11 @@ assert.match(
   "Top-right shop menu opening must prefer a structural Playwright locator before DOM fallbacks"
 );
 assert.match(
+  functionBody("saveShopSwitchDomSnapshot"),
+  /topRightCandidates[\s\S]*document\.documentElement\.outerHTML[\s\S]*html\.trim\(\)/,
+  "Shop-switch failure evidence must fall back to scoped header DOM and finally full HTML instead of writing an empty snapshot"
+);
+assert.match(
   functionBody("clickShopSwitchEntry"),
   /getByText\("切换组织\/店铺", \{ exact: true \}\)/,
   "Shop switching must click the visible structural text entry for 切换组织/店铺"

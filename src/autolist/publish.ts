@@ -33,6 +33,10 @@ import type { PublishTargetIdentity } from "./publish-identity.js";
 import type { PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
 import type { PublishArtifact } from "./types.js";
 import { initializePublishAttemptState } from "./publish-attempt-state.js";
+import {
+  consumeConfirmedRejectionRetry,
+  isConfirmedRejectionRetryConsumed
+} from "./confirmed-rejection-retry.js";
 import { getPublishCategoryMutationPolicy } from "../business/publish-from-spu/publish-category-policy.js";
 import { assertTitlePreservesFeishuFixedSuffix } from "./title-rules.js";
 
@@ -526,6 +530,8 @@ export async function publishDistributedProducts(options: {
       throw new Error(`Publish metadata was not built for canonical target: ${targetKey}`);
     }
     const existingResultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
+    const targetRuntimeDir = path.join(options.runtimeDir, "publish", runtimeKey);
+    const retryIdentity = { targetKey, title: metadata.title || "", shopFolder };
     if (fs.existsSync(existingResultFile)) {
       const existingSummary = readPublishResultSummary(existingResultFile);
       const existingDecision = evaluatePublishResult(existingSummary);
@@ -576,6 +582,40 @@ export async function publishDistributedProducts(options: {
             || existingSummary.reviewedNegativeRetryApproved === true)
           && listVerification.found === false
         ) {
+          if (isConfirmedRejectionRetryConsumed(targetRuntimeDir, retryIdentity)) {
+            const message = `Platform-confirmed rejection remains absent after its one durable controlled retry; deferring this target without replay: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+            results.push({
+              targetIdentity,
+              targetKey,
+              productFolder,
+              ok: false,
+              status: "skipped",
+              message,
+              resultFile: existingResultFile,
+              finalVerifyStatus: "submit_rejected_exhausted",
+              errorClass: "final_publish_submit_transient"
+            });
+            upsertPublishManifestEntry(options.runtimeDir, {
+              targetIdentity,
+              targetKey,
+              productFolder,
+              runtimeKey,
+              shopFolder,
+              watermarkNo: extractWatermarkNo(productFolder),
+              status: "skipped",
+              finalVerifyStatus: "submit_rejected_exhausted",
+              resultFile: existingResultFile,
+              message,
+              errorClass: "final_publish_submit_transient",
+              ...productIdentityFields
+            });
+            clearCheckpoint(targetRuntimeDir);
+            failureCircuit = { signature: "", consecutive: 0, open: false };
+            logInfo(message);
+            options.onProgress?.(message);
+            continue;
+          }
+          consumeConfirmedRejectionRetry(targetRuntimeDir, retryIdentity);
           confirmedRejectionRetryAttempt = 1;
           const retryMessage = existingSummary.reviewedNegativeRetryApproved === true
             ? "Operator-reviewed stable negative exact-title evidence approved one controlled recovery retry through runPublishFromSpuJob."
@@ -814,6 +854,7 @@ export async function publishDistributedProducts(options: {
           decision.finalVerifyStatus === "submit_rejected_confirmed"
           && confirmedRejectionRetryAttempt < 1
         ) {
+          consumeConfirmedRejectionRetry(targetRuntimeDir, retryIdentity);
           confirmedRejectionRetryAttempt += 1;
           const retryMessage = "Platform confirmed rejection plus negative exact-title list verification; allowing one controlled retry through runPublishFromSpuJob.";
           logInfo(`${retryMessage} target=${targetKey}`);
@@ -855,7 +896,24 @@ export async function publishDistributedProducts(options: {
           decision = evaluatePublishResult(resultSummary);
           continue;
         }
-        const message = `Doudian 全部 tab full-title verification returned no product after an uncertain final submit; preserving uncertainty and refusing to replay publish: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+        if (
+          decision.finalVerifyStatus === "submit_rejected_confirmed"
+          && confirmedRejectionRetryAttempt >= 1
+          && isConfirmedRejectionRetryConsumed(targetRuntimeDir, retryIdentity)
+        ) {
+          decision = {
+            safelyPublished: false,
+            finalVerifyStatus: "submit_rejected_exhausted",
+            errorClass: "final_publish_submit_transient",
+            issue: "Platform-confirmed rejection persisted after one durable controlled retry."
+          };
+        }
+        const message = decision.finalVerifyStatus === "submit_rejected_exhausted"
+          ? `Platform-confirmed rejection persisted after its one durable controlled retry; deferring this target without replay: ${path.basename(productFolder)} (${path.basename(shopFolder)})`
+          : `Doudian 全部 tab full-title verification returned no product after an uncertain final submit; preserving uncertainty and refusing to replay publish: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+        if (decision.finalVerifyStatus === "submit_rejected_exhausted") {
+          publishResult = { ...publishResult, ok: false, status: "skipped", message };
+        }
         logInfo(message);
         options.onProgress?.(
           message
@@ -869,7 +927,7 @@ export async function publishDistributedProducts(options: {
       targetKey,
       productFolder,
       ok: publishResult.ok,
-      status: publishResult.status,
+      status: decision.finalVerifyStatus === "submit_rejected_exhausted" ? "skipped" : publishResult.status,
       message: publishResult.message,
       resultFile: publishResult.artifacts.resultFile,
       finalVerifyStatus: decision.finalVerifyStatus,
@@ -882,7 +940,9 @@ export async function publishDistributedProducts(options: {
       runtimeKey,
       shopFolder,
       watermarkNo: extractWatermarkNo(productFolder),
-      status: decision.safelyPublished ? "published" : "failed",
+      status: decision.safelyPublished
+        ? "published"
+        : decision.finalVerifyStatus === "submit_rejected_exhausted" ? "skipped" : "failed",
       finalVerifyStatus: decision.finalVerifyStatus,
       resultFile: publishResult.artifacts.resultFile,
       message: publishResult.message,
@@ -891,6 +951,13 @@ export async function publishDistributedProducts(options: {
     });
 
     const checkpointFile = path.join(options.runtimeDir, "publish", runtimeKey);
+    if (decision.finalVerifyStatus === "submit_rejected_exhausted") {
+      logInfo(`publish deferred after exhausted confirmed rejection retry: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+      options.onProgress?.(`Publish deferred after exhausted confirmed rejection retry: ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+      clearCheckpoint(checkpointFile);
+      failureCircuit = { signature: "", consecutive: 0, open: false };
+      continue;
+    }
     if (!decision.safelyPublished) {
       logInfo(`publish failed: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${publishResult.message}`);
       options.onProgress?.(

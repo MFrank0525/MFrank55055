@@ -765,6 +765,10 @@ function isAcceptedBatchCompletionSignal(status?: string, finalVerifyStatus?: st
   if (isSafePublishSignal(status, finalVerifyStatus)) {
     return true;
   }
+  if (status === "skipped") {
+    return finalVerifyStatus === "submit_rejected_exhausted"
+      && errorClass === "final_publish_submit_transient";
+  }
   return status === "failed" &&
     finalVerifyStatus === "submit_accepted_unconfirmed" &&
     errorClass === "final_publish_state_uncertain";
@@ -821,10 +825,14 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
         const manifestAccepted = isAcceptedBatchCompletionSignal(manifest?.status, manifest?.finalVerifyStatus, manifest?.errorClass);
         if (resultAccepted || manifestAccepted) {
           safelyPublishedCount += 1;
+          const deferredRejection = result?.finalVerifyStatus === "submit_rejected_exhausted"
+            || manifest?.finalVerifyStatus === "submit_rejected_exhausted";
           warnings.push(issue(
             "warning",
-            "publish_result_submit_accepted_unconfirmed",
-            `Publish submit was accepted but final platform success was not observed for canonical target: ${targetKey}`,
+            deferredRejection ? "publish_result_platform_rejection_deferred" : "publish_result_submit_accepted_unconfirmed",
+            deferredRejection
+              ? `Platform-confirmed rejection exhausted its controlled retry and was deferred for canonical target: ${targetKey}`
+              : `Publish submit was accepted but final platform success was not observed for canonical target: ${targetKey}`,
             task.taskId
           ));
           continue;
@@ -861,10 +869,14 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
       const manifestAccepted = isAcceptedBatchCompletionSignal(manifest?.status, manifest?.finalVerifyStatus, manifest?.errorClass);
       if (resultAccepted || manifestAccepted) {
         safelyPublishedCount += 1;
+        const deferredRejection = result?.finalVerifyStatus === "submit_rejected_exhausted"
+          || manifest?.finalVerifyStatus === "submit_rejected_exhausted";
         warnings.push(issue(
           "warning",
-          "publish_result_submit_accepted_unconfirmed",
-          `Publish submit was accepted but final platform success was not observed for product folder: ${folder}`,
+          deferredRejection ? "publish_result_platform_rejection_deferred" : "publish_result_submit_accepted_unconfirmed",
+          deferredRejection
+            ? `Platform-confirmed rejection exhausted its controlled retry and was deferred for product folder: ${folder}`
+            : `Publish submit was accepted but final platform success was not observed for product folder: ${folder}`,
           task.taskId,
           folder
         ));

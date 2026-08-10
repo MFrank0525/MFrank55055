@@ -86,6 +86,11 @@ import {
   readPublishAttemptState
 } from "../dist/src/autolist/publish-attempt-state.js";
 import {
+  consumeConfirmedRejectionRetry,
+  isConfirmedRejectionRetryConsumed
+} from "../dist/src/autolist/confirmed-rejection-retry.js";
+import { isManifestEntryAcceptedForBatchCompletion } from "../dist/src/autolist/publish-manifest.js";
+import {
   shouldFailAutoListingControllerStatusForFeishuCacheInvalid,
   shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid
 } from "../dist/src/autolist/controller-cache-status-rules.js";
@@ -450,6 +455,16 @@ assert.match(
   publishSource,
   /finalVerifyStatus === "submit_rejected_confirmed"[\s\S]*listVerification\.found === false[\s\S]*confirmed rejection plus negative exact-title list verification[\s\S]*runPublishFromSpuJob/,
   "Only an explicit platform rejection plus a negative exact-title list check may permit one controlled republish"
+);
+assert.match(
+  publishSource,
+  /consumeConfirmedRejectionRetry\(targetRuntimeDir, retryIdentity\)[\s\S]*runPublishFromSpuJob/,
+  "The one controlled rejection retry must be durably consumed before crossing the publish boundary"
+);
+assert.match(
+  publishSource,
+  /isConfirmedRejectionRetryConsumed\(targetRuntimeDir, retryIdentity\)[\s\S]*submit_rejected_exhausted[\s\S]*status: "skipped"/,
+  "A later controller child must defer an exhausted confirmed rejection instead of replaying it"
 );
 assert.match(
   publishSource,
@@ -865,6 +880,55 @@ assert.deepEqual(
   ["product-水印02", "product-水印03"],
   "Manifest-backed recovery must include every not-yet-safe target after the failed shop, not only the single failed entry."
 );
+assert.equal(
+  isManifestEntryAcceptedForBatchCompletion({
+    status: "skipped",
+    finalVerifyStatus: "submit_rejected_exhausted",
+    errorClass: "final_publish_submit_transient"
+  }),
+  true,
+  "a platform-confirmed rejection may become terminal batch coverage only after its one controlled retry is exhausted"
+);
+assert.deepEqual(
+  selectRemainingResumeProductFolderNames({
+    allProductFolderNames: ["product-水印01", "product-水印02"],
+    manifestEntries: [{
+      productFolder: "/shops/01/product-水印01",
+      status: "skipped",
+      finalVerifyStatus: "submit_rejected_exhausted",
+      errorClass: "final_publish_submit_transient"
+    }]
+  }),
+  ["product-水印02"],
+  "an exhausted confirmed rejection must not be replayed by a new controller child"
+);
+assert.equal(
+  isManifestEntryAcceptedForBatchCompletion({
+    status: "skipped",
+    finalVerifyStatus: "submit_rejected_confirmed",
+    errorClass: "final_publish_submit_transient"
+  }),
+  false,
+  "a confirmed rejection without exhausted retry evidence must remain pending"
+);
+const rejectionRetryDir = fs.mkdtempSync(path.join(os.tmpdir(), "confirmed-rejection-retry-"));
+try {
+  const retryIdentity = {
+    targetKey: "batch__record__task__01__01",
+    title: "精确标题",
+    shopFolder: "/shops/01目标店铺"
+  };
+  assert.equal(isConfirmedRejectionRetryConsumed(rejectionRetryDir, retryIdentity), false);
+  consumeConfirmedRejectionRetry(rejectionRetryDir, retryIdentity);
+  assert.equal(isConfirmedRejectionRetryConsumed(rejectionRetryDir, retryIdentity), true);
+  assert.throws(
+    () => isConfirmedRejectionRetryConsumed(rejectionRetryDir, { ...retryIdentity, title: "另一标题" }),
+    /identity mismatch/i,
+    "a retry ledger from another exact title must fail closed"
+  );
+} finally {
+  fs.rmSync(rejectionRetryDir, { recursive: true, force: true });
+}
 assert.equal(
   hasPendingResumeProductFolders({
     resumeProductFolderNames: ["product-水印18", "product-水印19", "product-水印20"],

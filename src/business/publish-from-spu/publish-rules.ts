@@ -27,7 +27,7 @@ export interface PublishResultRuleInput {
 
 export interface PublishResultRuleDecision {
   safelyPublished: boolean;
-  finalVerifyStatus: "not_checked" | "publish_signal_confirmed" | "list_verified" | "submit_accepted_unconfirmed" | "submit_rejected_confirmed" | "needs_manual_review";
+  finalVerifyStatus: "not_checked" | "publish_signal_confirmed" | "list_verified" | "submit_accepted_unconfirmed" | "submit_rejected_confirmed" | "submit_rejected_exhausted" | "needs_manual_review";
   errorClass: string;
   issue: string;
 }

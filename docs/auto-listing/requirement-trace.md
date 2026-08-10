@@ -251,6 +251,7 @@
 | --- | --- | --- | --- |
 | Distinguish a transient page reload from a truly missing canonical shop | Target absence is terminal only while the chooser remains stably visible; a vanished chooser is classified as a transient navigation/loading state | Run `20260808-183053`, target 13 screenshot and zero-byte chooser DOM; production-shaped rule regression | verified |
 | Retry without crossing the publish boundary | The action returns to the canonical SPU page and retries the same shop switch at most three times; the existing current-shop readback remains the success gate | Structural shop-switch regression; `publish-submit-attempt.json` remains `not_attempted`; live target-13 readback matched | verified |
+| Prevent controller-child loops from resetting confirmed-rejection retry limits | One exact target/title/shop ledger is consumed before the controlled retry; a repeated confirmed rejection becomes `submit_rejected_exhausted`, is audited as a transparent deferred target, and is excluded from resume replay | `confirmed-rejection-retry.ts`; manifest/resume regressions in `test-progress-state-part-1.mjs`; live current-batch continuation | implemented-unverified |
 | Preserve fail-closed evidence | A stable chooser missing the exact shop still stops and saves DOM plus screenshot; the final unstable attempt uses its own evidence name | Rule regression for both transient and stable-missing branches; live check used no publish/form mutation | verified |
 
 ## 2026-08-09 OTC five-shop publishing policy

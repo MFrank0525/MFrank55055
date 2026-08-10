@@ -9,6 +9,7 @@ export type PublishFinalVerifyStatus =
   | "list_verified"
   | "submit_accepted_unconfirmed"
   | "submit_rejected_confirmed"
+  | "submit_rejected_exhausted"
   | "needs_manual_review";
 
 export const SAFE_PUBLISH_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
@@ -18,7 +19,8 @@ export const SAFE_PUBLISH_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
 
 export const BATCH_COMPLETION_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
   ...SAFE_PUBLISH_FINAL_VERIFY_STATUSES,
-  "submit_accepted_unconfirmed"
+  "submit_accepted_unconfirmed",
+  "submit_rejected_exhausted"
 ];
 
 export interface PublishManifestEntry {
@@ -154,6 +156,10 @@ export function isManifestEntryAcceptedForBatchCompletion(entry: PublishManifest
   }
   if (entry.status === "published") {
     return true;
+  }
+  if (entry.status === "skipped") {
+    return entry.finalVerifyStatus === "submit_rejected_exhausted"
+      && entry.errorClass === "final_publish_submit_transient";
   }
   return entry.status === "failed" &&
     entry.finalVerifyStatus === "submit_accepted_unconfirmed" &&

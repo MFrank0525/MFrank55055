@@ -495,11 +495,32 @@ async function saveShopSwitchDomSnapshot(page: Page, runtimeDir: string, fileNam
       })
       .slice(0, 10)
       .map((el) => el.outerHTML);
-    return menuCandidates.join("\n\n<!-- split -->\n\n");
+    const topRightCandidates = Array.from(document.querySelectorAll("body *"))
+      .map((node) => node as HTMLElement)
+      .filter((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return (
+          rect.width > 0
+          && rect.height > 0
+          && rect.top < 200
+          && rect.left > window.innerWidth * 0.65
+          && style.display !== "none"
+          && style.visibility !== "hidden"
+        );
+      })
+      .slice(0, 20)
+      .map((el) => el.outerHTML);
+    return menuCandidates.join("\n\n<!-- split -->\n\n")
+      || topRightCandidates.join("\n\n<!-- top-right split -->\n\n")
+      || document.documentElement.outerHTML;
   });
   const targetFile = path.join(runtimeDir, fileName);
   fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-  fs.writeFileSync(targetFile, html || "", "utf8");
+  if (!html.trim()) {
+    throw new Error("Shop-switch DOM snapshot was empty.");
+  }
+  fs.writeFileSync(targetFile, html, "utf8");
   return targetFile;
 }
 
