@@ -158,7 +158,7 @@ async function dismissProductListBlockingOverlays(
         await page.waitForTimeout(350);
         continue;
       }
-      const controls = warning.locator("button,[role='button'],[aria-label],[class*='close' i]");
+      const controls = warning.locator("button,[role='button']");
       const candidates: ProductListDialogControl[] = [];
       for (let index = 0; index < await controls.count(); index += 1) {
         const control = controls.nth(index);

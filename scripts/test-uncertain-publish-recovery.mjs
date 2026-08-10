@@ -20,6 +20,12 @@ assert.equal(selectCategoryMisplacementWarningCloseControl([
 assert.equal(selectCategoryMisplacementWarningCloseControl([
   { visible: true, text: "使用推荐类目", ariaLabel: "", className: "primary" }
 ]), undefined);
+const verificationSource = fs.readFileSync("src/business/publish-from-spu/product-list-verification-action.ts", "utf8");
+assert.match(
+  verificationSource,
+  /const controls = warning\.locator\("button,\[role='button'\]"\)/,
+  "category warning dismissal must enumerate interactive controls, not nested close-icon descendants"
+);
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "listing-uncertain-recovery-"));
 const runtimeDir = path.join(root, "publish-target");
