@@ -77,6 +77,7 @@ export interface AutoListingTaskFile {
     userCognitionName?: string;
     genericName?: string;
     spu?: string;
+    productCategory?: string;
   };
   generatedProductFolders?: string[];
   mainImageArtifact?: { generatedFiles?: Array<{ productFolder?: string }> };
@@ -102,6 +103,14 @@ export interface AutoListingStateFile { runId?: string; feishuBatchFingerprint?:
 export interface PublishManifestFile {
   generatedAt?: string;
   entries?: Array<{
+    targetKey?: string;
+    targetIdentity?: {
+      batchFingerprint?: string;
+      recordId?: string;
+      taskId?: string;
+      shopCode?: string;
+      watermarkNo?: number;
+    };
     productFolder?: string;
     runtimeKey?: string;
     shopFolder?: string;

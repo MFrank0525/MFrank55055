@@ -105,11 +105,9 @@ import {
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
-  hasPendingResumeProductFolders,
   inferResumeStartStepForTask,
-  selectRemainingResumeProductFolderNames,
-  shouldInvalidatePublishedResumeWithoutProductFolders,
-  shouldReplaceStaleResumeStartStep
+  resolveCanonicalResumeDecision,
+  selectRemainingResumeProductFolderNames
 } from "../dist/src/autolist/resume-rules.js";
 import {
   hasIncompleteFixedMainImageRoundFiles,
@@ -1717,52 +1715,76 @@ assert.equal(
   "published",
   "Publishing interruptions after assets are distributed must resume at published and must not regenerate main images."
 );
-assert.equal(
-  shouldReplaceStaleResumeStartStep({
-    resumeStartStep: "main_images_generated",
-    inferredStateStartStep: "published",
-    stateProductFolderCount: 20,
-    safelyPublishedCount: 2
+const canonicalResumeFolders = Array.from({ length: 20 }, (_, index) => `/shops/${String(index + 1).padStart(2, "0")}/product-${index + 1}`);
+const canonicalResumeManifest = canonicalResumeFolders.map((productFolder, index) => ({
+  targetIdentity: {
+    batchFingerprint: "batch-a",
+    recordId: "record-a",
+    taskId: "image-001",
+    shopCode: String(index + 1).padStart(2, "0"),
+    watermarkNo: index + 1
+  },
+  productFolder,
+  status: index === 19 ? "pending" : "published",
+  finalVerifyStatus: index === 19 ? "not_checked" : "publish_signal_confirmed"
+}));
+assert.deepEqual(
+  resolveCanonicalResumeDecision({
+    batchFingerprint: "batch-a",
+    recordId: "record-a",
+    taskId: "image-001",
+    inferredArtifactStartStep: "source_images_discovered",
+    productFolders: canonicalResumeFolders,
+    expectedTargetCount: 20,
+    manifestEntries: [
+      ...canonicalResumeManifest,
+      {
+        ...canonicalResumeManifest[0],
+        targetIdentity: { ...canonicalResumeManifest[0].targetIdentity, batchFingerprint: "wrong-batch" },
+        productFolder: "/shops/wrong-batch/product"
+      }
+    ]
   }),
-  true,
-  "AutoListingController must replace stale resume jobs when state/publish-manifest proves the flow has advanced to publishing."
+  {
+    startStep: "published",
+    resumeProductFolderNames: ["product-20"],
+    source: "publish-manifest"
+  },
+  "The exact canonical manifest must be the sole authority when publish work remains."
 );
-assert.equal(
-  shouldReplaceStaleResumeStartStep({
-    resumeStartStep: "main_images_generated",
-    inferredStateStartStep: "main_images_generated",
-    stateProductFolderCount: 0,
-    safelyPublishedCount: 0
+assert.deepEqual(
+  resolveCanonicalResumeDecision({
+    batchFingerprint: "batch-a",
+    recordId: "record-a",
+    taskId: "image-001",
+    inferredArtifactStartStep: "published",
+    productFolders: canonicalResumeFolders,
+    expectedTargetCount: 20,
+    manifestEntries: canonicalResumeManifest.map((entry) =>
+      entry.status === "pending"
+        ? { ...entry, status: "skipped", finalVerifyStatus: "submit_rejected_exhausted", errorClass: "final_publish_submit_transient" }
+        : entry
+    )
   }),
-  false
+  {
+    startStep: "cleaned",
+    resumeProductFolderNames: canonicalResumeFolders.map((folder) => folder.split("/").pop()),
+    source: "publish-manifest"
+  },
+  "Complete canonical manifest coverage must advance to cleanup instead of reporting another publish failure."
 );
-assert.equal(
-  shouldReplaceStaleResumeStartStep({
-    resumeStartStep: "published",
-    inferredStateStartStep: "source_images_discovered",
-    stateProductFolderCount: 0,
-    safelyPublishedCount: 19,
-    hasPendingPublishWork: true
+assert.throws(
+  () => resolveCanonicalResumeDecision({
+    batchFingerprint: "batch-a",
+    recordId: "record-a",
+    taskId: "image-001",
+    inferredArtifactStartStep: "published",
+    productFolders: canonicalResumeFolders,
+    manifestEntries: canonicalResumeManifest.slice(0, 19),
+    expectedTargetCount: 20
   }),
-  false,
-  "A preflight failure's freshly initialized task state must not replace an exact publish resume while its manifest still has pending work."
-);
-assert.equal(
-  shouldInvalidatePublishedResumeWithoutProductFolders({
-    resumeStartStep: "published",
-    declaredProductFolderCount: 20,
-    actualProductFolderCount: 0
-  }),
-  true,
-  "Published-stage resume jobs must be invalidated when their declared product folders are missing on disk."
-);
-assert.equal(
-  shouldInvalidatePublishedResumeWithoutProductFolders({
-    resumeStartStep: "published",
-    declaredProductFolderCount: 20,
-    actualProductFolderCount: 20
-  }),
-  false
+  /coverage is incomplete/,
+  "Partial canonical manifest coverage must fail closed instead of guessing a resume plan."
 );
 assert.equal(
   inferResumeStartStepForTask({

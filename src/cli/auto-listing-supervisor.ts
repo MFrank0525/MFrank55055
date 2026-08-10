@@ -585,6 +585,10 @@ function cleanupCompletedBatchArtifacts(batchFingerprint: string): void {
 }
 
 function runResume(): Promise<number | null> {
+  if (!prepareResumeJob()) {
+    console.error("Resume launch refused because no current canonical resume plan could be derived.");
+    return Promise.resolve(1);
+  }
   return runChild("resume-real-job", "npm", [
     "run",
     "business:auto-listing",

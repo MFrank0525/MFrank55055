@@ -1,3 +1,5 @@
+import type { AutoListingStep } from "./types.js";
+
 export const DEEP_AUDIT_DIMENSIONS = [
   "rules",
   "contradictions",
@@ -240,8 +242,14 @@ export function auditRuntimeControllerConsistency(input: {
   controllerStatus?: "running" | "completed" | "failed";
   controllerActive: boolean;
   runStatus?: string;
+  canonicalRecovery?: {
+    startStep: AutoListingStep;
+    source: "publish-manifest" | "task-artifacts";
+    productFolderCount: number;
+  };
 }): { ok: boolean; errors: DeepAuditIssue[]; warnings: DeepAuditIssue[]; evidence: string[] } {
   const errors: DeepAuditIssue[] = [];
+  const warnings: DeepAuditIssue[] = [];
   if (input.controllerStatus === "running" && !input.controllerActive) {
     errors.push({
       code: "controller_job_stale_running",
@@ -249,10 +257,20 @@ export function auditRuntimeControllerConsistency(input: {
     });
   }
   if (input.controllerStatus === "failed") {
-    errors.push({
-      code: "controller_terminal_failed",
-      message: "The latest controller job is terminal failed."
-    });
+    const recovery = input.canonicalRecovery;
+    const hasExactCanonicalRecovery = Boolean(
+      recovery &&
+      recovery.source === "publish-manifest" &&
+      (recovery.startStep === "published" || recovery.startStep === "cleaned") &&
+      recovery.productFolderCount > 0
+    );
+    const issue = {
+      code: hasExactCanonicalRecovery ? "controller_terminal_recoverable" : "controller_terminal_failed",
+      message: hasExactCanonicalRecovery
+        ? `The failed controller has an exact canonical ${recovery?.startStep} recovery decision.`
+        : "The latest controller job is terminal failed."
+    };
+    (hasExactCanonicalRecovery ? warnings : errors).push(issue);
     if (input.runStatus && input.runStatus !== "failed") {
       errors.push({
         code: "controller_run_status_contradiction",
@@ -263,11 +281,12 @@ export function auditRuntimeControllerConsistency(input: {
   return {
     ok: errors.length === 0,
     errors,
-    warnings: [],
+    warnings,
     evidence: [
       `controllerStatus=${input.controllerStatus || "missing"}`,
       `controllerActive=${input.controllerActive}`,
-      `runStatus=${input.runStatus || "missing"}`
+      `runStatus=${input.runStatus || "missing"}`,
+      `canonicalRecovery=${input.canonicalRecovery?.source || "missing"}:${input.canonicalRecovery?.startStep || "missing"}:${input.canonicalRecovery?.productFolderCount || 0}`
     ]
   };
 }

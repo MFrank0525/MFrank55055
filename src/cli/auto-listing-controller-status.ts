@@ -42,10 +42,7 @@ import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-m
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
   inferResumeStartStepForTask,
-  hasPendingResumeProductFolders,
-  selectRemainingResumeProductFolderNames,
-  shouldInvalidatePublishedResumeWithoutProductFolders,
-  shouldReplaceStaleResumeStartStep
+  selectRemainingResumeProductFolderNames
 } from "../autolist/resume-rules.js";
 import { hasIncompleteFixedMainImageRoundFiles, summarizeReusableTaskArtifacts } from "../autolist/resume-artifacts.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";

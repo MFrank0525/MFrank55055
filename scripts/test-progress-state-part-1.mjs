@@ -110,11 +110,8 @@ import {
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
-  hasPendingResumeProductFolders,
   inferResumeStartStepForTask,
-  selectRemainingResumeProductFolderNames,
-  shouldInvalidatePublishedResumeWithoutProductFolders,
-  shouldReplaceStaleResumeStartStep
+  selectRemainingResumeProductFolderNames
 } from "../dist/src/autolist/resume-rules.js";
 import {
   hasIncompleteFixedMainImageRoundFiles,
@@ -423,8 +420,8 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /resolvedShopRootDir[\s\S]*resumeJob\.input\.shopRootDir\s*=\s*resolvedShopRootDir[\s\S]*atomicWriteJson\(resumeJobFile,\s*resumeJob\)/,
-  "Existing resume jobs must be rewritten to the recovered deferred shop root before product-folder validation invalidates them."
+  /function writeCanonicalResumeJob[\s\S]*resolveResumeShopRootDir[\s\S]*shopRootDir \? \{ shopRootDir \} : \{\}[\s\S]*atomicWriteJson\(resumeJobFile,\s*resumeJob\)/,
+  "Canonical resume derivation must select a complete deferred shop root before writing the disposable execution plan."
 );
 assert.match(
   publishSource,
@@ -674,11 +671,6 @@ assert.match(
   /hasIncompleteFixedMainImageRoundFiles[\s\S]*return "main_images_generated"/,
   "AutoListingController must rewind publish-stage resumes when fixed main-image slots are incomplete"
 );
-assert.match(
-  hermesRunnerSource,
-  /function shouldResumeCurrentFailure[\s\S]*hasIncompleteFixedMainImageRoundFiles[\s\S]*fs\.rmSync\(resumeJobFile, \{ force: true \}\)/,
-  "AutoListingController must invalidate an already-generated publish resume job when fixed main-image slots are incomplete"
-);
 
 const incompleteFixedSlotsRun = fs.mkdtempSync(path.join(os.tmpdir(), "incomplete-fixed-slots-"));
 const incompleteFixedSlotsRaw = path.join(
@@ -857,20 +849,15 @@ assert.match(
   /expectedImagesPerPrompt:\s*mainImageExpectedCount/,
   "Main-image completion gate must use per-prompt expected image count, not per-shop distribution count"
 );
-assert.match(
+assert.doesNotMatch(
   hermesRunnerSource,
-  /shouldResumeCurrentFailure\(\)[\s\S]*findLatestInterruptedStateForResume\(\)/,
-  "AutoListingController runner must preserve a valid current resume job before rebuilding one from interrupted state"
+  /shouldResumeCurrentFailure/,
+  "AutoListingController must rebuild from durable evidence and never preserve a generated resume plan as authority."
 );
 assert.match(
   hermesRunnerSource,
   /safelyPublishedCount/,
   "AutoListingController runner must rank interrupted resume candidates by publish-manifest progress before raw artifact count"
-);
-assert.match(
-  hermesRunnerSource,
-  /countResumeProductFolders/,
-  "AutoListingController resume must count restored product folders as reusable publish-stage artifacts"
 );
 assert.deepEqual(
   selectRemainingResumeProductFolderNames({
@@ -929,19 +916,20 @@ try {
 } finally {
   fs.rmSync(rejectionRetryDir, { recursive: true, force: true });
 }
-assert.equal(
-  hasPendingResumeProductFolders({
-    resumeProductFolderNames: ["product-水印18", "product-水印19", "product-水印20"],
-    manifestEntries: [{ productFolder: "/shops/01/product-水印01", status: "published", finalVerifyStatus: "publish_signal_confirmed" }]
-  }),
-  true,
-  "Safe evidence for earlier shops must not satisfy the exact remaining resume allowlist."
+assert.doesNotMatch(
+  hermesRunnerSource,
+  /shouldResumeCurrentFailure/,
+  "Generated resume jobs must never be read back as recovery authority."
 );
-assert.match(hermesRunnerSource, /unsafeLatest[\s\S]*selectRemainingResumeProductFolderNames/);
 assert.match(
   hermesRunnerSource,
-  /const resumeProductFolderCount = countResumeProductFolders\(resumeJob\)[\s\S]*summarizeReusableTaskArtifacts[\s\S]*Math\.max\(reusableTaskArtifacts\.reusableArtifactCount, resumeProductFolderCount\)/,
-  "AutoListingController resume must ask the autolist project layer whether paid/raw artifacts make a resume safe"
+  /function writeCanonicalResumeJob[\s\S]*resolveCanonicalResumeDecision[\s\S]*atomicWriteJson\(resumeJobFile, resumeJob\)/,
+  "Every generated resume job must be derived from the canonical runtime evidence resolver."
+);
+assert.match(
+  hermesSupervisorSource,
+  /function runResume\(\)[\s\S]*prepareResumeJob\(\)[\s\S]*runChild\("resume-real-job"/,
+  "The first and every later resume child must regenerate its canonical execution plan immediately before launch."
 );
 assert.doesNotMatch(
   hermesRunnerSource,
@@ -970,43 +958,8 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /shouldInvalidatePublishedResumeWithoutProductFolders[\s\S]*fs\.rmSync\(resumeJobFile, \{ force: true \}\)/,
-  "AutoListingController resume must discard a published-stage resume job when its declared product folders are missing on disk"
-);
-assert.match(
-  hermesRunnerSource,
   /inferResumeStartStepFromRuntimeFiles[\s\S]*openai-compatible[\s\S]*raw[\s\S]*main_images_generated/,
   "AutoListingController resume must use real runtime raw/staged files to resume local main-image recovery before distribution/publish"
-);
-assert.match(
-  hermesRunnerSource,
-  /const resumeProductFolderCount = collectResumeProductFolderNames\(failedTask\)\.length[\s\S]*summarizeReusableTaskArtifacts[\s\S]*shouldResumeSourceImageForCurrentFeishuBatch\([\s\S]*reusableArtifactCount/,
-  "AutoListingController failed-result resume selection must delegate reusable paid/raw artifact counting to autolist project logic"
-);
-assert.match(
-  hermesRunnerSource,
-  /publishResumeNeedsWork[\s\S]*startStep === "published"[\s\S]*resumeProductFolderCount > 0[\s\S]*hasPendingResumeProductFolders/,
-  "AutoListingController resume must continue publish-stage work when restored product folders exist but publish manifest is not safely complete"
-);
-assert.match(
-  hermesRunnerSource,
-  /const unsafePublishResumeNeedsWork =[\s\S]*unsafePublishEntriesForResume\(resumeRuntimeDir\)[\s\S]*const shouldResume = unsafePublishResumeNeedsWork \|\| publishResumeNeedsWork \|\| !result \|\| \(result\.ok !== true && result\.status !== "success"\)/,
-  "AutoListingController resume must let unsafe publish manifest entries override an incorrectly successful result file"
-);
-assert.match(
-  hermesRunnerSource,
-  /findLatestUnsafePublishManifestForResume\(\)[\s\S]*const resumeProductFolderNames[\s\S]*startStep: "published"/,
-  "AutoListingController unsafe publish resume must restart at the publish stage and must not regenerate titles"
-);
-assert.match(
-  hermesRunnerSource,
-  /if \(!unsafePublishResumeNeedsWork && !publishResumeNeedsWork && \(!latestRelevantFailure \|\| path\.resolve\(latestRelevantFailure\.resultFile\) !== resultFile\)\)/,
-  "AutoListingController resume must not discard a valid unsafe-publish resume job only because the stale result file was incorrectly marked successful"
-);
-assert.match(
-  hermesRunnerSource,
-  /if \(shouldResume && failedTask && !publishResumeNeedsWork\)/,
-  "AutoListingController resume must not let a stale failed task re-infer and overwrite a publish-stage resume job that still needs publish work"
 );
 assert.match(
   hermesRunnerSource,

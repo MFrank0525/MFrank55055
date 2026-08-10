@@ -914,6 +914,19 @@ assert.deepEqual(
   controllerFailureAudit.errors.map((item) => item.code),
   ["controller_terminal_failed", "controller_run_status_contradiction"]
 );
+const controllerRecoverableAudit = auditRuntimeControllerConsistency({
+  controllerStatus: "failed",
+  controllerActive: false,
+  runStatus: "failed",
+  canonicalRecovery: {
+    startStep: "cleaned",
+    source: "publish-manifest",
+    productFolderCount: 20
+  }
+});
+assert.equal(controllerRecoverableAudit.ok, true);
+assert.deepEqual(controllerRecoverableAudit.errors, []);
+assert.deepEqual(controllerRecoverableAudit.warnings.map((item) => item.code), ["controller_terminal_recoverable"]);
 const auditCliSource = fs.readFileSync("src/cli/audit-auto-listing.ts", "utf8");
 const paidImageAuditSource = fs.readFileSync("src/autolist/paid-image-audit.ts", "utf8");
 assert.match(auditCliSource, /auditRuntimeControllerConsistency/);

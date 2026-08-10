@@ -27,6 +27,87 @@ export interface ResumeTaskLike {
   };
 }
 
+export interface CanonicalResumeManifestEntry {
+  targetKey?: string;
+  targetIdentity?: {
+    batchFingerprint?: string;
+    recordId?: string;
+    taskId?: string;
+    shopCode?: string;
+    watermarkNo?: number;
+  };
+  productFolder?: string;
+  status?: string;
+  finalVerifyStatus?: string;
+  errorClass?: string;
+}
+
+export function resolveCanonicalResumeDecision(input: {
+  batchFingerprint: string;
+  recordId?: string;
+  taskId: string;
+  inferredArtifactStartStep: AutoListingStep;
+  productFolders: string[];
+  manifestEntries: CanonicalResumeManifestEntry[];
+  expectedTargetCount?: number;
+}): {
+  startStep: AutoListingStep;
+  resumeProductFolderNames: string[];
+  source: "publish-manifest" | "task-artifacts";
+} {
+  const scopedManifest = input.manifestEntries.filter((entry) => {
+    const identity = entry.targetIdentity;
+    return Boolean(
+      identity &&
+      identity.batchFingerprint === input.batchFingerprint &&
+      identity.taskId === input.taskId &&
+      (!input.recordId || identity.recordId === input.recordId)
+    );
+  });
+  const orderedManifest = [...scopedManifest].sort(
+    (left, right) => Number(left.targetIdentity?.watermarkNo || 0) - Number(right.targetIdentity?.watermarkNo || 0)
+  );
+  if (scopedManifest.length > 0 && input.expectedTargetCount !== undefined) {
+    if (scopedManifest.length !== input.expectedTargetCount) {
+      throw new Error(
+        `Canonical publish manifest coverage is incomplete for ${input.taskId}: expected ${input.expectedTargetCount}, got ${scopedManifest.length}.`
+      );
+    }
+    const targetKeys = scopedManifest.map((entry) => entry.targetKey || [
+      entry.targetIdentity?.batchFingerprint,
+      entry.targetIdentity?.recordId,
+      entry.targetIdentity?.taskId,
+      entry.targetIdentity?.shopCode,
+      entry.targetIdentity?.watermarkNo
+    ].join("|"));
+    if (new Set(targetKeys).size !== targetKeys.length) {
+      throw new Error(`Canonical publish manifest contains duplicate target identities for ${input.taskId}.`);
+    }
+  }
+  const folderName = (folder: string | undefined): string => String(folder || "").split(/[\\/]/).pop() || "";
+  const allProductFolderNames = Array.from(new Set([
+    ...orderedManifest.map((entry) => folderName(entry.productFolder)),
+    ...input.productFolders.map(folderName)
+  ].filter(Boolean)));
+  if (scopedManifest.length > 0) {
+    const acceptedNames = new Set(
+      scopedManifest
+        .filter((entry) => isManifestEntryAcceptedForBatchCompletion(entry as never))
+        .map((entry) => folderName(entry.productFolder))
+        .filter(Boolean)
+    );
+    const remainingNames = allProductFolderNames.filter((name) => !acceptedNames.has(name));
+    return remainingNames.length > 0
+      ? { startStep: "published", resumeProductFolderNames: remainingNames, source: "publish-manifest" }
+      : { startStep: "cleaned", resumeProductFolderNames: allProductFolderNames, source: "publish-manifest" };
+  }
+  return {
+    startStep: input.inferredArtifactStartStep,
+    resumeProductFolderNames: allProductFolderNames,
+    source: "task-artifacts"
+  };
+}
+
 function hasSafePublishCompletion(task: ResumeTaskLike, distributedFolderCount: number): boolean {
   const results = task.publishArtifact?.results || [];
   if (distributedFolderCount <= 0 || results.length < distributedFolderCount) {
@@ -88,34 +169,6 @@ export function inferResumeStartStepForTask(task: ResumeTaskLike): AutoListingSt
   return AUTO_LISTING_STEPS[Math.min(currentIndex + 1, AUTO_LISTING_STEPS.length - 1)];
 }
 
-export function shouldReplaceStaleResumeStartStep(input: {
-  resumeStartStep?: string;
-  inferredStateStartStep?: string;
-  stateProductFolderCount: number;
-  safelyPublishedCount: number;
-  hasPendingPublishWork?: boolean;
-}): boolean {
-  if (!input.resumeStartStep || !input.inferredStateStartStep || input.resumeStartStep === input.inferredStateStartStep) {
-    return false;
-  }
-  if (input.resumeStartStep === "published" && input.hasPendingPublishWork) {
-    return false;
-  }
-  return input.stateProductFolderCount > 0 || input.safelyPublishedCount > 0;
-}
-
-export function shouldInvalidatePublishedResumeWithoutProductFolders(input: {
-  resumeStartStep?: string;
-  declaredProductFolderCount: number;
-  actualProductFolderCount: number;
-}): boolean {
-  return (
-    input.resumeStartStep === "published" &&
-    input.declaredProductFolderCount > 0 &&
-    input.actualProductFolderCount < input.declaredProductFolderCount
-  );
-}
-
 export function selectRemainingResumeProductFolderNames(input: {
   allProductFolderNames: string[];
   manifestEntries: Array<{ productFolder?: string; status?: string; finalVerifyStatus?: string; errorClass?: string }>;
@@ -125,14 +178,4 @@ export function selectRemainingResumeProductFolderNames(input: {
     .map((entry) => entry.productFolder?.split(/[\\/]/).pop() || "")
     .filter(Boolean));
   return [...new Set(input.allProductFolderNames.filter(Boolean))].filter((name) => !safelyPublishedNames.has(name));
-}
-
-export function hasPendingResumeProductFolders(input: {
-  resumeProductFolderNames: string[];
-  manifestEntries: Array<{ productFolder?: string; status?: string; finalVerifyStatus?: string; errorClass?: string }>;
-}): boolean {
-  return selectRemainingResumeProductFolderNames({
-    allProductFolderNames: input.resumeProductFolderNames,
-    manifestEntries: input.manifestEntries
-  }).length > 0;
 }

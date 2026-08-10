@@ -21,6 +21,7 @@ import { auditCurrentPaidImageLedgers } from "../autolist/paid-image-audit.js";
 import { recoverCompleteMainImageArtifactForAudit } from "../autolist/audit-main-image-recovery.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
 import { getProductCategoryPlan, type ProductCategory } from "../autolist/product-category.js";
+import { inferResumeStartStepForTask, resolveCanonicalResumeDecision } from "../autolist/resume-rules.js";
 import { paidImageBatchLedgerDir } from "../autolist/paid-image-submission-ledger.js";
 import type { AutoListingJobFile, AutoListingRunResult, AutoListingRunState } from "../autolist/types.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
@@ -479,10 +480,35 @@ async function main(): Promise<void> {
     tasks: state?.tasks || [],
     existingPaths: existingFiles
   });
+  let canonicalRecovery: ReturnType<typeof resolveCanonicalResumeDecision> | undefined;
+  const recoveryTask = state?.tasks.find((task) => task.taskId === state.currentTaskId) || state?.tasks.at(-1);
+  if (state?.feishuBatchFingerprint && recoveryTask?.feishuProductRecord) {
+    try {
+      canonicalRecovery = resolveCanonicalResumeDecision({
+        batchFingerprint: state.feishuBatchFingerprint,
+        recordId: recoveryTask.feishuProductRecord.recordId,
+        taskId: recoveryTask.taskId,
+        inferredArtifactStartStep: inferResumeStartStepForTask(recoveryTask),
+        productFolders: recoveryTask.shopDistributionArtifact?.distributedFolders || recoveryTask.generatedProductFolders,
+        manifestEntries: manifest.entries,
+        expectedTargetCount: getProductCategoryPlan(recoveryTask.feishuProductRecord.productCategory).titleCount
+      });
+    } catch (error) {
+      runtimeErrors.push({
+        code: "canonical_recovery_invalid",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
   const controllerRuntimeAudit = auditRuntimeControllerConsistency({
     controllerStatus: controllerMatchesCurrentBatch ? controllerJob?.status : undefined,
     controllerActive: activeControllerRunning,
-    runStatus: state?.status
+    runStatus: state?.status,
+    canonicalRecovery: canonicalRecovery && {
+      startStep: canonicalRecovery.startStep,
+      source: canonicalRecovery.source,
+      productFolderCount: canonicalRecovery.resumeProductFolderNames.length
+    }
   });
   runtimeErrors.push(...controllerRuntimeAudit.errors);
   if (state?.status === "completed" && state.feishuBatchFingerprint && records.length > 0 && state.feishuBatchFingerprint !== batchFingerprint) {
@@ -563,7 +589,7 @@ async function main(): Promise<void> {
   const deepAudit = runDeepAuditRules({
     rules: { errors: ruleErrors, warnings: [], evidence: [`records=${records.length}`] },
     contradictions: contradictionAudit,
-    runtime: { errors: runtimeErrors, warnings: [], evidence: controllerRuntimeAudit.evidence },
+    runtime: { errors: runtimeErrors, warnings: controllerRuntimeAudit.warnings, evidence: controllerRuntimeAudit.evidence },
     identities: identityAudit,
     recovery: {
       errors: state?.feishuBatchFingerprint && records.length > 0 && state.feishuBatchFingerprint !== batchFingerprint

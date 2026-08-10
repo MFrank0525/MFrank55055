@@ -106,11 +106,8 @@ import {
   shouldRetryImageGenerationWithPolicyPrompt
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
-  hasPendingResumeProductFolders,
   inferResumeStartStepForTask,
-  selectRemainingResumeProductFolderNames,
-  shouldInvalidatePublishedResumeWithoutProductFolders,
-  shouldReplaceStaleResumeStartStep
+  selectRemainingResumeProductFolderNames
 } from "../dist/src/autolist/resume-rules.js";
 import {
   hasIncompleteFixedMainImageRoundFiles,

@@ -43,10 +43,7 @@ import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-m
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
   inferResumeStartStepForTask,
-  hasPendingResumeProductFolders,
-  selectRemainingResumeProductFolderNames,
-  shouldInvalidatePublishedResumeWithoutProductFolders,
-  shouldReplaceStaleResumeStartStep
+  resolveCanonicalResumeDecision
 } from "../autolist/resume-rules.js";
 import { hasIncompleteFixedMainImageRoundFiles, summarizeReusableTaskArtifacts } from "../autolist/resume-artifacts.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
@@ -59,8 +56,7 @@ import {
 import {
   buildFallbackSourceJobFromPreflight,
   findLatestIncompletePublishManifestForResume,
-  findLatestUnsafePublishManifestForResume as selectLatestUnsafePublishManifestForResume,
-  unsafePublishEntriesForResume
+  findLatestUnsafePublishManifestForResume as selectLatestUnsafePublishManifestForResume
 } from "../autolist/unsafe-publish-resume.js";
 import { sanitizePythonRuntimeEnv } from "../utils/platform.js";
 
@@ -243,136 +239,11 @@ function formatStartText(result: Record<string, unknown>): string {
   return String(result.message || `上架启动命令已执行：${status}`);
 }
 
-function shouldResumeCurrentFailure(): boolean {
-  const resumeJob = readJsonFile<AutoListingJobFile>(resumeJobFile);
-  if (resumeJob?.input?.businessRuleFingerprint !== buildAutoListingBusinessRuleFingerprint()) {
-    fs.rmSync(resumeJobFile, { force: true });
-    return false;
-  }
-  const startStep = resumeJob?.input?.startStep || resumeJob?.startStep;
-  if (!startStep || startStep === "done") {
-    return false;
-  }
+type ResumeEvidenceTask =
+  | NonNullable<AutoListingResultFile["tasks"]>[number]
+  | NonNullable<AutoListingStateFile["tasks"]>[number];
 
-  const resumeSourceImagePath = resumeJob?.input?.resumeSourceImagePath;
-  if (!resumeSourceImagePath || !fs.existsSync(path.resolve(rootDir, resumeSourceImagePath))) {
-    return false;
-  }
-  const resumeRuntimeDir = path.resolve(rootDir, resumeJob.runtimeDir || path.dirname(path.resolve(rootDir, resumeJob.resultFile || "")));
-  if (
-    resumeJob.input?.resumeTaskId &&
-    hasIncompleteFixedMainImageRoundFiles({
-      runtimeDir: resumeRuntimeDir,
-      taskId: resumeJob.input.resumeTaskId,
-      expectedImagesPerRound: 4
-    })
-  ) {
-    fs.rmSync(resumeJobFile, { force: true });
-    return false;
-  }
-  const state = readJsonFile<AutoListingStateFile>(path.join(resumeRuntimeDir, "state.json"));
-  const stateTask = (state?.tasks || []).find((task) =>
-    (resumeJob.input?.resumeTaskId && task.taskId === resumeJob.input.resumeTaskId) ||
-    (task.sourceImagePath && path.resolve(rootDir, task.sourceImagePath) === path.resolve(rootDir, resumeSourceImagePath))
-  );
-  if (stateTask && resumeJob.input?.resumeProductFolderNames?.length) {
-    const resolvedShopRootDir = resolveResumeShopRootDir({
-      sourceJob: resumeJob,
-      task: stateTask,
-      batchFingerprint: resumeJob.input.feishuBatchFingerprint || state?.feishuBatchFingerprint,
-      productFolderNames: resumeJob.input.resumeProductFolderNames
-    });
-    if (resolvedShopRootDir && resolvedShopRootDir !== resumeJob.input.shopRootDir) {
-      resumeJob.input.shopRootDir = resolvedShopRootDir;
-      atomicWriteJson(resumeJobFile, resumeJob);
-    }
-  }
-  const resumeProductFolderCount = countResumeProductFolders(resumeJob);
-  const declaredProductFolderCount = countDeclaredResumeProductFolders(resumeJob);
-  const publishResumeNeedsWork =
-    startStep === "published" &&
-    resumeProductFolderCount > 0 &&
-    hasPendingResumeProductFolders({
-      resumeProductFolderNames: resumeJob.input?.resumeProductFolderNames || [],
-      manifestEntries: readJsonFile<PublishManifestFile>(path.join(resumeRuntimeDir, "publish-manifest.json"))?.entries || []
-    });
-  if (
-    shouldInvalidatePublishedResumeWithoutProductFolders({
-      resumeStartStep: String(startStep),
-      declaredProductFolderCount,
-      actualProductFolderCount: resumeProductFolderCount
-    })
-  ) {
-    fs.rmSync(resumeJobFile, { force: true });
-    return false;
-  }
-  const reusableTaskArtifacts = summarizeReusableTaskArtifacts({
-    runtimeDir: resumeRuntimeDir,
-    taskId: resumeJob.input?.resumeTaskId
-  });
-  const reusableArtifactCount = Math.max(reusableTaskArtifacts.reusableArtifactCount, resumeProductFolderCount);
-  if (
-    !shouldResumeSourceImageForCurrentFeishuBatch(
-      resumeSourceImagePath,
-      reusableArtifactCount,
-      resumeJob.input?.feishuBatchFingerprint
-    )
-  ) {
-    fs.rmSync(resumeJobFile, { force: true });
-    return false;
-  }
-
-  if (stateTask) {
-    const inferredStateStartStep = inferResumeStartStepForTask(stateTask);
-    if (
-      shouldReplaceStaleResumeStartStep({
-        resumeStartStep: String(startStep),
-        inferredStateStartStep,
-        stateProductFolderCount: collectResumeProductFolderNames(stateTask).length,
-        safelyPublishedCount: countSafelyPublishedManifestEntries(resumeRuntimeDir),
-        hasPendingPublishWork: publishResumeNeedsWork
-      })
-    ) {
-      fs.rmSync(resumeJobFile, { force: true });
-      return false;
-    }
-  }
-
-  if (!resumeJob?.resultFile) {
-    return true;
-  }
-
-  const resultFile = path.resolve(rootDir, resumeJob.resultFile);
-  const result = readJsonFile<AutoListingResultFile>(resultFile);
-  const unsafePublishResumeNeedsWork =
-    unsafePublishEntriesForResume(resumeRuntimeDir).some((entry) =>
-      entry.sourceImagePath && path.resolve(rootDir, entry.sourceImagePath) === path.resolve(rootDir, resumeSourceImagePath)
-    );
-  const shouldResume = unsafePublishResumeNeedsWork || publishResumeNeedsWork || !result || (result.ok !== true && result.status !== "success");
-  const latestRelevantFailure = findLatestFailedResultForResume();
-  if (!unsafePublishResumeNeedsWork && !publishResumeNeedsWork && (!latestRelevantFailure || path.resolve(latestRelevantFailure.resultFile) !== resultFile)) {
-    fs.rmSync(resumeJobFile, { force: true });
-    return false;
-  }
-  if (!shouldResume && fs.existsSync(resumeJobFile)) {
-    fs.rmSync(resumeJobFile, { force: true });
-  }
-  const failedTask = (result?.tasks || []).find((task) => task.status === "failed" || task.error);
-  if (shouldResume && failedTask && !publishResumeNeedsWork) {
-    if (taskHasExternalMainImageRawReuse(path.dirname(resultFile), failedTask.taskId)) {
-      fs.rmSync(resumeJobFile, { force: true });
-      return false;
-    }
-    const expectedStartStep = inferResumeStartStepForTask(failedTask);
-    if (startStep !== expectedStartStep) {
-      fs.rmSync(resumeJobFile, { force: true });
-      return false;
-    }
-  }
-  return shouldResume;
-}
-
-function collectResumeProductFolderNames(task: NonNullable<AutoListingResultFile["tasks"]>[number]): string[] {
+function collectResumeProductFolderNames(task: ResumeEvidenceTask): string[] {
   return Array.from(
     new Set(
       [
@@ -398,12 +269,6 @@ function listStateFilesNewestFirst(): string[] {
     .map((file) => ({ file, mtimeMs: fs.statSync(file).mtimeMs }))
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .map((item) => item.file);
-}
-
-function countResumeProductFolders(job: AutoListingJobFile | undefined): number {
-  const names = new Set((job?.input?.resumeProductFolderNames || []).map((item) => String(item || "")).filter(Boolean));
-  const shopRootDir = path.resolve(rootDir, job?.input?.shopRootDir || "input/auto-listing/shops");
-  return countMatchingProductFoldersInShopRoot(shopRootDir, names, false);
 }
 
 function countMatchingProductFoldersInShopRoot(shopRootDir: string, names: Set<string>, requireWorkbook: boolean): number {
@@ -487,10 +352,6 @@ function resolveResumeShopRootDir(options: {
     productFolderNames: options.productFolderNames
   });
   return deferredShopRoot ? path.relative(rootDir, deferredShopRoot) : options.sourceJob.input?.shopRootDir;
-}
-
-function countDeclaredResumeProductFolders(job: AutoListingJobFile | undefined): number {
-  return new Set((job?.input?.resumeProductFolderNames || []).map((item) => String(item || "")).filter(Boolean)).size;
 }
 
 function listFilesRecursive(dir: string): string[] {
@@ -720,37 +581,56 @@ function findLatestUnsafePublishManifestForResume(): {
   }) as ReturnType<typeof findLatestUnsafePublishManifestForResume>;
 }
 
-function writeResumeJobFromInterruptedState(
-  sourceJob: AutoListingJobFile,
-  interrupted: NonNullable<ReturnType<typeof findLatestInterruptedStateForResume>>
-): AutoListingJobFile {
-  const startStep = inferResumeStartStepFromRuntimeFiles(
-    interrupted.task,
-    interrupted.runtimeDir,
-    inferResumeStartStepForTask(interrupted.task)
+function writeCanonicalResumeJob(options: {
+  sourceJob: AutoListingJobFile;
+  runtimeDir: string;
+  resultFile: string;
+  runId: string;
+  task: ResumeEvidenceTask;
+  batchFingerprint?: string;
+  businessRuleFingerprint?: string;
+}): AutoListingJobFile {
+  const taskId = options.task.taskId;
+  const sourceImagePath = options.task.sourceImagePath;
+  if (!taskId || !sourceImagePath) {
+    throw new Error("Canonical resume evidence is missing taskId or sourceImagePath.");
+  }
+  const artifactStartStep = inferResumeStartStepFromRuntimeFiles(
+    options.task,
+    options.runtimeDir,
+    inferResumeStartStepForTask(options.task)
   );
-  const resumeProductFolderNames = collectResumeProductFolderNames(interrupted.task);
+  const manifest = readJsonFile<PublishManifestFile>(path.join(options.runtimeDir, "publish-manifest.json"));
+  const decision = resolveCanonicalResumeDecision({
+    batchFingerprint: options.batchFingerprint || "",
+    recordId: options.task.feishuProductRecord?.recordId,
+    taskId,
+    inferredArtifactStartStep: artifactStartStep,
+    productFolders: collectResumeProductFolderNames(options.task),
+    manifestEntries: manifest?.entries || [],
+    expectedTargetCount: getProductCategoryPlan(options.task.feishuProductRecord?.productCategory).titleCount
+  });
   const shopRootDir = resolveResumeShopRootDir({
-    sourceJob,
-    task: interrupted.task,
-    batchFingerprint: interrupted.state.feishuBatchFingerprint,
-    productFolderNames: resumeProductFolderNames
+    sourceJob: options.sourceJob,
+    task: options.task,
+    batchFingerprint: options.batchFingerprint,
+    productFolderNames: decision.resumeProductFolderNames
   });
   const resumeJob: AutoListingJobFile = {
-    ...sourceJob,
-    runtimeDir: interrupted.runtimeDir,
-    resultFile: path.join(interrupted.runtimeDir, "result.json"),
-    runId: interrupted.state.runId || path.basename(interrupted.runtimeDir),
+    ...options.sourceJob,
+    runtimeDir: options.runtimeDir,
+    resultFile: options.resultFile,
+    runId: options.runId,
     input: {
-      ...sourceJob.input,
+      ...options.sourceJob.input,
       ...(shopRootDir ? { shopRootDir } : {}),
-      startStep,
+      startStep: decision.startStep,
       endStep: "done",
-      resumeSourceImagePath: interrupted.task.sourceImagePath,
-      resumeTaskId: interrupted.task.taskId,
-      resumeProductFolderNames,
-      feishuBatchFingerprint: interrupted.state.feishuBatchFingerprint,
-      businessRuleFingerprint: interrupted.state.businessRuleFingerprint,
+      resumeSourceImagePath: sourceImagePath,
+      resumeTaskId: taskId,
+      resumeProductFolderNames: decision.resumeProductFolderNames,
+      feishuBatchFingerprint: options.batchFingerprint,
+      businessRuleFingerprint: options.businessRuleFingerprint,
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
     }
@@ -769,15 +649,6 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
     }
   }
 
-  if (shouldResumeCurrentFailure()) {
-    return readJsonFile<AutoListingJobFile>(resumeJobFile);
-  }
-
-  const interrupted = findLatestInterruptedStateForResume();
-  if (interrupted?.task.sourceImagePath) {
-    return writeResumeJobFromInterruptedState(sourceJob, interrupted);
-  }
-
   const unsafeLatest = findLatestUnsafePublishManifestForResume();
   if (unsafeLatest?.result.businessRuleFingerprint === buildAutoListingBusinessRuleFingerprint()) {
     const sourceImagePath = unsafeLatest.unsafeEntries[0]?.sourceImagePath;
@@ -785,28 +656,15 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
       sourceImagePath && item.sourceImagePath && path.resolve(rootDir, item.sourceImagePath) === path.resolve(rootDir, sourceImagePath)
     );
     if (task?.sourceImagePath) {
-      const runtimeManifest = readJsonFile<PublishManifestFile>(path.join(unsafeLatest.runtimeDir, "publish-manifest.json"));
-      const resumeProductFolderNames = selectRemainingResumeProductFolderNames({ allProductFolderNames: collectResumeProductFolderNames(task), manifestEntries: runtimeManifest?.entries || [] });
-      const resumeJob: AutoListingJobFile = {
-        ...sourceJob,
+      return writeCanonicalResumeJob({
+        sourceJob,
         runtimeDir: unsafeLatest.runtimeDir,
         resultFile: unsafeLatest.resultFile,
         runId: unsafeLatest.result.runId || path.basename(unsafeLatest.runtimeDir),
-        input: {
-          ...sourceJob.input,
-          startStep: "published",
-          endStep: "done",
-          resumeSourceImagePath: task.sourceImagePath,
-          resumeTaskId: task.taskId,
-          resumeProductFolderNames,
-          feishuBatchFingerprint: unsafeLatest.result.feishuBatchFingerprint,
-          businessRuleFingerprint: unsafeLatest.result.businessRuleFingerprint,
-          maxImagesPerRun: 1,
-          clearTestOutputsBeforeRun: false
-        }
-      };
-      atomicWriteJson(resumeJobFile, resumeJob);
-      return resumeJob;
+        task,
+        batchFingerprint: unsafeLatest.result.feishuBatchFingerprint,
+        businessRuleFingerprint: unsafeLatest.result.businessRuleFingerprint
+      });
     }
   }
 
@@ -818,26 +676,28 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
     shouldResumeSourceImageForCurrentFeishuBatch
   });
   if (incompleteLatest?.result.businessRuleFingerprint === buildAutoListingBusinessRuleFingerprint() && incompleteLatest.task.sourceImagePath) {
-    const resumeJob: AutoListingJobFile = {
-      ...sourceJob,
+    return writeCanonicalResumeJob({
+      sourceJob,
       runtimeDir: incompleteLatest.runtimeDir,
       resultFile: incompleteLatest.resultFile,
       runId: incompleteLatest.result.runId || path.basename(incompleteLatest.runtimeDir),
-      input: {
-        ...sourceJob.input,
-        startStep: "published",
-        endStep: "done",
-        resumeSourceImagePath: incompleteLatest.task.sourceImagePath,
-        resumeTaskId: incompleteLatest.task.taskId,
-        resumeProductFolderNames: incompleteLatest.remainingProductFolderNames,
-        feishuBatchFingerprint: incompleteLatest.result.feishuBatchFingerprint,
-        businessRuleFingerprint: incompleteLatest.result.businessRuleFingerprint,
-        maxImagesPerRun: 1,
-        clearTestOutputsBeforeRun: false
-      }
-    };
-    atomicWriteJson(resumeJobFile, resumeJob);
-    return resumeJob;
+      task: incompleteLatest.task,
+      batchFingerprint: incompleteLatest.result.feishuBatchFingerprint,
+      businessRuleFingerprint: incompleteLatest.result.businessRuleFingerprint
+    });
+  }
+
+  const interrupted = findLatestInterruptedStateForResume();
+  if (interrupted?.task.sourceImagePath) {
+    return writeCanonicalResumeJob({
+      sourceJob,
+      runtimeDir: interrupted.runtimeDir,
+      resultFile: path.join(interrupted.runtimeDir, "result.json"),
+      runId: interrupted.state.runId || path.basename(interrupted.runtimeDir),
+      task: interrupted.task,
+      batchFingerprint: interrupted.state.feishuBatchFingerprint,
+      businessRuleFingerprint: interrupted.state.businessRuleFingerprint
+    });
   }
 
   const latest = findLatestFailedResultForResume();
@@ -851,40 +711,15 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
   }
 
   const failedRuntimeDir = latest.result.runtimeDir || path.dirname(latest.resultFile);
-  const failedStep = inferResumeStartStepFromRuntimeFiles(
-    failedTask,
-    failedRuntimeDir,
-    inferResumeStartStepForTask(failedTask)
-  );
-  const resumeProductFolderNames = collectResumeProductFolderNames(failedTask);
-  const shopRootDir = resolveResumeShopRootDir({
+  return writeCanonicalResumeJob({
     sourceJob,
-    task: failedTask,
-    batchFingerprint: latest.result.feishuBatchFingerprint,
-    productFolderNames: resumeProductFolderNames
-  });
-  const resumeJob: AutoListingJobFile = {
-    ...sourceJob,
     runtimeDir: failedRuntimeDir,
     resultFile: latest.resultFile,
     runId: latest.result.runId || path.basename(path.dirname(latest.resultFile)),
-    input: {
-      ...sourceJob.input,
-      ...(shopRootDir ? { shopRootDir } : {}),
-      startStep: failedStep,
-      endStep: "done",
-      resumeSourceImagePath: failedTask.sourceImagePath,
-      resumeTaskId: failedTask.taskId,
-      resumeProductFolderNames,
-      feishuBatchFingerprint: latest.result.feishuBatchFingerprint,
-      businessRuleFingerprint: latest.result.businessRuleFingerprint,
-      maxImagesPerRun: 1,
-      clearTestOutputsBeforeRun: false
-    }
-  };
-
-  atomicWriteJson(resumeJobFile, resumeJob);
-  return resumeJob;
+    task: failedTask,
+    batchFingerprint: latest.result.feishuBatchFingerprint,
+    businessRuleFingerprint: latest.result.businessRuleFingerprint
+  });
 }
 
 function resolveImageGenerationConfigFile(job: AutoListingJobFile | undefined): string {
