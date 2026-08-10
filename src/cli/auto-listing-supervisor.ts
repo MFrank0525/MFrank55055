@@ -11,6 +11,7 @@ import {
   shouldConsumeSupervisorRecoveryAttempt,
   shouldTerminateChildAfterTerminalResult,
   shouldContinueFullFlowAfterChildExit,
+  shouldBlockFullFlowAfterSuccessfulChild,
   shouldContinueFeishuAfterBatchRefresh,
   shouldRecoverFullFlowAfterChildFailure,
   shouldRefreshFeishuAssetsBeforeFullFlow,
@@ -30,6 +31,7 @@ import { atomicWriteJson } from "../utils/atomic-file.js";
 import { cleanupStaleRunHistory } from "../autolist/cleanup.js";
 import { removePaidImageBatchLedger } from "../autolist/paid-image-submission-ledger.js";
 import { readPublishAttemptState, type PublishAttemptState } from "../autolist/publish-attempt-state.js";
+import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-manifest.js";
 
 type InitialMode = "resume" | "full";
 
@@ -96,6 +98,24 @@ function latestPendingPublishAttemptState(): PublishAttemptState {
     }
   }
   return "attempted_or_unknown";
+}
+
+function hasUnresolvedPublishBoundary(batchFingerprint: string): boolean {
+  const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
+  if (!batchFingerprint || !fs.existsSync(runsDir)) return false;
+  for (const runId of fs.readdirSync(runsDir)) {
+    const manifest = readJsonFile<{ entries?: Array<Record<string, unknown>> }>(
+      path.join(runsDir, runId, "publish-manifest.json")
+    );
+    if ((manifest?.entries || []).some((entry) =>
+      entry.batchFingerprint === batchFingerprint
+      && entry.status === "failed"
+      && !isManifestEntryAcceptedForBatchCompletion(entry as never)
+    )) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function readJsonFile<T>(file: string): T | undefined {
@@ -619,12 +639,24 @@ async function main(): Promise<void> {
         batchComplete: currentBatch.batchComplete
       })
     ) {
-      if (childMode === "resume" && prepareResumeJob()) {
+      const resumePrepared = childMode === "resume" && prepareResumeJob();
+      if (resumePrepared) {
         console.log("Resume child completed a manifest-backed segment; continuing resume targets before returning to full flow.");
         nextMode = "resume";
         childRecoveryAttempts = 0;
         externalServiceWaitAttempts = 0;
         continue;
+      }
+      if (shouldBlockFullFlowAfterSuccessfulChild({
+        childMode,
+        exitCode,
+        batchComplete: currentBatch.batchComplete,
+        unresolvedPublishBoundary: hasUnresolvedPublishBoundary(currentBatch.fingerprint),
+        resumePrepared
+      })) {
+        console.error("An unresolved final-submit boundary remains in the current Feishu batch; refusing to start full flow or replay earlier publish targets.");
+        process.exitCode = 1;
+        return;
       }
       console.log("Feishu batch still has pending products after a successful child run; continuing full real flow with the locked current Feishu cache.");
       nextMode = "full";

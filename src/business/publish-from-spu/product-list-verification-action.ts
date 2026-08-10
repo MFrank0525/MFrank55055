@@ -22,6 +22,39 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, "").trim();
 }
 
+export interface ProductListDialogControl {
+  visible: boolean;
+  text: string;
+  ariaLabel: string;
+  className: string;
+}
+
+export function isKnownCategoryMisplacementWarning(text: string): boolean {
+  const normalized = normalizeText(text);
+  return normalized.includes("检测到您有")
+    && normalized.includes("商品类目错放")
+    && normalized.includes("逾期未改会被平台下架")
+    && normalized.includes("建议使用推荐类目")
+    && normalized.includes("发起申诉");
+}
+
+export function selectCategoryMisplacementWarningCloseControl(
+  controls: ProductListDialogControl[]
+): number | undefined {
+  const matches = controls
+    .map((control, index) => ({ control, index }))
+    .filter(({ control }) => control.visible)
+    .filter(({ control }) => {
+      const semantic = `${control.text} ${control.ariaLabel}`.replace(/\s+/g, "").trim();
+      return /^(关闭|close|×)$/i.test(semantic)
+        || /(^|[_-])close([_-]|$)|closeIcon/i.test(control.className);
+    });
+  if (matches.length > 1) {
+    throw new Error(`Category-misplacement warning must expose one unique close control, found ${matches.length}.`);
+  }
+  return matches[0]?.index;
+}
+
 async function waitForUniqueProductListLocator(
   page: Awaited<ReturnType<typeof getWorkspacePage>>,
   label: string,
@@ -106,6 +139,42 @@ async function dismissProductListBlockingOverlays(
       if ((await qualityScoreDialogs.count().catch(() => 0)) > 0) {
         throw new Error("Product list 商品质量分优化预警 dialog remained visible after clicking 知道了.");
       }
+      await page.waitForTimeout(350);
+      continue;
+    }
+    const categoryWarnings = page
+      .locator("[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .auxo-modal-wrap")
+      .filter({ visible: true })
+      .filter({ hasText: /商品类目错放/ });
+    const categoryWarningCount = await categoryWarnings.count().catch(() => 0);
+    if (categoryWarningCount > 0) {
+      if (categoryWarningCount !== 1 || !isKnownCategoryMisplacementWarning(await categoryWarnings.first().innerText().catch(() => ""))) {
+        throw new Error(`Product list category warning is not one exact known informational dialog; count=${categoryWarningCount}.`);
+      }
+      const warning = categoryWarnings.first();
+      await page.keyboard.press("Escape");
+      await warning.waitFor({ state: "hidden", timeout: 2000 }).catch(() => undefined);
+      if (!await warning.isVisible().catch(() => false)) {
+        await page.waitForTimeout(350);
+        continue;
+      }
+      const controls = warning.locator("button,[role='button'],[aria-label],[class*='close' i]");
+      const candidates: ProductListDialogControl[] = [];
+      for (let index = 0; index < await controls.count(); index += 1) {
+        const control = controls.nth(index);
+        candidates.push({
+          visible: await control.isVisible().catch(() => false),
+          text: (await control.innerText().catch(() => "")).trim(),
+          ariaLabel: (await control.getAttribute("aria-label")) || "",
+          className: (await control.getAttribute("class")) || ""
+        });
+      }
+      const closeIndex = selectCategoryMisplacementWarningCloseControl(candidates);
+      if (closeIndex === undefined) {
+        throw new Error("Known category-misplacement warning has no unique safe close control.");
+      }
+      await controls.nth(closeIndex).click({ timeout: 8000 });
+      await warning.waitFor({ state: "hidden", timeout: 8000 });
       await page.waitForTimeout(350);
       continue;
     }

@@ -28,6 +28,15 @@ export function shouldContinueFullFlowAfterChildExit(input: SupervisorFullFlowCo
   return shouldContinueFeishuBatchAfterChildExit(input);
 }
 
+export function shouldBlockFullFlowAfterSuccessfulChild(input: SupervisorFullFlowContinuationInput & {
+  unresolvedPublishBoundary: boolean;
+  resumePrepared: boolean;
+}): boolean {
+  return shouldContinueFeishuBatchAfterChildExit(input)
+    && input.unresolvedPublishBoundary
+    && !input.resumePrepared;
+}
+
 export type FeishuBatchRetryAfterFailureInput = {
   exitCode: number | null;
   batchComplete: boolean;

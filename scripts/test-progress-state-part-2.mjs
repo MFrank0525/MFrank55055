@@ -17,6 +17,7 @@ import {
 import {
   shouldContinueFeishuBatchAfterChildExit,
   shouldContinueFullFlowAfterChildExit,
+  shouldBlockFullFlowAfterSuccessfulChild,
   shouldContinueFeishuAfterBatchRefresh,
   shouldRefreshFeishuAssetsBeforeFullFlow,
   shouldPreferActiveTaskStateSummary,
@@ -412,6 +413,14 @@ assert.equal(
   }),
   true
 );
+assert.equal(shouldBlockFullFlowAfterSuccessfulChild({
+  childMode: "resume", exitCode: 0, batchComplete: false,
+  unresolvedPublishBoundary: true, resumePrepared: false
+}), true);
+assert.equal(shouldBlockFullFlowAfterSuccessfulChild({
+  childMode: "resume", exitCode: 0, batchComplete: false,
+  unresolvedPublishBoundary: true, resumePrepared: true
+}), false);
 assert.equal(
   shouldContinueFullFlowAfterChildExit({
     childMode: "full",

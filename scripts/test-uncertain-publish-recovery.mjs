@@ -4,6 +4,22 @@ import os from "node:os";
 import path from "node:path";
 import { approveReviewedNegativeUncertainPublishRetry } from "../dist/src/autolist/recover-uncertain-publish.js";
 import { readPublishResultSummary } from "../dist/src/autolist/publish.js";
+import {
+  isKnownCategoryMisplacementWarning,
+  selectCategoryMisplacementWarningCloseControl
+} from "../dist/src/business/publish-from-spu/product-list-verification-action.js";
+
+assert.equal(isKnownCategoryMisplacementWarning(
+  "检测到您有3个商品类目错放，逾期未改会被平台下架，请尽快修改！建议使用推荐类目，若你认为平台判断有误，可发起申诉"
+), true);
+assert.equal(isKnownCategoryMisplacementWarning("建议使用推荐类目"), false);
+assert.equal(selectCategoryMisplacementWarningCloseControl([
+  { visible: true, text: "使用推荐类目", ariaLabel: "", className: "primary" },
+  { visible: true, text: "", ariaLabel: "Close", className: "modal-close" }
+]), 1);
+assert.equal(selectCategoryMisplacementWarningCloseControl([
+  { visible: true, text: "使用推荐类目", ariaLabel: "", className: "primary" }
+]), undefined);
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "listing-uncertain-recovery-"));
 const runtimeDir = path.join(root, "publish-target");
