@@ -1825,6 +1825,29 @@ assert.equal(
   "shipping-mode rejection must never enter the generic retry loop before read-only product-list verification"
 );
 const platformSystemExceptionIssue = "1. 操作ID:2026080611514994A2BEE931106AF92453 2. 系统异常,请重试 | 需在已下架操作上架 | 必填项进度100%";
+const operationOnlyAlertId = "20260810191710415ABD1F463214C338AD";
+assert.deepEqual(
+  evaluatePublishSubmission({
+    url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",
+    bodyText: `必填项进度 100%\n操作ID:${operationOnlyAlertId}`,
+    visibleErrorAlerts: [`操作ID:${operationOnlyAlertId}`]
+  }),
+  {
+    submitted: false,
+    issue: `系统异常，请重试（操作ID：${operationOnlyAlertId}）`,
+    freshCreatePage: false
+  },
+  "a visible Doudian error alert containing only an operation ID is an explicit rejected submit"
+);
+assert.notEqual(
+  evaluatePublishSubmission({
+    url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",
+    bodyText: `帮助文档中的操作ID:${operationOnlyAlertId}`,
+    visibleErrorAlerts: []
+  }).issue,
+  `系统异常，请重试（操作ID：${operationOnlyAlertId}）`,
+  "operation-ID text outside a visible error surface must remain conservative"
+);
 assert.deepEqual(
   evaluatePublishSubmission({
     url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",

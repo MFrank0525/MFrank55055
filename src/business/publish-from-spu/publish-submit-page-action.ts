@@ -496,11 +496,30 @@ async function clickVisibleDialogAction(page: Page, labels: string[]): Promise<b
   }, labels);
 }
 
-async function readPublishSubmissionState(page: Page): Promise<{ submitted: boolean; issue: string }> {
-  const snapshot = await page.evaluate(() => ({
+async function readPublishSubmissionSnapshot(page: Page): Promise<{
+  bodyText: string;
+  url: string;
+  visibleErrorAlerts: string[];
+}> {
+  return page.evaluate(() => ({
     bodyText: document.body?.innerText || "",
-    url: window.location.href
+    url: window.location.href,
+    visibleErrorAlerts: Array.from(
+      document.querySelectorAll(".ecom-g-alert, [role='alert'], .ecom-g-message-notice-content")
+    )
+      .map((candidate) => candidate as HTMLElement)
+      .filter((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        const style = window.getComputedStyle(candidate);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      })
+      .map((candidate) => (candidate.innerText || candidate.textContent || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean)
   }));
+}
+
+async function readPublishSubmissionState(page: Page): Promise<{ submitted: boolean; issue: string }> {
+  const snapshot = await readPublishSubmissionSnapshot(page);
   const state = evaluatePublishSubmission(snapshot);
   return { submitted: state.submitted, issue: state.issue };
 }
@@ -543,8 +562,7 @@ async function readPublishSubmissionStateFromContext(
 
   const freshCreatePages: string[] = [];
   for (const candidate of pages) {
-    const state = await candidate
-      .evaluate(() => ({ bodyText: document.body?.innerText || "", url: window.location.href }))
+    const state = await readPublishSubmissionSnapshot(candidate)
       .then((snapshot) => evaluatePublishSubmissionAfterAction(snapshot, publishClickAttempted))
       .catch(() => null);
     if (state?.submitted) {
@@ -589,8 +607,7 @@ async function waitForPublishSubmissionFromContext(
         candidate.waitForLoadState("domcontentloaded", { timeout: 2500 }).catch(() => {}),
         candidate.waitForTimeout(1200).catch(() => {})
       ]);
-      const beforeDismiss = await candidate
-        .evaluate(() => ({ bodyText: document.body?.innerText || "", url: window.location.href }))
+      const beforeDismiss = await readPublishSubmissionSnapshot(candidate)
         .then((snapshot) => evaluatePublishSubmissionAfterAction(snapshot, publishClickAttempted))
         .catch(() => null);
       if (beforeDismiss?.submitted) {
@@ -601,8 +618,7 @@ async function waitForPublishSubmissionFromContext(
       }
       await clickVisibleDialogAction(candidate, ["不修改，继续发布", "确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
       await dismissTransientOverlays(candidate).catch(() => {});
-      const state = await candidate
-        .evaluate(() => ({ bodyText: document.body?.innerText || "", url: window.location.href }))
+      const state = await readPublishSubmissionSnapshot(candidate)
         .then((snapshot) => evaluatePublishSubmissionAfterAction(snapshot, publishClickAttempted))
         .catch((error) => ({
           submitted: false,

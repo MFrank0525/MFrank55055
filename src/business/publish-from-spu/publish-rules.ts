@@ -7,6 +7,7 @@ import {
 export interface PublishPageSnapshot {
   url: string;
   bodyText: string;
+  visibleErrorAlerts?: string[];
 }
 
 export interface PublishSubmissionRuleResult {
@@ -456,6 +457,18 @@ export function evaluatePublishSubmission(snapshot: PublishPageSnapshot): Publis
   }
   if (!snapshot.url.includes("/ffa/g/create") && /\/ffa\/g\/(success|audit)/.test(snapshot.url) && !bodyText.includes("发布商品")) {
     return { submitted: true, issue: "", freshCreatePage: false };
+  }
+
+  const operationOnlyErrorAlert = (snapshot.visibleErrorAlerts || []).find((alert) =>
+    /操作\s*ID\s*[：:]?\s*[A-Za-z0-9]+/i.test(alert)
+  );
+  if (snapshot.url.includes("/ffa/g/create") && operationOnlyErrorAlert) {
+    const operationId = operationOnlyErrorAlert.match(/操作\s*ID\s*[：:]?\s*([A-Za-z0-9]+)/i)?.[1] || "";
+    return {
+      submitted: false,
+      issue: `系统异常，请重试${operationId ? `（操作ID：${operationId}）` : ""}`,
+      freshCreatePage: false
+    };
   }
 
   // Doudian renders final-submit system rejections as short-lived toast text. This
