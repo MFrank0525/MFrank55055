@@ -103,6 +103,7 @@ import {
   evaluatePlatformSpuQueryPageReadiness,
   evaluatePublishSubmission,
   evaluatePublishSubmissionAfterAction,
+  resolvePublishFillCheckDialogAction,
   evaluateServiceFulfillmentCompletion,
   evaluateSpecTemplateCompletion,
   isDoudianLoginPageText,
@@ -199,34 +200,68 @@ export async function runPublishCheckOnPage(
   if (!fillCheckElement) {
     throw new Error("Publish fill-check button could not be tracked after clicking it.");
   }
-  await activePage
-    .waitForFunction(
-      (button) => {
-        const isBusy = (candidate: Element): boolean => {
-          const element = candidate as HTMLElement;
-          const marker = [
-            element.getAttribute("aria-busy") || "",
-            element.getAttribute("data-loading") || "",
-            String(element.className || "")
-          ]
-            .join(" ")
-            .toLowerCase();
-          const hasSpinner = Boolean(element.querySelector("[class*='spin' i], [class*='loading' i], [aria-label*='loading' i]"));
-          return marker.includes("true") || marker.includes("loading") || hasSpinner;
+  const fillCheckDeadline = Date.now() + 60000;
+  let fillCheckSettled = false;
+  while (Date.now() < fillCheckDeadline) {
+    const visibleDialog = activePage.locator("[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap").filter({ visible: true }).first();
+    if (await visibleDialog.count()) {
+      const dialogSnapshot = await visibleDialog.evaluate((dialog) => {
+        const root = dialog as HTMLElement;
+        const titleId = root.getAttribute("aria-labelledby") || "";
+        const title = titleId ? document.getElementById(titleId)?.textContent || "" : "";
+        const visibleActions = Array.from(root.querySelectorAll("button, [role='button'], a"))
+          .map((candidate) => candidate as HTMLElement)
+          .filter((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+          })
+          .map((candidate) => (candidate.innerText || candidate.textContent || "").replace(/\s+/g, " ").trim())
+          .filter(Boolean);
+        return {
+          title,
+          text: (root.innerText || root.textContent || "").replace(/\s+/g, " ").trim(),
+          visibleActions
         };
-        if (button.isConnected) {
-          return (button.textContent || "").includes("\u586B\u5199\u68C0\u67E5") && !isBusy(button);
-        }
-        return Array.from(document.querySelectorAll("button, [role='button']")).some(
-          (candidate) => (candidate.textContent || "").includes("\u586B\u5199\u68C0\u67E5") && !isBusy(candidate)
-        );
-      },
-      fillCheckElement,
-      { timeout: 20000, polling: 250 }
-    )
-    .catch(() => {
-      throw new Error("Publish fill-check did not settle within 20 seconds.");
-    });
+      });
+      const dialogAction = resolvePublishFillCheckDialogAction(dialogSnapshot);
+      if (dialogAction !== "return_to_confirm") {
+        throw new Error(`Pre-submit dialog remained visible during fill-check: ${dialogSnapshot.text.slice(0, 240)}`);
+      }
+      const returnButton = visibleDialog.getByRole("button", { name: "\u8fd4\u56de\u786e\u8ba4", exact: true }).first();
+      await returnButton.click({ timeout: 3000 });
+      await activePage.waitForTimeout(500);
+      continue;
+    }
+
+    fillCheckSettled = await activePage.evaluate((button) => {
+      const isBusy = (candidate: Element): boolean => {
+        const element = candidate as HTMLElement;
+        const marker = [
+          element.getAttribute("aria-busy") || "",
+          element.getAttribute("data-loading") || "",
+          String(element.className || "")
+        ]
+          .join(" ")
+          .toLowerCase();
+        const hasSpinner = Boolean(element.querySelector("[class*='spin' i], [class*='loading' i], [aria-label*='loading' i]"));
+        return marker.includes("true") || marker.includes("loading") || hasSpinner;
+      };
+      if (button.isConnected) {
+        return (button.textContent || "").includes("\u586B\u5199\u68C0\u67E5") && !isBusy(button);
+      }
+      return Array.from(document.querySelectorAll("button, [role='button']")).some(
+        (candidate) => (candidate.textContent || "").includes("\u586B\u5199\u68C0\u67E5") && !isBusy(candidate)
+      );
+    }, fillCheckElement);
+    if (fillCheckSettled) {
+      break;
+    }
+    await activePage.waitForTimeout(250);
+  }
+  if (!fillCheckSettled) {
+    throw new Error("Publish fill-check did not settle within 60 seconds.");
+  }
   await activePage.waitForTimeout(500);
   activePage = await recoverUsablePublishPage(activePage);
 
@@ -477,7 +512,7 @@ async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolea
     if (beforeDismiss?.submitted || beforeDismiss?.issue.includes("系统异常")) {
       return beforeDismiss;
     }
-    await clickVisibleDialogAction(page, ["确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
+    await clickVisibleDialogAction(page, ["不修改，继续发布", "确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
     await dismissTransientOverlays(page);
     const state = await readPublishSubmissionState(page).catch((error) => ({
       submitted: false,
@@ -564,7 +599,7 @@ async function waitForPublishSubmissionFromContext(
       if (beforeDismiss?.issue.includes("系统异常")) {
         return { page: candidate, submitted: false, issue: beforeDismiss.issue };
       }
-      await clickVisibleDialogAction(candidate, ["确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
+      await clickVisibleDialogAction(candidate, ["不修改，继续发布", "确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
       await dismissTransientOverlays(candidate).catch(() => {});
       const state = await candidate
         .evaluate(() => ({ bodyText: document.body?.innerText || "", url: window.location.href }))

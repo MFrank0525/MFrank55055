@@ -135,6 +135,7 @@ import {
   evaluatePublishCreatePageReadiness,
   evaluatePublishPreSubmitReadiness,
   evaluatePublishSubmission,
+  resolvePublishFillCheckDialogAction,
   evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
@@ -1501,6 +1502,24 @@ assert.deepEqual(
     visibleDialogs: []
   }),
   { ready: true, issue: "" }
+);
+assert.equal(
+  resolvePublishFillCheckDialogAction({
+    title: "发布提醒",
+    text: "规格信息冲突 商品标题9g*10丸与多个商品规格不一致，建议修改。",
+    visibleActions: ["去修改", "返回确认"]
+  }),
+  "return_to_confirm",
+  "fill-check must close the OTC title/spec reminder without crossing the publish boundary"
+);
+assert.equal(
+  resolvePublishFillCheckDialogAction({
+    title: "发布提醒",
+    text: "未知提醒",
+    visibleActions: ["不修改，继续发布", "返回确认"]
+  }),
+  "block",
+  "fill-check must never choose a continue-publishing action"
 );
 const publishSubmitActionSource = fs.readFileSync(
   path.resolve("src/business/publish-from-spu/publish-submit-page-action.ts"),
