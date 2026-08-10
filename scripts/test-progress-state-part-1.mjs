@@ -136,6 +136,7 @@ import {
   evaluatePublishPreSubmitReadiness,
   evaluatePublishSubmission,
   resolvePublishFillCheckDialogAction,
+  resolveExactPublishDialogActionLabel,
   evaluateSpecTemplateCompletion,
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
@@ -1520,6 +1521,21 @@ assert.equal(
   }),
   "block",
   "fill-check must never choose a continue-publishing action"
+);
+assert.equal(
+  resolveExactPublishDialogActionLabel(
+    ["\u4e0d\u4fee\u6539\uff0c\u7ee7\u7eed\u53d1\u5e03", "\u786e\u8ba4\u53d1\u5e03", "\u786e\u8ba4"],
+    ["\u8fd4\u56de\u786e\u8ba4"]
+  ),
+  "",
+  "the generic 确认 action must never substring-match the opposite 返回确认 action"
+);
+assert.equal(
+  resolveExactPublishDialogActionLabel(
+    ["\u4e0d\u4fee\u6539\uff0c\u7ee7\u7eed\u53d1\u5e03", "\u786e\u8ba4\u53d1\u5e03", "\u786e\u8ba4"],
+    ["\u8fd4\u56de\u786e\u8ba4", "\u4e0d\u4fee\u6539, \u7ee7\u7eed\u53d1\u5e03"]
+  ),
+  "\u4e0d\u4fee\u6539\uff0c\u7ee7\u7eed\u53d1\u5e03"
 );
 const publishSubmitActionSource = fs.readFileSync(
   path.resolve("src/business/publish-from-spu/publish-submit-page-action.ts"),

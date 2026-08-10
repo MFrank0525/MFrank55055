@@ -472,7 +472,7 @@ async function clickVisibleDialogAction(page: Page, labels: string[]): Promise<b
         if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden") {
           return null;
         }
-        const labelIndex = expectedLabels.findIndex((label) => text === normalize(label) || text.includes(normalize(label)));
+        const labelIndex = expectedLabels.findIndex((label) => text === normalize(label));
         if (labelIndex < 0) {
           return null;
         }

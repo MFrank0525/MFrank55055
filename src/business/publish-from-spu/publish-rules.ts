@@ -81,6 +81,12 @@ export function resolvePublishFillCheckDialogAction(input: {
   return "block";
 }
 
+export function resolveExactPublishDialogActionLabel(expectedLabels: string[], visibleActions: string[]): string {
+  const normalize = (value: string): string => value.replace(/\s+/g, "").replace(/,/g, "\uff0c").trim();
+  const visible = new Set(visibleActions.map(normalize));
+  return expectedLabels.find((label) => visible.has(normalize(label))) || "";
+}
+
 export type ProductListPreflightMode = "known_sequence" | "unresolved_disorder";
 
 export function resolveProductListPreflightMode(input: {
