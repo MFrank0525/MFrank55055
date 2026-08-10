@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
 import { requireOpenAiCompatibleImageProvider } from "./image-generation-provider.js";
+import { selectRemainingResumeProductFolderNames } from "./resume-rules.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -16,10 +17,54 @@ interface PublishManifestFile {
 
 interface ResultTask {
   sourceImagePath?: string;
+  taskId?: string;
+  generatedProductFolders?: string[];
+  shopDistributionArtifact?: { distributedFolders?: string[] };
+}
+
+export function findLatestIncompletePublishManifestForResume(options: {
+  rootDir: string;
+  resultFiles: string[];
+  fileMtimeMs: (file: string) => number | undefined;
+  countSafelyPublishedManifestEntries: (runtimeDir: string) => number;
+  shouldResumeSourceImageForCurrentFeishuBatch: (sourceImagePath: string, reusableArtifactCount: number, runtimeBatchFingerprint?: string) => boolean;
+}): { runtimeDir: string; resultFile: string; result: AutoListingResultFile; task: ResultTask; remainingProductFolderNames: string[] } | undefined {
+  const candidates = options.resultFiles.flatMap((resultFile) => {
+    const result = readJsonFile<AutoListingResultFile>(resultFile);
+    const runtimeDir = result?.runtimeDir || path.dirname(resultFile);
+    const manifest = readJsonFile<PublishManifestFile>(path.join(runtimeDir, "publish-manifest.json"));
+    return (result?.tasks || []).flatMap((task) => {
+      const allProductFolderNames = [
+        ...(task.shopDistributionArtifact?.distributedFolders || []),
+        ...(task.generatedProductFolders || [])
+      ].map((folder) => path.basename(folder)).filter(Boolean);
+      const remainingProductFolderNames = selectRemainingResumeProductFolderNames({
+        allProductFolderNames,
+        manifestEntries: manifest?.entries || []
+      });
+      if (!task.sourceImagePath || !allProductFolderNames.length || !manifest?.entries?.length || !remainingProductFolderNames.length ||
+        !fs.existsSync(task.sourceImagePath) ||
+        !options.shouldResumeSourceImageForCurrentFeishuBatch(task.sourceImagePath, allProductFolderNames.length, result?.feishuBatchFingerprint)) {
+        return [];
+      }
+      return [{
+        runtimeDir,
+        resultFile,
+        result: result!,
+        task,
+        remainingProductFolderNames,
+        safelyPublishedCount: options.countSafelyPublishedManifestEntries(runtimeDir),
+        mtimeMs: options.fileMtimeMs(path.join(runtimeDir, "publish-manifest.json")) || options.fileMtimeMs(resultFile) || 0
+      }];
+    });
+  });
+  return candidates.sort((a, b) => b.safelyPublishedCount - a.safelyPublishedCount || b.mtimeMs - a.mtimeMs)[0];
 }
 
 interface AutoListingResultFile {
+  runId?: string;
   feishuBatchFingerprint?: string;
+  businessRuleFingerprint?: string;
   runtimeDir?: string;
   tasks?: ResultTask[];
 }

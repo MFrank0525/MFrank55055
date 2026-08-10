@@ -17,6 +17,7 @@
     "auto-listing:hermes-start": "npm --silent run build && node dist/src/cli/auto-listing-controller.js start-new --text",
     "auto-listing:hermes-continue": "npm --silent run build && node dist/src/cli/auto-listing-controller.js continue --text",
     "auto-listing:recover-uncertain": "npm --silent run build && node dist/src/cli/auto-listing-recover-uncertain.js",
+    "auto-listing:reconcile-positive": "npm --silent run build && node dist/src/cli/auto-listing-reconcile-positive.js",
     "test:uncertain-publish-recovery": "npm run build && node scripts/test-uncertain-publish-recovery.mjs",
     "auto-listing:hermes-rerun-current-batch": "npm --silent run build && node dist/src/cli/auto-listing-controller.js start-new --rerun-current-batch --text",
     "auto-listing:hermes-start:dry": "npm --silent run build && node dist/src/cli/auto-listing-controller.js start-new --dry-run --text",

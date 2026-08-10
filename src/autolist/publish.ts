@@ -273,7 +273,7 @@ function requiresPostSubmitListVerification(
   );
 }
 
-function markPublishResultListVerified(resultFile: string, verification: DoudianProductListVerificationResult): void {
+export function markPublishResultListVerified(resultFile: string, verification: DoudianProductListVerificationResult): void {
   const now = new Date().toISOString();
   const result = fs.existsSync(resultFile)
     ? JSON.parse(fs.readFileSync(resultFile, "utf8")) as Record<string, unknown>

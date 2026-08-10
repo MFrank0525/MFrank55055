@@ -58,6 +58,7 @@ import {
 } from "../autolist/paid-image-submission-ledger.js";
 import {
   buildFallbackSourceJobFromPreflight,
+  findLatestIncompletePublishManifestForResume,
   findLatestUnsafePublishManifestForResume as selectLatestUnsafePublishManifestForResume,
   unsafePublishEntriesForResume
 } from "../autolist/unsafe-publish-resume.js";
@@ -803,6 +804,36 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
       atomicWriteJson(resumeJobFile, resumeJob);
       return resumeJob;
     }
+  }
+
+  const incompleteLatest = findLatestIncompletePublishManifestForResume({
+    rootDir,
+    resultFiles: listResultFilesNewestFirst(),
+    fileMtimeMs,
+    countSafelyPublishedManifestEntries,
+    shouldResumeSourceImageForCurrentFeishuBatch
+  });
+  if (incompleteLatest?.result.businessRuleFingerprint === buildAutoListingBusinessRuleFingerprint() && incompleteLatest.task.sourceImagePath) {
+    const resumeJob: AutoListingJobFile = {
+      ...sourceJob,
+      runtimeDir: incompleteLatest.runtimeDir,
+      resultFile: incompleteLatest.resultFile,
+      runId: incompleteLatest.result.runId || path.basename(incompleteLatest.runtimeDir),
+      input: {
+        ...sourceJob.input,
+        startStep: "published",
+        endStep: "done",
+        resumeSourceImagePath: incompleteLatest.task.sourceImagePath,
+        resumeTaskId: incompleteLatest.task.taskId,
+        resumeProductFolderNames: incompleteLatest.remainingProductFolderNames,
+        feishuBatchFingerprint: incompleteLatest.result.feishuBatchFingerprint,
+        businessRuleFingerprint: incompleteLatest.result.businessRuleFingerprint,
+        maxImagesPerRun: 1,
+        clearTestOutputsBeforeRun: false
+      }
+    };
+    atomicWriteJson(resumeJobFile, resumeJob);
+    return resumeJob;
   }
 
   const latest = findLatestFailedResultForResume();

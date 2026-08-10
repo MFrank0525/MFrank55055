@@ -8,6 +8,8 @@ import {
   isKnownCategoryMisplacementWarning,
   selectCategoryMisplacementWarningCloseControl
 } from "../dist/src/business/publish-from-spu/product-list-verification-action.js";
+import { reconcilePositiveUncertainPublish } from "../dist/src/autolist/reconcile-positive-uncertain-publish.js";
+import { findLatestIncompletePublishManifestForResume } from "../dist/src/autolist/unsafe-publish-resume.js";
 
 assert.equal(isKnownCategoryMisplacementWarning(
   "检测到您有3个商品类目错放，逾期未改会被平台下架，请尽快修改！建议使用推荐类目，若你认为平台判断有误，可发起申诉"
@@ -96,6 +98,46 @@ try {
   );
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
+}
+
+const positiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), "listing-positive-reconciliation-"));
+try {
+  const runDir = path.join(positiveRoot, "run");
+  const targetDir = path.join(runDir, "publish", "target-11");
+  const positiveShop = path.join(positiveRoot, "03shop");
+  fs.mkdirSync(targetDir, { recursive: true });
+  fs.mkdirSync(positiveShop, { recursive: true });
+  const identity = { batchFingerprint: "batch", recordId: "record", taskId: "task", shopCode: "03", watermarkNo: 11 };
+  fs.writeFileSync(path.join(targetDir, "result.json"), JSON.stringify({
+    data: { shopFolder: positiveShop, metadata: { title: "已存在标题", canonicalIdentity: identity }, browser: { publishClickAttempted: true, publishClicked: false } }
+  }));
+  fs.writeFileSync(path.join(runDir, "publish-manifest.json"), JSON.stringify({ entries: [{
+    targetIdentity: identity, targetKey: "target-11", runtimeKey: "target-11", productFolder: "/p/11",
+    shopFolder: positiveShop, watermarkNo: 11, status: "failed", finalVerifyStatus: "submit_accepted_unconfirmed", message: "uncertain"
+  }] }));
+  await reconcilePositiveUncertainPublish({
+    runtimeDir: targetDir, shopFolder: positiveShop,
+    verify: async () => ({ found: true, title: "已存在标题", shopFolder: positiveShop, shopName: "店铺", countText: "共1条", matchedRows: ["已存在标题"], pageUrl: "https://example.invalid", screenshotFile: "found.png" })
+  });
+  const reconciledManifest = JSON.parse(fs.readFileSync(path.join(runDir, "publish-manifest.json"), "utf8"));
+  assert.equal(reconciledManifest.entries[0].status, "published");
+  assert.equal(reconciledManifest.entries[0].finalVerifyStatus, "list_verified");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(targetDir, "result.json"), "utf8")).finalVerifyStatus, "list_verified");
+  const sourceImage = path.join(positiveRoot, "source.png");
+  fs.writeFileSync(sourceImage, "image");
+  const runResultFile = path.join(runDir, "result.json");
+  fs.writeFileSync(runResultFile, JSON.stringify({
+    runtimeDir: runDir, feishuBatchFingerprint: "batch", businessRuleFingerprint: "rules",
+    tasks: [{ taskId: "task", sourceImagePath: sourceImage, generatedProductFolders: ["/p/11", "/p/12"] }]
+  }));
+  const incomplete = findLatestIncompletePublishManifestForResume({
+    rootDir: positiveRoot, resultFiles: [runResultFile], fileMtimeMs: () => 1,
+    countSafelyPublishedManifestEntries: () => 1,
+    shouldResumeSourceImageForCurrentFeishuBatch: () => true
+  });
+  assert.deepEqual(incomplete?.remainingProductFolderNames, ["12"]);
+} finally {
+  fs.rmSync(positiveRoot, { recursive: true, force: true });
 }
 
 console.log("uncertain publish recovery tests passed");
