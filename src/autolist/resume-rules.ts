@@ -93,8 +93,12 @@ export function shouldReplaceStaleResumeStartStep(input: {
   inferredStateStartStep?: string;
   stateProductFolderCount: number;
   safelyPublishedCount: number;
+  hasPendingPublishWork?: boolean;
 }): boolean {
   if (!input.resumeStartStep || !input.inferredStateStartStep || input.resumeStartStep === input.inferredStateStartStep) {
+    return false;
+  }
+  if (input.resumeStartStep === "published" && input.hasPendingPublishWork) {
     return false;
   }
   return input.stateProductFolderCount > 0 || input.safelyPublishedCount > 0;

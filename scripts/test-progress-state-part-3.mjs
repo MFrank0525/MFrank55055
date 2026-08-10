@@ -1737,6 +1737,17 @@ assert.equal(
   false
 );
 assert.equal(
+  shouldReplaceStaleResumeStartStep({
+    resumeStartStep: "published",
+    inferredStateStartStep: "source_images_discovered",
+    stateProductFolderCount: 0,
+    safelyPublishedCount: 19,
+    hasPendingPublishWork: true
+  }),
+  false,
+  "A preflight failure's freshly initialized task state must not replace an exact publish resume while its manifest still has pending work."
+);
+assert.equal(
   shouldInvalidatePublishedResumeWithoutProductFolders({
     resumeStartStep: "published",
     declaredProductFolderCount: 20,

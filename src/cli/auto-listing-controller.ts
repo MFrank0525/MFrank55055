@@ -289,6 +289,13 @@ function shouldResumeCurrentFailure(): boolean {
   }
   const resumeProductFolderCount = countResumeProductFolders(resumeJob);
   const declaredProductFolderCount = countDeclaredResumeProductFolders(resumeJob);
+  const publishResumeNeedsWork =
+    startStep === "published" &&
+    resumeProductFolderCount > 0 &&
+    hasPendingResumeProductFolders({
+      resumeProductFolderNames: resumeJob.input?.resumeProductFolderNames || [],
+      manifestEntries: readJsonFile<PublishManifestFile>(path.join(resumeRuntimeDir, "publish-manifest.json"))?.entries || []
+    });
   if (
     shouldInvalidatePublishedResumeWithoutProductFolders({
       resumeStartStep: String(startStep),
@@ -322,7 +329,8 @@ function shouldResumeCurrentFailure(): boolean {
         resumeStartStep: String(startStep),
         inferredStateStartStep,
         stateProductFolderCount: collectResumeProductFolderNames(stateTask).length,
-        safelyPublishedCount: countSafelyPublishedManifestEntries(resumeRuntimeDir)
+        safelyPublishedCount: countSafelyPublishedManifestEntries(resumeRuntimeDir),
+        hasPendingPublishWork: publishResumeNeedsWork
       })
     ) {
       fs.rmSync(resumeJobFile, { force: true });
@@ -340,10 +348,6 @@ function shouldResumeCurrentFailure(): boolean {
     unsafePublishEntriesForResume(resumeRuntimeDir).some((entry) =>
       entry.sourceImagePath && path.resolve(rootDir, entry.sourceImagePath) === path.resolve(rootDir, resumeSourceImagePath)
     );
-  const publishResumeNeedsWork =
-    startStep === "published" &&
-    resumeProductFolderCount > 0 &&
-    hasPendingResumeProductFolders({ resumeProductFolderNames: resumeJob.input?.resumeProductFolderNames || [], manifestEntries: readJsonFile<PublishManifestFile>(path.join(resumeRuntimeDir, "publish-manifest.json"))?.entries || [] });
   const shouldResume = unsafePublishResumeNeedsWork || publishResumeNeedsWork || !result || (result.ok !== true && result.status !== "success");
   const latestRelevantFailure = findLatestFailedResultForResume();
   if (!unsafePublishResumeNeedsWork && !publishResumeNeedsWork && (!latestRelevantFailure || path.resolve(latestRelevantFailure.resultFile) !== resultFile)) {
