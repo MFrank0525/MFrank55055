@@ -602,6 +602,7 @@ function writeCanonicalResumeJob(options: {
     inferResumeStartStepForTask(options.task)
   );
   const manifest = readJsonFile<PublishManifestFile>(path.join(options.runtimeDir, "publish-manifest.json"));
+  const publishPlan = readJsonFile<PublishPlanFile>(path.join(options.runtimeDir, "publish-plan.json"));
   const decision = resolveCanonicalResumeDecision({
     batchFingerprint: options.batchFingerprint || "",
     recordId: options.task.feishuProductRecord?.recordId,
@@ -609,6 +610,7 @@ function writeCanonicalResumeJob(options: {
     inferredArtifactStartStep: artifactStartStep,
     productFolders: collectResumeProductFolderNames(options.task),
     manifestEntries: manifest?.entries || [],
+    canonicalPlanEntries: publishPlan?.plan || [],
     expectedTargetCount: getProductCategoryPlan(options.task.feishuProductRecord?.productCategory).titleCount
   });
   const shopRootDir = resolveResumeShopRootDir({

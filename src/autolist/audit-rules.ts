@@ -780,6 +780,14 @@ function isSafePublishSignal(status?: string, finalVerifyStatus?: string): boole
   return status === "published" && SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(finalVerifyStatus as never);
 }
 
+function isExternalPreSubmitWait(evidence: { errorClass?: string; finalVerifyStatus?: string } | undefined): boolean {
+  return evidence?.errorClass === "doudian_login_required" && evidence.finalVerifyStatus === "not_checked";
+}
+
+export function shouldAuditDistributedTitleTask(status?: string): boolean {
+  return !["cleaned", "done"].includes(status || "");
+}
+
 function taskExpectedPublishFolders(task: ImageTaskState): string[] {
   if (task.shopDistributionArtifact?.distributedFolders?.length) {
     return task.shopDistributionArtifact.distributedFolders;
@@ -845,7 +853,8 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
         }
         const failedResult = result && (result.status === "failed" || result.ok === false || result.finalVerifyStatus === "needs_manual_review");
         const failedManifest = manifest && (manifest.status === "failed" || manifest.finalVerifyStatus === "needs_manual_review");
-        if (!failedResult && !failedManifest && input.allowInProgress) {
+        const externalWait = isExternalPreSubmitWait(result) || isExternalPreSubmitWait(manifest);
+        if ((!failedResult && !failedManifest || externalWait) && input.allowInProgress) {
           inProgressPublishCount += 1;
           continue;
         }
@@ -890,7 +899,8 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
       }
       const failedResult = result && (result.status === "failed" || result.ok === false || result.finalVerifyStatus === "needs_manual_review");
       const failedManifest = manifest && (manifest.status === "failed" || manifest.finalVerifyStatus === "needs_manual_review");
-      if (!failedResult && !failedManifest && input.allowInProgress) {
+      const externalWait = isExternalPreSubmitWait(result) || isExternalPreSubmitWait(manifest);
+      if ((!failedResult && !failedManifest || externalWait) && input.allowInProgress) {
         inProgressPublishCount += 1;
         continue;
       }

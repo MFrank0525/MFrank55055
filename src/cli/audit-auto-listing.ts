@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readImageDimensions } from "../utils/image-dimensions.js";
-import { auditAutoListingContinuity, auditCompletedBatchResidue, auditDistributedTitleArtifacts, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, buildCanonicalPublishTargetKeys, resolveDistributedTitleAuditFolders, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
+import { auditAutoListingContinuity, auditCompletedBatchResidue, auditDistributedTitleArtifacts, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, buildCanonicalPublishTargetKeys, resolveDistributedTitleAuditFolders, shouldAuditDistributedTitleTask, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
 import {
@@ -332,6 +332,11 @@ async function main(): Promise<void> {
       : undefined;
   const latestRuntimeDir = state?.runId ? path.join(resolved.runtimeRootDir, state.runId) : resolved.runtimeRootDir;
   let manifest = { generatedAt: new Date().toISOString(), entries: [] as ReturnType<typeof loadPublishManifest>["entries"] };
+  let canonicalPlanEntries: Array<{
+    targetKey?: string;
+    targetIdentity?: { batchFingerprint?: string; recordId?: string; taskId?: string; shopCode?: string; watermarkNo?: number };
+    productFolder?: string;
+  }> = [];
   const runtimeErrors: DeepAuditIssue[] = [];
   const invalidBusinessRuleRunDirs = fs.existsSync(resolved.runtimeRootDir)
     ? fs.readdirSync(resolved.runtimeRootDir, { withFileTypes: true }).filter((entry) => {
@@ -357,6 +362,7 @@ async function main(): Promise<void> {
   } catch (error) {
     runtimeErrors.push({ code: "publish_manifest_invalid", message: error instanceof Error ? error.message : String(error) });
   }
+  canonicalPlanEntries = readOptionalJson<{ plan?: typeof canonicalPlanEntries }>(path.join(latestRuntimeDir, "publish-plan.json"))?.plan || [];
   const continuity = auditAutoListingContinuity({
     records,
     processedImages,
@@ -434,7 +440,7 @@ async function main(): Promise<void> {
   });
   const distributedTitles = auditDistributedTitleArtifacts({
     tasks: (state?.tasks || []).flatMap((task) => {
-      if (state?.status === "completed") return [];
+      if (state?.status === "completed" || !shouldAuditDistributedTitleTask(task.status)) return [];
       if (!task.feishuProductRecord) return [];
       const folders = resolveDistributedTitleAuditFolders({
         batchFingerprint: state?.feishuBatchFingerprint || "",
@@ -499,6 +505,7 @@ async function main(): Promise<void> {
         inferredArtifactStartStep: inferResumeStartStepForTask(recoveryTask),
         productFolders: recoveryTask.shopDistributionArtifact?.distributedFolders || recoveryTask.generatedProductFolders,
         manifestEntries: manifest.entries,
+        canonicalPlanEntries,
         expectedTargetCount: getProductCategoryPlan(recoveryTask.feishuProductRecord.productCategory).titleCount
       });
     } catch (error) {

@@ -1057,8 +1057,8 @@ assert.match(
 );
 assert.match(
   processedCompletionRulesSource,
-  /taskHasSafePublishArtifact[\s\S]*SAFE_PUBLISH_FINAL_VERIFY_STATUSES[\s\S]*manifestHasSafePublishCoverage/,
-  "Processed-image marking must accept safe publish evidence from task artifacts or publish-manifest, not only cleaned/done task status"
+  /taskHasAcceptedPublishArtifact[\s\S]*isPublishOutcomeAcceptedForBatchCompletion[\s\S]*manifestHasSafePublishCoverage/,
+  "Processed-image marking must accept canonical terminal publish evidence from task artifacts or publish-manifest, not only cleaned/done task status"
 );
 assert.match(
   orchestratorSource,

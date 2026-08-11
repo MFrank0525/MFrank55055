@@ -130,9 +130,17 @@ export interface PublishManifestFile {
 export interface PublishPlanFile {
   generatedAt?: string;
   plan?: Array<{
+    targetKey?: string;
+    targetIdentity?: {
+      batchFingerprint?: string;
+      recordId?: string;
+      taskId?: string;
+      shopCode?: string;
+      watermarkNo?: number;
+    };
     productFolder?: string;
     runtimeKey?: string;
-    action?: "skip" | "publish";
+    action?: "skip" | "publish" | "review";
   }>;
 }
 

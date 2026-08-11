@@ -244,7 +244,7 @@ export function auditRuntimeControllerConsistency(input: {
   runStatus?: string;
   canonicalRecovery?: {
     startStep: AutoListingStep;
-    source: "publish-manifest" | "task-artifacts";
+    source: "publish-manifest" | "publish-plan+manifest" | "task-artifacts";
     productFolderCount: number;
   };
 }): { ok: boolean; errors: DeepAuditIssue[]; warnings: DeepAuditIssue[]; evidence: string[] } {
@@ -260,7 +260,7 @@ export function auditRuntimeControllerConsistency(input: {
     const recovery = input.canonicalRecovery;
     const hasExactCanonicalRecovery = Boolean(
       recovery &&
-      recovery.source === "publish-manifest" &&
+      (recovery.source === "publish-manifest" || recovery.source === "publish-plan+manifest") &&
       (recovery.startStep === "published" || recovery.startStep === "cleaned") &&
       recovery.productFolderCount > 0
     );

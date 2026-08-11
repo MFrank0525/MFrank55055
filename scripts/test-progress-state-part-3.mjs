@@ -12,8 +12,13 @@ import {
   summarizeFeishuBatchProgress,
   auditMainImageGeneration,
   auditPublishMainImageSubset,
-  auditPublishCoverage
+  auditPublishCoverage,
+  shouldAuditDistributedTitleTask
 } from "../dist/src/autolist/audit-rules.js";
+
+assert.equal(shouldAuditDistributedTitleTask("cleaned"), false);
+assert.equal(shouldAuditDistributedTitleTask("done"), false);
+assert.equal(shouldAuditDistributedTitleTask("published"), true);
 import {
   shouldContinueFeishuBatchAfterChildExit,
   shouldContinueFullFlowAfterChildExit,
@@ -1837,6 +1842,41 @@ assert.throws(
   /coverage is incomplete/,
   "Partial canonical manifest coverage must fail closed instead of guessing a resume plan."
 );
+assert.deepEqual(
+  resolveCanonicalResumeDecision({
+    batchFingerprint: "batch-a",
+    recordId: "record-a",
+    taskId: "image-001",
+    inferredArtifactStartStep: "published",
+    productFolders: canonicalResumeFolders,
+    manifestEntries: canonicalResumeManifest.slice(0, 9),
+    canonicalPlanEntries: canonicalResumeManifest.map((entry) => ({
+      targetIdentity: entry.targetIdentity,
+      productFolder: entry.productFolder
+    })),
+    expectedTargetCount: 20
+  }),
+  {
+    startStep: "published",
+    resumeProductFolderNames: canonicalResumeFolders.slice(9).map((folder) => folder.split("/").pop()),
+    source: "publish-plan+manifest"
+  },
+  "A complete immutable canonical plan must authorize the not-yet-attempted tail when login expires before the manifest reaches all targets."
+);
+assert.throws(
+  () => resolveCanonicalResumeDecision({
+    batchFingerprint: "batch-a",
+    recordId: "record-a",
+    taskId: "image-001",
+    inferredArtifactStartStep: "published",
+    productFolders: canonicalResumeFolders,
+    manifestEntries: canonicalResumeManifest.slice(0, 9),
+    canonicalPlanEntries: canonicalResumeManifest.slice(0, 19),
+    expectedTargetCount: 20
+  }),
+  /coverage is incomplete/,
+  "A partial manifest must remain fail-closed when its immutable canonical plan is also incomplete."
+);
 assert.equal(
   inferResumeStartStepForTask({
     status: "published",
@@ -2094,6 +2134,27 @@ assert.equal(publishInProgress.ok, true);
 assert.equal(publishInProgress.summary.safelyPublishedCount, 0);
 assert.equal(publishInProgress.summary.inProgressPublishCount, 1);
 assert.equal(publishInProgress.errors.length, 0);
+
+const publishLoginWait = auditPublishCoverage({
+  tasks: [publishTask],
+  manifestEntries: [
+    {
+      productFolder: "/work/shop/product-1",
+      runtimeKey: "shop__product-1",
+      shopFolder: "/work/shop",
+      watermarkNo: 1,
+      status: "failed",
+      finalVerifyStatus: "not_checked",
+      errorClass: "doudian_login_required",
+      message: "Doudian login required before any submit attempt.",
+      updatedAt: "2026-05-23T00:00:00.000Z"
+    }
+  ],
+  allowInProgress: true
+});
+assert.equal(publishLoginWait.ok, true);
+assert.equal(publishLoginWait.summary.inProgressPublishCount, 1);
+assert.equal(publishLoginWait.errors.length, 0);
 
 const publishTerminalMissing = auditPublishCoverage({
   tasks: [publishTask],

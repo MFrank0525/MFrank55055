@@ -4,6 +4,7 @@
 
 | Requirement | Implementation | Verification | Status |
 | --- | --- | --- | --- |
+| Login expiry after a safe publish prefix must enter observable wait and resume the untouched tail | Immutable 20-target publish plan authorizes target coverage; manifest remains the sole outcome authority for attempted targets | Red-before-green canonical plan plus partial manifest recovery regression; live image-008 target 09 failure; full rules, doctors, representative simulation, real Feishu API, and two eight-dimension audits | verified |
 | Preserve the dosage separator from Feishu `标题固定后缀` | Title suffix normalization removes whitespace only and retains `*`; keyword cleanup remains separate | `test-feishu-title-keywords-rule.mjs` with `锁阳固精丸北方经开9g*10丸`; full `rules:check` | verified |
 | Refuse an OTC publish whose workbook lost the fixed-suffix `*` | Publish metadata construction requires the workbook title to end with the exact current Feishu suffix before browser actions | OTC publish-policy regression and representative simulation | verified |
 | Rebuild all 20 locked-batch workbooks without losing metadata | Distributed-title regeneration preflights exactly one canonical workbook per folder, stages all replacements, and changes only the title row | 20-workbook regression; current run deep-audit evidence `titles=20/20,unique=20` in two independent audits | verified |

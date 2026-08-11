@@ -1,3 +1,4 @@
+import path from "node:path";
 import { AUTO_LISTING_STEPS, normalizeAutoListingStep, type AutoListingStep } from "./types.js";
 import { isManifestEntryAcceptedForBatchCompletion, SAFE_PUBLISH_FINAL_VERIFY_STATUSES, type PublishFinalVerifyStatus } from "./publish-manifest.js";
 
@@ -77,11 +78,12 @@ export function resolveCanonicalResumeDecision(input: {
   inferredArtifactStartStep: AutoListingStep;
   productFolders: string[];
   manifestEntries: CanonicalResumeManifestEntry[];
+  canonicalPlanEntries?: CanonicalResumeManifestEntry[];
   expectedTargetCount?: number;
 }): {
   startStep: AutoListingStep;
   resumeProductFolderNames: string[];
-  source: "publish-manifest" | "task-artifacts";
+  source: "publish-manifest" | "publish-plan+manifest" | "task-artifacts";
 } {
   const scopedManifest = input.manifestEntries.filter((entry) => {
     const identity = entry.targetIdentity;
@@ -95,29 +97,55 @@ export function resolveCanonicalResumeDecision(input: {
   const orderedManifest = [...scopedManifest].sort(
     (left, right) => Number(left.targetIdentity?.watermarkNo || 0) - Number(right.targetIdentity?.watermarkNo || 0)
   );
-  if (scopedManifest.length > 0 && input.expectedTargetCount !== undefined) {
-    if (scopedManifest.length !== input.expectedTargetCount) {
+  const scopedPlan = (input.canonicalPlanEntries || []).filter((entry) => {
+    const identity = entry.targetIdentity;
+    return Boolean(
+      identity &&
+      identity.batchFingerprint === input.batchFingerprint &&
+      identity.taskId === input.taskId &&
+      (!input.recordId || identity.recordId === input.recordId)
+    );
+  });
+  const orderedPlan = [...scopedPlan].sort(
+    (left, right) => Number(left.targetIdentity?.watermarkNo || 0) - Number(right.targetIdentity?.watermarkNo || 0)
+  );
+  const identityKey = (entry: CanonicalResumeManifestEntry): string => entry.targetKey || [
+    entry.targetIdentity?.batchFingerprint,
+    entry.targetIdentity?.recordId,
+    entry.targetIdentity?.taskId,
+    entry.targetIdentity?.shopCode,
+    entry.targetIdentity?.watermarkNo
+  ].join("|");
+  let coverageEntries = orderedManifest;
+  let usesCanonicalPlan = false;
+  if ((scopedManifest.length > 0 || scopedPlan.length > 0) && input.expectedTargetCount !== undefined) {
+    if (scopedManifest.length !== input.expectedTargetCount && scopedPlan.length !== input.expectedTargetCount) {
       throw new Error(
-        `Canonical publish manifest coverage is incomplete for ${input.taskId}: expected ${input.expectedTargetCount}, got ${scopedManifest.length}.`
+        `Canonical publish coverage is incomplete for ${input.taskId}: expected ${input.expectedTargetCount}, got manifest=${scopedManifest.length}, plan=${scopedPlan.length}.`
       );
     }
-    const targetKeys = scopedManifest.map((entry) => entry.targetKey || [
-      entry.targetIdentity?.batchFingerprint,
-      entry.targetIdentity?.recordId,
-      entry.targetIdentity?.taskId,
-      entry.targetIdentity?.shopCode,
-      entry.targetIdentity?.watermarkNo
-    ].join("|"));
+    usesCanonicalPlan = scopedManifest.length !== input.expectedTargetCount;
+    coverageEntries = usesCanonicalPlan ? orderedPlan : orderedManifest;
+    const targetKeys = coverageEntries.map(identityKey);
     if (new Set(targetKeys).size !== targetKeys.length) {
-      throw new Error(`Canonical publish manifest contains duplicate target identities for ${input.taskId}.`);
+      throw new Error(`Canonical publish coverage contains duplicate target identities for ${input.taskId}.`);
+    }
+    if (usesCanonicalPlan) {
+      const planByIdentity = new Map(orderedPlan.map((entry) => [identityKey(entry), entry]));
+      for (const manifestEntry of orderedManifest) {
+        const planEntry = planByIdentity.get(identityKey(manifestEntry));
+        if (!planEntry || path.resolve(planEntry.productFolder || "") !== path.resolve(manifestEntry.productFolder || "")) {
+          throw new Error(`Canonical publish manifest does not match the immutable plan for ${input.taskId}: ${identityKey(manifestEntry)}.`);
+        }
+      }
     }
   }
   const folderName = (folder: string | undefined): string => String(folder || "").split(/[\\/]/).pop() || "";
   const allProductFolderNames = Array.from(new Set([
-    ...orderedManifest.map((entry) => folderName(entry.productFolder)),
+    ...coverageEntries.map((entry) => folderName(entry.productFolder)),
     ...input.productFolders.map(folderName)
   ].filter(Boolean)));
-  if (scopedManifest.length > 0) {
+  if (scopedManifest.length > 0 || usesCanonicalPlan) {
     const acceptedNames = new Set(
       scopedManifest
         .filter((entry) => isManifestEntryAcceptedForBatchCompletion(entry as never))
@@ -126,8 +154,8 @@ export function resolveCanonicalResumeDecision(input: {
     );
     const remainingNames = allProductFolderNames.filter((name) => !acceptedNames.has(name));
     return remainingNames.length > 0
-      ? { startStep: "published", resumeProductFolderNames: remainingNames, source: "publish-manifest" }
-      : { startStep: "cleaned", resumeProductFolderNames: allProductFolderNames, source: "publish-manifest" };
+      ? { startStep: "published", resumeProductFolderNames: remainingNames, source: usesCanonicalPlan ? "publish-plan+manifest" : "publish-manifest" }
+      : { startStep: "cleaned", resumeProductFolderNames: allProductFolderNames, source: usesCanonicalPlan ? "publish-plan+manifest" : "publish-manifest" };
   }
   return {
     startStep: input.inferredArtifactStartStep,
