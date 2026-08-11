@@ -1,30 +1,17 @@
-import type { PublishFinalVerifyStatus, PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
+import type { PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
 import {
   isManifestEntryAcceptedForBatchCompletionForIdentity,
-  SAFE_PUBLISH_FINAL_VERIFY_STATUSES,
-  BATCH_COMPLETION_FINAL_VERIFY_STATUSES
+  isPublishOutcomeAcceptedForBatchCompletion
 } from "./publish-manifest.js";
 import { getProductCategoryPlan } from "./product-category.js";
 import type { ImageTaskState } from "./types.js";
 
-function taskHasSafePublishArtifact(task: ImageTaskState, expectedPublishCount: number): boolean {
+function taskHasAcceptedPublishArtifact(task: ImageTaskState, expectedPublishCount: number): boolean {
   const publishResults = task.publishArtifact?.results || [];
   if (publishResults.length < expectedPublishCount) {
     return false;
   }
-  return publishResults.every((result) =>
-    (
-      result.ok === true &&
-      result.status === "published" &&
-      SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(result.finalVerifyStatus as PublishFinalVerifyStatus)
-    ) ||
-    (
-      result.status === "failed" &&
-      result.finalVerifyStatus === "submit_accepted_unconfirmed" &&
-      result.errorClass === "final_publish_state_uncertain" &&
-      BATCH_COMPLETION_FINAL_VERIFY_STATUSES.includes(result.finalVerifyStatus as PublishFinalVerifyStatus)
-    )
-  );
+  return publishResults.every((result) => isPublishOutcomeAcceptedForBatchCompletion(result));
 }
 
 function manifestHasSafePublishCoverage(
@@ -66,7 +53,7 @@ export function hasCompleteProductPublishCoverage(input: {
     return false;
   }
   return (
-    taskHasSafePublishArtifact(input.task, expectedPublishCount) ||
+    taskHasAcceptedPublishArtifact(input.task, expectedPublishCount) ||
     manifestHasSafePublishCoverage(input.publishManifestEntries || [], expectedPublishCount, input.productIdentity)
   );
 }

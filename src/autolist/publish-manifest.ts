@@ -59,6 +59,7 @@ export interface PublishPlanItem {
   reason: string;
   manifestStatus?: string;
   finalVerifyStatus?: PublishFinalVerifyStatus;
+  errorClass?: string;
 }
 
 export interface PublishProductIdentity {
@@ -150,8 +151,12 @@ export function isManifestEntrySafelyPublished(entry: PublishManifestEntry | und
   return Boolean(entry && entry.status === "published" && SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus));
 }
 
-export function isManifestEntryAcceptedForBatchCompletion(entry: PublishManifestEntry | undefined): boolean {
-  if (!entry || !BATCH_COMPLETION_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus)) {
+export function isPublishOutcomeAcceptedForBatchCompletion(entry: {
+  status?: string;
+  finalVerifyStatus?: string;
+  errorClass?: string;
+} | undefined): boolean {
+  if (!entry || !BATCH_COMPLETION_FINAL_VERIFY_STATUSES.includes(entry.finalVerifyStatus as PublishFinalVerifyStatus)) {
     return false;
   }
   if (entry.status === "published") {
@@ -164,6 +169,10 @@ export function isManifestEntryAcceptedForBatchCompletion(entry: PublishManifest
   return entry.status === "failed" &&
     entry.finalVerifyStatus === "submit_accepted_unconfirmed" &&
     entry.errorClass === "final_publish_state_uncertain";
+}
+
+export function isManifestEntryAcceptedForBatchCompletion(entry: PublishManifestEntry | undefined): boolean {
+  return isPublishOutcomeAcceptedForBatchCompletion(entry);
 }
 
 export function isManifestEntryAcceptedForBatchCompletionForIdentity(

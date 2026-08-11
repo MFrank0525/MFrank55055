@@ -21,7 +21,7 @@ import { auditCurrentPaidImageLedgers } from "../autolist/paid-image-audit.js";
 import { recoverCompleteMainImageArtifactForAudit } from "../autolist/audit-main-image-recovery.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
 import { getProductCategoryPlan, type ProductCategory } from "../autolist/product-category.js";
-import { inferResumeStartStepForTask, resolveCanonicalResumeDecision } from "../autolist/resume-rules.js";
+import { inferResumeStartStepForTask, resolveCanonicalRecoveryTask, resolveCanonicalResumeDecision } from "../autolist/resume-rules.js";
 import { paidImageBatchLedgerDir } from "../autolist/paid-image-submission-ledger.js";
 import type { AutoListingJobFile, AutoListingRunResult, AutoListingRunState } from "../autolist/types.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
@@ -481,7 +481,15 @@ async function main(): Promise<void> {
     existingPaths: existingFiles
   });
   let canonicalRecovery: ReturnType<typeof resolveCanonicalResumeDecision> | undefined;
-  const recoveryTask = state?.tasks.find((task) => task.taskId === state.currentTaskId) || state?.tasks.at(-1);
+  let recoveryTask: AutoListingRunState["tasks"][number] | undefined;
+  try {
+    recoveryTask = state ? resolveCanonicalRecoveryTask({ tasks: state.tasks, currentTaskId: state.currentTaskId }) : undefined;
+  } catch (error) {
+    runtimeErrors.push({
+      code: "canonical_recovery_task_ambiguous",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
   if (state?.feishuBatchFingerprint && recoveryTask?.feishuProductRecord) {
     try {
       canonicalRecovery = resolveCanonicalResumeDecision({

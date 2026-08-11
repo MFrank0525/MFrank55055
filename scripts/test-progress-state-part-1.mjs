@@ -152,8 +152,7 @@ import {
 import { isSettledExactTitlePositiveEvidence } from "../dist/src/business/publish-from-spu/product-list-verification-action.js";
 import {
   mergePublishArtifactWithSafeManifest,
-  publishDistributedProducts,
-  selectLatestFailedPublishResult
+  publishDistributedProducts
 } from "../dist/src/autolist/publish.js";
 
 const canonicalIdentity = {

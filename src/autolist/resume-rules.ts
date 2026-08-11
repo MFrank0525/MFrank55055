@@ -42,6 +42,34 @@ export interface CanonicalResumeManifestEntry {
   errorClass?: string;
 }
 
+export function resolveCanonicalRecoveryTask<T extends {
+  taskId?: string;
+  status?: string;
+  error?: unknown;
+  publishArtifact?: { results?: unknown[] };
+}>(input: { tasks: T[]; currentTaskId?: string }): T | undefined {
+  const hasTerminalEvidence = (task: T): boolean =>
+    task.status === "failed" || Boolean(task.error) || (task.publishArtifact?.results?.length || 0) > 0;
+  const explicit = input.currentTaskId
+    ? input.tasks.find((task) => task.taskId === input.currentTaskId && hasTerminalEvidence(task))
+    : undefined;
+  if (explicit) {
+    return explicit;
+  }
+  const failedTasks = input.tasks.filter((task) => task.status === "failed" || Boolean(task.error));
+  if (failedTasks.length > 1) {
+    throw new Error(`Canonical recovery is ambiguous: multiple failed tasks (${failedTasks.map((task) => task.taskId || "<missing>").join(", ")}).`);
+  }
+  if (failedTasks.length === 1) {
+    return failedTasks[0];
+  }
+  const publishEvidenceTasks = input.tasks.filter((task) => (task.publishArtifact?.results?.length || 0) > 0);
+  if (publishEvidenceTasks.length > 1) {
+    throw new Error(`Canonical recovery is ambiguous: multiple tasks contain publish evidence (${publishEvidenceTasks.map((task) => task.taskId || "<missing>").join(", ")}).`);
+  }
+  return publishEvidenceTasks[0];
+}
+
 export function resolveCanonicalResumeDecision(input: {
   batchFingerprint: string;
   recordId?: string;

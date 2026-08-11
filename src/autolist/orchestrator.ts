@@ -28,7 +28,7 @@ import { resolvePublishRuntimeDirsForCleanup } from "./cleanup-rules.js";
 import { buildAutoListingPreflightSummary } from "./preflight.js";
 import { readOperationManual } from "./operation-manual.js";
 import { prepareTestRunOutputs } from "./prepare-test-run.js";
-import { mergePublishArtifactWithSafeManifest, publishDistributedProducts, selectLatestFailedPublishResult } from "./publish.js";
+import { mergePublishArtifactWithSafeManifest, publishDistributedProducts, selectLatestBlockingPublishResult } from "./publish.js";
 import { attachQualificationFiles } from "./qualifications.js";
 import { recoverArtifactsFromWordFiles, recoverDistributedFoldersFromShopRoot } from "./resume.js";
 import { distributeProductFoldersToShops } from "./shop-distribution.js";
@@ -835,9 +835,9 @@ async function executeTaskChain(
         createEvent("info", step, `Publish results ready: ${publishArtifact.results.length}`, current.taskId)
       );
       markProgress();
-      const failedPublishResult = selectLatestFailedPublishResult(publishArtifact.results);
-      if (failedPublishResult) {
-        throw new Error(`Publish failed for ${failedPublishResult.productFolder}: ${failedPublishResult.message}`);
+      const blockingPublishResult = selectLatestBlockingPublishResult(publishArtifact.results);
+      if (blockingPublishResult) {
+        throw new Error(`Publish failed for ${blockingPublishResult.productFolder}: ${blockingPublishResult.message}`);
       }
       continue;
     }

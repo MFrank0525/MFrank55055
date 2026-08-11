@@ -4,7 +4,7 @@ import type { ImageDimensions } from "../utils/image-dimensions.js";
 import { getProductCategoryPlan, resolveMainImageShopAssignments } from "./product-category.js";
 import { buildPublishTargetIdentity, publishTargetKey } from "./publish-identity.js";
 import type { ImageTaskState, MainImageGeneratedFile } from "./types.js";
-import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, BATCH_COMPLETION_FINAL_VERIFY_STATUSES, type PublishManifestEntry } from "./publish-manifest.js";
+import { SAFE_PUBLISH_FINAL_VERIFY_STATUSES, isPublishOutcomeAcceptedForBatchCompletion, type PublishManifestEntry } from "./publish-manifest.js";
 import {
   assertTitlePreservesFeishuFixedSuffix,
   countTitleCharacters,
@@ -780,22 +780,6 @@ function isSafePublishSignal(status?: string, finalVerifyStatus?: string): boole
   return status === "published" && SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(finalVerifyStatus as never);
 }
 
-function isAcceptedBatchCompletionSignal(status?: string, finalVerifyStatus?: string, errorClass?: string): boolean {
-  if (!BATCH_COMPLETION_FINAL_VERIFY_STATUSES.includes(finalVerifyStatus as never)) {
-    return false;
-  }
-  if (isSafePublishSignal(status, finalVerifyStatus)) {
-    return true;
-  }
-  if (status === "skipped") {
-    return finalVerifyStatus === "submit_rejected_exhausted"
-      && errorClass === "final_publish_submit_transient";
-  }
-  return status === "failed" &&
-    finalVerifyStatus === "submit_accepted_unconfirmed" &&
-    errorClass === "final_publish_state_uncertain";
-}
-
 function taskExpectedPublishFolders(task: ImageTaskState): string[] {
   if (task.shopDistributionArtifact?.distributedFolders?.length) {
     return task.shopDistributionArtifact.distributedFolders;
@@ -843,8 +827,8 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
           safelyPublishedCount += 1;
           continue;
         }
-        const resultAccepted = isAcceptedBatchCompletionSignal(result?.status, result?.finalVerifyStatus, result?.errorClass);
-        const manifestAccepted = isAcceptedBatchCompletionSignal(manifest?.status, manifest?.finalVerifyStatus, manifest?.errorClass);
+        const resultAccepted = isPublishOutcomeAcceptedForBatchCompletion(result);
+        const manifestAccepted = isPublishOutcomeAcceptedForBatchCompletion(manifest);
         if (resultAccepted || manifestAccepted) {
           safelyPublishedCount += 1;
           const deferredRejection = result?.finalVerifyStatus === "submit_rejected_exhausted"
@@ -887,8 +871,8 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
         safelyPublishedCount += 1;
         continue;
       }
-      const resultAccepted = isAcceptedBatchCompletionSignal(result?.status, result?.finalVerifyStatus, result?.errorClass);
-      const manifestAccepted = isAcceptedBatchCompletionSignal(manifest?.status, manifest?.finalVerifyStatus, manifest?.errorClass);
+      const resultAccepted = isPublishOutcomeAcceptedForBatchCompletion(result);
+      const manifestAccepted = isPublishOutcomeAcceptedForBatchCompletion(manifest);
       if (resultAccepted || manifestAccepted) {
         safelyPublishedCount += 1;
         const deferredRejection = result?.finalVerifyStatus === "submit_rejected_exhausted"

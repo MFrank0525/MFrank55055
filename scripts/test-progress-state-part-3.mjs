@@ -107,6 +107,7 @@ import {
 import {
   inferResumeStartStepForTask,
   resolveCanonicalResumeDecision,
+  resolveCanonicalRecoveryTask,
   selectRemainingResumeProductFolderNames
 } from "../dist/src/autolist/resume-rules.js";
 import {
@@ -145,8 +146,7 @@ import {
 import { isSettledExactTitlePositiveEvidence } from "../dist/src/business/publish-from-spu/product-list-verification-action.js";
 import {
   mergePublishArtifactWithSafeManifest,
-  publishDistributedProducts,
-  selectLatestFailedPublishResult
+  publishDistributedProducts
 } from "../dist/src/autolist/publish.js";
 
 const canonicalIdentity = {
@@ -1057,6 +1057,35 @@ assert.equal(
   "One resumed target must not unlock cleanup for a 20-target product."
 );
 assert.equal(
+  hasCompleteProductPublishCoverage({
+    task: {
+      taskId: "image-terminal-outcomes",
+      sequenceNo: 1,
+      sourceImagePath: "/work/input/current.png",
+      sourceImageName: "current.png",
+      status: "published",
+      lastUpdatedAt: new Date().toISOString(),
+      generatedProductFolders: cleanupResumeFolders,
+      notes: [],
+      publishArtifact: {
+        simulated: false,
+        results: cleanupResumeFolders.map((productFolder, index) => ({
+          productFolder,
+          ok: index !== 5,
+          status: index === 5 ? "skipped" : "published",
+          finalVerifyStatus: index === 5 ? "submit_rejected_exhausted" : "publish_signal_confirmed",
+          errorClass: index === 5 ? "final_publish_submit_transient" : "",
+          message: index === 5 ? "deferred without replay" : "published"
+        }))
+      }
+    },
+    productIdentity: { sourceImagePath: "/work/input/current.png", recordId: "record-001" },
+    publishManifestEntries: []
+  }),
+  true,
+  "Cleanup eligibility must consume the same terminal-outcome rule even when only task artifacts are available."
+);
+assert.equal(
   isProductFullyProcessed({
     task: {
       taskId: "image-001",
@@ -1716,6 +1745,28 @@ assert.equal(
   "Publishing interruptions after assets are distributed must resume at published and must not regenerate main images."
 );
 const canonicalResumeFolders = Array.from({ length: 20 }, (_, index) => `/shops/${String(index + 1).padStart(2, "0")}/product-${index + 1}`);
+const canonicalRecoveryTasks = [
+  { taskId: "image-001", status: "failed", error: { step: "published" }, publishArtifact: { results: [{}] } },
+  { taskId: "image-002", status: "source_images_discovered" },
+  { taskId: "image-003", status: "source_images_discovered" }
+];
+assert.equal(
+  resolveCanonicalRecoveryTask({ tasks: canonicalRecoveryTasks, currentTaskId: undefined })?.taskId,
+  "image-001",
+  "Terminal recovery must resolve the unique failed task instead of taking the last pre-created pending task."
+);
+assert.equal(
+  resolveCanonicalRecoveryTask({ tasks: canonicalRecoveryTasks, currentTaskId: "image-003" })?.taskId,
+  "image-001",
+  "A stale pending currentTaskId must not override the unique failed task with durable publish evidence."
+);
+assert.throws(
+  () => resolveCanonicalRecoveryTask({
+    tasks: [...canonicalRecoveryTasks, { taskId: "image-004", status: "failed", error: { step: "published" } }]
+  }),
+  /multiple failed tasks/,
+  "Ambiguous terminal recovery evidence must fail closed."
+);
 const canonicalResumeManifest = canonicalResumeFolders.map((productFolder, index) => ({
   targetIdentity: {
     batchFingerprint: "batch-a",

@@ -143,10 +143,11 @@ import {
   evaluatePublishResult
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 import { isSettledExactTitlePositiveEvidence } from "../dist/src/business/publish-from-spu/product-list-verification-action.js";
+import { isPublishOutcomeAcceptedForBatchCompletion } from "../dist/src/autolist/publish-manifest.js";
 import {
   mergePublishArtifactWithSafeManifest,
   publishDistributedProducts,
-  selectLatestFailedPublishResult
+  selectLatestBlockingPublishResult
 } from "../dist/src/autolist/publish.js";
 
 const canonicalIdentity = {
@@ -2197,7 +2198,7 @@ assert.equal(
 );
 
 assert.deepEqual(
-  selectLatestFailedPublishResult([
+  selectLatestBlockingPublishResult([
     { productFolder: "/shops/04/水印07", ok: false, message: "旧的标品页未就绪" },
     { productFolder: "/shops/05/水印09", ok: true, message: "published" },
     { productFolder: "/shops/07/水印14", ok: false, message: "当前规格模板未找到" }
@@ -2206,7 +2207,7 @@ assert.deepEqual(
   "Task failure and Hermes summary must report the latest actionable blocker, not the first historical failure"
 );
 assert.equal(
-  selectLatestFailedPublishResult([
+  selectLatestBlockingPublishResult([
     {
       productFolder: "/shops/08/水印15",
       ok: true,
@@ -2218,6 +2219,29 @@ assert.equal(
   ])?.productFolder,
   "/shops/08/水印15",
   "Published-looking results that require manual review must stop cleanup and must not be treated as safe."
+);
+assert.equal(
+  isPublishOutcomeAcceptedForBatchCompletion({
+    status: "skipped",
+    finalVerifyStatus: "submit_rejected_exhausted",
+    errorClass: "final_publish_submit_transient"
+  }),
+  true,
+  "A durable exhausted rejection must have one shared non-replay product-completion classification."
+);
+assert.equal(
+  selectLatestBlockingPublishResult([
+    {
+      productFolder: "/shops/06/水印06",
+      ok: false,
+      status: "skipped",
+      message: "controlled rejection retry exhausted",
+      finalVerifyStatus: "submit_rejected_exhausted",
+      errorClass: "final_publish_submit_transient"
+    }
+  ]),
+  undefined,
+  "A terminal deferred target must not make the completed 20-target product fail after publishing."
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({

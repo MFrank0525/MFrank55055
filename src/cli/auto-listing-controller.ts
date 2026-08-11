@@ -43,6 +43,7 @@ import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-m
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
   inferResumeStartStepForTask,
+  resolveCanonicalRecoveryTask,
   resolveCanonicalResumeDecision
 } from "../autolist/resume-rules.js";
 import { hasIncompleteFixedMainImageRoundFiles, summarizeReusableTaskArtifacts } from "../autolist/resume-artifacts.js";
@@ -532,7 +533,7 @@ function findLatestFailedResultForResume(): { resultFile: string; result: AutoLi
     ) {
       continue;
     }
-    const failedTask = (result.tasks || []).find((task) => task.status === "failed" || task.error);
+    const failedTask = resolveCanonicalRecoveryTask({ tasks: result.tasks || [] });
     if (failedTask?.sourceImagePath && fs.existsSync(path.resolve(rootDir, failedTask.sourceImagePath))) {
       const runtimeDir = result.runtimeDir || path.dirname(resultFile);
       const resumeProductFolderCount = collectResumeProductFolderNames(failedTask).length;
@@ -705,7 +706,7 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
     return undefined;
   }
 
-  const failedTask = (latest.result.tasks || []).find((task) => task.status === "failed" || task.error);
+  const failedTask = resolveCanonicalRecoveryTask({ tasks: latest.result.tasks || [] });
   if (!failedTask?.sourceImagePath) {
     return undefined;
   }

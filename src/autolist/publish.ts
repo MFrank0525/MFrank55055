@@ -17,8 +17,11 @@ import { shopCodeFromFolder } from "./product-category.js";
 import { recordPublishFailure, type PublishFailureCircuitState } from "./failure-circuit-breaker.js";
 import { buildPublishTargetIdentity, publishTargetKey } from "./publish-identity.js";
 import {
+  SAFE_PUBLISH_FINAL_VERIFY_STATUSES,
   extractWatermarkNo,
   findPublishManifestEntry,
+  isManifestEntryAcceptedForBatchCompletionForIdentity,
+  isPublishOutcomeAcceptedForBatchCompletion,
   isManifestEntrySafelyPublishedForIdentity,
   loadPublishManifest,
   normalizePublishProductIdentity,
@@ -305,10 +308,13 @@ export function markPublishResultListVerified(resultFile: string, verification: 
   atomicWriteJson(resultFile, result);
 }
 
-export function selectLatestFailedPublishResult<T extends { ok: boolean; finalVerifyStatus?: string; status?: string }>(
+export function selectLatestBlockingPublishResult<T extends { ok: boolean; finalVerifyStatus?: string; status?: string; errorClass?: string }>(
   results: T[]
 ): T | undefined {
-  return [...results].reverse().find((item) => !item.ok || item.status === "failed" || item.finalVerifyStatus === "needs_manual_review");
+  return [...results].reverse().find((item) =>
+    !isPublishOutcomeAcceptedForBatchCompletion(item) &&
+    (!item.ok || item.status === "failed" || item.finalVerifyStatus === "needs_manual_review")
+  );
 }
 
 export function mergePublishArtifactWithSafeManifest(input: {
@@ -391,7 +397,7 @@ export async function publishDistributedProducts(options: {
   const plan = orderedFolders.map((productFolder) => {
     const { targetIdentity, targetKey, runtimeKey } = targetContextForFolder(productFolder);
     const manifestEntry = findPublishManifestEntry(manifest, targetKey);
-    if (isManifestEntrySafelyPublishedForIdentity(manifestEntry, productIdentity)) {
+    if (isManifestEntryAcceptedForBatchCompletionForIdentity(manifestEntry, productIdentity)) {
       return {
         targetIdentity,
         targetKey,
@@ -400,7 +406,8 @@ export async function publishDistributedProducts(options: {
         action: "skip" as const,
         reason: `manifest:${manifestEntry?.finalVerifyStatus}:identity_matched`,
         manifestStatus: manifestEntry?.status,
-        finalVerifyStatus: manifestEntry?.finalVerifyStatus
+        finalVerifyStatus: manifestEntry?.finalVerifyStatus,
+        errorClass: manifestEntry?.errorClass
       };
     }
     const resultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
@@ -439,15 +446,23 @@ export async function publishDistributedProducts(options: {
     const publishRuntimeDir = path.join(options.runtimeDir, "publish", runtimeKey);
     const planItem = plan.find((item) => item.runtimeKey === runtimeKey);
     if (planItem?.action === "skip") {
+      const acceptedOutcome = {
+        status: planItem.manifestStatus || "published",
+        finalVerifyStatus: planItem.finalVerifyStatus,
+        errorClass: planItem.errorClass
+      };
+      const safelyPublished = acceptedOutcome.status === "published"
+        && SAFE_PUBLISH_FINAL_VERIFY_STATUSES.includes(acceptedOutcome.finalVerifyStatus as never);
       alreadyPublishedResults.push({
         targetIdentity,
         targetKey,
         productFolder,
-        ok: true,
-        status: "published",
+        ok: safelyPublished,
+        status: acceptedOutcome.status,
         message: `Skipped because publish plan marked it completed: ${planItem.reason}`,
         resultFile: path.join(publishRuntimeDir, "result.json"),
-        finalVerifyStatus: planItem.finalVerifyStatus
+        finalVerifyStatus: planItem.finalVerifyStatus,
+        errorClass: planItem.errorClass
       });
       return false;
     }
