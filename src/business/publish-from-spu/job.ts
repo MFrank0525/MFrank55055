@@ -193,7 +193,12 @@ export async function runPublishFromSpuJob(
       if (!resolvedMetadata.brand || !resolvedMetadata.spu) {
         throw new Error("query_platform_spu requires metadata.brand and metadata.spu.");
       }
-      const queryResult = await queryPlatformSpu(runtimeDir, resolvedMetadata.brand, resolvedMetadata.spu, shopFolder);
+      const queryResult = await queryPlatformSpu(runtimeDir, {
+        brand: resolvedMetadata.brand,
+        spu: resolvedMetadata.spu,
+        specificationMatch: categoryPolicy.platformSpuSpecificationMatch,
+        expectedSpecification: resolvedMetadata.specification
+      }, shopFolder);
       screenshots.push(queryResult.screenshotFile);
       browserData = {
         pageUrl: queryResult.pageUrl,
@@ -338,7 +343,12 @@ export async function runPublishFromSpuJob(
         if (!categoryMismatch || !resolvedMetadata.brand || !resolvedMetadata.spu) {
           throw error;
         }
-        const queryResult = await queryPlatformSpu(runtimeDir, resolvedMetadata.brand, resolvedMetadata.spu, shopFolder);
+        const queryResult = await queryPlatformSpu(runtimeDir, {
+          brand: resolvedMetadata.brand,
+          spu: resolvedMetadata.spu,
+          specificationMatch: categoryPolicy.platformSpuSpecificationMatch,
+          expectedSpecification: resolvedMetadata.specification
+        }, shopFolder);
         screenshots.push(queryResult.screenshotFile);
         servicePublishPageUrl = queryResult.createPageUrl;
         settingsResult = await applyFixedPublishSettings(

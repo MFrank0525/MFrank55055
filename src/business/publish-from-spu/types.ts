@@ -1,5 +1,13 @@
 import type { ProductCategory } from "../../autolist/product-category.js";
 import type { PublishTargetIdentity } from "../../autolist/publish-identity.js";
+import type { PlatformSpuSpecificationMatchPolicy } from "./platform-spu-query-rules.js";
+
+export interface PlatformSpuQueryRequest {
+  brand: string;
+  spu: string;
+  specificationMatch: PlatformSpuSpecificationMatchPolicy;
+  expectedSpecification?: string;
+}
 
 export interface PublishFromSpuMetadata {
   brand?: string;

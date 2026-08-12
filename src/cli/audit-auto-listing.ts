@@ -489,7 +489,9 @@ async function main(): Promise<void> {
   let canonicalRecovery: ReturnType<typeof resolveCanonicalResumeDecision> | undefined;
   let recoveryTask: AutoListingRunState["tasks"][number] | undefined;
   try {
-    recoveryTask = state ? resolveCanonicalRecoveryTask({ tasks: state.tasks, currentTaskId: state.currentTaskId }) : undefined;
+    recoveryTask = state && state.status !== "completed"
+      ? resolveCanonicalRecoveryTask({ tasks: state.tasks, currentTaskId: state.currentTaskId })
+      : undefined;
   } catch (error) {
     runtimeErrors.push({
       code: "canonical_recovery_task_ambiguous",

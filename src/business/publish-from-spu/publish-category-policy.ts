@@ -1,5 +1,6 @@
 import { normalizeProductCategory, type ProductCategory } from "../../autolist/product-category.js";
 import { SPEC_TEMPLATE_KEYWORD_DEFAULT, SPEC_TEMPLATE_KEYWORD_JIUGUANG } from "./constants.js";
+import type { PlatformSpuSpecificationMatchPolicy } from "./platform-spu-query-rules.js";
 
 export type CategoryAttributeMutationPolicy =
   | "fill_model_spec"
@@ -12,6 +13,7 @@ export type ServiceAfterSalesPolicy = "unsupported_seven_day_returns" | "preserv
 export type SubmitValidationPolicy = "generic_fill_check" | "health_food_packaging_gate";
 
 export interface PublishCategoryMutationPolicy {
+  readonly platformSpuSpecificationMatch: PlatformSpuSpecificationMatchPolicy;
   readonly categoryAttributes: CategoryAttributeMutationPolicy;
   readonly specTemplateSelection: SpecTemplateSelectionPolicy;
   readonly guardUnexpectedBasicFieldChanges: boolean;
@@ -27,6 +29,7 @@ export interface PublishCategoryMutationPolicy {
 
 const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutationPolicy> = {
   医疗器械: {
+    platformSpuSpecificationMatch: "ignore",
     categoryAttributes: "fill_model_spec",
     specTemplateSelection: "title_controlled",
     guardUnexpectedBasicFieldChanges: true,
@@ -40,6 +43,7 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
     submitValidation: "generic_fill_check"
   },
   非处方药: {
+    platformSpuSpecificationMatch: "require_exact",
     categoryAttributes: "leave_platform_state",
     specTemplateSelection: "buy_two_get_one",
     guardUnexpectedBasicFieldChanges: true,
@@ -53,6 +57,7 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
     submitValidation: "generic_fill_check"
   },
   保健食品: {
+    platformSpuSpecificationMatch: "ignore",
     categoryAttributes: "fill_health_food_fields",
     specTemplateSelection: "buy_two_get_one",
     guardUnexpectedBasicFieldChanges: false,

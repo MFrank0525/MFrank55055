@@ -81,7 +81,12 @@ export async function runBasicInfoAction(
       const message = error instanceof Error ? error.message : String(error);
       if (deps.isPublishCreatePageReopenRequiredError(error) && basicAttempt === 0) {
         input.emitProgress("basic_info_reopen", message);
-        const retryQueryResult = await deps.queryPlatformSpu(input.runtimeDir, input.metadata.brand, input.metadata.spu, input.shopFolder);
+        const retryQueryResult = await deps.queryPlatformSpu(input.runtimeDir, {
+          brand: input.metadata.brand,
+          spu: input.metadata.spu,
+          specificationMatch: input.mutationPolicy.platformSpuSpecificationMatch,
+          expectedSpecification: input.metadata.specification
+        }, input.shopFolder);
         screenshotFiles.push(retryQueryResult.screenshotFile);
         createPageUrl = retryQueryResult.createPageUrl;
         matchedRowText = retryQueryResult.matchedRowText;
@@ -91,7 +96,12 @@ export async function runBasicInfoAction(
       const categoryMismatch = message.includes("Category SPU readback mismatch.");
       if (categoryMismatch && basicAttempt === 0) {
         input.emitProgress("basic_info_reopen", message);
-        const retryQueryResult = await deps.queryPlatformSpu(input.runtimeDir, input.metadata.brand, input.metadata.spu, input.shopFolder);
+        const retryQueryResult = await deps.queryPlatformSpu(input.runtimeDir, {
+          brand: input.metadata.brand,
+          spu: input.metadata.spu,
+          specificationMatch: input.mutationPolicy.platformSpuSpecificationMatch,
+          expectedSpecification: input.metadata.specification
+        }, input.shopFolder);
         screenshotFiles.push(retryQueryResult.screenshotFile);
         createPageUrl = retryQueryResult.createPageUrl;
         matchedRowText = retryQueryResult.matchedRowText;

@@ -5,9 +5,61 @@ import {
   isStablePlatformBrandSelection,
   isDoudianLoginPageText,
   classifyPublishFailure,
-  shouldRetryPublishFailure,
-  selectActionablePlatformSpuPublishCandidate
+  shouldRetryPublishFailure
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
+import {
+  extractPlatformSpuRowSpecifications,
+  resolveExactPlatformBrandCandidateSequence,
+  selectPlatformSpuPublishCandidate
+} from "../dist/src/business/publish-from-spu/platform-spu-query-rules.js";
+
+assert.deepEqual(
+  resolveExactPlatformBrandCandidateSequence("龙仕康", [
+    { brandName: "龙仕康", optionIdentity: "1687557066" },
+    { brandName: "龙仕康", optionIdentity: "818197274" },
+    { brandName: "龙仕康", optionIdentity: "889642166" },
+    { brandName: "龙仕康", optionIdentity: "818197274" },
+    { brandName: "龙仕康牌", optionIdentity: "other" }
+  ]),
+  ["1687557066", "818197274", "889642166"],
+  "Exact same-name brand identities must be frozen once in dropdown order and deduplicated by stable option identity"
+);
+
+assert.deepEqual(
+  extractPlatformSpuRowSpecifications(
+    "龙仕康/480丸/锁阳固精丸/国药准字Z22025437 规格：480丸 品牌：龙仕康 生产企业名称：吉林省鑫辉药业有限公司"
+  ),
+  ["480丸"]
+);
+
+const otcMultiSpecificationRows = ["300丸", "480丸", "6g*12袋", "6g*7袋"].map((specification, index) => ({
+  rowId: `row-${index}`,
+  exactSpuCell: true,
+  exactBrandCell: true,
+  rowHasSpu: true,
+  rowHasBrand: true,
+  publishControlActionable: true,
+  rowText: `龙仕康/${specification}/锁阳固精丸/国药准字Z22025437 规格：${specification} 品牌：龙仕康`
+}));
+assert.deepEqual(
+  selectPlatformSpuPublishCandidate(otcMultiSpecificationRows, {
+    specificationMatch: "require_exact",
+    expectedSpecification: "480丸"
+  }),
+  { candidateIndex: 1, issue: "" },
+  "OTC SPU identity must include the exact Feishu specification"
+);
+assert.deepEqual(
+  selectPlatformSpuPublishCandidate(otcMultiSpecificationRows, {
+    specificationMatch: "require_exact",
+    expectedSpecification: "360丸"
+  }),
+  {
+    candidateIndex: -1,
+    issue: "Platform SPU query found exact brand/SPU rows but none matched Feishu specification exactly: expected=360丸; actual=300丸 | 480丸 | 6g*12袋 | 6g*7袋"
+  },
+  "A missing OTC specification must advance to the next same-name brand identity instead of picking another specification"
+);
 
 assert.equal(
   isStablePlatformBrandSelection("延草纲目", ["", ""]),
@@ -96,7 +148,10 @@ assert.equal(shouldRetryPublishFailure(emptyBrandInputClass, 0), true);
 
 for (const unstableBrandMessage of [
   "Brand selection did not commit after bounded retries. expected=延草纲目; readbacks=<empty> | <empty>; clickedOption=延草纲目",
-  "Brand selection was lost after SPU entry before clicking query. expected=延草纲目; beforeSpu=延草纲目; afterSpu=<empty>"
+  "Brand selection was lost after SPU entry before clicking query. expected=延草纲目; beforeSpu=延草纲目; afterSpu=<empty>",
+  "Brand candidate selection did not commit. expected=龙仕康; expectedIdentity=1687557066; actualIdentity=<empty>",
+  "Brand candidate selection was lost after SPU entry before clicking query. expected=龙仕康; expectedIdentity=1687557066; actualIdentity=<empty>",
+  "Platform brand candidate sequence changed during query. brand=龙仕康; expectedIdentity=889642166; available=<none>"
 ]) {
   const failureClass = classifyPublishFailure(unstableBrandMessage);
   assert.equal(failureClass, "platform_page_not_ready");
@@ -110,7 +165,7 @@ assert.equal(inactivePlatformTabClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(inactivePlatformTabClass, 0), true);
 
 assert.deepEqual(
-  selectActionablePlatformSpuPublishCandidate([
+  selectPlatformSpuPublishCandidate([
     {
       rowId: "reviewing-row",
       exactSpuCell: true,
@@ -127,12 +182,12 @@ assert.deepEqual(
       rowHasBrand: true,
       publishControlActionable: true
     }
-  ]),
+  ], { specificationMatch: "ignore" }),
   { candidateIndex: 1, issue: "" },
   "SPU selection must skip an 审核中 disabled row and choose the unique actionable exact row"
 );
 assert.deepEqual(
-  selectActionablePlatformSpuPublishCandidate([
+  selectPlatformSpuPublishCandidate([
     {
       rowId: "online-row-a",
       exactSpuCell: true,
@@ -149,7 +204,7 @@ assert.deepEqual(
       rowHasBrand: true,
       publishControlActionable: true
     }
-  ]),
+  ], { specificationMatch: "ignore" }),
   {
     candidateIndex: -1,
     issue: "Platform SPU publish navigation failed before click: 2 actionable exact publish rows are ambiguous."
@@ -231,13 +286,13 @@ assert.match(
 );
 assert.match(
   querySource,
-  /setPlatformQueryInputValue\(page, "brand", brand\)[\s\S]*readPlatformQueryInputValue\(page, "brand"\)[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)[\s\S]*Platform query self-check failed before clicking query[\s\S]*queryButton\.click/,
-  "SPU query must fill and verify Feishu brand before filling SPU and clicking query"
+  /reacquireExactPlatformBrandOptionIdentities[\s\S]*firstIdentityReadback[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)[\s\S]*brandIdentityAfterSpu[\s\S]*clickPlatformSpuQueryButton/,
+  "SPU query must freeze and verify the exact brand option identity before filling SPU and querying"
 );
 assert.match(
   publishSource,
-  /async function clickPlatformBrandDropdownOption[\s\S]*brandInput\.getBoundingClientRect\(\)[\s\S]*rect\.top < brandRect\.bottom[\s\S]*rect\.left < brandRect\.left[\s\S]*rect\.left > brandRect\.right/,
-  "SPU brand dropdown selection must be scoped to options near the brand input, not global page text such as the active shop name"
+  /discoverExactPlatformBrandOptionIdentities[\s\S]*standard_brand_id[\s\S]*resolveExactPlatformBrandCandidateSequence/,
+  "SPU brand dropdown discovery must use stable platform brand identities in exact dropdown order"
 );
 assert.match(
   publishSource,
@@ -294,8 +349,8 @@ assert.doesNotMatch(
 );
 assert.match(
   querySource,
-  /clickPlatformBrandDropdownOption\(page, brand\)/,
-  "SPU query must use the brand-input-scoped dropdown picker for brand selection"
+  /clickPlatformBrandDropdownOption\(page, brand, selectedBrandIdentity\)/,
+  "SPU query must click the frozen stable brand candidate identity"
 );
 assert.match(
   querySource,
@@ -314,8 +369,8 @@ assert.doesNotMatch(
 );
 assert.match(
   querySource,
-  /!allCandidates\.length && retryNo < maxPlatformSpuQueryRetries[\s\S]*platform-spu-query-no-rows-retry-[\s\S]*queryPlatformSpu\(runtimeDir, brand, spu, shopFolder, retryNo \+ 1\)/,
-  "SPU query must retry a verified platform-tab query before treating an empty result table as terminal"
+  /!allCandidates\.length && hasNextBrandCandidate[\s\S]*platform-spu-brand-candidate-[\s\S]*queryPlatformSpu\(runtimeDir, request, shopFolder, retryNo, nextBrandCandidateState\)/,
+  "An empty query must advance through the frozen same-name brand identity sequence"
 );
 assert.doesNotMatch(
   querySource,
@@ -324,8 +379,8 @@ assert.doesNotMatch(
 );
 assert.match(
   querySource,
-  /isStablePlatformBrandSelection\(brand,[\s\S]*brandReadbacks[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)/,
-  "SPU entry must remain blocked until two exact brand-control readbacks confirm a committed selection"
+  /firstIdentityReadback !== selectedBrandIdentity[\s\S]*isStablePlatformBrandSelection\(brand, brandReadbacks\)[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)/,
+  "SPU entry must remain blocked until both the brand text and stable option identity commit"
 );
 assert.match(
   querySource,
@@ -352,5 +407,13 @@ assert.match(
   /waitForURL\([\s\S]*\/ffa\/g\/create[\s\S]*waitForEvent\("page"/,
   "The navigation state machine must observe both same-tab and popup create-page outcomes"
 );
+for (const sourceFile of [
+  "src/business/publish-from-spu/actions/shop-spu-action.ts",
+  "src/business/publish-from-spu/actions/basic-info-action.ts",
+  "src/business/publish-from-spu/job.ts"
+]) {
+  const source = fs.readFileSync(sourceFile, "utf8");
+  assert.match(source, /specificationMatch:[\s\S]*expectedSpecification:/, `${sourceFile} must pass the complete Feishu specification query identity`);
+}
 
 console.log("platform spu query page rule passed");

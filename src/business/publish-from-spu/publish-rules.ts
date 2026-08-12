@@ -42,56 +42,6 @@ export interface PublishRuleCheck {
   issue: string;
 }
 
-export interface PlatformSpuPublishCandidateInput {
-  rowId: string;
-  exactSpuCell: boolean;
-  exactBrandCell: boolean;
-  rowHasSpu: boolean;
-  rowHasBrand: boolean;
-  publishControlActionable: boolean;
-}
-
-export function selectActionablePlatformSpuPublishCandidate(
-  candidates: PlatformSpuPublishCandidateInput[]
-): { candidateIndex: number; issue: string } {
-  const rankedGroups = [
-    candidates.map((candidate, index) => ({ candidate, index })).filter(({ candidate }) =>
-      candidate.rowHasSpu &&
-      candidate.rowHasBrand &&
-      candidate.exactSpuCell &&
-      candidate.exactBrandCell &&
-      candidate.publishControlActionable
-    ),
-    candidates.map((candidate, index) => ({ candidate, index })).filter(({ candidate }) =>
-      candidate.rowHasSpu &&
-      candidate.rowHasBrand &&
-      candidate.exactSpuCell &&
-      candidate.publishControlActionable
-    ),
-    candidates.map((candidate, index) => ({ candidate, index })).filter(({ candidate }) =>
-      candidate.rowHasSpu && candidate.rowHasBrand && candidate.publishControlActionable
-    )
-  ];
-  for (const group of rankedGroups) {
-    if (group.length === 1) {
-      return { candidateIndex: group[0].index, issue: "" };
-    }
-    if (group.length > 1) {
-      return {
-        candidateIndex: -1,
-        issue: `Platform SPU publish navigation failed before click: ${group.length} actionable exact publish rows are ambiguous.`
-      };
-    }
-  }
-  const exactRows = candidates.filter((candidate) => candidate.rowHasSpu && candidate.rowHasBrand);
-  return {
-    candidateIndex: -1,
-    issue: exactRows.length
-      ? `Platform SPU publish navigation failed before click: ${exactRows.length} exact rows were found but none had an actionable publish control.`
-      : ""
-  };
-}
-
 export interface PublishPreSubmitReadinessInput {
   fillCheckBusy: boolean;
   publishBusy: boolean;
@@ -654,6 +604,9 @@ export function classifyPublishFailure(message: string): string {
   if (
     text.includes("Brandselectiondidnotcommitafterboundedretries")
     || text.includes("BrandselectionwaslostafterSPUentrybeforeclickingquery")
+    || text.includes("Brandcandidateselectiondidnotcommit")
+    || text.includes("BrandcandidateselectionwaslostafterSPUentry")
+    || text.includes("Platformbrandcandidatesequencechangedduringquery")
   ) {
     return "platform_page_not_ready";
   }

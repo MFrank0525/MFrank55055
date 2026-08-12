@@ -2,15 +2,17 @@ import type { BrowserContext, Page } from "playwright";
 import { disconnectAutomationBrowserConnections, launchPersistentBrowser } from "../../browser/launch.js";
 import { logInfo, logWarn } from "../../utils/logger.js";
 import { PLATFORM_SPU_URL } from "./constants.js";
-import type { QueryDiagnosticError, QueryMatchCandidate } from "./types.js";
-import { clickVisibleText } from "./dom-actions.js";
+import type { PlatformSpuQueryRequest, QueryDiagnosticError, QueryMatchCandidate } from "./types.js";
 import { ensureShopContext } from "./shop-switch-action.js";
 import { recoverUsablePageFromContext } from "./publish-page-readiness.js";
 import {
   evaluatePlatformSpuQueryPageReadiness,
-  isStablePlatformBrandSelection,
-  selectActionablePlatformSpuPublishCandidate
+  isStablePlatformBrandSelection
 } from "./publish-rules.js";
+import {
+  resolveExactPlatformBrandCandidateSequence,
+  selectPlatformSpuPublishCandidate
+} from "./platform-spu-query-rules.js";
 import {
   attachSafeDialogHandler,
   closeCreatePagesExcept,
@@ -236,98 +238,65 @@ export async function clickVisibleDropdownOption(
   }, normalizedExpected);
 }
 
-async function clickPlatformBrandDropdownOption(page: Page, expected: string): Promise<string> {
-  const normalizedExpected = normalizeMatchText(expected);
-  return page.evaluate((target) => {
-    const visible = (el: HTMLElement): boolean => {
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
-    };
-    function findPlatformBrandFieldInput(): HTMLInputElement | null {
-      const targetLabel = "品牌";
-      const formItems = Array.from(document.querySelectorAll(".ecom-g-form-item"))
-        .map((el) => el as HTMLElement)
-        .filter((item) => visible(item) && Array.from(item.querySelectorAll(".ecom-g-label-wrapper-label, [class*='label-wrapper-label'], label"))
-          .some((label) => (label.textContent || "").replace(/\s+/g, " ").trim() === targetLabel))
-        .sort((a, b) => {
-          const ar = a.getBoundingClientRect();
-          const br = b.getBoundingClientRect();
-          return ar.y - br.y || ar.x - br.x;
-        });
-      for (const item of formItems) {
-        const inputs = Array.from(item.querySelectorAll("input[type='search'], input[role='combobox']"))
-          .filter((input) => visible(input as HTMLElement)) as HTMLInputElement[];
-        if (inputs.length === 1) {
-          return inputs[0];
-        }
-      }
-      return null;
-    }
-    const brandInput = findPlatformBrandFieldInput();
-    if (!brandInput) {
-      return "";
-    }
-    const brandRect = brandInput.getBoundingClientRect();
-    const candidates = Array.from(document.querySelectorAll("body *"))
-      .map((el) => {
-        const htmlEl = el as HTMLElement;
-        const text = (htmlEl.innerText || htmlEl.textContent || "").trim();
-        if (!text) {
-          return null;
-        }
-        const normalizedText = text.replace(/\s+/g, "").trim().toLowerCase();
-        if (!normalizedText.includes(target)) {
-          return null;
-        }
-        const rect = htmlEl.getBoundingClientRect();
-        if (
-          !visible(htmlEl) ||
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          rect.height > 120 ||
-          rect.top < brandRect.bottom - 20 ||
-          rect.left < brandRect.left - 120 ||
-          rect.left > brandRect.right + 480
-        ) {
-          return null;
-        }
-        const marker = [htmlEl.className, htmlEl.getAttribute("role") || "", htmlEl.tagName].join(" ").toLowerCase();
-        const optionLike =
-          marker.includes("option") ||
-          marker.includes("select") ||
-          marker.includes("dropdown") ||
-          marker.includes("menu") ||
-          marker.includes("item");
-        if (!optionLike) {
-          return null;
-        }
-        const exact = normalizedText === target;
-        return {
-          el: htmlEl,
-          text,
-          score:
-            (exact ? 1000 : 0) +
-            (marker.includes("option") ? 120 : 0) +
-            (marker.includes("select") ? 80 : 0) +
-            (marker.includes("dropdown") ? 80 : 0) +
-            (marker.includes("item") ? 40 : 0) -
-            Math.abs(rect.top - brandRect.bottom) -
-            Math.abs(rect.left - brandRect.left) / 5 -
-            text.length / 20
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b!.score || 0) - (a!.score || 0)) as Array<{ el: HTMLElement; text: string; score: number }>;
+async function discoverExactPlatformBrandOptionIdentities(page: Page, expected: string): Promise<string[]> {
+  const candidates = await page.locator(".ecom-g-select-item-option:visible").evaluateAll((options) =>
+    options.map((option) => ({
+      brandName:
+        option.getAttribute("brand_name") ||
+        option.getAttribute("label") ||
+        option.getAttribute("title") ||
+        option.textContent ||
+        "",
+      optionIdentity: option.getAttribute("standard_brand_id") || ""
+    }))
+  );
+  return resolveExactPlatformBrandCandidateSequence(expected, candidates);
+}
 
-    const option = candidates[0];
-    if (!option) {
-      return "";
+async function reacquireExactPlatformBrandOptionIdentities(
+  page: Page,
+  expectedBrand: string,
+  expectedIdentity?: string
+): Promise<string[]> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await page.keyboard.press("Escape").catch(() => {});
+    await setPlatformQueryInputValue(page, "brand", expectedBrand);
+    await page.waitForTimeout(800 + attempt * 500);
+    const identities = await discoverExactPlatformBrandOptionIdentities(page, expectedBrand);
+    if (identities.length && (!expectedIdentity || identities.includes(expectedIdentity))) {
+      return identities;
     }
-    const clickable = (option.el.closest("button, [role='button'], a, [role='option'], [role='menuitem']") as HTMLElement | null) || option.el;
-    clickable.click();
-    return option.text || "";
-  }, normalizedExpected);
+  }
+  return [];
+}
+
+async function clickPlatformBrandDropdownOption(
+  page: Page,
+  expected: string,
+  optionIdentity: string
+): Promise<string> {
+  const option = page
+    .locator(`.ecom-g-select-item-option[standard_brand_id="${optionIdentity}"]:visible`)
+    .filter({ hasText: new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) });
+  if (await option.count() !== 1) {
+    return "";
+  }
+  await option.click({ timeout: 5000 });
+  return optionIdentity;
+}
+
+async function readSelectedPlatformBrandOptionIdentity(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const input = Array.from(document.querySelectorAll(".ecom-g-form-item input[role='combobox']"))
+      .map((item) => item as HTMLInputElement)
+      .find((item) => {
+        const rect = item.getBoundingClientRect();
+        return rect.width > 80 && rect.height > 20 && (item.closest(".ecom-g-form-item")?.textContent || "").replace(/\s+/g, "").startsWith("品牌");
+      });
+    const listId = input?.getAttribute("aria-controls") || input?.getAttribute("aria-owns") || "";
+    const selected = listId ? document.querySelector(`#${CSS.escape(listId)} [role='option'][aria-selected='true']`) : null;
+    return (selected?.textContent || "").trim();
+  });
 }
 
 async function isPlatformQueryInputAvailable(page: Page, kind: "brand" | "spu"): Promise<boolean> {
@@ -767,7 +736,66 @@ export async function assertDoudianPublishSessionReady(options: {
   }
 }
 
-export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: string, shopFolder?: string, retryNo = 0): Promise<{
+async function readPlatformSpuQueryCandidates(
+  page: Page,
+  normalizedBrand: string,
+  normalizedSpu: string
+): Promise<QueryMatchCandidate[]> {
+  return page.evaluate(({ targetBrand, targetSpu }: { targetBrand: string; targetSpu: string }) => {
+    return Array.from(document.querySelectorAll("tr"))
+      .map((row) => {
+        const rowEl = row as HTMLElement;
+        const cells = Array.from(row.querySelectorAll("td"));
+        const operationCell = cells[cells.length - 1] || row;
+        const publishButton = Array.from(operationCell.querySelectorAll("button, a, [role='button']"))
+          .find((element) => (element.textContent || "").replace(/\s+/g, "").trim() === "\u53D1\u5E03\u5546\u54C1") as HTMLElement | undefined;
+        if (!publishButton) return null;
+        const rowRect = rowEl.getBoundingClientRect();
+        const buttonRect = publishButton.getBoundingClientRect();
+        if (rowRect.width <= 0 || rowRect.height <= 0 || buttonRect.width <= 0 || buttonRect.height <= 0) return null;
+        const cellTexts = cells.map((cell) => (cell.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+        const normalizeSpu = (value: string): string =>
+          value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
+        const rowText = (rowEl.innerText || "").slice(0, 1200);
+        const normalizedRowText = normalizeSpu(rowText);
+        return {
+          rowText,
+          normalizedText: normalizedRowText,
+          rowId: rowText.match(/ID[:：]\s*(\d+)/)?.[1] || "",
+          exactSpuCell: cellTexts.some((cell) => normalizeSpu(cell) === targetSpu),
+          exactBrandCell: cellTexts.some((cell) => cell.replace(/\s+/g, "").toLowerCase() === targetBrand),
+          rowHasSpu: normalizedRowText.includes(targetSpu),
+          rowHasBrand: normalizedRowText.includes(targetBrand),
+          publishControlActionable:
+            !publishButton.hasAttribute("disabled") &&
+            publishButton.getAttribute("aria-disabled") !== "true" &&
+            !/disabled/i.test(String(publishButton.className || ""))
+        };
+      })
+      .filter(Boolean);
+  }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu }) as Promise<QueryMatchCandidate[]>;
+}
+
+async function clickPlatformSpuQueryButton(page: Page, runtimeDir: string): Promise<void> {
+  const queryButton = page.getByRole("button", { name: "\u67E5\u8BE2", exact: true });
+  const queryClicked = await queryButton.count() === 1
+    ? await queryButton.click({ timeout: 5000 }).then(() => true).catch(() => false)
+    : false;
+  if (!queryClicked) {
+    const error = new Error("Visible query button was not unique or clickable.") as QueryDiagnosticError;
+    error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-button-missing.png");
+    throw error;
+  }
+  await page.waitForTimeout(2500);
+}
+
+export async function queryPlatformSpu(
+  runtimeDir: string,
+  request: PlatformSpuQueryRequest,
+  shopFolder?: string,
+  retryNo = 0,
+  brandCandidateState?: { identities: string[]; index: number }
+): Promise<{
   pageUrl: string;
   pageTitle: string;
   screenshotFile: string;
@@ -776,6 +804,7 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
 }> {
   const context = await launchPersistentBrowser();
   try {
+    const { brand, spu } = request;
     const normalizedBrand = normalizeMatchText(brand);
     const normalizedSpu = normalizeSpuMatchText(spu);
     const page =
@@ -813,7 +842,7 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
           await gotoWithTolerance(page, PLATFORM_SPU_URL, 5500 + retryNo * 1500).catch(() => {});
         }
         await retryPage.waitForTimeout(2000 + retryNo * 1000);
-        return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
+        return queryPlatformSpu(runtimeDir, request, shopFolder, retryNo + 1, brandCandidateState);
       }
       const error = new Error(`Platform SPU query page was not ready after navigation: ${queryPageReady.issue}`) as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-page-not-ready.png");
@@ -834,27 +863,41 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
 
     logInfo(`querying platform spu with brand=${brand}, spu=${spu}`);
 
-    let clickedBrandOptionText = "";
-    let brandReadbacks: string[] = [];
-    for (let brandAttempt = 0; brandAttempt < 3; brandAttempt += 1) {
-      await setPlatformQueryInputValue(page, "brand", brand);
-      await page.waitForTimeout(900 + brandAttempt * 300);
-      clickedBrandOptionText = await clickPlatformBrandDropdownOption(page, brand).catch(() => "");
-      await page.waitForTimeout(800);
-      const firstReadback = await readPlatformQueryInputValue(page, "brand");
-      await page.waitForTimeout(400);
-      const secondReadback = await readPlatformQueryInputValue(page, "brand");
-      brandReadbacks = [firstReadback, secondReadback];
-      if (isStablePlatformBrandSelection(brand, brandReadbacks)) {
-        break;
-      }
-      await page.keyboard.press("Escape").catch(() => {});
+    const discoveredBrandIdentities = await reacquireExactPlatformBrandOptionIdentities(
+      page,
+      brand,
+      brandCandidateState?.identities[brandCandidateState.index]
+    );
+    const candidateState = brandCandidateState || { identities: discoveredBrandIdentities, index: 0 };
+    if (!candidateState.identities.length || candidateState.index >= candidateState.identities.length) {
+      const error = new Error(`No exact platform brand candidates found. brand=${brand}`) as QueryDiagnosticError;
+      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-candidates-missing.png");
+      throw error;
     }
-    if (!isStablePlatformBrandSelection(brand, brandReadbacks)) {
+    const selectedBrandIdentity = candidateState.identities[candidateState.index];
+    if (!discoveredBrandIdentities.includes(selectedBrandIdentity)) {
       const error = new Error(
-        `Brand selection did not commit after bounded retries. expected=${brand}; readbacks=${brandReadbacks.map((value) => value || "<empty>").join(" | ")}; clickedOption=${clickedBrandOptionText || "<none>"}`
+        `Platform brand candidate sequence changed during query. brand=${brand}; expectedIdentity=${selectedBrandIdentity}; available=${discoveredBrandIdentities.join(" | ") || "<none>"}`
       ) as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-selection-not-committed.png");
+      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-candidate-sequence-changed.png");
+      throw error;
+    }
+    const clickedBrandIdentity = await clickPlatformBrandDropdownOption(page, brand, selectedBrandIdentity).catch(() => "");
+    await page.waitForTimeout(800);
+    const firstBrandReadback = await readPlatformQueryInputValue(page, "brand");
+    const firstIdentityReadback = await readSelectedPlatformBrandOptionIdentity(page);
+    await page.waitForTimeout(400);
+    const secondBrandReadback = await readPlatformQueryInputValue(page, "brand");
+    const brandReadbacks = [firstBrandReadback, secondBrandReadback];
+    if (
+      clickedBrandIdentity !== selectedBrandIdentity ||
+      firstIdentityReadback !== selectedBrandIdentity ||
+      !isStablePlatformBrandSelection(brand, brandReadbacks)
+    ) {
+      const error = new Error(
+        `Brand candidate selection did not commit. expected=${brand}; expectedIdentity=${selectedBrandIdentity}; actualIdentity=${firstIdentityReadback || "<empty>"}; readbacks=${brandReadbacks.map((value) => value || "<empty>").join(" | ")}`
+      ) as QueryDiagnosticError;
+      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-candidate-not-committed.png");
       throw error;
     }
     const brandValueConfirmed = brandReadbacks[brandReadbacks.length - 1] || "";
@@ -885,9 +928,13 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
 
     await page.waitForTimeout(400);
     const brandValueAfterSpu = await readPlatformQueryInputValue(page, "brand");
-    if (!isStablePlatformBrandSelection(brand, [brandValueConfirmed, brandValueAfterSpu])) {
+    const brandIdentityAfterSpu = await readSelectedPlatformBrandOptionIdentity(page);
+    if (
+      brandIdentityAfterSpu !== selectedBrandIdentity ||
+      !isStablePlatformBrandSelection(brand, [brandValueConfirmed, brandValueAfterSpu])
+    ) {
       const error = new Error(
-        `Brand selection was lost after SPU entry before clicking query. expected=${brand}; beforeSpu=${brandValueConfirmed || "<empty>"}; afterSpu=${brandValueAfterSpu || "<empty>"}`
+        `Brand candidate selection was lost after SPU entry before clicking query. expected=${brand}; expectedIdentity=${selectedBrandIdentity}; actualIdentity=${brandIdentityAfterSpu || "<empty>"}; beforeSpu=${brandValueConfirmed || "<empty>"}; afterSpu=${brandValueAfterSpu || "<empty>"}`
       ) as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-lost-after-spu.png");
       throw error;
@@ -903,68 +950,15 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
       throw error;
     }
 
-    const queryButton = page.getByRole("button", { name: "\u67E5\u8BE2" });
-    let queryClicked = false;
-    if (await queryButton.count()) {
-      queryClicked = await queryButton.click({ timeout: 5000 }).then(() => true).catch(() => false);
-    }
-    if (!queryClicked) {
-      queryClicked = await clickVisibleText(page, "\u67E5\u8BE2");
-    }
-    if (!queryClicked) {
-      const error = new Error("Visible query button not found or not clickable.") as QueryDiagnosticError;
-      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-button-missing.png");
-      throw error;
-    }
-    await page.waitForTimeout(2500);
+    await clickPlatformSpuQueryButton(page, runtimeDir);
 
-    const readCandidates = () => page.evaluate(({ targetBrand, targetSpu }: { targetBrand: string; targetSpu: string }) => {
-      const rows = Array.from(document.querySelectorAll("tr"));
-      return rows
-        .map((row) => {
-          const rowEl = row as HTMLElement;
-          const cells = Array.from(row.querySelectorAll("td"));
-          const operationCell = cells[cells.length - 1] || row;
-          const publishButton = Array.from(operationCell.querySelectorAll("button, a, [role='button']"))
-            .find((el) => ((el.textContent || "").replace(/\s+/g, "").trim() === "\u53D1\u5E03\u5546\u54C1")) as HTMLElement | undefined;
-          if (!publishButton) {
-            return null;
-          }
-          const rowRect = rowEl.getBoundingClientRect();
-          if (rowRect.width <= 0 || rowRect.height <= 0 || publishButton.getBoundingClientRect().width <= 0 || publishButton.getBoundingClientRect().height <= 0) {
-            return null;
-          }
-          const cellTexts = Array.from(row.querySelectorAll("td"))
-            .map((cell) => (cell.textContent || "").replace(/\s+/g, " ").trim())
-            .filter(Boolean);
-          const normalizeSpu = (value: string): string =>
-            value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
-          const normalizedRowText = normalizeSpu(rowEl.innerText || "");
-          const exactSpuCell = cellTexts.some((cell) => normalizeSpu(cell) === targetSpu);
-          const exactBrandCell = cellTexts.some((cell) => cell.replace(/\s+/g, "").toLowerCase() === targetBrand);
-          const rowHasSpu = normalizedRowText.includes(targetSpu);
-          const rowHasBrand = normalizedRowText.includes(targetBrand);
-          const rowId = rowEl.innerText.match(/ID[:：]\s*(\d+)/)?.[1] || "";
-          const publishControlActionable =
-            !publishButton.hasAttribute("disabled") &&
-            publishButton.getAttribute("aria-disabled") !== "true" &&
-            !/disabled/i.test(String(publishButton.className || ""));
-          return {
-            rowText: (rowEl.innerText || "").slice(0, 800),
-            normalizedText: normalizedRowText,
-            rowId,
-            exactSpuCell,
-            exactBrandCell,
-            rowHasSpu,
-            rowHasBrand,
-            publishControlActionable
-          };
-        })
-        .filter(Boolean);
-    }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu }) as Promise<QueryMatchCandidate[]>;
+    const readCandidates = () => readPlatformSpuQueryCandidates(page, normalizedBrand, normalizedSpu);
 
     const pickMatchedCandidate = (items: QueryMatchCandidate[]): QueryMatchCandidate | null => {
-      const decision = selectActionablePlatformSpuPublishCandidate(items);
+      const decision = selectPlatformSpuPublishCandidate(items, {
+        specificationMatch: request.specificationMatch,
+        expectedSpecification: request.expectedSpecification
+      });
       return decision.candidateIndex >= 0 ? items[decision.candidateIndex] : null;
     };
 
@@ -983,16 +977,21 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
       await page.waitForTimeout(2200);
       candidates = await readCandidates();
       allCandidates.push(...candidates);
-      matched = pickMatchedCandidate(candidates);
+      matched = pickMatchedCandidate(allCandidates);
     }
 
-    if (!allCandidates.length && retryNo < maxPlatformSpuQueryRetries) {
+    const hasNextBrandCandidate = candidateState.index + 1 < candidateState.identities.length;
+    const nextBrandCandidateState = {
+      identities: candidateState.identities,
+      index: candidateState.index + 1
+    };
+
+    if (!allCandidates.length && hasNextBrandCandidate) {
       logWarn(
-        `platform spu query returned no visible publish rows; retrying verified platform-tab query ${retryNo + 1}/${maxPlatformSpuQueryRetries}. brand=${brand}; spu=${spu}`
+        `platform brand candidate returned no visible SPU rows; advancing candidate ${candidateState.index + 1}/${candidateState.identities.length}. brand=${brand}; optionIdentity=${selectedBrandIdentity}; spu=${spu}`
       );
-      await savePageScreenshot(page, runtimeDir, `platform-spu-query-no-rows-retry-${retryNo + 1}.png`).catch(() => "");
-      await page.waitForTimeout(1200 + retryNo * 800);
-      return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
+      await savePageScreenshot(page, runtimeDir, `platform-spu-brand-candidate-${candidateState.index + 1}-no-rows.png`).catch(() => "");
+      return queryPlatformSpu(runtimeDir, request, shopFolder, retryNo, nextBrandCandidateState);
     }
 
     if (!allCandidates.length) {
@@ -1002,7 +1001,20 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
     }
 
     if (!matched) {
-      const actionableDecision = selectActionablePlatformSpuPublishCandidate(allCandidates);
+      const actionableDecision = selectPlatformSpuPublishCandidate(allCandidates, {
+        specificationMatch: request.specificationMatch,
+        expectedSpecification: request.expectedSpecification
+      });
+      if (
+        actionableDecision.issue.includes("none matched Feishu specification exactly") &&
+        hasNextBrandCandidate
+      ) {
+        logWarn(
+          `platform brand candidate had no exact Feishu specification match; advancing candidate ${candidateState.index + 1}/${candidateState.identities.length}. brand=${brand}; optionIdentity=${selectedBrandIdentity}; expectedSpecification=${request.expectedSpecification || "<empty>"}`
+        );
+        await savePageScreenshot(page, runtimeDir, `platform-spu-brand-candidate-${candidateState.index + 1}-specification-mismatch.png`).catch(() => "");
+        return queryPlatformSpu(runtimeDir, request, shopFolder, retryNo, nextBrandCandidateState);
+      }
       if (actionableDecision.issue) {
         const error = new Error(actionableDecision.issue) as QueryDiagnosticError;
         error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-publish-row-not-actionable.png");
@@ -1022,7 +1034,7 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
         await savePageScreenshot(page, runtimeDir, `platform-spu-query-unfiltered-retry-${retryNo + 1}.png`).catch(() => "");
         await page.keyboard.press("Escape").catch(() => {});
         await page.waitForTimeout(1200);
-        return queryPlatformSpu(runtimeDir, brand, spu, shopFolder, retryNo + 1);
+        return queryPlatformSpu(runtimeDir, request, shopFolder, retryNo + 1, candidateState);
       }
       const error = new Error(
         `No queried result row matched brand/spu exactly. brand=${brand}; spu=${spu}; firstRow=${firstRowText.slice(0, 200)}; use input.publishPageUrl to bypass query when you already have a known create page URL.`

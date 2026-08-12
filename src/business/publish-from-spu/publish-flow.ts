@@ -215,6 +215,7 @@ export async function runPublishFlow(
           context,
           runtimeDir,
           metadata,
+          mutationPolicy,
           shopFolder,
           publishPageUrl
         }
@@ -540,6 +541,7 @@ export async function runGraphicFlow(
         context,
         runtimeDir,
         metadata: actionMetadata,
+        mutationPolicy,
         shopFolder,
         publishPageUrl
       }

@@ -1313,4 +1313,10 @@ const paidResubmissionAuthorizationAudit = auditRuleContradictions({
 assert.equal(paidResubmissionAuthorizationAudit.ok, false, "Three minutes must never authorize paid resubmission");
 assert.equal(paidResubmissionAuthorizationAudit.errors[0]?.code, "main_image_wait_rule_contradiction");
 
+assert.match(
+  auditCliSource,
+  /state && state\.status !== "completed"[\s\S]*resolveCanonicalRecoveryTask/,
+  "A completed run must not derive a recovery task from multiple successful publish-evidence tasks"
+);
+
 console.log("deep auto-listing audit rules passed");

@@ -6,6 +6,7 @@ import {
 import { queryPlatformSpu } from "../platform-spu-query-action.js";
 import { waitForPublishCreatePageReady } from "../publish-page-readiness.js";
 import { ensureShopContext } from "../shop-switch-action.js";
+import type { PublishCategoryMutationPolicy } from "../publish-category-policy.js";
 import type { ResolvedPublishFromSpuMetadata } from "../types.js";
 import type { PublishFlowCommonState, ShopSpuActionDeps } from "./types.js";
 
@@ -27,6 +28,7 @@ export async function runShopSpuAction(
     context: unknown;
     runtimeDir: string;
     metadata: ResolvedPublishFromSpuMetadata;
+    mutationPolicy: PublishCategoryMutationPolicy;
     shopFolder: string;
     publishPageUrl?: string;
   }
@@ -38,7 +40,12 @@ export async function runShopSpuAction(
   let shopVerifiedBeforeCreatePage = false;
 
   if (!createPageUrl) {
-    const queryResult = await deps.queryPlatformSpu(input.runtimeDir, input.metadata.brand, input.metadata.spu, input.shopFolder);
+    const queryResult = await deps.queryPlatformSpu(input.runtimeDir, {
+      brand: input.metadata.brand,
+      spu: input.metadata.spu,
+      specificationMatch: input.mutationPolicy.platformSpuSpecificationMatch,
+      expectedSpecification: input.metadata.specification
+    }, input.shopFolder);
     screenshotFiles.push(queryResult.screenshotFile);
     createPageUrl = queryResult.createPageUrl;
     matchedRowText = queryResult.matchedRowText;

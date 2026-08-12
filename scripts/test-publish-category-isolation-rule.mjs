@@ -11,6 +11,7 @@ const expected = {
     shops: 20,
     imagesPerShop: 1,
     policy: {
+      platformSpuSpecificationMatch: "ignore",
       categoryAttributes: "fill_model_spec",
       specTemplateSelection: "title_controlled",
       guardUnexpectedBasicFieldChanges: true,
@@ -28,6 +29,7 @@ const expected = {
     shops: 5,
     imagesPerShop: 4,
     policy: {
+      platformSpuSpecificationMatch: "require_exact",
       categoryAttributes: "leave_platform_state",
       specTemplateSelection: "buy_two_get_one",
       guardUnexpectedBasicFieldChanges: true,
@@ -45,6 +47,7 @@ const expected = {
     shops: 20,
     imagesPerShop: 1,
     policy: {
+      platformSpuSpecificationMatch: "ignore",
       categoryAttributes: "fill_health_food_fields",
       specTemplateSelection: "buy_two_get_one",
       guardUnexpectedBasicFieldChanges: false,

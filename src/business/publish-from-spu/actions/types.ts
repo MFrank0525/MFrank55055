@@ -4,7 +4,7 @@ import type { PublishCategoryMutationPolicy } from "../publish-category-policy.j
 import type { ServiceAfterSalesPolicy, ServiceSpuVerificationPolicy } from "../publish-category-policy.js";
 import type { PriceInventoryRowValue } from "../price-inventory-rules.js";
 import type { PublishRuleCheck, ServiceFulfillmentState } from "../publish-rules.js";
-import type { ProductAssets, PublishActionResult, PublishFlowStage, ResolvedPublishFromSpuMetadata } from "../types.js";
+import type { PlatformSpuQueryRequest, ProductAssets, PublishActionResult, PublishFlowStage, ResolvedPublishFromSpuMetadata } from "../types.js";
 
 export type PublishFlowProgress = {
   onProgress?: (message: string) => void;
@@ -31,8 +31,7 @@ export type PublishFlowCommonState = {
 export type ShopSpuActionDeps = {
   queryPlatformSpu: (
     runtimeDir: string,
-    brand: string,
-    spu: string,
+    request: PlatformSpuQueryRequest,
     shopFolder?: string
   ) => Promise<{
     pageUrl: string;
