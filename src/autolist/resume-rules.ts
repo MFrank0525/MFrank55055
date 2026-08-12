@@ -119,26 +119,29 @@ export function resolveCanonicalResumeDecision(input: {
   let coverageEntries = orderedManifest;
   let usesCanonicalPlan = false;
   if ((scopedManifest.length > 0 || scopedPlan.length > 0) && input.expectedTargetCount !== undefined) {
-    if (scopedManifest.length !== input.expectedTargetCount && scopedPlan.length !== input.expectedTargetCount) {
+    const manifestKeys = orderedManifest.map(identityKey);
+    const planKeys = orderedPlan.map(identityKey);
+    if (new Set(manifestKeys).size !== manifestKeys.length || new Set(planKeys).size !== planKeys.length) {
+      throw new Error(`Canonical publish coverage contains duplicate target identities for ${input.taskId}.`);
+    }
+    const coverageByIdentity = new Map(orderedPlan.map((entry) => [identityKey(entry), entry]));
+    for (const manifestEntry of orderedManifest) {
+      const key = identityKey(manifestEntry);
+      const planEntry = coverageByIdentity.get(key);
+      if (planEntry && path.resolve(planEntry.productFolder || "") !== path.resolve(manifestEntry.productFolder || "")) {
+          throw new Error(`Canonical publish manifest does not match the immutable plan for ${input.taskId}: ${identityKey(manifestEntry)}.`);
+      }
+      coverageByIdentity.set(key, manifestEntry);
+    }
+    if (coverageByIdentity.size !== input.expectedTargetCount) {
       throw new Error(
-        `Canonical publish coverage is incomplete for ${input.taskId}: expected ${input.expectedTargetCount}, got manifest=${scopedManifest.length}, plan=${scopedPlan.length}.`
+        `Canonical publish coverage is incomplete for ${input.taskId}: expected ${input.expectedTargetCount}, got manifest=${scopedManifest.length}, plan=${scopedPlan.length}, union=${coverageByIdentity.size}.`
       );
     }
     usesCanonicalPlan = scopedManifest.length !== input.expectedTargetCount;
-    coverageEntries = usesCanonicalPlan ? orderedPlan : orderedManifest;
-    const targetKeys = coverageEntries.map(identityKey);
-    if (new Set(targetKeys).size !== targetKeys.length) {
-      throw new Error(`Canonical publish coverage contains duplicate target identities for ${input.taskId}.`);
-    }
-    if (usesCanonicalPlan) {
-      const planByIdentity = new Map(orderedPlan.map((entry) => [identityKey(entry), entry]));
-      for (const manifestEntry of orderedManifest) {
-        const planEntry = planByIdentity.get(identityKey(manifestEntry));
-        if (!planEntry || path.resolve(planEntry.productFolder || "") !== path.resolve(manifestEntry.productFolder || "")) {
-          throw new Error(`Canonical publish manifest does not match the immutable plan for ${input.taskId}: ${identityKey(manifestEntry)}.`);
-        }
-      }
-    }
+    coverageEntries = [...coverageByIdentity.values()].sort(
+      (left, right) => Number(left.targetIdentity?.watermarkNo || 0) - Number(right.targetIdentity?.watermarkNo || 0)
+    );
   }
   const folderName = (folder: string | undefined): string => String(folder || "").split(/[\\/]/).pop() || "";
   const allProductFolderNames = Array.from(new Set([

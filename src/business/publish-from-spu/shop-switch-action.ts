@@ -1011,9 +1011,24 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
     const chooserVisibleAfterSelection = selected
       ? false
       : await waitForChooseShopDialog(page);
+    let currentShopAfterSelection = "";
+    if (!chooserVisibleAfterSelection) {
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      for (let readbackAttempt = 0; readbackAttempt < 5; readbackAttempt += 1) {
+        await page.waitForTimeout(700 + readbackAttempt * 350);
+        currentShopAfterSelection = normalizeShopName(
+          await detectCurrentShopName(page).catch(() => "")
+        );
+        if (currentShopAfterSelection) break;
+      }
+    }
+    const currentShopMatchedAfterSelection = Boolean(
+      currentShopAfterSelection && currentShopAfterSelection.includes(expectedShopName)
+    );
     const selectionDecision = evaluateShopTargetSelectionState({
       selectionReported: selected,
-      chooserVisibleAfterSelection
+      chooserVisibleAfterSelection,
+      currentShopMatchedAfterSelection
     });
     if (selectionDecision.action === "retry_transient_page" && attempt < 2) {
       logWarn(
@@ -1034,6 +1049,10 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
       throw new Error(
         `Shop switch failed: ${selectionDecision.issue} target=${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
       );
+    }
+
+    if (currentShopMatchedAfterSelection) {
+      return currentShopAfterSelection;
     }
 
     await page.waitForLoadState("domcontentloaded").catch(() => {});

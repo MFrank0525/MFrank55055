@@ -258,6 +258,14 @@
 | Converge terminal publish outcomes without stopping every completed product | `isPublishOutcomeAcceptedForBatchCompletion` and `resolveCanonicalRecoveryTask` jointly drive manifest completion, publish planning, task blocking, audit coverage, cleanup eligibility, recovery, and status; durable deferred/non-replay outcomes retain warnings but complete the product, while actionable or ambiguous failures still fail closed | Red-before-green terminal-outcome and stale-current-task regressions; full `rules:check`; eight-dimension audit on run `20260810-225345`; live Feishu API; 20/20 read-only shop audit `20260811-100505` | verified |
 | Preserve fail-closed evidence | A stable chooser missing the exact shop still stops and saves DOM plus screenshot; the final unstable attempt uses its own evidence name | Rule regression for both transient and stable-missing branches; live check used no publish/form mutation | verified |
 
+## 2026-08-12 Authoritative post-navigation shop readback
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Do not misclassify a successful full-page shop switch as a vanished-chooser failure | After the chooser disappears, the action waits for navigation and reads the current header shop before deciding whether to retry; an exact current-shop match is authoritative even if the click callback was lost | Real target 17 screenshot shows `延草纲目医疗保健专营店`; `publish-submit-attempt.json` is `not_attempted`; rule and structural regressions cover the lost-click-return branch | verified |
+| Preserve fail-closed behavior | A stable chooser without the target still fails; a vanished chooser with neither click confirmation nor exact current-shop readback remains bounded-retry only | `test-progress-state-part-1.mjs`; `test-shop-switch-structure-rule.mjs` | verified |
+| Preserve canonical coverage across repeated recovery | Publish-plan persistence merges by immutable target identity instead of overwriting the plan with only remaining folders; existing narrowed plans may recover only when their identity/path-verified union with the manifest covers exactly all 20 targets | Regression with manifest targets 1-17 plus narrowed plan targets 2-20; incomplete union and identity/path conflicts remain fail-closed | verified |
+
 ## 2026-08-09 OTC five-shop publishing policy
 
 | Requirement | Implementation | Verification | Status |

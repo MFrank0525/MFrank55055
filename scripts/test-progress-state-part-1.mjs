@@ -2228,7 +2228,8 @@ assert.deepEqual(switchEntryUnavailable, {
 assert.deepEqual(
   evaluateShopTargetSelectionState({
     selectionReported: false,
-    chooserVisibleAfterSelection: false
+    chooserVisibleAfterSelection: false,
+    currentShopMatchedAfterSelection: false
   }),
   {
     action: "retry_transient_page",
@@ -2239,7 +2240,20 @@ assert.deepEqual(
 assert.deepEqual(
   evaluateShopTargetSelectionState({
     selectionReported: false,
-    chooserVisibleAfterSelection: true
+    chooserVisibleAfterSelection: false,
+    currentShopMatchedAfterSelection: true
+  }),
+  {
+    action: "selected",
+    issue: ""
+  },
+  "an exact current-shop readback is authoritative when card click reporting is lost across full-page navigation"
+);
+assert.deepEqual(
+  evaluateShopTargetSelectionState({
+    selectionReported: false,
+    chooserVisibleAfterSelection: true,
+    currentShopMatchedAfterSelection: false
   }),
   {
     action: "fail_target_missing",

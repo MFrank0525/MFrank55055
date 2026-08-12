@@ -139,7 +139,27 @@ export function savePublishManifest(runtimeDir: string, manifest: PublishManifes
 
 export function savePublishPlan(runtimeDir: string, plan: PublishPlanItem[]): string {
   const filePath = publishPlanFile(runtimeDir);
-  atomicWriteJson(filePath, { generatedAt: new Date().toISOString(), plan });
+  const existingPlan = fs.existsSync(filePath)
+    ? (() => {
+        const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as { plan?: PublishPlanItem[] };
+        return Array.isArray(parsed.plan) ? parsed.plan : [];
+      })()
+    : [];
+  const mergedByTarget = new Map(existingPlan.map((item) => [item.targetKey, item]));
+  for (const item of plan) {
+    const existing = mergedByTarget.get(item.targetKey);
+    if (existing && (
+      path.resolve(existing.productFolder) !== path.resolve(item.productFolder) ||
+      JSON.stringify(existing.targetIdentity) !== JSON.stringify(item.targetIdentity)
+    )) {
+      throw new Error(`Publish plan identity changed for canonical target ${item.targetKey}.`);
+    }
+    mergedByTarget.set(item.targetKey, existing ? { ...existing, ...item } : item);
+  }
+  const mergedPlan = [...mergedByTarget.values()].sort(
+    (left, right) => left.targetIdentity.watermarkNo - right.targetIdentity.watermarkNo
+  );
+  atomicWriteJson(filePath, { generatedAt: new Date().toISOString(), plan: mergedPlan });
   return filePath;
 }
 

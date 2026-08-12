@@ -1863,6 +1863,29 @@ assert.deepEqual(
   },
   "A complete immutable canonical plan must authorize the not-yet-attempted tail when login expires before the manifest reaches all targets."
 );
+assert.deepEqual(
+  resolveCanonicalResumeDecision({
+    batchFingerprint: "batch-a",
+    recordId: "record-a",
+    taskId: "image-001",
+    inferredArtifactStartStep: "published",
+    productFolders: canonicalResumeFolders,
+    manifestEntries: canonicalResumeManifest.slice(0, 17).map((entry, index) =>
+      index === 16 ? { ...entry, status: "failed", finalVerifyStatus: "not_checked" } : entry
+    ),
+    canonicalPlanEntries: canonicalResumeManifest.slice(1).map((entry) => ({
+      targetIdentity: entry.targetIdentity,
+      productFolder: entry.productFolder
+    })),
+    expectedTargetCount: 20
+  }),
+  {
+    startStep: "published",
+    resumeProductFolderNames: canonicalResumeFolders.slice(16).map((folder) => folder.split("/").pop()),
+    source: "publish-plan+manifest"
+  },
+  "A canonical manifest and a previously narrowed resume plan may recover only when their verified identity union still covers all targets exactly."
+);
 assert.throws(
   () => resolveCanonicalResumeDecision({
     batchFingerprint: "batch-a",

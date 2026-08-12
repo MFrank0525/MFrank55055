@@ -187,6 +187,7 @@ export interface ShopSwitchMenuStateDecision {
 export interface ShopTargetSelectionStateInput {
   selectionReported: boolean;
   chooserVisibleAfterSelection: boolean;
+  currentShopMatchedAfterSelection: boolean;
 }
 
 export interface ShopTargetSelectionStateDecision {
@@ -347,7 +348,7 @@ export function evaluateShopSwitchMenuState(input: ShopSwitchMenuStateInput): Sh
 export function evaluateShopTargetSelectionState(
   input: ShopTargetSelectionStateInput
 ): ShopTargetSelectionStateDecision {
-  if (input.selectionReported) {
+  if (input.selectionReported || input.currentShopMatchedAfterSelection) {
     return { action: "selected", issue: "" };
   }
   if (!input.chooserVisibleAfterSelection) {

@@ -141,8 +141,8 @@ assert.match(
 );
 assert.match(
   functionBody("ensureShopContextAttempt"),
-  /evaluateShopTargetSelectionState\([\s\S]*chooserVisibleAfterSelection[\s\S]*retry_transient_page[\s\S]*continue/,
-  "A chooser that vanished into a loading/navigation shell must retry the bounded shop-switch attempt"
+  /chooserVisibleAfterSelection[\s\S]*detectCurrentShopName[\s\S]*currentShopMatchedAfterSelection[\s\S]*evaluateShopTargetSelectionState\([\s\S]*retry_transient_page[\s\S]*continue/,
+  "A vanished chooser must first verify the exact current shop, then retry only when navigation remains unverified"
 );
 
 console.log("shop switch structure rule passed");
