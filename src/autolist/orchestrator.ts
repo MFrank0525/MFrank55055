@@ -57,6 +57,7 @@ import {
   canResumeAutoListingArtifacts
 } from "./business-rule-fingerprint.js";
 import { normalizeAutoListingStep } from "./types.js";
+import { completedProductEvidenceRoot, saveCompletedProductEvidence } from "./completion-evidence.js";
 
 interface ManualReadRecord {
   step: string;
@@ -1198,6 +1199,19 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
             productIdentity: buildPublishProductIdentity(completedTask, feishuBatchFingerprint)
           })
         ) {
+          saveCompletedProductEvidence(completedProductEvidenceRoot(resolved.input.runtimeRootDir), {
+            version: 1,
+            batchFingerprint: feishuBatchFingerprint,
+            businessRuleFingerprint: workingState.businessRuleFingerprint,
+            recordId: completedTask.feishuProductRecord?.recordId || "",
+            createdAt: new Date().toISOString(),
+            task: completedTask,
+            manifestEntries: publishManifest.entries.filter((entry) =>
+              entry.targetIdentity?.batchFingerprint === feishuBatchFingerprint &&
+              entry.targetIdentity?.recordId === completedTask.feishuProductRecord?.recordId &&
+              entry.targetIdentity?.taskId === completedTask.taskId
+            )
+          });
           appendProcessedImages(resolved.processedImageManifest, [task.sourceImagePath], feishuBatchFingerprint);
           if (feishuBatchFingerprint && completedTask.feishuProductRecord?.recordId) {
             removePaidImageProductLedger(

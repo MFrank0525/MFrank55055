@@ -32,6 +32,11 @@ import {
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  completedProductEvidenceRoot,
+  loadCompletedProductEvidenceForBatch,
+  saveCompletedProductEvidence
+} from "../dist/src/autolist/completion-evidence.js";
 
 assert.equal(
   shouldRequirePublishTargetIdentity({
@@ -257,6 +262,50 @@ assert.deepEqual(
   [...new Set(recoveredArchivedArtifact?.generatedFiles.map((item) => item.promptIndex))],
   [1, 2, 3, 4, 5],
   "Completed cleanup must preserve all five prompt groups through the immutable archive manifest"
+);
+
+const completedEvidenceRuntimeRoot = path.join(archivedRecoveryRoot, "data", "auto-listing", "runs");
+const completedEvidenceRoot = completedProductEvidenceRoot(completedEvidenceRuntimeRoot);
+const completedEvidenceTask = {
+  taskId: "image-001",
+  sequenceNo: 1,
+  sourceImagePath: "/work/current.png",
+  sourceImageName: "current.png",
+  status: "done",
+  lastUpdatedAt: new Date().toISOString(),
+  generatedProductFolders: ["/work/shop/product-record-a-水印01"],
+  notes: [],
+  feishuProductRecord: { recordId: "record-a" }
+};
+const completedEvidenceManifestEntry = {
+  targetKey: "batch-a__record-a__image-001__01__01",
+  targetIdentity: { batchFingerprint: "batch-a", recordId: "record-a", taskId: "image-001", shopCode: "01", watermarkNo: 1 },
+  productFolder: "/work/shop/product-record-a-水印01",
+  runtimeKey: "batch-a__record-a__image-001__01__01",
+  shopFolder: "/work/shop",
+  watermarkNo: 1,
+  status: "published",
+  finalVerifyStatus: "publish_signal_confirmed",
+  message: "ok",
+  updatedAt: new Date().toISOString()
+};
+saveCompletedProductEvidence(completedEvidenceRoot, {
+  version: 1,
+  batchFingerprint: "batch-a",
+  businessRuleFingerprint: "rules-a",
+  recordId: "record-a",
+  createdAt: new Date().toISOString(),
+  task: completedEvidenceTask,
+  manifestEntries: [completedEvidenceManifestEntry]
+});
+assert.deepEqual(
+  loadCompletedProductEvidenceForBatch(completedEvidenceRoot, "batch-a").map((item) => ({
+    recordId: item.recordId,
+    targetCount: item.manifestEntries.length,
+    status: item.task.status
+  })),
+  [{ recordId: "record-a", targetCount: 1, status: "done" }],
+  "Durable completed-product evidence must survive independently from disposable run directories"
 );
 assert.equal(
   recoverArchivedMainImageArtifactForAudit({

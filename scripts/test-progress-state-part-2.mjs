@@ -62,6 +62,7 @@ import {
   resolveAutoListingControllerRuntimeStatus,
   resolveAutoListingControllerIdleStatus,
   resolveAutoListingControllerDryRunStartDecision,
+  resolveAutoListingControllerContinueDecision,
   resolveAutoListingControllerPublishGroupProgress,
   resolveAutoListingControllerPaidImageRecordId,
   shouldSuppressTerminalFailureBehindNewerProgress,
@@ -2041,6 +2042,16 @@ assert.deepEqual(
     forceFullFlow: false
   },
   "继续上架 must preserve the locked cached batch and select its safe resume point"
+);
+assert.equal(
+  resolveAutoListingControllerContinueDecision({ batchComplete: true }),
+  "report_complete",
+  "继续上架 must stop on an already completed locked batch without launching full flow or refreshing Feishu"
+);
+assert.equal(
+  resolveAutoListingControllerContinueDecision({ batchComplete: false }),
+  "select_recovery",
+  "继续上架 must select recovery only while the locked batch remains incomplete"
 );
 assert.equal(
   shouldExposeHistoricalRuntimeForCurrentFeishuBatch({

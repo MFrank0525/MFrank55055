@@ -30,6 +30,7 @@ import type { AutoListingJobFile, AutoListingRunResult, AutoListingRunState } fr
 import { loadFeishuBitableConfig } from "../feishu/config.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import { readWorkbookRows } from "../autolist/xlsx-lite.js";
+import { completedProductEvidenceRoot, loadCompletedProductEvidenceForBatch } from "../autolist/completion-evidence.js";
 
 interface Args {
   jobFile: string;
@@ -307,6 +308,15 @@ async function main(): Promise<void> {
   const batchFingerprint = buildFeishuBatchFingerprint(records);
   const businessRuleFingerprint = buildAutoListingBusinessRuleFingerprint();
   const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly, batchFingerprint, businessRuleFingerprint);
+  const completedEvidence = loadCompletedProductEvidenceForBatch(
+    completedProductEvidenceRoot(resolved.runtimeRootDir),
+    batchFingerprint
+  ).filter((item) => item.businessRuleFingerprint === businessRuleFingerprint);
+  const stateRecordIds = new Set((state?.tasks || []).map((task) => task.feishuProductRecord?.recordId).filter(Boolean));
+  const auditTasks = [
+    ...(state?.tasks || []),
+    ...completedEvidence.filter((item) => !stateRecordIds.has(item.recordId)).map((item) => item.task)
+  ];
   const effectiveProcessedImageManifest = resolveProcessedImageManifestForAudit({
     defaultProcessedImageManifest: resolved.processedImageManifest,
     runtimeRootDir: resolved.runtimeRootDir,
@@ -320,7 +330,7 @@ async function main(): Promise<void> {
     ...listFilesRecursive(resolved.mainImageWorkDir),
     ...listFilesRecursive(resolved.shopRootDir),
     ...listFilesRecursive(resolved.runtimeRootDir),
-    ...(state?.tasks || []).flatMap((task) => task.cleanupArtifact?.archivedFiles || []).map((filePath) => path.resolve(filePath))
+    ...auditTasks.flatMap((task) => task.cleanupArtifact?.archivedFiles || []).map((filePath) => path.resolve(filePath))
   ];
   const discoveredRunImageCount = state?.status === "running" ? state.tasks.length : undefined;
   const controllerJob = readOptionalJson<ControllerJobFile>("data/auto-listing/control/auto-listing-controller-job.json");
@@ -366,6 +376,22 @@ async function main(): Promise<void> {
   } catch (error) {
     runtimeErrors.push({ code: "publish_manifest_invalid", message: error instanceof Error ? error.message : String(error) });
   }
+  const manifestByTarget = new Map(manifest.entries.map((entry) => [entry.targetKey, entry]));
+  for (const entry of completedEvidence.flatMap((item) => item.manifestEntries)) {
+    const existing = manifestByTarget.get(entry.targetKey);
+    if (existing && (
+      JSON.stringify(existing.targetIdentity) !== JSON.stringify(entry.targetIdentity) ||
+      path.resolve(existing.productFolder) !== path.resolve(entry.productFolder)
+    )) {
+      runtimeErrors.push({
+        code: "completed_product_evidence_conflict",
+        message: `Completed product evidence conflicts with runtime manifest target ${entry.targetKey}.`
+      });
+      continue;
+    }
+    manifestByTarget.set(entry.targetKey, entry);
+  }
+  manifest = { ...manifest, entries: [...manifestByTarget.values()] };
   canonicalPlanEntries = readOptionalJson<{ plan?: typeof canonicalPlanEntries }>(path.join(latestRuntimeDir, "publish-plan.json"))?.plan || [];
   const continuity = auditAutoListingContinuity({
     records,
@@ -378,7 +404,13 @@ async function main(): Promise<void> {
     records,
     processedImages
   });
-  const tasksForGenerationAudit = (state?.tasks || []).map((task) => {
+  if (!resolved.simulateOnly && feishuBatch.batchComplete && feishuBatch.processedRecordCount > 0 && auditTasks.length === 0) {
+    runtimeErrors.push({
+      code: "completed_batch_evidence_missing",
+      message: "The completed Feishu batch has processed records but no substantive runtime or durable completed-product evidence."
+    });
+  }
+  const tasksForGenerationAudit = auditTasks.map((task) => {
     const categoryPlan = getProductCategoryPlan(task.feishuProductRecord?.productCategory);
     const expectedImageCount = categoryPlan.promptCount * resolved.mainImageExpectedCount;
     if ((task.mainImageArtifact?.generatedFiles.length || 0) === expectedImageCount) {
@@ -442,16 +474,16 @@ async function main(): Promise<void> {
   const generation = currentPaidImageAudit.generation;
   const requireCompletePublishAudit = shouldRequireCompletePublishAudit({
     runStatus: state?.status,
-    taskStatuses: (state?.tasks || []).map((task) => task.status)
+    taskStatuses: auditTasks.map((task) => task.status)
   });
   const publish = auditPublishCoverage({
-    tasks: state?.tasks || [],
+    tasks: auditTasks,
     manifestEntries: manifest.entries,
     batchFingerprint: state?.feishuBatchFingerprint,
     allowInProgress: !requireCompletePublishAudit
   });
   const distributedTitles = auditDistributedTitleArtifacts({
-    tasks: (state?.tasks || []).flatMap((task) => {
+    tasks: auditTasks.flatMap((task) => {
       if (state?.status === "completed" || !shouldAuditDistributedTitleTask(task.status)) return [];
       if (!task.feishuProductRecord) return [];
       const folders = resolveDistributedTitleAuditFolders({
@@ -495,7 +527,7 @@ async function main(): Promise<void> {
     paidLedgerBatchExists: fs.existsSync(paidImageBatchLedgerDir(resolved.paidImageSubmissionLedgerDir, batchFingerprint))
   });
   const intermediateResidue = auditIntermediateArtifactResidue({
-    tasks: state?.tasks || [],
+    tasks: auditTasks,
     existingPaths: existingFiles
   });
   let canonicalRecovery: ReturnType<typeof resolveCanonicalResumeDecision> | undefined;
@@ -547,7 +579,7 @@ async function main(): Promise<void> {
   const expectedTargetKeys: string[] = [];
   const auditedTaskScopes: Array<{ batchFingerprint: string; recordId: string; taskId: string }> = [];
   const identityBuildErrors: DeepAuditIssue[] = [];
-  for (const task of state?.tasks || []) {
+  for (const task of auditTasks) {
     if (
       !shouldRequirePublishTargetIdentity({
         recordId: task.feishuProductRecord?.recordId,
@@ -585,7 +617,7 @@ async function main(): Promise<void> {
   const identityAudit = auditCanonicalPublishEvidence({
     expectedTargetKeys,
     manifestTargetKeys: scopeCanonicalPublishManifestKeys({ taskScopes: auditedTaskScopes, entries: manifest.entries }),
-    artifactTargetKeys: (state?.tasks || []).flatMap((task) => task.publishArtifact?.results.map((result) => result.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey)) || []),
+    artifactTargetKeys: auditTasks.flatMap((task) => task.publishArtifact?.results.map((result) => result.targetKey).filter((targetKey): targetKey is string => Boolean(targetKey)) || []),
     requireComplete: requireCompletePublishAudit
   });
   identityAudit.errors.unshift(...identityBuildErrors);

@@ -724,6 +724,11 @@ assert.match(
   "Hermes continue script must default to concise human-readable text for Feishu/AutoListingController replies"
 );
 assert.match(
+  hermesRunnerSource,
+  /resolveAutoListingControllerContinueDecision\([\s\S]*report_complete[\s\S]*status:\s*"batch_complete"[\s\S]*return;[\s\S]*selectCommand/,
+  "A completed locked batch must short-circuit before continue can select or launch full-real-flow"
+);
+assert.match(
   hermesSupervisorSource,
   /latestTerminalResultAfter/,
   "AutoListingController watchdog must detect a terminal result file and preserve the real child outcome instead of reporting no-progress timeout"
@@ -822,6 +827,16 @@ assert.match(
   orchestratorSource,
   /isProductFullyProcessed[\s\S]*appendProcessedImages[\s\S]*removePaidImageProductLedger/,
   "A safely completed product must be atomically marked processed before its project-owned paid-image ledger is deleted"
+);
+assert.match(
+  orchestratorSource,
+  /isProductFullyProcessed[\s\S]*saveCompletedProductEvidence[\s\S]*appendProcessedImages/,
+  "A completed product must persist canonical terminal evidence before the lightweight processed marker is committed"
+);
+assert.match(
+  auditAutoListingSource,
+  /loadCompletedProductEvidenceForBatch[\s\S]*auditTasks[\s\S]*completed_batch_evidence_missing/,
+  "A zero-task completed run must reuse durable product evidence or make deep audit fail closed"
 );
 assert.match(
   orchestratorSource,

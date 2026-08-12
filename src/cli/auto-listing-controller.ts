@@ -12,6 +12,7 @@ import {
   resolveAutoListingControllerLaunchPolicy, resolveAutoListingControllerPaidImageRecordId,
   resolveAutoListingControllerProgressAgeSeconds, resolveAutoListingControllerPublishGroupProgress,
   resolveAutoListingControllerRealtimeProgressSignal, resolveAutoListingControllerRuntimeStatus,
+  resolveAutoListingControllerContinueDecision,
   resolveAutoListingControllerStartAfterFeishuRefresh, selectAutoListingControllerActiveRunIdFromLogLines,
   selectAutoListingControllerFailedResumeCandidate, selectAutoListingControllerLatestResultFileForJobStatus,
   selectAutoListingControllerStatusResultFile, selectAutoListingControllerStatusRuntimeDir,
@@ -236,6 +237,9 @@ function formatStartText(result: Record<string, unknown>): string {
       "当前飞书批次产品已全部上架完成，刷新后没有发现新的产品批次。",
       "如需重新跑原批次，请确认后使用重跑当前批次入口；否则任务会停止等待你更新飞书表格。"
     ].join("\n");
+  }
+  if (status === "batch_complete") {
+    return "当前锁定飞书批次已全部上架完成；继续命令未刷新飞书，也未启动新的上架任务。";
   }
   return String(result.message || `上架启动命令已执行：${status}`);
 }
@@ -866,6 +870,21 @@ async function start(
         ? String(currentProgress.validationIssue)
         : "Cannot start auto-listing without a validated Feishu batch fingerprint."
     );
+  }
+  const continueDecision = intent === "continue_current_batch"
+    ? resolveAutoListingControllerContinueDecision({
+        batchComplete: typeof currentProgress?.batchComplete === "boolean" ? currentProgress.batchComplete : undefined
+      })
+    : "select_recovery";
+  if (continueDecision === "report_complete") {
+    const result = {
+      ok: true,
+      status: "batch_complete",
+      feishuProgress: currentProgress,
+      message: "The locked Feishu batch is already complete; continue did not refresh Feishu or launch a new task."
+    };
+    console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
+    return;
   }
   const nonCurrentBatchCleanup = !dryRun ? cleanupNonCurrentBatchResidue(selectedBatchFingerprint) : [];
   const dryRunDecision = dryRun

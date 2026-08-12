@@ -495,6 +495,12 @@ export type AutoListingControllerStartAfterFeishuRefreshDecision =
 
 export type AutoListingControllerLaunchIntent = "start_new_batch" | "continue_current_batch";
 
+export function resolveAutoListingControllerContinueDecision(input: {
+  batchComplete?: boolean;
+}): "report_complete" | "select_recovery" {
+  return input.batchComplete === true ? "report_complete" : "select_recovery";
+}
+
 export function resolveAutoListingControllerLaunchPolicy(intent: AutoListingControllerLaunchIntent): {
   refreshBeforeSelection: boolean;
   allowHistoricalResume: boolean;

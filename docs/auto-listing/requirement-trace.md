@@ -274,6 +274,14 @@
 | Fail closed on damaged archive evidence | Archive recovery requires exactly 20 unique, ordered, non-empty image files whose numeric filename suffix matches the durable slot; deep audit also reads every archived image dimension | Missing-slot and reordered-slot regressions; two independent eight-dimension audits on the completed run | verified |
 | Preserve read-only Doudian verification | Category-scoped shop access audit uses only navigation, exact shop switching and DOM readback after the listing browser releases ownership | OTC audit `20260812-222405` passed 5/5 with `publishAttempted=false` and `formMutationAttempted=false` | verified |
 
+## 2026-08-12 Continue semantics and durable completion evidence
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Never refresh or switch batches for “继续上架” | The controller resolves the locked cache first and returns `batch_complete` before cleanup, command selection or process launch when that batch is already complete; only `start-new` may refresh Feishu | Red-before-green launch-decision and controller-order regressions; real continue readback left both Feishu cache mtimes and the controller job unchanged | verified |
+| Prevent a zero-task run from proving a completed batch | Deep audit requires substantive current-run tasks or exact durable completed-product evidence whenever the processed current batch is non-empty | Structural regression requires `completed_batch_evidence_missing`; the accidental zero-task run audits 20/20 only after durable evidence recovery | verified |
+| Preserve terminal evidence outside disposable run history | Before committing the processed-image marker, the orchestrator atomically saves the completed task, canonical publish manifest scope and archived image paths under the batch/record identity | Persistence round-trip regression; current record recovery required 20 unique `publish_signal_confirmed` log entries and 20 archived files before writing evidence | verified |
+
 ## 2026-08-09 OTC five-shop publishing policy
 
 | Requirement | Implementation | Verification | Status |
