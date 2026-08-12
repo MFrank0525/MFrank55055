@@ -31,6 +31,13 @@ assert.deepEqual(
   ),
   ["480丸"]
 );
+assert.deepEqual(
+  extractPlatformSpuRowSpecifications(
+    "龙仕康/480丸/吉林省鑫辉药业有限公司/锁阳固精丸/国药准字Z22025437/否\n\nID:7538641052859171099\n\n条码:6958989321521\n\n药品>非处方药>补益安神\n品牌：龙仕康\n生产企业名称：吉林省鑫辉药业有限公司\n药品通用名：锁阳固精丸\n药品批准文号：国药准字Z22025437\n是否处方药：否\n规格：480丸\n\n2026/08/04 21:03:27\n\n已上线\n\n详情\n发布商品"
+  ),
+  ["480丸"],
+  "A trailing unlabelled timestamp/status/action column must not become part of the specification"
+);
 
 const otcMultiSpecificationRows = ["300丸", "480丸", "6g*12袋", "6g*7袋"].map((specification, index) => ({
   rowId: `row-${index}`,
@@ -286,7 +293,7 @@ assert.match(
 );
 assert.match(
   querySource,
-  /reacquireExactPlatformBrandOptionIdentities[\s\S]*firstIdentityReadback[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)[\s\S]*brandIdentityAfterSpu[\s\S]*clickPlatformSpuQueryButton/,
+  /reacquireExactPlatformBrandOptionIdentities[\s\S]*clickedBrandIdentity !== selectedBrandIdentity[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)[\s\S]*brandValueAfterSpu[\s\S]*clickPlatformSpuQueryButton/,
   "SPU query must freeze and verify the exact brand option identity before filling SPU and querying"
 );
 assert.match(
@@ -379,8 +386,13 @@ assert.doesNotMatch(
 );
 assert.match(
   querySource,
-  /firstIdentityReadback !== selectedBrandIdentity[\s\S]*isStablePlatformBrandSelection\(brand, brandReadbacks\)[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)/,
-  "SPU entry must remain blocked until both the brand text and stable option identity commit"
+  /clickedBrandIdentity !== selectedBrandIdentity[\s\S]*isStablePlatformBrandSelection\(brand, brandReadbacks\)[\s\S]*setPlatformQueryInputValue\(page, "spu", spu\)/,
+  "SPU entry must remain blocked until the uniquely targeted brand identity click succeeds and brand text is stable"
+);
+assert.doesNotMatch(
+  querySource,
+  /readSelectedPlatformBrandOptionIdentity/,
+  "A closed virtualized dropdown must not be treated as a durable selected-identity readback surface"
 );
 assert.match(
   querySource,

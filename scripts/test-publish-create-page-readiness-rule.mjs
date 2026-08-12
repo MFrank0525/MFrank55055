@@ -23,6 +23,38 @@ assert.deepEqual(
   }
 );
 
+assert.deepEqual(
+  evaluatePublishCreatePageReadiness({
+    usable: false,
+    bodyTextLength: 12,
+    sectionCount: 0,
+    loading: false,
+    loginRequired: false,
+    bodyText: "返回商家后台 商品发布"
+  }),
+  {
+    action: "wait_or_reload",
+    issue: "Publish create page is not ready yet."
+  },
+  "A spinner-only create-page shell must be allowed to finish rendering instead of being misclassified as SPU prefill failure"
+);
+
+assert.deepEqual(
+  evaluatePublishCreatePageReadiness({
+    usable: false,
+    bodyTextLength: 16,
+    sectionCount: 0,
+    loading: false,
+    loginRequired: false,
+    bodyText: "商品发布 SPU信息填充失败"
+  }),
+  {
+    action: "reopen_from_platform_spu",
+    issue: "Publish create page reported SPU prefill failure."
+  },
+  "An explicit SPU prefill failure must still reopen from the authoritative platform SPU query"
+);
+
 const sectionActivationFailureClass = classifyPublishFailure(
   "Failed to activate publish section tab: expected=图文信息; actual=<unknown>"
 );

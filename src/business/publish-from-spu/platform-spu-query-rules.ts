@@ -51,6 +51,24 @@ export function resolveExactPlatformBrandCandidateSequence(
 
 export function extractPlatformSpuRowSpecifications(rowText: string): string[] {
   const values: string[] = [];
+  const appendUnique = (rawValue: string): void => {
+    const value = rawValue
+      .replace(/\s+(?:(?:品牌|生产企业名称|药品通用名|药品批准文号|是否处方药|条码|ID|操作时间|状态)[:：]|\d{4}[/-]\d{2}[/-]\d{2}).*$/u, "")
+      .trim();
+    if (value && !values.some((item) => normalizePlatformSpuSpecification(item) === normalizePlatformSpuSpecification(value))) {
+      values.push(value);
+    }
+  };
+
+  // Doudian renders each labelled detail as its own visual line. Preserve that
+  // boundary first: flattening innerText would otherwise append the unlabelled
+  // online timestamp/status/action columns to a trailing specification value.
+  for (const line of rowText.split(/\r?\n/)) {
+    const match = line.trim().match(/^规格[:：]\s*(.+)$/u);
+    if (match?.[1]) appendUnique(match[1]);
+  }
+  if (values.length) return values;
+
   const boundaryLabels = [
     "品牌",
     "生产企业名称",
@@ -64,10 +82,7 @@ export function extractPlatformSpuRowSpecifications(rowText: string): string[] {
   ].join("|");
   const pattern = new RegExp(`(?:^|\\s)规格[:：]\\s*(.+?)(?=\\s(?:${boundaryLabels})[:：]|$)`, "g");
   for (const match of rowText.replace(/\s+/g, " ").trim().matchAll(pattern)) {
-    const value = match[1]?.trim() || "";
-    if (value && !values.some((item) => normalizePlatformSpuSpecification(item) === normalizePlatformSpuSpecification(value))) {
-      values.push(value);
-    }
+    appendUnique(match[1] || "");
   }
   return values;
 }

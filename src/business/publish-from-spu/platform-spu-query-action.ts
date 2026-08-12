@@ -285,20 +285,6 @@ async function clickPlatformBrandDropdownOption(
   return optionIdentity;
 }
 
-async function readSelectedPlatformBrandOptionIdentity(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const input = Array.from(document.querySelectorAll(".ecom-g-form-item input[role='combobox']"))
-      .map((item) => item as HTMLInputElement)
-      .find((item) => {
-        const rect = item.getBoundingClientRect();
-        return rect.width > 80 && rect.height > 20 && (item.closest(".ecom-g-form-item")?.textContent || "").replace(/\s+/g, "").startsWith("品牌");
-      });
-    const listId = input?.getAttribute("aria-controls") || input?.getAttribute("aria-owns") || "";
-    const selected = listId ? document.querySelector(`#${CSS.escape(listId)} [role='option'][aria-selected='true']`) : null;
-    return (selected?.textContent || "").trim();
-  });
-}
-
 async function isPlatformQueryInputAvailable(page: Page, kind: "brand" | "spu"): Promise<boolean> {
   return page.evaluate((targetKind) => {
     const visible = (el: HTMLElement): boolean => {
@@ -885,17 +871,15 @@ export async function queryPlatformSpu(
     const clickedBrandIdentity = await clickPlatformBrandDropdownOption(page, brand, selectedBrandIdentity).catch(() => "");
     await page.waitForTimeout(800);
     const firstBrandReadback = await readPlatformQueryInputValue(page, "brand");
-    const firstIdentityReadback = await readSelectedPlatformBrandOptionIdentity(page);
     await page.waitForTimeout(400);
     const secondBrandReadback = await readPlatformQueryInputValue(page, "brand");
     const brandReadbacks = [firstBrandReadback, secondBrandReadback];
     if (
       clickedBrandIdentity !== selectedBrandIdentity ||
-      firstIdentityReadback !== selectedBrandIdentity ||
       !isStablePlatformBrandSelection(brand, brandReadbacks)
     ) {
       const error = new Error(
-        `Brand candidate selection did not commit. expected=${brand}; expectedIdentity=${selectedBrandIdentity}; actualIdentity=${firstIdentityReadback || "<empty>"}; readbacks=${brandReadbacks.map((value) => value || "<empty>").join(" | ")}`
+        `Brand candidate selection did not commit. expected=${brand}; expectedIdentity=${selectedBrandIdentity}; clickedIdentity=${clickedBrandIdentity || "<empty>"}; readbacks=${brandReadbacks.map((value) => value || "<empty>").join(" | ")}`
       ) as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-candidate-not-committed.png");
       throw error;
@@ -928,13 +912,9 @@ export async function queryPlatformSpu(
 
     await page.waitForTimeout(400);
     const brandValueAfterSpu = await readPlatformQueryInputValue(page, "brand");
-    const brandIdentityAfterSpu = await readSelectedPlatformBrandOptionIdentity(page);
-    if (
-      brandIdentityAfterSpu !== selectedBrandIdentity ||
-      !isStablePlatformBrandSelection(brand, [brandValueConfirmed, brandValueAfterSpu])
-    ) {
+    if (!isStablePlatformBrandSelection(brand, [brandValueConfirmed, brandValueAfterSpu])) {
       const error = new Error(
-        `Brand candidate selection was lost after SPU entry before clicking query. expected=${brand}; expectedIdentity=${selectedBrandIdentity}; actualIdentity=${brandIdentityAfterSpu || "<empty>"}; beforeSpu=${brandValueConfirmed || "<empty>"}; afterSpu=${brandValueAfterSpu || "<empty>"}`
+        `Brand candidate selection was lost after SPU entry before clicking query. expected=${brand}; expectedIdentity=${selectedBrandIdentity}; beforeSpu=${brandValueConfirmed || "<empty>"}; afterSpu=${brandValueAfterSpu || "<empty>"}`
       ) as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-lost-after-spu.png");
       throw error;

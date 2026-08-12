@@ -385,9 +385,10 @@ export function evaluatePublishCreatePageReadiness(input: PublishCreatePageHealt
   if (bodyText.includes("spu信息填充失败") || bodyText.includes("spu填充失败") || bodyText.includes("信息填充失败")) {
     return { action: "reopen_from_platform_spu", issue: "Publish create page reported SPU prefill failure." };
   }
-  if (!input.loading && input.sectionCount === 0 && input.bodyTextLength > 0 && input.bodyTextLength <= 120) {
-    return { action: "reopen_from_platform_spu", issue: "Publish create page has no publish sections after SPU query." };
-  }
+  // A newly opened Doudian create page can expose only its short header while
+  // the application shell is still rendering (the spinner has no accessible
+  // loading text). Treat the zero-section shell as transient. Reopen from the
+  // SPU query only when the page reports an explicit prefill failure above.
   return { action: "wait_or_reload", issue: "Publish create page is not ready yet." };
 }
 
