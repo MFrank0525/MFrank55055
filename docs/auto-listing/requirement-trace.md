@@ -330,3 +330,12 @@ Final evidence: full `rules:check`, all Doctor modes, live Feishu 23-field readb
 | Keep normal resume non-idempotent | Existing uncertain results still stop unless an exact identity-bound manual recovery marker exists | Existing progress-state regressions plus recovery unit test | verified |
 | Allow one reviewed recovery only on strong negative evidence | New recovery action requires an old attempted boundary, prior negative screenshot, exact shop/title identity and a second live `共0条`; it archives evidence before approval | `test-uncertain-publish-recovery.mjs`; live production recovery | implemented; live execution pending |
 | Close verifier browser ownership | Exact-title verification closes its persistent context in `finally` | Build and live verifier process exit | implemented; live verification pending |
+
+## 2026-08-12 Platform SPU publish-navigation state machine
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Select a publishable SPU identity instead of the first text match | The rule layer ranks only exact brand/SPU rows whose publish control is actionable, rejects ambiguity, and skips disabled rows such as `审核中` | Red-before-green actionable-row regression; live query selected the unique `已上线` row `7412804123768357147` instead of disabled row `7672595223100260659` | verified |
+| Preserve one logical action across nested Doudian anchors | The action layer canonicalizes native controls, collapses invalid nested anchors to the leaf action, and requires exactly one marked control | DOM-structure regression; live DOM inspection; real query read back one exact row and entered its create page | verified |
+| Use a real browser action and verify its outcome | The marked leaf control is clicked with Playwright; a bounded state machine observes same-tab URL changes, popup pages, and new context pages for `/ffa/g/create` | Regression forbids synthetic `HTMLElement.click()`; live create URL contained `spu_id=7412804123768357147`; create-page screenshot verified brand, certificate and category prefill | verified |
+| Keep recovery safe and diagnosable | Pre-click ambiguity and post-click navigation failures save evidence and classify as `platform_spu_publish_navigation_failed`, which permits only bounded retry before any final-submit attempt | Failure-class regression; original target `publish-submit-attempt.json` remained `not_attempted`; live diagnostic did not click the final publish button | verified |

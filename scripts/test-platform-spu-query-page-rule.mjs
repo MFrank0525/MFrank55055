@@ -5,7 +5,8 @@ import {
   isStablePlatformBrandSelection,
   isDoudianLoginPageText,
   classifyPublishFailure,
-  shouldRetryPublishFailure
+  shouldRetryPublishFailure,
+  selectActionablePlatformSpuPublishCandidate
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 
 assert.equal(
@@ -108,6 +109,68 @@ const inactivePlatformTabClass = classifyPublishFailure(
 assert.equal(inactivePlatformTabClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(inactivePlatformTabClass, 0), true);
 
+assert.deepEqual(
+  selectActionablePlatformSpuPublishCandidate([
+    {
+      rowId: "reviewing-row",
+      exactSpuCell: true,
+      exactBrandCell: true,
+      rowHasSpu: true,
+      rowHasBrand: true,
+      publishControlActionable: false
+    },
+    {
+      rowId: "online-row",
+      exactSpuCell: true,
+      exactBrandCell: true,
+      rowHasSpu: true,
+      rowHasBrand: true,
+      publishControlActionable: true
+    }
+  ]),
+  { candidateIndex: 1, issue: "" },
+  "SPU selection must skip an 审核中 disabled row and choose the unique actionable exact row"
+);
+assert.deepEqual(
+  selectActionablePlatformSpuPublishCandidate([
+    {
+      rowId: "online-row-a",
+      exactSpuCell: true,
+      exactBrandCell: true,
+      rowHasSpu: true,
+      rowHasBrand: true,
+      publishControlActionable: true
+    },
+    {
+      rowId: "online-row-b",
+      exactSpuCell: true,
+      exactBrandCell: true,
+      rowHasSpu: true,
+      rowHasBrand: true,
+      publishControlActionable: true
+    }
+  ]),
+  {
+    candidateIndex: -1,
+    issue: "Platform SPU publish navigation failed before click: 2 actionable exact publish rows are ambiguous."
+  },
+  "Multiple actionable exact rows must fail closed instead of choosing by DOM order"
+);
+
+const publishNavigationClass = classifyPublishFailure(
+  "Publish page did not open after query click. No new create page was detected."
+);
+assert.equal(
+  publishNavigationClass,
+  "platform_spu_publish_navigation_failed",
+  "A verified pre-submit navigation failure must not fall through to unknown_publish_failure"
+);
+assert.equal(
+  shouldRetryPublishFailure(publishNavigationClass, 0),
+  true,
+  "A verified pre-submit navigation failure is safe for bounded retry"
+);
+
 assert.equal(
   classifyPublishFailure("No visible publish rows found in result table."),
   "spu_query_or_match_failed"
@@ -138,8 +201,18 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /row\.scrollIntoView\(\{ block: "center", inline: "nearest" \}\)[\s\S]*operationCell\.querySelectorAll\("button, a, \[role='button'\]"\)/,
-  "SPU query publish action must scroll the matched table row into view and click the operation-column button by DOM structure"
+  /data-auto-listing-platform-spu-publish-action[\s\S]*locator\([\s\S]*\.click\(/,
+  "SPU query publish action must mark one verified operation-column control and click it through Playwright"
+);
+assert.match(
+  publishSource,
+  /nativeControls = Array\.from\(operationCell\.querySelectorAll\("button, a"\)\)[\s\S]*canonicalControls = nativeControls\.length \? nativeControls : roleControls/,
+  "Nested role elements must collapse to one canonical native publish control"
+);
+assert.match(
+  publishSource,
+  /matchingControls\.filter\(\(control\)[\s\S]*control\.contains\(descendant\)/,
+  "Invalid nested anchors in the Doudian table must collapse to the leaf action control"
 );
 assert.match(
   publishSource,
@@ -268,6 +341,16 @@ assert.doesNotMatch(
   querySource,
   /score|publishButtonIndex|Array\.from\(document\.querySelectorAll\("tr"\)\)\[target\.rowIndex\]/,
   "SPU query row selection must not use scoring or reused row/button indexes"
+);
+assert.doesNotMatch(
+  querySource,
+  /button\?\.click\(\)/,
+  "The critical publish-page navigation must not use a synthetic in-page HTMLElement.click()"
+);
+assert.match(
+  publishSource,
+  /waitForURL\([\s\S]*\/ffa\/g\/create[\s\S]*waitForEvent\("page"/,
+  "The navigation state machine must observe both same-tab and popup create-page outcomes"
 );
 
 console.log("platform spu query page rule passed");

@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { BrowserContext, Page } from "playwright";
 import { disconnectAutomationBrowserConnections, launchPersistentBrowser } from "../../browser/launch.js";
 import { logInfo, logWarn } from "../../utils/logger.js";
 import { PLATFORM_SPU_URL } from "./constants.js";
@@ -6,7 +6,11 @@ import type { QueryDiagnosticError, QueryMatchCandidate } from "./types.js";
 import { clickVisibleText } from "./dom-actions.js";
 import { ensureShopContext } from "./shop-switch-action.js";
 import { recoverUsablePageFromContext } from "./publish-page-readiness.js";
-import { evaluatePlatformSpuQueryPageReadiness, isStablePlatformBrandSelection } from "./publish-rules.js";
+import {
+  evaluatePlatformSpuQueryPageReadiness,
+  isStablePlatformBrandSelection,
+  selectActionablePlatformSpuPublishCandidate
+} from "./publish-rules.js";
 import {
   attachSafeDialogHandler,
   closeCreatePagesExcept,
@@ -18,6 +22,132 @@ import {
 } from "./browser-session.js";
 
 const maxPlatformSpuQueryRetries = 4;
+const platformSpuPublishActionAttribute = "data-auto-listing-platform-spu-publish-action";
+const platformSpuCreatePageNavigationTimeoutMs = 25000;
+
+interface MarkedPlatformSpuPublishAction {
+  selector: string;
+  matchingRowCount: number;
+  actionableControlCount: number;
+}
+
+async function markExactPlatformSpuPublishAction(
+  page: Page,
+  target: { targetBrand: string; targetSpu: string; rowId: string }
+): Promise<MarkedPlatformSpuPublishAction> {
+  const marker = `auto-listing-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const result = await page.evaluate(({ targetBrand, targetSpu, rowId, attributeName, markerValue }) => {
+    const normalizeSpu = (value: string): string =>
+      value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
+    document.querySelectorAll(`[${attributeName}]`).forEach((node) => node.removeAttribute(attributeName));
+    const matchingRows = Array.from(document.querySelectorAll("tr")).filter((item) => {
+      const rowText = normalizeSpu((item as HTMLElement).innerText || "");
+      if (!rowText.includes(targetBrand) || !rowText.includes(targetSpu)) {
+        return false;
+      }
+      if (rowId && !rowText.includes(rowId)) {
+        return false;
+      }
+      const cells = Array.from(item.querySelectorAll("td")).map((cell) =>
+        (cell.textContent || "").replace(/\s+/g, " ").trim()
+      );
+      return cells.some((cell) => normalizeSpu(cell).includes(targetSpu));
+    });
+    const actionableControls = matchingRows.flatMap((row) => {
+      const rowElement = row as HTMLElement;
+      const cells = Array.from(row.querySelectorAll("td"));
+      const operationCell = (cells[cells.length - 1] as HTMLElement | undefined) || rowElement;
+      rowElement.scrollIntoView({ block: "center", inline: "nearest" });
+      const nativeControls = Array.from(operationCell.querySelectorAll("button, a"));
+      const roleControls = Array.from(operationCell.querySelectorAll("[role='button']"));
+      const canonicalControls = nativeControls.length ? nativeControls : roleControls;
+      const matchingControls = canonicalControls
+        .map((element) => element as HTMLElement)
+        .filter((element) => {
+          const text = (element.textContent || "").replace(/\s+/g, "").trim();
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          const disabled =
+            element.hasAttribute("disabled") ||
+            element.getAttribute("aria-disabled") === "true" ||
+            /disabled/i.test(String(element.className || ""));
+          return (
+            text === "\u53D1\u5E03\u5546\u54C1" &&
+            rect.width > 0 &&
+            rect.height > 0 &&
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            !disabled
+          );
+        });
+      return matchingControls.filter((control) =>
+        !matchingControls.some((descendant) => descendant !== control && control.contains(descendant))
+      );
+    });
+    if (matchingRows.length === 1 && actionableControls.length === 1) {
+      actionableControls[0].setAttribute(attributeName, markerValue);
+    }
+    return {
+      matchingRowCount: matchingRows.length,
+      actionableControlCount: actionableControls.length
+    };
+  }, {
+    ...target,
+    attributeName: platformSpuPublishActionAttribute,
+    markerValue: marker
+  });
+  return {
+    selector: `[${platformSpuPublishActionAttribute}="${marker}"]`,
+    ...result
+  };
+}
+
+async function waitForPlatformSpuCreatePage(
+  context: BrowserContext,
+  queryPage: Page,
+  existingCreatePages: Set<Page>,
+  timeoutMs = platformSpuCreatePageNavigationTimeoutMs
+): Promise<Page | null> {
+  let observationFinished = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const neverOnFailure = (promise: Promise<Page>): Promise<Page> =>
+    promise.catch(() => new Promise<Page>(() => {}));
+  const sameTabCreatePage = neverOnFailure(
+    queryPage.waitForURL((url) => url.toString().includes("/ffa/g/create"), { timeout: timeoutMs }).then(() => queryPage)
+  );
+  const popupCreatePage = neverOnFailure(
+    context.waitForEvent("page", { timeout: timeoutMs }).then(async (popup) => {
+      await popup.waitForURL((url) => url.toString().includes("/ffa/g/create"), { timeout: timeoutMs });
+      return popup;
+    })
+  );
+  const contextCreatePage = neverOnFailure((async () => {
+    const deadline = Date.now() + timeoutMs;
+    while (!observationFinished && Date.now() < deadline) {
+      const createPage = context.pages().find((candidate) =>
+        !candidate.isClosed() &&
+        candidate.url().includes("/ffa/g/create") &&
+        !existingCreatePages.has(candidate)
+      );
+      if (createPage) {
+        return createPage;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    throw new Error("Platform SPU create page was not observed before navigation timeout.");
+  })());
+  const timeout = new Promise<null>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve(null), timeoutMs);
+  });
+  try {
+    return await Promise.race([sameTabCreatePage, popupCreatePage, contextCreatePage, timeout]);
+  } finally {
+    observationFinished = true;
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
 
 export async function ensurePlatformSpuPage(runtimeDir: string, shopFolder?: string): Promise<{
   pageUrl: string;
@@ -815,6 +945,10 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
           const rowHasSpu = normalizedRowText.includes(targetSpu);
           const rowHasBrand = normalizedRowText.includes(targetBrand);
           const rowId = rowEl.innerText.match(/ID[:：]\s*(\d+)/)?.[1] || "";
+          const publishControlActionable =
+            !publishButton.hasAttribute("disabled") &&
+            publishButton.getAttribute("aria-disabled") !== "true" &&
+            !/disabled/i.test(String(publishButton.className || ""));
           return {
             rowText: (rowEl.innerText || "").slice(0, 800),
             normalizedText: normalizedRowText,
@@ -822,20 +956,16 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
             exactSpuCell,
             exactBrandCell,
             rowHasSpu,
-            rowHasBrand
+            rowHasBrand,
+            publishControlActionable
           };
         })
         .filter(Boolean);
     }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu }) as Promise<QueryMatchCandidate[]>;
 
     const pickMatchedCandidate = (items: QueryMatchCandidate[]): QueryMatchCandidate | null => {
-      const exactMatches = items.filter((item) => item.rowHasSpu && item.rowHasBrand);
-      return (
-        exactMatches.find((item) => item.exactSpuCell && item.exactBrandCell) ||
-        exactMatches.find((item) => item.exactSpuCell) ||
-        exactMatches[0] ||
-        null
-      );
+      const decision = selectActionablePlatformSpuPublishCandidate(items);
+      return decision.candidateIndex >= 0 ? items[decision.candidateIndex] : null;
     };
 
     let candidates = await readCandidates();
@@ -872,6 +1002,13 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
     }
 
     if (!matched) {
+      const actionableDecision = selectActionablePlatformSpuPublishCandidate(allCandidates);
+      if (actionableDecision.issue) {
+        const error = new Error(actionableDecision.issue) as QueryDiagnosticError;
+        error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-publish-row-not-actionable.png");
+        error.candidateRows = allCandidates.slice(0, 20).map((item) => item.rowText.slice(0, 300));
+        throw error;
+      }
       const firstRowText = allCandidates[0]?.rowText || "";
       const candidateIds = allCandidates
         .map((item) => item.rowText.match(/ID:(\d+)/)?.[1] || "")
@@ -897,35 +1034,28 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
     }
 
     const existingCreatePages = new Set(context.pages().filter((item) => item.url().includes("/ffa/g/create")));
-    const popupPromise = context.waitForEvent("page", { timeout: 5000 }).catch(() => null);
-    await page.evaluate((target) => {
-      const normalizeSpu = (value: string): string =>
-        value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
-      const rows = Array.from(document.querySelectorAll("tr"));
-      const row = rows.find((item) => {
-        const rowText = normalizeSpu((item as HTMLElement).innerText || "");
-        if (!rowText.includes(target.targetBrand) || !rowText.includes(target.targetSpu)) {
-          return false;
-        }
-        if (target.rowId && !rowText.includes(target.rowId)) {
-          return false;
-        }
-        const cells = Array.from(item.querySelectorAll("td")).map((cell) => (cell.textContent || "").replace(/\s+/g, " ").trim());
-        return cells.some((cell) => normalizeSpu(cell).includes(target.targetSpu));
-      }) as HTMLElement | undefined;
-      if (!row) {
-        return;
-      }
-      row.scrollIntoView({ block: "center", inline: "nearest" });
-      const cells = Array.from(row.querySelectorAll("td"));
-      const operationCell = (cells[cells.length - 1] as HTMLElement | undefined) || row;
-      const button = Array.from(operationCell.querySelectorAll("button, a, [role='button']"))
-        .find((el) => ((el.textContent || "").replace(/\s+/g, "").trim() === "\u53D1\u5E03\u5546\u54C1")) as HTMLElement | undefined;
-      button?.click();
-    }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu, rowId: matched.rowId });
+    const markedAction = await markExactPlatformSpuPublishAction(page, {
+      targetBrand: normalizedBrand,
+      targetSpu: normalizedSpu,
+      rowId: matched.rowId
+    });
+    if (markedAction.matchingRowCount !== 1 || markedAction.actionableControlCount !== 1) {
+      const error = new Error(
+        `Platform SPU publish navigation failed before click: expected one exact row and one actionable publish control; matchingRows=${markedAction.matchingRowCount}; actionableControls=${markedAction.actionableControlCount}`
+      ) as QueryDiagnosticError;
+      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-publish-action-ambiguous.png");
+      throw error;
+    }
+    const createPagePromise = waitForPlatformSpuCreatePage(context, page, existingCreatePages);
+    const publishAction = page.locator(markedAction.selector);
+    if (await publishAction.count() !== 1) {
+      const error = new Error("Platform SPU publish navigation failed before click: marked publish control was not unique.") as QueryDiagnosticError;
+      error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-publish-action-not-unique.png");
+      throw error;
+    }
+    await publishAction.click({ timeout: 10000 });
 
-    const popup = await popupPromise;
-    await page.waitForTimeout(6000).catch(() => {});
+    const observedCreatePage = await createPagePromise;
     let activeQueryPage = page;
     if (activeQueryPage.isClosed()) {
       activeQueryPage = await recoverUsablePageFromContext(context, "/ffa/g/spu-record").catch(() => page);
@@ -935,12 +1065,17 @@ export async function queryPlatformSpu(runtimeDir: string, brand: string, spu: s
         .pages()
         .find((item) => item.url().includes("/ffa/g/create") && !existingCreatePages.has(item) && !item.isClosed()) || null;
     const targetPage =
-      popup ||
+      observedCreatePage ||
       newCreatePage ||
       context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/create")) ||
       (!activeQueryPage.isClosed() && activeQueryPage.url().includes("/ffa/g/create") ? activeQueryPage : null);
     if (!targetPage) {
-      throw new Error("Publish page did not open after query click. No new create page was detected.");
+      const openUrls = context.pages().filter((item) => !item.isClosed()).map((item) => item.url()).join(" | ");
+      const error = new Error(
+        `Publish page did not open after query click. No new create page was detected. openUrls=${openUrls || "<none>"}`
+      ) as QueryDiagnosticError;
+      error.screenshotFile = await savePageScreenshot(activeQueryPage, runtimeDir, "platform-spu-publish-navigation-failed.png");
+      throw error;
     }
     attachSafeDialogHandler(targetPage);
     await targetPage.waitForTimeout(4000).catch(() => {});
