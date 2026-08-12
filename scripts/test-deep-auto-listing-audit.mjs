@@ -11,7 +11,10 @@ import {
   shouldRequirePublishTargetIdentity
 } from "../dist/src/autolist/deep-audit-rules.js";
 import { auditCurrentPaidImageLedgers } from "../dist/src/autolist/paid-image-audit.js";
-import { recoverCompleteMainImageArtifactForAudit } from "../dist/src/autolist/audit-main-image-recovery.js";
+import {
+  recoverArchivedMainImageArtifactForAudit,
+  recoverCompleteMainImageArtifactForAudit
+} from "../dist/src/autolist/audit-main-image-recovery.js";
 import {
   buildCanonicalPublishTargetKeys,
   resolveDistributedTitleAuditFolders
@@ -233,6 +236,45 @@ assert.equal(
   }),
   undefined,
   "Audit recovery must fail closed on duplicate canonical watermark identity"
+);
+
+const archivedRecoveryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "audit-archived-main-image-recovery-"));
+const archivedFiles = Array.from({ length: 20 }, (_, index) => {
+  const file = path.join(
+    archivedRecoveryRoot,
+    `L480锁阳固精丸无水印主图${String(index + 1).padStart(2, "0")}.png`
+  );
+  fs.writeFileSync(file, `archived-${index + 1}`);
+  return file;
+});
+const recoveredArchivedArtifact = recoverArchivedMainImageArtifactForAudit({
+  archivedFiles,
+  expectedImageCount: 20,
+  imagesPerPrompt: 4
+});
+assert.equal(recoveredArchivedArtifact?.generatedFiles.length, 20);
+assert.deepEqual(
+  [...new Set(recoveredArchivedArtifact?.generatedFiles.map((item) => item.promptIndex))],
+  [1, 2, 3, 4, 5],
+  "Completed cleanup must preserve all five prompt groups through the immutable archive manifest"
+);
+assert.equal(
+  recoverArchivedMainImageArtifactForAudit({
+    archivedFiles: archivedFiles.slice(1),
+    expectedImageCount: 20,
+    imagesPerPrompt: 4
+  }),
+  undefined,
+  "Archived audit recovery must fail closed when any canonical slot is missing"
+);
+assert.equal(
+  recoverArchivedMainImageArtifactForAudit({
+    archivedFiles: [archivedFiles[1], archivedFiles[0], ...archivedFiles.slice(2)],
+    expectedImageCount: 20,
+    imagesPerPrompt: 4
+  }),
+  undefined,
+  "Archived audit recovery must reject an order that contradicts the durable archive slot suffix"
 );
 
 const aggregatedPaidGeneration = aggregatePaidImageLedgerGeneration({

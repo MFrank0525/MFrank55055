@@ -7,6 +7,50 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function isNonEmptyImageFile(filePath: string): boolean {
+  try {
+    const stat = fs.statSync(filePath);
+    return /\.(png|jpe?g|webp)$/i.test(filePath) && stat.isFile() && stat.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function recoverArchivedMainImageArtifactForAudit(input: {
+  archivedFiles: string[];
+  expectedImageCount: number;
+  imagesPerPrompt: number;
+}): MainImageArtifact | undefined {
+  if (
+    input.expectedImageCount <= 0 ||
+    input.imagesPerPrompt <= 0 ||
+    input.archivedFiles.length !== input.expectedImageCount
+  ) {
+    return undefined;
+  }
+  const archivedFiles = input.archivedFiles.map((filePath) => path.resolve(filePath));
+  if (new Set(archivedFiles).size !== input.expectedImageCount) {
+    return undefined;
+  }
+  for (let index = 0; index < archivedFiles.length; index += 1) {
+    const expectedSuffix = String(index + 1).padStart(2, "0");
+    if (!new RegExp(`${expectedSuffix}\\.[^.]+$`).test(path.basename(archivedFiles[index])) || !isNonEmptyImageFile(archivedFiles[index])) {
+      return undefined;
+    }
+  }
+  return {
+    promptFile: `archived:${path.dirname(archivedFiles[0])}`,
+    generatedFiles: archivedFiles.map((filePath, index) => ({
+      imageFile: filePath,
+      rawImageFile: filePath,
+      productFolder: "",
+      storeName: "archived",
+      promptIndex: Math.floor(index / input.imagesPerPrompt) + 1
+    })),
+    simulated: false
+  };
+}
+
 export function recoverCompleteMainImageArtifactForAudit(input: {
   taskRuntimeDir: string;
   shopRootDir: string;

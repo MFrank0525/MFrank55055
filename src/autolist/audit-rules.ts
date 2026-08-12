@@ -646,8 +646,8 @@ export function auditMainImageGeneration(input: MainImageGenerationAuditInput): 
         errors.push(issue("error", "main_image_raw_file_missing", `Generated raw main image file is missing: ${file.rawImageFile}`, task.taskId, file.rawImageFile));
       }
 
-      if (!cleanedArtifactsWereRemoved && !input.simulateOnly && input.imageDimensions) {
-        for (const candidate of [file.imageFile, file.rawImageFile].filter(Boolean) as string[]) {
+      if (!input.simulateOnly && input.imageDimensions) {
+        for (const candidate of new Set([file.imageFile, file.rawImageFile].filter(Boolean) as string[])) {
           const normalizedCandidate = normalizePath(candidate);
           if (!existingFiles.has(normalizedCandidate)) {
             continue;

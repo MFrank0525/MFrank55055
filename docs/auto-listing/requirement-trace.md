@@ -266,6 +266,14 @@
 | Preserve fail-closed behavior | A stable chooser without the target still fails; a vanished chooser with neither click confirmation nor exact current-shop readback remains bounded-retry only | `test-progress-state-part-1.mjs`; `test-shop-switch-structure-rule.mjs` | verified |
 | Preserve canonical coverage across repeated recovery | Publish-plan persistence merges by immutable target identity instead of overwriting the plan with only remaining folders; existing narrowed plans may recover only when their identity/path-verified union with the manifest covers exactly all 20 targets | Regression with manifest targets 1-17 plus narrowed plan targets 2-20; incomplete union and identity/path conflicts remain fail-closed | verified |
 
+## 2026-08-12 Completed archive audit closure
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Keep completion cleanup and terminal audit on one artifact contract | A cleaned task recovers its five prompt groups from the durable `cleanupArtifact.archivedFiles` 01-20 slot manifest instead of depending on deleted task/shop intermediates | Red-before-green archive recovery regression; real completed run `20260812-204434` changed from `generated=4/20` to `20/20` without restoring deleted intermediates | verified |
+| Fail closed on damaged archive evidence | Archive recovery requires exactly 20 unique, ordered, non-empty image files whose numeric filename suffix matches the durable slot; deep audit also reads every archived image dimension | Missing-slot and reordered-slot regressions; two independent eight-dimension audits on the completed run | verified |
+| Preserve read-only Doudian verification | Category-scoped shop access audit uses only navigation, exact shop switching and DOM readback after the listing browser releases ownership | OTC audit `20260812-222405` passed 5/5 with `publishAttempted=false` and `formMutationAttempted=false` | verified |
+
 ## 2026-08-09 OTC five-shop publishing policy
 
 | Requirement | Implementation | Verification | Status |

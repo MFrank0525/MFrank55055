@@ -18,7 +18,10 @@ import { imageServiceWaitCeilingMs, videosBase64AcceptedTaskPollCeilingMs } from
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { auditCurrentPaidImageLedgers } from "../autolist/paid-image-audit.js";
-import { recoverCompleteMainImageArtifactForAudit } from "../autolist/audit-main-image-recovery.js";
+import {
+  recoverArchivedMainImageArtifactForAudit,
+  recoverCompleteMainImageArtifactForAudit
+} from "../autolist/audit-main-image-recovery.js";
 import { loadPublishManifest } from "../autolist/publish-manifest.js";
 import { getProductCategoryPlan, type ProductCategory } from "../autolist/product-category.js";
 import { inferResumeStartStepForTask, resolveCanonicalRecoveryTask, resolveCanonicalResumeDecision } from "../autolist/resume-rules.js";
@@ -316,7 +319,8 @@ async function main(): Promise<void> {
     ...listFilesRecursive(resolved.qualificationDir),
     ...listFilesRecursive(resolved.mainImageWorkDir),
     ...listFilesRecursive(resolved.shopRootDir),
-    ...listFilesRecursive(resolved.runtimeRootDir)
+    ...listFilesRecursive(resolved.runtimeRootDir),
+    ...(state?.tasks || []).flatMap((task) => task.cleanupArtifact?.archivedFiles || []).map((filePath) => path.resolve(filePath))
   ];
   const discoveredRunImageCount = state?.status === "running" ? state.tasks.length : undefined;
   const controllerJob = readOptionalJson<ControllerJobFile>("data/auto-listing/control/auto-listing-controller-job.json");
@@ -379,6 +383,14 @@ async function main(): Promise<void> {
     const expectedImageCount = categoryPlan.promptCount * resolved.mainImageExpectedCount;
     if ((task.mainImageArtifact?.generatedFiles.length || 0) === expectedImageCount) {
       return task;
+    }
+    const archivedArtifact = recoverArchivedMainImageArtifactForAudit({
+      archivedFiles: task.cleanupArtifact?.archivedFiles || [],
+      expectedImageCount,
+      imagesPerPrompt: resolved.mainImageExpectedCount
+    });
+    if (archivedArtifact) {
+      return { ...task, mainImageArtifact: archivedArtifact };
     }
     const recoveredArtifact = recoverCompleteMainImageArtifactForAudit({
       taskRuntimeDir: path.join(latestRuntimeDir, "tasks", task.taskId),
