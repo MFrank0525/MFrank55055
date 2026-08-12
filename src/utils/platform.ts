@@ -40,6 +40,7 @@ const INHERITED_PYTHON_RUNTIME_KEYS = [
   "PYTHONHOME",
   "PYTHONPATH",
   "PYTHONNOUSERSITE",
+  "PYTHONUSERBASE",
   "PYTHONEXECUTABLE",
   "VIRTUAL_ENV",
   "CONDA_PREFIX",
@@ -50,6 +51,15 @@ export function sanitizePythonRuntimeEnv(source: NodeJS.ProcessEnv = process.env
   const sanitized = { ...source };
   for (const key of INHERITED_PYTHON_RUNTIME_KEYS) {
     delete sanitized[key];
+  }
+  // macOS system Python derives its user site-packages from HOME. Agent
+  // launchers such as Hermes may intentionally replace HOME with their own
+  // private runtime directory, which makes the project's installed Pillow
+  // dependency disappear even after PYTHONPATH/PYTHONHOME are cleaned. Restore
+  // the operating-system account home at the Python process boundary while
+  // leaving the parent agent environment untouched.
+  if (process.platform !== "win32") {
+    sanitized.HOME = os.userInfo().homedir;
   }
   return sanitized;
 }

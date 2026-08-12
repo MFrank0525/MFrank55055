@@ -1,22 +1,30 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import { getPythonCommand, sanitizePythonRuntimeEnv } from "../dist/src/utils/platform.js";
 
 const cleaned = sanitizePythonRuntimeEnv({
+  HOME: "/foreign/hermes/home",
   PATH: "/usr/bin:/bin",
   PYTHONNOUSERSITE: "1",
   PYTHONPATH: "/foreign/hermes/site-packages",
   PYTHONHOME: "/foreign/python",
+  PYTHONUSERBASE: "/foreign/hermes/python-user-base",
   VIRTUAL_ENV: "/foreign/venv",
   CONDA_PREFIX: "/foreign/conda",
   AUTO_LISTING_STARTED_BY: "project-controller"
 });
 
-for (const key of ["PYTHONNOUSERSITE", "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "CONDA_PREFIX"]) {
+for (const key of ["PYTHONNOUSERSITE", "PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE", "VIRTUAL_ENV", "CONDA_PREFIX"]) {
   assert.equal(cleaned[key], undefined, `Python subprocess environment must remove inherited ${key}`);
 }
 assert.equal(cleaned.PATH, "/usr/bin:/bin");
+assert.equal(
+  cleaned.HOME,
+  os.userInfo().homedir,
+  "project Python runtime must restore the operating-system account home instead of inheriting a Hermes-private HOME"
+);
 assert.equal(cleaned.AUTO_LISTING_STARTED_BY, "project-controller");
 assert.match(
   execFileSync(getPythonCommand(), ["-c", "import PIL; print(PIL.__version__)"], {

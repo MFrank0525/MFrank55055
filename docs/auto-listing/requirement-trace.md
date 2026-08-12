@@ -364,6 +364,16 @@ Final evidence: full `rules:check`, all Doctor modes, live Feishu 23-field readb
 | Use a real browser action and verify its outcome | The marked leaf control is clicked with Playwright; a bounded state machine observes same-tab URL changes, popup pages, and new context pages for `/ffa/g/create` | Regression forbids synthetic `HTMLElement.click()`; live create URL contained `spu_id=7412804123768357147`; create-page screenshot verified brand, certificate and category prefill | verified |
 | Keep recovery safe and diagnosable | Pre-click ambiguity and post-click navigation failures save evidence and classify as `platform_spu_publish_navigation_failed`, which permits only bounded retry before any final-submit attempt | Failure-class regression; original target `publish-submit-attempt.json` remained `not_attempted`; live diagnostic did not click the final publish button | verified |
 
+## 2026-08-12 Hermes HOME isolation for the Python runtime
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Reproduce the current pre-run stop | Run the Python boundary with `HOME=/foreign/hermes/home`; macOS Python redirects its user site-packages and cannot import Pillow, matching controller log `20260812-224555` | Red-before-green `test-python-runtime-env-rule.mjs`; direct poisoned-HOME reproduction | verified |
+| Isolate the complete Python user-site boundary | `sanitizePythonRuntimeEnv` now restores the operating-system account home and removes `PYTHONUSERBASE` in addition to the existing Python/virtualenv overrides; the parent Hermes environment remains unchanged | Python runtime regression; poisoned-environment auto-listing Doctor | verified |
+| Prevent another false-green environment test | The regression now poisons both `HOME` and `PYTHONUSERBASE`, asserts the restored account home, then imports Pillow with the exact sanitized environment | `test-python-runtime-env-rule.mjs` | verified |
+
+Final evidence: clean build, pre-rules, full rules closure, all Doctor modes, representative simulation, live Feishu 23-field readback, two independent batch audits and the 20-shop read-only Doudian audit `20260812-225732` passed. The shop audit recorded `publishAttempted=false` and `formMutationAttempted=false`; batch `52e54a6038e5dd38cc64dc82` remained locked at 0/10 with 200 category-correct planned publish targets and no missing local attachments.
+
 ## 2026-08-12 OTC brand/SPU/specification identity
 
 | Requirement | Implementation | Verification | Status |
