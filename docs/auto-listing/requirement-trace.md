@@ -403,3 +403,14 @@ Final evidence: clean build, pre-rules, full rules closure, all Doctor modes, re
 | Keep Hermes output limited to the requested remediation message | Controller and continuation compaction consume a dedicated rule returning `没有对应的规格模板可选` | Dedicated Hermes status regression and progress-state suite | verified |
 
 Final evidence: clean build; full rule/contradiction closure; all Doctor modes; representative simulation; two eight-dimension audits; live Feishu 24-field/v3-record verification; and the 20-shop read-only Doudian audit `20260819-234235` passed with `publishAttempted=false` and `formMutationAttempted=false`.
+
+## 2026-08-20 Dynamic Feishu price-to-SKU cardinality
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Remove the fixed four-price assumption | `resolveFeishuPriceInventoryRows` accepts any non-empty descending list of positive Feishu prices and maps every value to stock 2000 | Two-price and four-price rule regressions; two-price representative simulation | verified |
+| Bind prices one-to-one to template SKU rows | A centralized cardinality rule requires visible SKU row count to equal Feishu price count before filling and again before final readback | Price-action source regression, full browser-flow rule suite and contradiction audit | verified |
+| Prevent partial writes | The action no longer uses `Math.min`; row-count mismatch returns a dedicated price/inventory failure before changing any price or stock | Negative cardinality regression and `price_inventory_not_ready` failure-class regression | verified |
+| Resume the exact failed batch safely | Preserve batch `360004ca9f328d5fbf0161af`, reuse paid/generated artifacts and restart target 01 from its pre-submit boundary | Two deep audits prove exact batch/record/target identity, 20/20 paid images complete and `sideEffects: unconfirmed=0` | verified |
+
+Final evidence before delivery: clean build; full rules and contradiction closure; all Doctor modes; two-price representative simulation; live Feishu 24-field API check; two passing eight-dimension audits; and 20-shop read-only Doudian audit `20260820-001207` with `publishAttempted=false` and `formMutationAttempted=false`.

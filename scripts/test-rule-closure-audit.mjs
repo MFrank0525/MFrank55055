@@ -30,7 +30,7 @@ const progressTestSource = [
   "scripts/test-progress-state-part-2.mjs",
   "scripts/test-progress-state-part-3.mjs"
 ].map(read).join("\n");
-const specTestSource = read("scripts/test-spec-template-rule.mjs");
+const specTestSource = read("scripts/test-spec-template-rule.mjs") + read("scripts/test-feishu-price-inventory-rule.mjs");
 const moduleTestSource = read("scripts/test-publish-module-sequence-rule.mjs");
 
 const closures = [
@@ -43,7 +43,7 @@ const closures = [
   },
   {
     name: "spec template follows template and does not edit blank spec-value placeholders",
-    docs: ["价格库存已生成 4 行", "空白 `请输入规格值`", "不得填写", "不得删除"],
+    docs: ["SKU 行数与飞书 `产品价格` 的价格个数完全一致", "空白 `请输入规格值`", "不得填写", "不得删除"],
     rules: ["evaluateSpecTemplateCompletion", "input.priceRows >= input.expectedSpecValues"],
     actions: ["applySpecTemplateWithVerificationOnPage", "countVisibleBlankSpecValueInputs"],
     tests: ["template-generated price rows are the authoritative signal", "blank placeholder spec-value inputs must not be filled or deleted"]

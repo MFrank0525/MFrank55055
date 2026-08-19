@@ -1,9 +1,13 @@
 export const FIXED_FEISHU_PRICE_STOCK = 2000;
-export const EXPECTED_FEISHU_PRICE_ROW_COUNT = 4;
 
 export interface PriceInventoryRowValue {
   price: number;
   stock: number;
+}
+
+export interface PriceInventoryRowCardinalityDecision {
+  passed: boolean;
+  issue: string;
 }
 
 export function parseFeishuProductPrices(priceText: string): number[] {
@@ -31,11 +35,21 @@ export function parseFeishuProductPrices(priceText: string): number[] {
 
 export function resolveFeishuPriceInventoryRows(priceText: string): PriceInventoryRowValue[] {
   const prices = parseFeishuProductPrices(priceText);
-  if (prices.length !== EXPECTED_FEISHU_PRICE_ROW_COUNT) {
-    throw new Error(`Feishu 产品价格必须正好填写 ${EXPECTED_FEISHU_PRICE_ROW_COUNT} 个价格。`);
-  }
   return prices.map((price) => ({
     price,
     stock: FIXED_FEISHU_PRICE_STOCK
   }));
+}
+
+export function evaluatePriceInventoryRowCardinality(input: {
+  expectedPriceCount: number;
+  actualSkuRowCount: number;
+}): PriceInventoryRowCardinalityDecision {
+  if (input.expectedPriceCount === input.actualSkuRowCount && input.expectedPriceCount > 0) {
+    return { passed: true, issue: "" };
+  }
+  return {
+    passed: false,
+    issue: `Price/inventory row count must exact match Feishu price count: expected=${input.expectedPriceCount}; actual=${input.actualSkuRowCount}`
+  };
 }

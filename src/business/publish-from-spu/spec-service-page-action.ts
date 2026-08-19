@@ -56,7 +56,6 @@ import { classifyAssets, validateMainImageAspectRatio } from "./assets.js";
 import { prepareQualificationImagesForUpload } from "./qualification-image-normalizer.js";
 import {
   FIXED_FREIGHT_TEMPLATE_KEYWORD,
-  FIXED_SPEC_VALUES,
   GRAPHIC_SECTION_LABELS,
   PLATFORM_SPU_URL,
 } from "./constants.js";
@@ -1180,9 +1179,7 @@ async function clickManualSpecFillAfterTemplateOnPage(page: Page): Promise<void>
 }
 
 async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {
-  return page.evaluate((expectedValues) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-    const pageText = normalize(document.body.innerText || "");
+  return page.evaluate(() => {
     const inputValues = Array.from(document.querySelectorAll("input"))
       .map((el) => el as HTMLInputElement)
       .map((input) => {
@@ -1201,12 +1198,8 @@ async function readCurrentSpecValuesStrict(page: Page): Promise<string[]> {
       })
       .filter(Boolean);
 
-    const normalizedInputs = inputValues.map((value) => normalize(value));
-    return expectedValues.filter((value) => {
-      const normalizedValue = normalize(value);
-      return normalizedInputs.includes(normalizedValue) || pageText.includes(normalizedValue);
-    });
-  }, FIXED_SPEC_VALUES);
+    return Array.from(new Set(inputValues));
+  });
 }
 
 async function countVisibleBlankSpecValueInputs(page: Page): Promise<number> {
@@ -1263,7 +1256,8 @@ async function countVisibleBlankSpecValueInputs(page: Page): Promise<number> {
 export async function applySpecTemplateWithVerificationOnPage(
   page: Page,
   title?: string,
-  controlledTemplateKeyword?: string
+  controlledTemplateKeyword?: string,
+  expectedSkuRowCount?: number
 ): Promise<{ selectedTemplate: string; filledValues: string[]; issue: string }> {
   const keyword = resolveSpecTemplateKeyword(title, controlledTemplateKeyword);
   let selectedTemplate = "";
@@ -1288,7 +1282,7 @@ export async function applySpecTemplateWithVerificationOnPage(
     selectedTemplate,
     expectedTemplateKeyword: keyword,
     filledSpecValues: filledValues.length,
-    expectedSpecValues: FIXED_SPEC_VALUES.length,
+    expectedSpecValues: Math.max(1, expectedSkuRowCount || visiblePriceRows || filledValues.length),
     priceRows: visiblePriceRows,
     blankSpecValueInputs
   });

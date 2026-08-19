@@ -713,7 +713,8 @@ export async function applyFixedSpecsOnPage(
   runtimeDir: string,
   fileName: string,
   title?: string,
-  controlledTemplateKeyword?: string
+  controlledTemplateKeyword?: string,
+  expectedSkuRowCount?: number
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -732,7 +733,12 @@ export async function applyFixedSpecsOnPage(
   let specIssue = "";
   let specTypeOptions: string[] = [];
 
-  const specApplyResult = await applySpecTemplateWithVerificationOnPage(page, title, controlledTemplateKeyword);
+  const specApplyResult = await applySpecTemplateWithVerificationOnPage(
+    page,
+    title,
+    controlledTemplateKeyword,
+    expectedSkuRowCount
+  );
   if (!specApplyResult.selectedTemplate && specApplyResult.issue) {
     specIssue = specApplyResult.issue;
   } else if (specApplyResult.issue) {

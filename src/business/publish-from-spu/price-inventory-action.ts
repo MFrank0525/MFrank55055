@@ -1,5 +1,5 @@
 import type { Locator, Page } from "playwright";
-import type { PriceInventoryRowValue } from "./price-inventory-rules.js";
+import { evaluatePriceInventoryRowCardinality, type PriceInventoryRowValue } from "./price-inventory-rules.js";
 import { savePageScreenshot } from "./browser-session.js";
 import { dismissTransientOverlays } from "./dom-actions.js";
 import {
@@ -391,7 +391,22 @@ export async function applyPriceInventoryOnPage(
     };
   }
 
-  const filledRows = Math.min(rows.length, priceInventoryRows.length);
+  const initialCardinality = evaluatePriceInventoryRowCardinality({
+    expectedPriceCount: priceInventoryRows.length,
+    actualSkuRowCount: rows.length
+  });
+  if (!initialCardinality.passed) {
+    const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
+    return {
+      pageUrl: page.url(),
+      pageTitle: await page.title(),
+      screenshotFile,
+      filledRows: 0,
+      priceIssue: initialCardinality.issue
+    };
+  }
+
+  const filledRows = priceInventoryRows.length;
   for (let index = 0; index < filledRows; index += 1) {
     const expected = priceInventoryRows[index];
     const rowIssue = await fillAndVerifyPriceInventoryRow(page, index, expected.price, expected.stock);
@@ -408,6 +423,20 @@ export async function applyPriceInventoryOnPage(
   }
 
   const finalRows = await readVisiblePriceInventoryRows(page);
+  const finalCardinality = evaluatePriceInventoryRowCardinality({
+    expectedPriceCount: priceInventoryRows.length,
+    actualSkuRowCount: finalRows.length
+  });
+  if (!finalCardinality.passed) {
+    const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
+    return {
+      pageUrl: page.url(),
+      pageTitle: await page.title(),
+      screenshotFile,
+      filledRows: 0,
+      priceIssue: finalCardinality.issue
+    };
+  }
   const pollutedSpecInputsAfterFill = await detectPriceInventoryValuesInsideSpecInputs(page, priceInventoryRows).catch(() => []);
   if (pollutedSpecInputsAfterFill.length) {
     const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);

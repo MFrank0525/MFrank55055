@@ -662,6 +662,8 @@ export function classifyPublishFailure(message: string): string {
     return "spec_template_not_ready";
   }
   if (
+    text.includes("Feishu产品价格") ||
+    text.includes("Price/inventoryrowcountmustexactmatchFeishupricecount") ||
     text.includes("Price/inventoryverificationfailed") ||
     text.includes("价格库存模块未完成") && text.includes("actualprice") && text.includes("stock")
   ) {
@@ -804,9 +806,14 @@ const VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES = new Set([
 export function isVerifiedPreSubmitRecoveryFailure(input: {
   errorClass?: string;
   finalVerifyStatus?: string;
+  message?: string;
 } | undefined): boolean {
-  return input?.finalVerifyStatus === "not_checked"
-    && VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES.has(input.errorClass || "");
+  if (input?.finalVerifyStatus !== "not_checked") return false;
+  const storedClass = input.errorClass || "";
+  const effectiveClass = !storedClass || storedClass === "unknown_publish_failure"
+    ? classifyPublishFailure(input.message || "")
+    : storedClass;
+  return VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES.has(effectiveClass);
 }
 
 export function shouldStopPublishBatchAfterFailure(

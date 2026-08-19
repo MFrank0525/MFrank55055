@@ -60,7 +60,8 @@ export async function runSpecPriceAction(
     input.runtimeDir,
     "publish-page-spec-editor.png",
     input.metadata.title,
-    controlledTemplateKeyword
+    controlledTemplateKeyword,
+    input.priceInventoryRows.length
   );
   screenshotFiles.push(specResult.screenshotFile);
   configuredFields.push(...specResult.configuredFields);
