@@ -392,3 +392,14 @@ Final evidence: clean build, pre-rules, full rules closure, all Doctor modes, re
 | Select the exact OTC specification | Central category policy requires `brand + SPU + specification` only for OTC; the rule layer extracts `规格：...`, normalizes separators and accepts one exact actionable row | Red-before-green four-row regression for `300丸 / 480丸 / 6g*12袋 / 6g*7袋`; real Feishu `规格=480丸` selected SPU ID `7538641052859171099` | verified |
 | Preserve the complete query identity across recovery | Job, shop/SPU action and basic-info reopen paths pass one typed request containing brand, SPU, match policy and Feishu specification | Structural metadata-chain regression; TypeScript build | verified |
 | Stop at the first valid brand identity | Empty results or specification mismatch advance to the next frozen brand identity; an exact unique match enters the create page and terminates the search | Real query skipped the first empty brand identity and opened the `480丸` OTC create page with correct brand, approval number and specification prefill | verified |
+
+## 2026-08-19 Feishu-driven specification template
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Make `规格模板` a mandatory source field for every category | `specTemplate` is part of the field map, normalized record, required-field contract, cache schema v3, field-map v3 and batch fingerprint | Feishu source/config/cache regressions; live 24-field API readback; 7 valid v3 records | verified |
+| Select exactly the value written in the current Feishu row | Category policy exposes only `feishu_exact`; publish metadata carries the record value; the action layer rejects aliases, substring matches, title inference and category defaults | Spec-template, category-isolation, OTC-policy and representative-flow regressions; all 7 live values read `买一送一` | verified |
+| Stop safely when Doudian has no exact option | Exact-option absence classifies as `spec_template_configuration_missing`, opens the immediate batch circuit before final submit, and keeps the target `not_checked` | Dedicated failure-class/circuit regression; full rule closure | verified |
+| Keep Hermes output limited to the requested remediation message | Controller and continuation compaction consume a dedicated rule returning `没有对应的规格模板可选` | Dedicated Hermes status regression and progress-state suite | verified |
+
+Final evidence: clean build; full rule/contradiction closure; all Doctor modes; representative simulation; two eight-dimension audits; live Feishu 24-field/v3-record verification; and the 20-shop read-only Doudian audit `20260819-234235` passed with `publishAttempted=false` and `formMutationAttempted=false`.

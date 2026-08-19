@@ -292,15 +292,12 @@ export function isStablePlatformBrandSelection(expectedBrand: string, readbacks:
 
 export function resolveSpecTemplateKeywordCandidates(expectedKeyword: string): string[] {
   const normalized = normalizeVisibleText(expectedKeyword);
-  if (normalized === "买二送一" || normalized === "买2送1" || normalized === "2送1") {
-    return ["买二送一", "买2送1", "2送1"];
-  }
   return normalized ? [normalized] : [];
 }
 
 export function isMatchingSpecTemplateValue(selectedTemplate: string, expectedKeyword: string): boolean {
   const selected = normalizeVisibleText(selectedTemplate);
-  return resolveSpecTemplateKeywordCandidates(expectedKeyword).some((candidate) => selected.includes(candidate));
+  return selected.length > 0 && selected === normalizeVisibleText(expectedKeyword);
 }
 
 export function isDoudianLoginPageText(value: string): boolean {
@@ -645,6 +642,12 @@ export function classifyPublishFailure(message: string): string {
     text.includes("Basicinfogatefailed")
   ) {
     return "basic_info_field_not_ready";
+  }
+  if (
+    text.includes("NospectemplateoptionexactlymatchedFeishuvalue") ||
+    text.includes("Health-foodspectemplatemustexactmatchFeishuvalue")
+  ) {
+    return "spec_template_configuration_missing";
   }
   if (
     text.includes("Spectemplateselectiondidnotmatchrequiredkeyword") ||

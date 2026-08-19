@@ -50,6 +50,7 @@ function assertRecordReady(record: FeishuProductRecord): void {
   if (!record.titleKeywordText) missing.push("titleKeywordText");
   if (record.productCategory !== "保健食品" && !record.titleSuffixText) missing.push("titleSuffixText");
   if (!record.productPriceText) missing.push("productPriceText");
+  if (!record.specTemplate) missing.push("specTemplate");
   if (!record.shortTitle) missing.push("shortTitle");
   if (missing.length > 0) {
     throw new Error(`Feishu product record ${record.recordId} is incomplete: ${missing.join(", ")}`);

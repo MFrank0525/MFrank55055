@@ -5,6 +5,7 @@ import path from "node:path";
 import { selectMaintenanceResidueTargets } from "../dist/src/autolist/maintenance-rules.js";
 import { cleanupMaintenanceResidue } from "../dist/src/autolist/cleanup.js";
 import { collectPreviousBatchArtifactTargets, writeIdleFeishuCache } from "../dist/src/autolist/maintenance-inventory.js";
+import { FEISHU_CACHE_SCHEMA_VERSION, FEISHU_FIELD_MAP_VERSION } from "../dist/src/feishu/cache-contract.js";
 
 const targets = selectMaintenanceResidueTargets({
   filePaths: [
@@ -105,7 +106,7 @@ assert.deepEqual(inventoryTargets, [
 ]);
 fs.writeFileSync(
   path.join(inventoryRoot, "data/feishu/products.json"),
-  JSON.stringify({ schemaVersion: 2, fieldMapVersion: 2, batchFingerprint: "4f53cda18c2baa0c0354bb5f", records: [] })
+  JSON.stringify({ schemaVersion: FEISHU_CACHE_SCHEMA_VERSION, fieldMapVersion: FEISHU_FIELD_MAP_VERSION, batchFingerprint: "4f53cda18c2baa0c0354bb5f", records: [] })
 );
 assert.equal(
   collectPreviousBatchArtifactTargets(inventoryRoot).includes(path.join(inventoryRoot, "data/feishu/products.json")),

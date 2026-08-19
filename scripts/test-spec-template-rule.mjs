@@ -22,14 +22,14 @@ assert.deepEqual(
   "template-provided spec values must remain byte-for-byte unchanged, including content rejected by the platform"
 );
 
-assert.deepEqual(resolveSpecTemplateKeywordCandidates("买二送一"), ["买二送一", "买2送1", "2送1"]);
-assert.equal(isMatchingSpecTemplateValue("2送1", "买二送一"), true);
-assert.equal(isMatchingSpecTemplateValue("买2送1四规格", "买二送一"), true);
+assert.deepEqual(resolveSpecTemplateKeywordCandidates("买二送一"), ["买二送一"]);
+assert.equal(isMatchingSpecTemplateValue("2送1", "买二送一"), false);
+assert.equal(isMatchingSpecTemplateValue("买2送1四规格", "买二送一"), false);
 assert.equal(isMatchingSpecTemplateValue("粉丝专享----买三送二", "买二送一"), false);
 
 assert.deepEqual(
   evaluateSpecTemplateCompletion({
-    selectedTemplate: "2送1",
+    selectedTemplate: "买二送一",
     expectedTemplateKeyword: "买二送一",
     filledSpecValues: 4,
     expectedSpecValues: 4,
@@ -294,8 +294,8 @@ assert.doesNotMatch(
 );
 assert.match(
   publishSource,
-  /function resolveSpecTemplateKeyword\(title\?: string, controlledTemplateKeyword\?: string\)[\s\S]*controlledTemplateKeyword[\s\S]*SPEC_TEMPLATE_KEYWORD_JIUGUANG[\s\S]*SPEC_TEMPLATE_KEYWORD_DEFAULT/,
-  "spec template target keyword must honor the category-controlled keyword before the medical-device title fallback"
+  /function resolveSpecTemplateKeyword\(title\?: string, controlledTemplateKeyword\?: string\)[\s\S]*Missing required Feishu specification-template value/,
+  "spec template target keyword must require the exact Feishu-controlled value without title fallback"
 );
 assert.match(
   publishSource,
@@ -528,4 +528,5 @@ for (const forbiddenSpecTypeAction of [
   );
 }
 
+await import("./test-feishu-spec-template-contract.mjs");
 console.log("spec template rule passed");

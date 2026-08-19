@@ -81,6 +81,7 @@ export function buildPublishJobMetadata(input: {
     shortTitle: feishuProductRecord.shortTitle || workbookFields.shortTitle,
     modelSpec: mutationPolicy.categoryAttributes === "fill_model_spec" ? workbookFields.modelSpec || "盒装" : "",
     productPriceText: feishuProductRecord.productPriceText || workbookFields.productPriceText,
+    specTemplate: feishuProductRecord.specTemplate,
     feishuRecordId: targetIdentity.recordId,
     productCategory: feishuProductRecord.productCategory,
     manufacturerName: feishuProductRecord.manufacturerName,

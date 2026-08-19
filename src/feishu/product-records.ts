@@ -18,6 +18,7 @@ const FEISHU_FIELD_ALIASES: Record<FeishuFieldKey, string[]> = {
   titleKeywordText: ["标题关键词", "标题词", "标题关键字", "标题关键词组"],
   titleSuffixText: ["标题固定后缀", "固定后缀", "标题后缀", "商品标题后缀"],
   productPriceText: ["产品价格", "产品售价", "商品价格", "价格", "售价"],
+  specTemplate: ["规格模板"],
   shortTitle: ["导购短标题", "短标题", "商品短标题", "导购标题"],
   productCategory: ["产品类目", "商品类目", "类目", "产品分类", "商品分类"],
   qualificationImages: ["资质图片", "资质附件", "资质图", "资格图片", "证照图片"],
@@ -42,6 +43,7 @@ const COMMON_REQUIRED_FIELDS: FeishuFieldKey[] = [
   "positivePromptText",
   "negativePromptText",
   "titleKeywordText",
+  "specTemplate",
   "shortTitle",
   "productCategory",
   "qualificationImages",
@@ -234,6 +236,7 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     titleKeywordText: extractText(field("titleKeywordText")),
     titleSuffixText: extractText(field("titleSuffixText")),
     productPriceText: extractText(field("productPriceText")),
+    specTemplate: extractText(field("specTemplate")),
     shortTitle: extractText(field("shortTitle")),
     productCategory: normalizeProductCategory(extractText(field("productCategory"))),
     qualificationImages: extractAttachments(field("qualificationImages")),
@@ -289,6 +292,7 @@ function hasEmptyFeishuProductContent(record: FeishuProductRecord, includeCatego
     !record.titleKeywordText &&
     !record.titleSuffixText &&
     !record.productPriceText &&
+    !record.specTemplate &&
     !record.shortTitle &&
     (!includeCategory || !record.productCategory) &&
     record.qualificationImages.length === 0 &&

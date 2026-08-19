@@ -59,8 +59,6 @@ import {
   FIXED_SPEC_VALUES,
   GRAPHIC_SECTION_LABELS,
   PLATFORM_SPU_URL,
-  SPEC_TEMPLATE_KEYWORD_DEFAULT,
-  SPEC_TEMPLATE_KEYWORD_JIUGUANG
 } from "./constants.js";
 import { resolveFeishuPriceInventoryRows, type PriceInventoryRowValue } from "./price-inventory-rules.js";
 import { applyPriceInventoryOnPage, countVisiblePriceInventoryRows } from "./price-inventory-action.js";
@@ -350,7 +348,7 @@ async function markVisibleSpecTemplateOption(page: Page, keywords: string[]): Pr
           };
         })
         .filter(Boolean);
-      const target = candidates.find((item) => targetKeywords.some((keyword) => item?.text === keyword)) || candidates[0];
+      const target = candidates.find((item) => targetKeywords.some((keyword) => item?.text === keyword));
       if (!target) {
         return "";
       }
@@ -416,7 +414,7 @@ async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string
     }
     return clickedText;
   }
-  throw new Error(`No visible spec template dropdown option matched controlled aliases: ${candidates.join("/")}; keyword=${keyword}`);
+  throw new Error(`No spec template option exactly matched Feishu value: ${keyword}`);
 }
 
 async function scrollMainFormContainerToBottom(page: Page): Promise<boolean> {
@@ -1152,10 +1150,11 @@ export async function chooseKeywordFreightTemplate(page: Page, keyword: string):
 }
 
 function resolveSpecTemplateKeyword(title?: string, controlledTemplateKeyword?: string): string {
-  if (controlledTemplateKeyword) return controlledTemplateKeyword;
-  return (title || "").includes(SPEC_TEMPLATE_KEYWORD_JIUGUANG)
-    ? SPEC_TEMPLATE_KEYWORD_JIUGUANG
-    : SPEC_TEMPLATE_KEYWORD_DEFAULT;
+  const value = (controlledTemplateKeyword || "").trim();
+  if (!value) {
+    throw new Error("Missing required Feishu specification-template value.");
+  }
+  return value;
 }
 
 async function chooseDynamicSpecTemplateOnPage(

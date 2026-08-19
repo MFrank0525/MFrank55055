@@ -22,6 +22,7 @@ const completeRecord = {
   titleKeywordText: "关键词A,关键词B",
   titleSuffixText: "固定后缀",
   productPriceText: "129,99,79,59",
+  specTemplate: "久光小泽",
   shortTitle: "短标题",
   productCategory: "医疗器械",
   qualificationImages: [{ fileToken: "q", name: "q.png", raw: {} }],

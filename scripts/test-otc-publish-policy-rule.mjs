@@ -9,27 +9,28 @@ import { buildPublishJobMetadata } from "../dist/src/autolist/publish.js";
 
 const otc = getPublishCategoryMutationPolicy("非处方药");
 assert.equal(otc.categoryAttributes, "leave_platform_state");
-assert.equal(otc.specTemplateSelection, "buy_two_get_one");
+assert.equal(otc.specTemplateSelection, "feishu_exact");
 assert.equal(otc.healthFoodSpecification, false, "OTC must preserve every value supplied by the controlled template");
 assert.equal(otc.serviceSpuVerification, "drug_approval_number");
 assert.equal(otc.serviceAfterSalesPolicy, "unsupported_seven_day_returns");
-assert.equal(resolvePublishSpecTemplateKeyword(otc, "久光小泽非处方药"), "买二送一");
+assert.equal(resolvePublishSpecTemplateKeyword(otc, "买一送一"), "买一送一");
 assert.equal(otc.healthFoodSafetyAndCategoryAttributes, false);
 assert.equal(otc.healthFoodPackagingLabel, false);
 assert.equal(otc.medicalDeviceCertificate, false);
 
 const medical = getPublishCategoryMutationPolicy("医疗器械");
 assert.equal(medical.categoryAttributes, "fill_model_spec");
-assert.equal(medical.specTemplateSelection, "title_controlled");
-assert.equal(resolvePublishSpecTemplateKeyword(medical, "久光小泽医疗器械"), "久光小泽");
+assert.equal(medical.specTemplateSelection, "feishu_exact");
+assert.equal(resolvePublishSpecTemplateKeyword(medical, "久光小泽"), "久光小泽");
 
 const healthFood = getPublishCategoryMutationPolicy("保健食品");
 assert.equal(healthFood.categoryAttributes, "fill_health_food_fields");
-assert.equal(healthFood.specTemplateSelection, "buy_two_get_one");
-assert.equal(resolvePublishSpecTemplateKeyword(healthFood, "久光小泽保健食品"), "买二送一");
+assert.equal(healthFood.specTemplateSelection, "feishu_exact");
+assert.equal(resolvePublishSpecTemplateKeyword(healthFood, "买二送一"), "买二送一");
+assert.throws(() => resolvePublishSpecTemplateKeyword(healthFood, ""), /Missing required Feishu field: specTemplate/);
 
 const resolvedOtc = resolvePublishFromSpuMetadata({
-  metadataOverride: { productCategory: "非处方药" },
+  metadataOverride: { productCategory: "非处方药", specTemplate: "买一送一" },
   workbook: {
     brand: "延草纲目",
     spu: "SPU-OTC-001",
@@ -63,6 +64,7 @@ const baseRecord = {
   spu: "SPU-001",
   shortTitle: "测试短标题",
   productPriceText: "40,30,20,10",
+  specTemplate: "买一送一",
   titleSuffixText: "锁阳固精丸北方经开9g*10丸"
 };
 assert.equal(
@@ -110,7 +112,7 @@ assert.match(
 assert.match(
   specActionSource,
   /resolvePublishSpecTemplateKeyword\([\s\S]*deps\.applyFixedSpecsOnPage\([\s\S]*controlledTemplateKeyword/,
-  "spec action must resolve and pass the category-controlled template instead of inferring OTC behavior from title text"
+  "spec action must pass the exact Feishu template value instead of inferring it from category or title"
 );
 
 console.log("OTC publish policy rule passed");

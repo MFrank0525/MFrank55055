@@ -24,6 +24,7 @@ fs.writeFileSync(
         titleKeywordText: "标题关键词",
         titleSuffixText: "标题固定后缀",
         productPriceText: "产品价格",
+        specTemplate: "规格模板",
         shortTitle: "导购短标题",
         productCategory: "产品类目",
         qualificationImages: "资质图片",
@@ -52,6 +53,7 @@ assert.equal(config.fieldMap.negativePromptText, "反向提示词");
 assert.equal(config.fieldMap.titleKeywordText, "标题关键词");
 assert.equal(config.fieldMap.titleSuffixText, "标题固定后缀");
 assert.equal(config.fieldMap.productPriceText, "产品价格");
+assert.equal(config.fieldMap.specTemplate, "规格模板");
 assert.equal(config.fieldMap.manufacturerName, "生产企业名称");
 assert.equal(config.fieldMap.manufacturerAddress, "生产企业地址");
 assert.equal(config.fieldMap.netContent, "净含量");
@@ -67,6 +69,7 @@ assert.ok(config.requiredFields?.includes("negativePromptText"));
 assert.ok(config.requiredFields?.includes("titleKeywordText"));
 assert.ok(config.requiredFields?.includes("titleSuffixText"));
 assert.ok(config.requiredFields?.includes("productPriceText"));
+assert.ok(config.requiredFields?.includes("specTemplate"));
 assert.ok(!config.requiredFields?.includes("newlyAddedIrrelevantField"));
 for (const categoryOnlyField of [
   "manufacturerName",
@@ -102,6 +105,7 @@ fs.writeFileSync(
         titleKeywordText: "标题关键词",
         titleSuffixText: "标题固定后缀",
         productPriceText: "产品价格",
+        specTemplate: "规格模板",
         shortTitle: "导购短标题",
         productCategory: "产品类目",
         qualificationImages: "资质图片",

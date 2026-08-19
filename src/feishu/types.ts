@@ -13,6 +13,7 @@ export interface FeishuBitableFieldMap {
   titleKeywordText: string;
   titleSuffixText: string;
   productPriceText: string;
+  specTemplate: string;
   shortTitle: string;
   productCategory: string;
   qualificationImages: string;
@@ -70,6 +71,7 @@ export interface FeishuProductRecord {
   titleKeywordText: string;
   titleSuffixText: string;
   productPriceText: string;
+  specTemplate: string;
   shortTitle: string;
   productCategory?: ProductCategory;
   qualificationImages: FeishuBitableAttachment[];

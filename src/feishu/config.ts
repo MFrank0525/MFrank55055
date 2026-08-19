@@ -15,6 +15,7 @@ const FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
   "titleKeywordText",
   "titleSuffixText",
   "productPriceText",
+  "specTemplate",
   "shortTitle",
   "productCategory",
   "qualificationImages",

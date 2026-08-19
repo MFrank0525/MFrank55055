@@ -53,7 +53,7 @@ export async function runSpecPriceAction(
   let specIssue = "";
   const controlledTemplateKeyword = resolvePublishSpecTemplateKeyword(
     input.categoryContext.mutationPolicy,
-    input.metadata.title
+    input.metadata.specTemplate
   );
   const specResult = await deps.applyFixedSpecsOnPage(
     page,

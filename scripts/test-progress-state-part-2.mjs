@@ -2109,19 +2109,19 @@ const terminalPublishFailureRealtimeProgress = resolveAutoListingControllerRealt
   activeRunId: "20260622-011631",
   status: "failed",
   preferStatusMessage: true,
-  statusMessage: "规格模板未找到等价项：买二送一/买2送1/2送1",
+  statusMessage: "没有对应的规格模板可选",
   statusTimestamp: "2026-06-21T22:22:12.400Z",
   publishLogTimestamp: "2026-06-21T22:18:39.022Z",
   publishLogMessage: "发布模块：图文信息（07延草纲目健康护理专营店）"
 });
 assert.equal(terminalPublishFailureRealtimeProgress?.source, "status");
-assert.match(terminalPublishFailureRealtimeProgress?.message || "", /规格模板未找到等价项/);
+assert.match(terminalPublishFailureRealtimeProgress?.message || "", /没有对应的规格模板可选/);
 assert.equal(
   compactAutoListingTerminalFailureMessage(
-    "Publish failed for /shops/07店/延草纲目商品-水印14: Sequential publish flow stopped: 价格库存模块未完成。No visible spec template dropdown option matched controlled aliases: 买二送一/买2送1/2送1"
+    "Publish failed for /shops/07店/延草纲目商品-水印14: Sequential publish flow stopped: 价格库存模块未完成。No spec template option exactly matched Feishu value: 买一送一"
   ),
-  "Sequential publish flow stopped: 价格库存模块未完成。No visible spec template dropdown option matched controlled aliases: 买二送一/买2送1/2送1",
-  "Terminal feedback must remove long local paths before truncation so Hermes receives the real failure reason"
+  "没有对应的规格模板可选",
+  "Terminal feedback must reduce exact-option absence to the requested Hermes message"
 );
 const doudianLoginFailureMessage =
   "Publish failed for /Users/mfrank/MFrank55055/input/auto-listing/shops/09延草纲目中医保健专营店/延草纲目李时珍牙科护理剂-recvnbT8RrH0nU-水印18: Doudian login required: open the automation browser and complete Doudian login before publishing can continue.";

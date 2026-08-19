@@ -29,6 +29,7 @@ export function buildFeishuBatchIdentityFingerprint(records: FeishuProductRecord
     brand: record.brand || "",
     spu: record.spu || "",
     productCategory: record.productCategory || "",
+    specTemplate: record.specTemplate || "",
     manufacturerName: record.manufacturerName || "",
     manufacturerAddress: record.manufacturerAddress || "",
     netContent: record.netContent || "",

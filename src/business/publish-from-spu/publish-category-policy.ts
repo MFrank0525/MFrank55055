@@ -1,5 +1,4 @@
 import { normalizeProductCategory, type ProductCategory } from "../../autolist/product-category.js";
-import { SPEC_TEMPLATE_KEYWORD_DEFAULT, SPEC_TEMPLATE_KEYWORD_JIUGUANG } from "./constants.js";
 import type { PlatformSpuSpecificationMatchPolicy } from "./platform-spu-query-rules.js";
 
 export type CategoryAttributeMutationPolicy =
@@ -7,7 +6,7 @@ export type CategoryAttributeMutationPolicy =
   | "fill_health_food_fields"
   | "leave_platform_state";
 
-export type SpecTemplateSelectionPolicy = "title_controlled" | "buy_two_get_one";
+export type SpecTemplateSelectionPolicy = "feishu_exact";
 export type ServiceSpuVerificationPolicy = "medical_registration" | "drug_approval_number" | "none";
 export type ServiceAfterSalesPolicy = "unsupported_seven_day_returns" | "preserve_platform_state";
 export type SubmitValidationPolicy = "generic_fill_check" | "health_food_packaging_gate";
@@ -31,7 +30,7 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
   医疗器械: {
     platformSpuSpecificationMatch: "ignore",
     categoryAttributes: "fill_model_spec",
-    specTemplateSelection: "title_controlled",
+    specTemplateSelection: "feishu_exact",
     guardUnexpectedBasicFieldChanges: true,
     healthFoodSafetyAndCategoryAttributes: false,
     healthFoodShippingBeforeSpecification: false,
@@ -45,7 +44,7 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
   非处方药: {
     platformSpuSpecificationMatch: "require_exact",
     categoryAttributes: "leave_platform_state",
-    specTemplateSelection: "buy_two_get_one",
+    specTemplateSelection: "feishu_exact",
     guardUnexpectedBasicFieldChanges: true,
     healthFoodSafetyAndCategoryAttributes: false,
     healthFoodShippingBeforeSpecification: false,
@@ -59,7 +58,7 @@ const CATEGORY_MUTATION_POLICIES: Record<ProductCategory, PublishCategoryMutatio
   保健食品: {
     platformSpuSpecificationMatch: "ignore",
     categoryAttributes: "fill_health_food_fields",
-    specTemplateSelection: "buy_two_get_one",
+    specTemplateSelection: "feishu_exact",
     guardUnexpectedBasicFieldChanges: false,
     healthFoodSafetyAndCategoryAttributes: true,
     healthFoodShippingBeforeSpecification: true,
@@ -107,10 +106,14 @@ export function getPublishCategoryMutationPolicy(category: string | undefined): 
 
 export function resolvePublishSpecTemplateKeyword(
   policy: PublishCategoryMutationPolicy,
-  title?: string
+  feishuSpecTemplate?: string
 ): string {
-  if (policy.specTemplateSelection === "buy_two_get_one") return SPEC_TEMPLATE_KEYWORD_DEFAULT;
-  return (title || "").includes(SPEC_TEMPLATE_KEYWORD_JIUGUANG)
-    ? SPEC_TEMPLATE_KEYWORD_JIUGUANG
-    : SPEC_TEMPLATE_KEYWORD_DEFAULT;
+  if (policy.specTemplateSelection !== "feishu_exact") {
+    throw new Error(`Unsupported specification-template selection policy: ${String(policy.specTemplateSelection)}`);
+  }
+  const value = (feishuSpecTemplate || "").trim();
+  if (!value) {
+    throw new Error("Missing required Feishu field: specTemplate");
+  }
+  return value;
 }

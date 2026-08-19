@@ -7,23 +7,21 @@ import {
 } from "./image-generation-rules.js";
 import { isPaidImageAcceptedTaskHeartbeatText } from "./paid-image-wait-rules.js";
 import { isDoudianLoginRequiredFailure } from "./doudian-login-recovery-rules.js";
+import { resolveMissingSpecTemplateHermesMessage } from "./spec-template-status-rules.js";
 export { formatAutoListingControllerExternalServiceWaitSummary } from "./doudian-login-recovery-rules.js";
 export { shouldExposePublishProgressInAutoListingControllerStatus } from "./status-progress-rules.js";
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
   batchComplete: boolean;
 };
-
 export function shouldContinueFeishuBatchAfterChildExit(input: FeishuBatchContinuationInput): boolean {
   return input.exitCode === 0 && !input.batchComplete;
 }
-
 export type SupervisorChildMode = "resume" | "full";
 
 export type SupervisorFullFlowContinuationInput = FeishuBatchContinuationInput & {
   childMode: SupervisorChildMode;
 };
-
 export function shouldContinueFullFlowAfterChildExit(input: SupervisorFullFlowContinuationInput): boolean {
   return shouldContinueFeishuBatchAfterChildExit(input);
 }
@@ -764,6 +762,8 @@ function formatAutoListingControllerArtifactName(name?: string): string {
 
 function translateAutoListingControllerOperatorMessage(message?: string): string | undefined {
   const text = String(message || "").replace(/\s+/g, " ").trim();
+  const missingSpecTemplateMessage = resolveMissingSpecTemplateHermesMessage(text);
+  if (missingSpecTemplateMessage) return missingSpecTemplateMessage;
   if (!text) return undefined;
   const queueWait = compactImageProviderQueueWaitProgress(text);
   if (queueWait) return queueWait;
@@ -960,10 +960,8 @@ export type AutoListingControllerRealtimeProgressSignal = {
 };
 
 export function compactAutoListingTerminalFailureMessage(message: string): string {
-  return message
-    .replace(/^published:\s*/i, "")
-    .replace(/^Publish failed for [^:]+:\s*/i, "")
-    .trim();
+  const compact = message.replace(/^published:\s*/i, "").replace(/^Publish failed for [^:]+:\s*/i, "").trim();
+  return resolveMissingSpecTemplateHermesMessage(compact) || compact;
 }
 
 function compactRealtimeProgressPart(value: string | undefined): string {

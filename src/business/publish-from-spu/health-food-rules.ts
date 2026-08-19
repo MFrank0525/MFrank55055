@@ -9,7 +9,6 @@ export const HEALTH_FOOD_FIXED_FIELD_VALUES = {
 
 export const HEALTH_FOOD_EXCLUDED_FIELD_LABELS = ["营养成分表", "口味分类", "图文区域", "主图视频"] as const;
 export const HEALTH_FOOD_QUALIFICATION_IMAGE_SLOT_LABELS = ["商品外包装图", "详情图", "包装标签图"] as const;
-export const HEALTH_FOOD_SPEC_TEMPLATE_ALIASES = ["买二送一", "买2送1", "2送1"] as const;
 
 export interface HealthFoodRuleDecision {
   action: "ready" | "block";
@@ -127,11 +126,6 @@ function findMismatchedFixedFields(input: HealthFoodFixedFieldSelections): strin
     .filter(Boolean);
 }
 
-function selectedSpecTemplateMatchesAlias(selectedSpecTemplate: string): boolean {
-  const selected = normalizeRuleText(selectedSpecTemplate);
-  return HEALTH_FOOD_SPEC_TEMPLATE_ALIASES.some((alias) => selected.includes(normalizeRuleText(alias)));
-}
-
 export function resolveHealthFoodSpecificationReplacement(input: {
   metadata: Pick<PublishFromSpuMetadata, "specification">;
   currentValue: string;
@@ -189,8 +183,10 @@ function evaluateQualificationImageSlots(input: HealthFoodPublishRuleInput): Hea
 }
 
 function evaluateSpecTemplateAndInputs(input: HealthFoodPublishRuleInput): HealthFoodRuleDecision | undefined {
-  if (!selectedSpecTemplateMatchesAlias(input.selectedSpecTemplate)) {
-    return block(`Health-food spec template did not match controlled aliases: ${HEALTH_FOOD_SPEC_TEMPLATE_ALIASES.join("/")}`);
+  if (normalizeRuleText(input.selectedSpecTemplate) !== normalizeRuleText(input.metadata.specTemplate)) {
+    return block(
+      `Health-food spec template must exact match Feishu value: expected=${input.metadata.specTemplate || "<empty>"} actual=${input.selectedSpecTemplate || "<empty>"}`
+    );
   }
   if (input.specificationInputs.length !== 1) {
     return block(

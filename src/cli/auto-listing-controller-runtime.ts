@@ -27,6 +27,7 @@ import { formatAutoListingControllerWaitSummary, resolveDoudianLoginWaitRealtime
 import { formatPaidImageAcceptedTaskWaitSummary, resolvePaidImageWaitStatus } from "../autolist/paid-image-wait-rules.js";
 import { shouldFailAutoListingControllerStatusForFeishuCacheInvalid, shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid } from "../autolist/controller-cache-status-rules.js";
 import { formatAutoListingPublishProgressLabel, shouldRetainStoppedControllerPublishCheckpoint } from "../autolist/status-progress-rules.js";
+import { resolveMissingSpecTemplateHermesMessage } from "../autolist/spec-template-status-rules.js";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
@@ -331,6 +332,8 @@ export function tailFile(file: string, maxLines: number): string[] {
 
 export function compactStatusLine(line: string): string {
   const compact = line.replace(/\s+/g, " ").trim();
+  const missingSpecTemplateMessage = resolveMissingSpecTemplateHermesMessage(compact);
+  if (missingSpecTemplateMessage) return missingSpecTemplateMessage;
   const workbookCount = (compact.match(/\.xlsx\b/gi) || []).length;
   if (workbookCount > 2 && /product folders already contain workbook/i.test(compact)) {
     return `标题 workbook 已存在 ${workbookCount} 个；续跑应跳过标题生成并从发布阶段继续，原始路径列表已压缩。`;

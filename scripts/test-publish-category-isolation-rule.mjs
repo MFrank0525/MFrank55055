@@ -13,7 +13,7 @@ const expected = {
     policy: {
       platformSpuSpecificationMatch: "ignore",
       categoryAttributes: "fill_model_spec",
-      specTemplateSelection: "title_controlled",
+      specTemplateSelection: "feishu_exact",
       guardUnexpectedBasicFieldChanges: true,
       healthFoodSafetyAndCategoryAttributes: false,
       healthFoodShippingBeforeSpecification: false,
@@ -31,7 +31,7 @@ const expected = {
     policy: {
       platformSpuSpecificationMatch: "require_exact",
       categoryAttributes: "leave_platform_state",
-      specTemplateSelection: "buy_two_get_one",
+      specTemplateSelection: "feishu_exact",
       guardUnexpectedBasicFieldChanges: true,
       healthFoodSafetyAndCategoryAttributes: false,
       healthFoodShippingBeforeSpecification: false,
@@ -49,7 +49,7 @@ const expected = {
     policy: {
       platformSpuSpecificationMatch: "ignore",
       categoryAttributes: "fill_health_food_fields",
-      specTemplateSelection: "buy_two_get_one",
+      specTemplateSelection: "feishu_exact",
       guardUnexpectedBasicFieldChanges: false,
       healthFoodSafetyAndCategoryAttributes: true,
       healthFoodShippingBeforeSpecification: true,

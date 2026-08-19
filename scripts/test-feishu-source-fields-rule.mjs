@@ -21,6 +21,7 @@ const baseRecord = {
     标题关键词: "唇部护理,保湿凝胶,聚乙二醇,润护敷料",
     标题固定后缀: "医用聚乙二醇润护敷料",
     产品价格: "129,99,79,59",
+    规格模板: "久光小泽",
     导购短标题: "唇部保湿凝胶",
     白底图: [{ file_token: "white-token", name: "white.png" }],
     资质图片: [{ file_token: "cert-token", name: "cert.png" }]
@@ -43,6 +44,7 @@ const config = {
     titleKeywordText: "标题关键词",
     titleSuffixText: "标题固定后缀",
     productPriceText: "产品价格",
+    specTemplate: "规格模板",
     shortTitle: "导购短标题",
     productCategory: "产品类目",
     qualificationImages: "资质图片",
@@ -58,6 +60,7 @@ assert.equal(normalized.negativePromptText, "飞书反向提示词：不要治�
 assert.equal(normalized.titleKeywordText, "唇部护理,保湿凝胶,聚乙二醇,润护敷料");
 assert.equal(normalized.titleSuffixText, "医用聚乙二醇润护敷料");
 assert.equal(normalized.productPriceText, "129,99,79,59");
+assert.equal(normalized.specTemplate, "久光小泽");
 assert.deepEqual(validateFeishuProductRecord(normalized), []);
 
 const medicalDeviceWithEmptyHealthFoodColumns = normalizeFeishuProductRecord(
@@ -108,6 +111,7 @@ const shuffledMedicalDeviceRecord = normalizeFeishuProductRecord(
       白底图: [{ file_token: "white-token", name: "white.png" }],
       新增无关表头A: "顺序变化不应阻塞",
       产品价格: "129,99,79,59",
+      规格模板: "久光小泽",
       品牌: "延草纲目",
       DeepSeek提示词: "唇部护理场景,聚乙二醇凝胶,保湿润护,电商主图",
       产品类目: "医疗器械",
@@ -220,6 +224,7 @@ const dynamicHealthFoodRecord = normalizeFeishuProductRecord(
       反向词: "不出现治疗暗示",
       标题词: "蛋白粉,营养补充",
       产品售价: "199,169,139,109",
+      规格模板: "买二送一",
       短标题: "蛋白粉",
       资质附件: [{ file_token: "health-cert-token", name: "health-cert.png" }],
       白底附件: [{ file_token: "health-white-token", name: "health-white.png" }],
@@ -245,4 +250,5 @@ assert.equal(dynamicHealthFoodRecord.productStandardCode, "Q/CURRENT 001");
 assert.equal(dynamicHealthFoodRecord.ingredients, "乳清蛋白");
 assert.equal(dynamicHealthFoodRecord.healthFunction, "增强免疫力");
 assert.equal(dynamicHealthFoodRecord.specification, "0.5g×60粒");
+assert.equal(dynamicHealthFoodRecord.specTemplate, "买二送一");
 assert.deepEqual(validateFeishuProductRecord(dynamicHealthFoodRecord), []);

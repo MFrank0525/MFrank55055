@@ -1651,10 +1651,10 @@ const specTemplateMissingClass = classifyPublishFailure(
 assert.equal(specTemplateMissingClass, "spec_template_not_ready");
 assert.equal(
   classifyPublishFailure(
-    "Sequential publish flow stopped: 价格库存模块未完成。No visible spec template dropdown option matched controlled aliases: 买二送一/买2送1/2送1; keyword=买二送一"
+    "Sequential publish flow stopped: 价格库存模块未完成。No spec template option exactly matched Feishu value: 买一送一"
   ),
-  "spec_template_not_ready",
-  "Exhausting controlled semantic aliases must remain a bounded pre-submit template readiness failure"
+  "spec_template_configuration_missing",
+  "absence of the exact Feishu value must stop the batch for user remediation"
 );
 const missingShopSpecTemplateClass = classifyPublishFailure(
   "Spec template is not configured for current shop: 商品规格 surface only exposes 添加规格类型（0/3） and 规格预览."

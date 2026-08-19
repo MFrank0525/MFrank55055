@@ -16,6 +16,7 @@ export interface PublishFromSpuMetadata {
   shortTitle?: string;
   modelSpec?: string;
   productPriceText?: string;
+  specTemplate?: string;
   feishuRecordId?: string;
   productCategory?: ProductCategory;
   manufacturerName?: string;
@@ -35,6 +36,7 @@ export interface ResolvedPublishFromSpuMetadata extends PublishFromSpuMetadata {
   shortTitle: string;
   modelSpec: string;
   productPriceText: string;
+  specTemplate: string;
 }
 
 export interface PublishFromSpuJobInput {

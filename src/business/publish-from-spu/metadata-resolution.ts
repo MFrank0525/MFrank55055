@@ -17,6 +17,7 @@ export function assertResolvedMetadata(
     shortTitle: string;
     modelSpec: string;
     productPriceText: string;
+    specTemplate: string;
     productCategory?: string;
   },
   mode: string
@@ -41,6 +42,9 @@ export function assertResolvedMetadata(
   }
   if (!metadata.productPriceText.trim()) {
     missingFields.push("productPriceText");
+  }
+  if (!metadata.specTemplate.trim()) {
+    missingFields.push("specTemplate");
   }
   if (missingFields.length > 0) {
     throw new Error(`Publish workbook metadata was incomplete for mode=${mode}: ${missingFields.join(", ")}`);
@@ -69,7 +73,8 @@ export function resolvePublishFromSpuMetadata(input: {
       mutationPolicy.categoryAttributes === "fill_model_spec"
         ? metadataOverride.modelSpec || input.workbook.modelSpec || "盒装"
         : "",
-    productPriceText: metadataOverride.productPriceText || input.workbook.productPriceText || ""
+    productPriceText: metadataOverride.productPriceText || input.workbook.productPriceText || "",
+    specTemplate: metadataOverride.specTemplate?.trim() || ""
   };
 }
 

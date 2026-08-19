@@ -485,7 +485,7 @@ export async function runPublishFlow(
 
 export async function runGraphicFlow(
   runtimeDir: string,
-  metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string; productPriceText?: string; productCategory?: string },
+  metadata: { brand: string; spu: string; title?: string; shortTitle?: string; modelSpec?: string; productPriceText?: string; specTemplate?: string; productCategory?: string },
   assets: ProductAssets,
   shopFolder: string,
   publishPageUrl?: string,
@@ -520,6 +520,7 @@ export async function runGraphicFlow(
     shortTitle: metadata.shortTitle || "",
     modelSpec: metadata.modelSpec || "",
     productPriceText: metadata.productPriceText || "",
+    specTemplate: metadata.specTemplate || "",
     productCategory
   };
   const basicMetadata = {
