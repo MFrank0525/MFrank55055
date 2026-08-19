@@ -300,6 +300,36 @@ export function isMatchingSpecTemplateValue(selectedTemplate: string, expectedKe
   return selected.length > 0 && selected === normalizeVisibleText(expectedKeyword);
 }
 
+export interface VisibleSpecTemplateOption {
+  markerValue: string;
+  text: string;
+}
+
+export interface ExactSpecTemplateOptionMatch {
+  markerValue: string;
+  label: string;
+}
+
+export function resolveExactSpecTemplateOptionMatch(
+  options: VisibleSpecTemplateOption[],
+  expectedKeywords: string[]
+): ExactSpecTemplateOptionMatch | undefined {
+  const expected = new Set(expectedKeywords.map(normalizeVisibleText).filter(Boolean));
+  const matches = options.flatMap((option) => {
+    const label = option.text
+      .split(/\r?\n/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .find(Boolean) || "";
+    return expected.has(normalizeVisibleText(label))
+      ? [{ markerValue: option.markerValue, label }]
+      : [];
+  });
+  if (matches.length > 1) {
+    throw new Error(`Spec template option exact label was ambiguous: matches=${matches.length}`);
+  }
+  return matches[0];
+}
+
 export function isDoudianLoginPageText(value: string): boolean {
   const text = normalizeVisibleText(value);
   return (

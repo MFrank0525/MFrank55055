@@ -104,6 +104,7 @@ import {
   isMatchingSpecTemplateValue,
   isUploadPlaceholderGraphicContext,
   resolveBasicFieldIdAliases,
+  resolveExactSpecTemplateOptionMatch,
   resolvePriceInventoryRowInputRoles,
   resolveSpecTemplateKeywordCandidates
 } from "./publish-rules.js";
@@ -308,9 +309,9 @@ async function clickSpecTemplateDropdownTargetWithOverlayRecovery(page: Page): P
 
 const specTemplateOptionMarker = "data-auto-spec-template-option";
 
-async function markVisibleSpecTemplateOption(page: Page, keywords: string[]): Promise<string> {
+async function collectVisibleSpecTemplateOptions(page: Page): Promise<Array<{ markerValue: string; text: string }>> {
   return page.evaluate(
-    ({ markerName, targetKeywords }) => {
+    ({ markerName }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
       const visible = (element: HTMLElement): boolean => {
         const rect = element.getBoundingClientRect();
@@ -337,8 +338,8 @@ async function markVisibleSpecTemplateOption(page: Page, keywords: string[]): Pr
           if (!visible(el) || !visible(clickable)) {
             return null;
           }
-          const text = normalize(el.innerText || el.textContent || "");
-          if (!targetKeywords.some((keyword) => text.includes(keyword))) {
+          const text = (el.innerText || el.textContent || "").trim();
+          if (!normalize(text)) {
             return null;
           }
           return {
@@ -347,29 +348,64 @@ async function markVisibleSpecTemplateOption(page: Page, keywords: string[]): Pr
           };
         })
         .filter(Boolean);
-      const target = candidates.find((item) => targetKeywords.some((keyword) => item?.text === keyword));
-      if (!target) {
-        return "";
-      }
-      target.el.setAttribute(markerName, "true");
-      return target.text;
+      const seen = new Set<HTMLElement>();
+      const uniqueCandidates = candidates.filter((item) => {
+        if (seen.has(item!.el)) {
+          return false;
+        }
+        seen.add(item!.el);
+        return true;
+      });
+      return uniqueCandidates.map((item, index) => {
+        const markerValue = String(index);
+        item!.el.setAttribute(markerName, markerValue);
+        return { markerValue, text: item!.text };
+      });
     },
-    { markerName: specTemplateOptionMarker, targetKeywords: keywords }
+    { markerName: specTemplateOptionMarker }
   );
 }
 
+async function findVisibleSpecTemplateOption(page: Page, keywords: string[]): Promise<{ locator: Locator; label: string } | undefined> {
+  const options = await collectVisibleSpecTemplateOptions(page);
+  const match = resolveExactSpecTemplateOptionMatch(options, keywords);
+  if (!match) {
+    return undefined;
+  }
+  return {
+    locator: page.locator(`[${specTemplateOptionMarker}="${match.markerValue}"]`),
+    label: match.label
+  };
+}
+
+async function waitForVisibleSpecTemplateOption(
+  page: Page,
+  keywords: string[],
+  timeoutMs = 2000
+): Promise<{ locator: Locator; label: string } | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const option = await findVisibleSpecTemplateOption(page, keywords);
+    if (option) {
+      return option;
+    }
+    await page.waitForTimeout(100);
+  } while (Date.now() < deadline);
+  return undefined;
+}
+
 async function clickSpecTemplateOptionByDomStructure(page: Page, keywords: string[]): Promise<string> {
-  const text = await markVisibleSpecTemplateOption(page, keywords);
-  if (!text) {
+  const initial = await waitForVisibleSpecTemplateOption(page, keywords);
+  if (!initial) {
     return "";
   }
-  const initialOption = page.locator(`[${specTemplateOptionMarker}="true"]`);
+  const initialOption = initial.locator;
   if ((await initialOption.count()) !== 1) {
     throw new Error(`Spec template option marker was not unique before click: actual=${await initialOption.count()}`);
   }
   try {
     await initialOption.first().click({ timeout: 1500 });
-    return text;
+    return initial.label;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!/intercepts pointer events|element is not stable|element is not visible|Timeout/i.test(message)) {
@@ -382,13 +418,13 @@ async function clickSpecTemplateOptionByDomStructure(page: Page, keywords: strin
   const reopenTarget = await findSpecTemplateDropdownClickTargetOnPage(page);
   await reopenTarget.click({ timeout: 1500 });
   await page.waitForTimeout(100);
-  const retryText = await markVisibleSpecTemplateOption(page, keywords);
-  const retryOption = page.locator(`[${specTemplateOptionMarker}="true"]`);
-  if (!retryText || (await retryOption.count()) !== 1 || !(await retryOption.first().isVisible().catch(() => false))) {
+  const retry = await waitForVisibleSpecTemplateOption(page, keywords);
+  const retryOption = retry?.locator;
+  if (!retry || !retryOption || (await retryOption.count()) !== 1 || !(await retryOption.first().isVisible().catch(() => false))) {
     throw new Error(`Spec template option was not uniquely visible after intercepted click recovery: keywords=${keywords.join("/")}`);
   }
   await retryOption.first().click({ timeout: 1500, force: true });
-  return retryText;
+  return retry.label;
 }
 
 async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string): Promise<string> {
@@ -406,7 +442,6 @@ async function chooseSpecTemplateKeywordFromDropdown(page: Page, keyword: string
       await page.keyboard.press(getSelectAllShortcut());
       await page.keyboard.type(candidate, { delay: 20 });
     });
-    await page.waitForTimeout(80);
     const clickedText = await clickSpecTemplateOptionByDomStructure(page, candidates);
     if (!isMatchingSpecTemplateValue(clickedText, keyword)) {
       continue;

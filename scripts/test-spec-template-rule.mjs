@@ -4,6 +4,7 @@ import {
   evaluatePriceInventoryEntryRule,
   evaluateSpecTemplateCompletion,
   isMatchingSpecTemplateValue,
+  resolveExactSpecTemplateOptionMatch,
   resolveSpecTemplateKeywordCandidates,
   resolvePriceInventoryRowInputRoles
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
@@ -26,6 +27,21 @@ assert.deepEqual(resolveSpecTemplateKeywordCandidates("买二送一"), ["买二�
 assert.equal(isMatchingSpecTemplateValue("2送1", "买二送一"), false);
 assert.equal(isMatchingSpecTemplateValue("买2送1四规格", "买二送一"), false);
 assert.equal(isMatchingSpecTemplateValue("粉丝专享----买三送二", "买二送一"), false);
+assert.deepEqual(
+  resolveExactSpecTemplateOptionMatch([
+    { markerValue: "0", text: "买一送一\n更新时间：2026/08/19 10:34:34" },
+    { markerValue: "1", text: "买二送一\n更新时间：2026/06/10 13:36:19" }
+  ], ["买一送一"]),
+  { markerValue: "0", label: "买一送一" },
+  "an exact template label must match even when the option row also contains update-time metadata"
+);
+assert.equal(
+  resolveExactSpecTemplateOptionMatch([
+    { markerValue: "0", text: "粉丝专享买一送一\n更新时间：2026/08/19" }
+  ], ["买一送一"]),
+  undefined,
+  "decorated template names must not be mistaken for the exact Feishu-controlled label"
+);
 
 assert.deepEqual(
   evaluateSpecTemplateCompletion({
@@ -331,12 +347,12 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /const specTemplateOptionMarker[\s\S]*setAttribute\(markerName, "true"\)[\s\S]*page\.locator\(`\[\$\{specTemplateOptionMarker\}="true"\]`\)[\s\S]*\.first\(\)\.click/,
-  "spec template option clicking must mark the currently visible dropdown option before Playwright clicks it"
+  /const specTemplateOptionMarker[\s\S]*setAttribute\(markerName, markerValue\)[\s\S]*resolveExactSpecTemplateOptionMatch\(options, keywords\)[\s\S]*page\.locator\(`\[\$\{specTemplateOptionMarker\}="\$\{match\.markerValue\}"\]`\)[\s\S]*\.first\(\)\.click/,
+  "spec template option clicking must collect visible option rows, resolve their exact semantic label in the rule layer, and click the uniquely marked row"
 );
 assert.match(
   publishSource,
-  /async function clickSpecTemplateOptionByDomStructure[\s\S]*click\(\{ timeout: 1500 \}\)[\s\S]*intercepts pointer events[\s\S]*markVisibleSpecTemplateOption\(page, keywords\)[\s\S]*count\(\)[\s\S]*click\(\{ timeout: 1500, force: true \}\)/,
+  /async function clickSpecTemplateOptionByDomStructure[\s\S]*click\(\{ timeout: 1500 \}\)[\s\S]*intercepts pointer events[\s\S]*waitForVisibleSpecTemplateOption\(page, keywords\)[\s\S]*count\(\)[\s\S]*click\(\{ timeout: 1500, force: true \}\)/,
   "spec template option clicking must retry the same exact visible option with a verified force click when a transient sticky table intercepts it"
 );
 assert.doesNotMatch(

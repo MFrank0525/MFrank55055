@@ -600,8 +600,13 @@ assert.doesNotMatch(
 );
 assert.match(
   specTemplateSelectionSource,
-  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*await clickSpecTemplateDropdownTargetWithOverlayRecovery\(page\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return visibleClickedText;[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);[\s\S]*await clickSpecTemplateDropdownTargetWithOverlayRecovery\(page\);[\s\S]*await input\.fill\(candidate\)[\s\S]*await page\.waitForTimeout\(80\);[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return clickedText;/,
+  /const candidates = resolveSpecTemplateKeywordCandidates\(keyword\);[\s\S]*await clickSpecTemplateDropdownTargetWithOverlayRecovery\(page\);[\s\S]*const visibleClickedText = await clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return visibleClickedText;[\s\S]*const input = await findSpecTemplateInputInFieldRootOnPage\(page\);[\s\S]*await clickSpecTemplateDropdownTargetWithOverlayRecovery\(page\);[\s\S]*await input\.fill\(candidate\)[\s\S]*clickSpecTemplateOptionByDomStructure\(page, candidates\)[\s\S]*return clickedText;/,
   "spec-template selection must open the goods-spec dropdown before clicking a visible option and return the clicked template without waiting for expansion"
+);
+assert.match(
+  publishFromSpuSource,
+  /async function waitForVisibleSpecTemplateOption[\s\S]*findVisibleSpecTemplateOption\(page, keywords\)[\s\S]*page\.waitForTimeout\(100\)[\s\S]*Date\.now\(\) < deadline/,
+  "spec-template option discovery must wait for the asynchronously mounted dropdown portal through bounded structural polling"
 );
 assert.doesNotMatch(
   specTemplateSelectionSource,
