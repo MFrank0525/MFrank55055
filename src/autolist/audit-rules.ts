@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import type { ImageDimensions } from "../utils/image-dimensions.js";
+import { isVerifiedPreSubmitRecoveryFailure } from "../business/publish-from-spu/publish-rules.js";
 import { getProductCategoryPlan, resolveMainImageShopAssignments } from "./product-category.js";
 import { buildPublishTargetIdentity, publishTargetKey } from "./publish-identity.js";
 import type { ImageTaskState, MainImageGeneratedFile } from "./types.js";
@@ -853,8 +854,12 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
         }
         const failedResult = result && (result.status === "failed" || result.ok === false || result.finalVerifyStatus === "needs_manual_review");
         const failedManifest = manifest && (manifest.status === "failed" || manifest.finalVerifyStatus === "needs_manual_review");
-        const externalWait = isExternalPreSubmitWait(result) || isExternalPreSubmitWait(manifest);
-        if ((!failedResult && !failedManifest || externalWait) && input.allowInProgress) {
+        const safePendingRecovery =
+          isExternalPreSubmitWait(result) ||
+          isExternalPreSubmitWait(manifest) ||
+          isVerifiedPreSubmitRecoveryFailure(result) ||
+          isVerifiedPreSubmitRecoveryFailure(manifest);
+        if ((!failedResult && !failedManifest || safePendingRecovery) && input.allowInProgress) {
           inProgressPublishCount += 1;
           continue;
         }
@@ -899,8 +904,12 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
       }
       const failedResult = result && (result.status === "failed" || result.ok === false || result.finalVerifyStatus === "needs_manual_review");
       const failedManifest = manifest && (manifest.status === "failed" || manifest.finalVerifyStatus === "needs_manual_review");
-      const externalWait = isExternalPreSubmitWait(result) || isExternalPreSubmitWait(manifest);
-      if ((!failedResult && !failedManifest || externalWait) && input.allowInProgress) {
+      const safePendingRecovery =
+        isExternalPreSubmitWait(result) ||
+        isExternalPreSubmitWait(manifest) ||
+        isVerifiedPreSubmitRecoveryFailure(result) ||
+        isVerifiedPreSubmitRecoveryFailure(manifest);
+      if ((!failedResult && !failedManifest || safePendingRecovery) && input.allowInProgress) {
         inProgressPublishCount += 1;
         continue;
       }

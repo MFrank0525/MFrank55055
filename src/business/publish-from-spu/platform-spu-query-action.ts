@@ -27,83 +27,6 @@ const maxPlatformSpuQueryRetries = 4;
 const platformSpuPublishActionAttribute = "data-auto-listing-platform-spu-publish-action";
 const platformSpuCreatePageNavigationTimeoutMs = 25000;
 
-interface MarkedPlatformSpuPublishAction {
-  selector: string;
-  matchingRowCount: number;
-  actionableControlCount: number;
-}
-
-async function markExactPlatformSpuPublishAction(
-  page: Page,
-  target: { targetBrand: string; targetSpu: string; rowId: string }
-): Promise<MarkedPlatformSpuPublishAction> {
-  const marker = `auto-listing-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  const result = await page.evaluate(({ targetBrand, targetSpu, rowId, attributeName, markerValue }) => {
-    const normalizeSpu = (value: string): string =>
-      value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
-    document.querySelectorAll(`[${attributeName}]`).forEach((node) => node.removeAttribute(attributeName));
-    const matchingRows = Array.from(document.querySelectorAll("tr")).filter((item) => {
-      const rowText = normalizeSpu((item as HTMLElement).innerText || "");
-      if (!rowText.includes(targetBrand) || !rowText.includes(targetSpu)) {
-        return false;
-      }
-      if (rowId && !rowText.includes(rowId)) {
-        return false;
-      }
-      const cells = Array.from(item.querySelectorAll("td")).map((cell) =>
-        (cell.textContent || "").replace(/\s+/g, " ").trim()
-      );
-      return cells.some((cell) => normalizeSpu(cell).includes(targetSpu));
-    });
-    const actionableControls = matchingRows.flatMap((row) => {
-      const rowElement = row as HTMLElement;
-      const cells = Array.from(row.querySelectorAll("td"));
-      const operationCell = (cells[cells.length - 1] as HTMLElement | undefined) || rowElement;
-      rowElement.scrollIntoView({ block: "center", inline: "nearest" });
-      const nativeControls = Array.from(operationCell.querySelectorAll("button, a"));
-      const roleControls = Array.from(operationCell.querySelectorAll("[role='button']"));
-      const canonicalControls = nativeControls.length ? nativeControls : roleControls;
-      const matchingControls = canonicalControls
-        .map((element) => element as HTMLElement)
-        .filter((element) => {
-          const text = (element.textContent || "").replace(/\s+/g, "").trim();
-          const rect = element.getBoundingClientRect();
-          const style = window.getComputedStyle(element);
-          const disabled =
-            element.hasAttribute("disabled") ||
-            element.getAttribute("aria-disabled") === "true" ||
-            /disabled/i.test(String(element.className || ""));
-          return (
-            text === "\u53D1\u5E03\u5546\u54C1" &&
-            rect.width > 0 &&
-            rect.height > 0 &&
-            style.display !== "none" &&
-            style.visibility !== "hidden" &&
-            !disabled
-          );
-        });
-      return matchingControls.filter((control) =>
-        !matchingControls.some((descendant) => descendant !== control && control.contains(descendant))
-      );
-    });
-    if (matchingRows.length === 1 && actionableControls.length === 1) {
-      actionableControls[0].setAttribute(attributeName, markerValue);
-    }
-    return {
-      matchingRowCount: matchingRows.length,
-      actionableControlCount: actionableControls.length
-    };
-  }, {
-    ...target,
-    attributeName: platformSpuPublishActionAttribute,
-    markerValue: marker
-  });
-  return {
-    selector: `[${platformSpuPublishActionAttribute}="${marker}"]`,
-    ...result
-  };
-}
-
 async function waitForPlatformSpuCreatePage(
   context: BrowserContext,
   queryPage: Page,
@@ -722,23 +645,54 @@ export async function assertDoudianPublishSessionReady(options: {
   }
 }
 
-async function readPlatformSpuQueryCandidates(
+export async function readPlatformSpuQueryCandidates(
   page: Page,
   normalizedBrand: string,
   normalizedSpu: string
 ): Promise<QueryMatchCandidate[]> {
-  return page.evaluate(({ targetBrand, targetSpu }: { targetBrand: string; targetSpu: string }) => {
+  const markerNamespace = `auto-listing-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return page.evaluate(({ targetBrand, targetSpu, attributeName, markerPrefix }) => {
+    document.querySelectorAll(`[${attributeName}]`).forEach((node) => node.removeAttribute(attributeName));
     return Array.from(document.querySelectorAll("tr"))
-      .map((row) => {
+      .map((row, rowIndex) => {
         const rowEl = row as HTMLElement;
-        const cells = Array.from(row.querySelectorAll("td"));
-        const operationCell = cells[cells.length - 1] || row;
-        const publishButton = Array.from(operationCell.querySelectorAll("button, a, [role='button']"))
-          .find((element) => (element.textContent || "").replace(/\s+/g, "").trim() === "\u53D1\u5E03\u5546\u54C1") as HTMLElement | undefined;
-        if (!publishButton) return null;
         const rowRect = rowEl.getBoundingClientRect();
-        const buttonRect = publishButton.getBoundingClientRect();
-        if (rowRect.width <= 0 || rowRect.height <= 0 || buttonRect.width <= 0 || buttonRect.height <= 0) return null;
+        const rowStyle = window.getComputedStyle(rowEl);
+        if (
+          rowRect.width <= 0 ||
+          rowRect.height <= 0 ||
+          rowStyle.display === "none" ||
+          rowStyle.visibility === "hidden"
+        ) return null;
+        const cells = Array.from(rowEl.children).filter((element) => element.tagName === "TD") as HTMLElement[];
+        if (!cells.length) return null;
+        const operationCell = cells[cells.length - 1] || row;
+        const nativeControls = Array.from(operationCell.querySelectorAll("button, a"));
+        const roleControls = Array.from(operationCell.querySelectorAll("[role='button']"));
+        const canonicalControls = (nativeControls.length ? nativeControls : roleControls)
+          .map((element) => element as HTMLElement);
+        const publishControls = canonicalControls
+          .filter((element) => (element.textContent || "").replace(/\s+/g, "").trim() === "\u53D1\u5E03\u5546\u54C1")
+          .filter((control) =>
+            !canonicalControls.some((descendant) => descendant !== control && control.contains(descendant))
+          );
+        if (!publishControls.length) return null;
+        const actionableControls = publishControls.filter((element) => {
+          const buttonRect = element.getBoundingClientRect();
+          const buttonStyle = window.getComputedStyle(element);
+          return (
+            buttonRect.width > 0 &&
+            buttonRect.height > 0 &&
+            buttonStyle.display !== "none" &&
+            buttonStyle.visibility !== "hidden" &&
+            !element.hasAttribute("disabled") &&
+            element.getAttribute("aria-disabled") !== "true" &&
+            !/disabled/i.test(String(element.className || ""))
+          );
+        });
+        const publishButton = actionableControls.length === 1 ? actionableControls[0] : undefined;
+        const markerValue = publishButton ? `${markerPrefix}-${rowIndex}` : "";
+        if (publishButton) publishButton.setAttribute(attributeName, markerValue);
         const cellTexts = cells.map((cell) => (cell.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean);
         const normalizeSpu = (value: string): string =>
           value.replace(/\s+/g, "").toLowerCase().replace(/械[住注]准/g, "械注准");
@@ -752,14 +706,17 @@ async function readPlatformSpuQueryCandidates(
           exactBrandCell: cellTexts.some((cell) => cell.replace(/\s+/g, "").toLowerCase() === targetBrand),
           rowHasSpu: normalizedRowText.includes(targetSpu),
           rowHasBrand: normalizedRowText.includes(targetBrand),
-          publishControlActionable:
-            !publishButton.hasAttribute("disabled") &&
-            publishButton.getAttribute("aria-disabled") !== "true" &&
-            !/disabled/i.test(String(publishButton.className || ""))
+          publishControlActionable: Boolean(publishButton),
+          publishActionSelector: markerValue ? `[${attributeName}="${markerValue}"]` : ""
         };
       })
       .filter(Boolean);
-  }, { targetBrand: normalizedBrand, targetSpu: normalizedSpu }) as Promise<QueryMatchCandidate[]>;
+  }, {
+    targetBrand: normalizedBrand,
+    targetSpu: normalizedSpu,
+    attributeName: platformSpuPublishActionAttribute,
+    markerPrefix: markerNamespace
+  }) as Promise<QueryMatchCandidate[]>;
 }
 
 async function clickPlatformSpuQueryButton(page: Page, runtimeDir: string): Promise<void> {
@@ -1026,21 +983,16 @@ export async function queryPlatformSpu(
     }
 
     const existingCreatePages = new Set(context.pages().filter((item) => item.url().includes("/ffa/g/create")));
-    const markedAction = await markExactPlatformSpuPublishAction(page, {
-      targetBrand: normalizedBrand,
-      targetSpu: normalizedSpu,
-      rowId: matched.rowId
-    });
-    if (markedAction.matchingRowCount !== 1 || markedAction.actionableControlCount !== 1) {
+    if (!matched.publishActionSelector) {
       const error = new Error(
-        `Platform SPU publish navigation failed before click: expected one exact row and one actionable publish control; matchingRows=${markedAction.matchingRowCount}; actionableControls=${markedAction.actionableControlCount}`
+        `Platform SPU publish navigation failed before click: selected exact row has no stable actionable publish identity. rowId=${matched.rowId || "<missing>"}`
       ) as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-publish-action-ambiguous.png");
       throw error;
     }
     const createPagePromise = waitForPlatformSpuCreatePage(context, page, existingCreatePages);
-    const publishAction = page.locator(markedAction.selector);
-    if (await publishAction.count() !== 1) {
+    const publishAction = page.locator(matched.publishActionSelector);
+    if (await publishAction.count() !== 1 || !(await publishAction.isVisible().catch(() => false))) {
       const error = new Error("Platform SPU publish navigation failed before click: marked publish control was not unique.") as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-publish-action-not-unique.png");
       throw error;

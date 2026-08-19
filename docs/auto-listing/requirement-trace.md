@@ -374,6 +374,16 @@ Final evidence: full `rules:check`, all Doctor modes, live Feishu 23-field readb
 
 Final evidence: clean build, pre-rules, full rules closure, all Doctor modes, representative simulation, live Feishu 23-field readback, two independent batch audits and the 20-shop read-only Doudian audit `20260812-225732` passed. The shop audit recorded `publishAttempted=false` and `formMutationAttempted=false`; batch `52e54a6038e5dd38cc64dc82` remained locked at 0/10 with 200 category-correct planned publish targets and no missing local attachments.
 
+## 2026-08-19 Platform SPU single-identity action pipeline
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Reproduce the current shop-11 stop without touching final submit | The retained screenshot shows one visible `湘械注准20222141671` row while the old second DOM scan reported `matchingRows=2; actionableControls=1`; a browser regression recreates one visible row plus one hidden platform clone | Runtime `20260818-195102`; red-before-green `test-platform-spu-query-page-rule.mjs` | verified |
+| Remove the divergent candidate/click identity models | Candidate collection now filters visible leaf rows with direct cells, canonicalizes one logical publish control and attaches its unique temporary DOM identity; the rule-selected candidate carries that exact identity to Playwright | TypeScript build; structural regression forbids `markExactPlatformSpuPublishAction` and requires `matched.publishActionSelector` | verified |
+| Preserve fail-closed ambiguity handling | Multiple visible actionable exact rows still fail in the rule layer; hidden clones, nested parent rows and disabled controls cannot create a second logical target or become clickable | Candidate-selection ambiguity regression; hidden-clone browser regression | verified |
+| Keep audit semantics aligned with the irreversible boundary | A failed target is pending only when `finalVerifyStatus=not_checked`, its error class is in the explicit pre-submit allowlist and the incomplete run permits recovery; final-submit uncertainty and unknown failures remain audit errors | Red-before-green `test-progress-state-part-3.mjs`; two fresh eight-dimension audits report `sideEffects: unconfirmed=0` and 10 pending targets | verified |
+| Resume only the locked failed batch after verified delivery | Continue through `auto-listing:hermes-continue`, retain batch `b219f88e30a9fd9cc1b94113`, reuse 10 safely published targets for the current product and restart at shop 11 | Two deep audits and 20-shop read-only Doudian audit passed; Git remote equality and live continuation are delivery gates | implemented-unverified |
+
 ## 2026-08-12 OTC brand/SPU/specification identity
 
 | Requirement | Implementation | Verification | Status |

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { chromium } from "playwright";
 import {
   evaluatePlatformSpuQueryPageReadiness,
   isStablePlatformBrandSelection,
   isDoudianLoginPageText,
   classifyPublishFailure,
+  isVerifiedPreSubmitRecoveryFailure,
   shouldRetryPublishFailure
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 import {
@@ -12,6 +14,34 @@ import {
   resolveExactPlatformBrandCandidateSequence,
   selectPlatformSpuPublishCandidate
 } from "../dist/src/business/publish-from-spu/platform-spu-query-rules.js";
+import { readPlatformSpuQueryCandidates } from "../dist/src/business/publish-from-spu/platform-spu-query-action.js";
+
+const browser = await chromium.launch({ headless: true });
+try {
+  const page = await browser.newPage();
+  await page.setContent(`
+    <table>
+      <tbody>
+        <tr style="display:none">
+          <td>延草纲目/湘械注准20222141671 ID:7674483565291798826</td>
+          <td>医疗器械及保健用品</td>
+          <td><a>发布商品</a></td>
+        </tr>
+        <tr>
+          <td>延草纲目/湘械注准20222141671 ID:7674483565291798826</td>
+          <td>医疗器械及保健用品</td>
+          <td><a>详情</a><a>发布商品</a></td>
+        </tr>
+      </tbody>
+    </table>
+  `);
+  const candidates = await readPlatformSpuQueryCandidates(page, "延草纲目", "湘械注准20222141671");
+  assert.equal(candidates.length, 1, "Hidden platform table clones must not duplicate one logical SPU row");
+  assert.equal(candidates[0].publishControlActionable, true, "One visible exact row must expose one logical publish action");
+  assert.equal(await page.locator(candidates[0].publishActionSelector).count(), 1, "The visible exact publish action must keep one stable DOM identity");
+} finally {
+  await browser.close();
+}
 
 assert.deepEqual(
   resolveExactPlatformBrandCandidateSequence("龙仕康", [
@@ -232,6 +262,22 @@ assert.equal(
   true,
   "A verified pre-submit navigation failure is safe for bounded retry"
 );
+assert.equal(
+  isVerifiedPreSubmitRecoveryFailure({
+    errorClass: "platform_spu_publish_navigation_failed",
+    finalVerifyStatus: "not_checked"
+  }),
+  true,
+  "A classified failure before any final-submit attempt is a safe pending recovery boundary"
+);
+assert.equal(
+  isVerifiedPreSubmitRecoveryFailure({
+    errorClass: "final_publish_state_uncertain",
+    finalVerifyStatus: "needs_manual_review"
+  }),
+  false,
+  "Final-submit uncertainty must never be downgraded to a safe pending recovery"
+);
 
 assert.equal(
   classifyPublishFailure("No visible publish rows found in result table."),
@@ -268,13 +314,23 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /nativeControls = Array\.from\(operationCell\.querySelectorAll\("button, a"\)\)[\s\S]*canonicalControls = nativeControls\.length \? nativeControls : roleControls/,
+  /nativeControls = Array\.from\(operationCell\.querySelectorAll\("button, a"\)\)[\s\S]*canonicalControls = \(nativeControls\.length \? nativeControls : roleControls\)/,
   "Nested role elements must collapse to one canonical native publish control"
 );
 assert.match(
   publishSource,
-  /matchingControls\.filter\(\(control\)[\s\S]*control\.contains\(descendant\)/,
+  /publishControls = canonicalControls[\s\S]*control\.contains\(descendant\)/,
   "Invalid nested anchors in the Doudian table must collapse to the leaf action control"
+);
+assert.doesNotMatch(
+  publishSource,
+  /markExactPlatformSpuPublishAction/,
+  "Candidate selection and publish clicking must not rescan the table through a second DOM identity model"
+);
+assert.match(
+  publishSource,
+  /publishActionSelector[\s\S]*page\.locator\(matched\.publishActionSelector\)/,
+  "The selected rule-layer candidate must carry the exact DOM action identity used by Playwright"
 );
 assert.match(
   publishSource,

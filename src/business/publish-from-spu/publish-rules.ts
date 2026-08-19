@@ -781,6 +781,33 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
   ].includes(errorClass);
 }
 
+const VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES = new Set([
+  "platform_page_not_ready",
+  "platform_spu_prefill_failed",
+  "platform_spu_publish_navigation_failed",
+  "service_section_not_ready",
+  "basic_info_field_not_ready",
+  "health_food_food_safety_not_ready",
+  "health_food_category_attributes_not_ready",
+  "health_food_specification_not_ready",
+  "health_food_packaging_label_not_ready",
+  "publish_check_not_ready",
+  "transient_overlay_blocked",
+  "price_inventory_not_ready",
+  "spec_template_not_ready",
+  "spec_template_surface_missing",
+  "shop_switch_entry_unavailable",
+  "browser_remote_debugging_unavailable"
+]);
+
+export function isVerifiedPreSubmitRecoveryFailure(input: {
+  errorClass?: string;
+  finalVerifyStatus?: string;
+} | undefined): boolean {
+  return input?.finalVerifyStatus === "not_checked"
+    && VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES.has(input.errorClass || "");
+}
+
 export function shouldStopPublishBatchAfterFailure(
   decisions: PublishBatchFailureDecision[],
   consecutiveFailureThreshold = 2

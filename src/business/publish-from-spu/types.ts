@@ -114,6 +114,7 @@ export interface QueryMatchCandidate {
   rowHasSpu: boolean;
   rowHasBrand: boolean;
   publishControlActionable: boolean;
+  publishActionSelector: string;
 }
 
 export interface QueryDiagnosticError extends Error {

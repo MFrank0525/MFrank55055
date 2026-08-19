@@ -2179,6 +2179,27 @@ assert.equal(publishLoginWait.ok, true);
 assert.equal(publishLoginWait.summary.inProgressPublishCount, 1);
 assert.equal(publishLoginWait.errors.length, 0);
 
+const publishVerifiedPreSubmitFailure = auditPublishCoverage({
+  tasks: [publishTask],
+  manifestEntries: [
+    {
+      productFolder: "/work/shop/product-1",
+      runtimeKey: "shop__product-1",
+      shopFolder: "/work/shop",
+      watermarkNo: 1,
+      status: "failed",
+      finalVerifyStatus: "not_checked",
+      errorClass: "platform_spu_publish_navigation_failed",
+      message: "Platform SPU publish navigation failed before click.",
+      updatedAt: "2026-05-23T00:00:00.000Z"
+    }
+  ],
+  allowInProgress: true
+});
+assert.equal(publishVerifiedPreSubmitFailure.ok, true, "A durable pre-submit failure with exact recovery must audit as pending, not unsafe");
+assert.equal(publishVerifiedPreSubmitFailure.summary.inProgressPublishCount, 1);
+assert.equal(publishVerifiedPreSubmitFailure.errors.length, 0);
+
 const publishTerminalMissing = auditPublishCoverage({
   tasks: [publishTask],
   manifestEntries: [],
