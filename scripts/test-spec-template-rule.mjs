@@ -42,6 +42,14 @@ assert.equal(
   undefined,
   "decorated template names must not be mistaken for the exact Feishu-controlled label"
 );
+assert.throws(
+  () => resolveExactSpecTemplateOptionMatch([
+    { markerValue: "0", text: "买一送一\n更新时间：2026/08/19" },
+    { markerValue: "1", text: "买一送一\n更新时间：2026/08/20" }
+  ], ["买一送一"]),
+  /ambiguous/,
+  "two genuinely separate templates with the same exact label must remain fail-closed"
+);
 
 assert.deepEqual(
   evaluateSpecTemplateCompletion({
@@ -200,6 +208,11 @@ assert.match(
   publishSource,
   /rect\.left >= 420[\s\S]*rect\.top >= 240/,
   "publish section visibility must be scoped to the main form, not sidebar errors or top tabs"
+);
+assert.match(
+  publishSource,
+  /existing\.el === item!\.el \|\| existing\.el\.contains\(item!\.el\) \|\| item!\.el\.contains\(existing\.el\)/,
+  "nested DOM nodes representing one visible template row must collapse to one canonical clickable option"
 );
 assert.match(
   publishSource,

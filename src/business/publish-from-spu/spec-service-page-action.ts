@@ -331,7 +331,7 @@ async function collectVisibleSpecTemplateOptions(page: Page): Promise<Array<{ ma
         .map((node) => {
           const el = node as HTMLElement;
           const clickable = (
-            el.closest(
+            el.closest("[role='option']") || el.closest(
               "[role='option'], [class*='dropdown'] [class*='item'], [class*='Dropdown'] [class*='Item'], [class*='menu'] [class*='item'], [class*='Menu'] [class*='Item']"
             ) || el
           ) as HTMLElement;
@@ -348,14 +348,23 @@ async function collectVisibleSpecTemplateOptions(page: Page): Promise<Array<{ ma
           };
         })
         .filter(Boolean);
-      const seen = new Set<HTMLElement>();
-      const uniqueCandidates = candidates.filter((item) => {
-        if (seen.has(item!.el)) {
-          return false;
+      const uniqueCandidates: Array<{ el: HTMLElement; text: string }> = [];
+      for (const item of candidates) {
+        const nestedIndex = uniqueCandidates.findIndex((existing) => (
+          existing.el === item!.el || existing.el.contains(item!.el) || item!.el.contains(existing.el)
+        ));
+        if (nestedIndex < 0) {
+          uniqueCandidates.push(item!);
+          continue;
         }
-        seen.add(item!.el);
-        return true;
-      });
+        const existing = uniqueCandidates[nestedIndex];
+        if (
+          item!.el.getAttribute("role") === "option" ||
+          (existing.el.getAttribute("role") !== "option" && item!.el.contains(existing.el))
+        ) {
+          uniqueCandidates[nestedIndex] = item!;
+        }
+      }
       return uniqueCandidates.map((item, index) => {
         const markerValue = String(index);
         item!.el.setAttribute(markerName, markerValue);
