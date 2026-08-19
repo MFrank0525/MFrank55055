@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import { selectShopFromDialog } from "../dist/src/business/publish-from-spu/shop-switch-action.js";
+import {
+  dismissKnownShopSwitchInformationalOverlay,
+  selectShopFromDialog
+} from "../dist/src/business/publish-from-spu/shop-switch-action.js";
 
 const browser = await chromium.launch({ headless: false });
 try {
@@ -40,6 +43,23 @@ try {
   const selected = await selectShopFromDialog(page, "延草纲目身体护理专卖店");
   assert.equal(selected, true, "visible exact shop card must be selected");
   assert.equal(await page.locator("#selected").textContent(), "延草纲目身体护理专卖店");
+
+  await page.setContent(`
+    <div class="known-overlay">
+      <section>
+        <h1>平台已为您开通 优质快递服务-平台智能透标模式</h1>
+        <button>查看详情</button>
+      </section>
+      <button class="promotion-close" aria-label="Close">×</button>
+    </div>
+    <script>
+      document.querySelector('.promotion-close').addEventListener('click', () => {
+        document.querySelector('.known-overlay').remove();
+      });
+    </script>
+  `);
+  assert.equal(await dismissKnownShopSwitchInformationalOverlay(page), true);
+  assert.equal(await page.locator(".known-overlay").count(), 0);
 } finally {
   await browser.close();
 }

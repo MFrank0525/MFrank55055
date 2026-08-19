@@ -785,6 +785,16 @@ function isExternalPreSubmitWait(evidence: { errorClass?: string; finalVerifySta
   return evidence?.errorClass === "doudian_login_required" && evidence.finalVerifyStatus === "not_checked";
 }
 
+function isReviewedNegativeRetryPending(evidence: {
+  status?: string;
+  errorClass?: string;
+  finalVerifyStatus?: string;
+} | undefined): boolean {
+  return evidence?.status === "pending"
+    && evidence.errorClass === "reviewed_negative_retry_approved"
+    && evidence.finalVerifyStatus === "not_checked";
+}
+
 export function shouldAuditDistributedTitleTask(status?: string): boolean {
   return !["cleaned", "done"].includes(status || "");
 }
@@ -857,6 +867,7 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
         const safePendingRecovery =
           isExternalPreSubmitWait(result) ||
           isExternalPreSubmitWait(manifest) ||
+          isReviewedNegativeRetryPending(manifest) ||
           isVerifiedPreSubmitRecoveryFailure(result) ||
           isVerifiedPreSubmitRecoveryFailure(manifest);
         if ((!failedResult && !failedManifest || safePendingRecovery) && input.allowInProgress) {
@@ -907,6 +918,7 @@ export function auditPublishCoverage(input: PublishCoverageAuditInput): PublishC
       const safePendingRecovery =
         isExternalPreSubmitWait(result) ||
         isExternalPreSubmitWait(manifest) ||
+        isReviewedNegativeRetryPending(manifest) ||
         isVerifiedPreSubmitRecoveryFailure(result) ||
         isVerifiedPreSubmitRecoveryFailure(manifest);
       if ((!failedResult && !failedManifest || safePendingRecovery) && input.allowInProgress) {

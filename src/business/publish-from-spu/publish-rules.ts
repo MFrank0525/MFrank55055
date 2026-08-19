@@ -489,13 +489,11 @@ export function evaluatePublishSubmission(snapshot: PublishPageSnapshot): Publis
   }
 
   const freshCreatePage = isFreshPublishCreatePage(snapshot);
-  const issue =
-    bodyText
-      .split(/[\n。；;，,]/)
-      .map((line) => line.trim())
-      .filter((line) => SUBMISSION_BLOCKING_TEXTS.some((text) => line.includes(text)))
-      .slice(0, 3)
-      .join(" | ") || "No publish success signal was detected after clicking 发布商品.";
+  const issue = (snapshot.visibleErrorAlerts || [])
+    .map((alert) => alert.replace(/\s+/g, " ").trim())
+    .filter((alert) => SUBMISSION_BLOCKING_TEXTS.some((text) => normalizeVisibleText(alert).includes(text)))
+    .slice(0, 3)
+    .join(" | ") || "No publish success signal was detected after clicking 发布商品.";
   return { submitted: false, issue, freshCreatePage };
 }
 

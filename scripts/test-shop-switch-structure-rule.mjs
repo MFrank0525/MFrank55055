@@ -7,13 +7,14 @@ const source = [
 ].join("\n");
 
 function functionBody(name) {
-  const match = source.match(new RegExp(`async function ${name}\\([\\s\\S]*?\\n}\\n(?=\\nasync function|\\nfunction|\\ninterface|\\ntype|$)`));
+  const match = source.match(new RegExp(`async function ${name}\\([\\s\\S]*?\\n}\\n(?=\\n(?:export )?async function|\\nexport \\{|\\nfunction|\\ninterface|\\ntype|$)`));
   assert.ok(match, `missing function ${name}`);
   return match[0];
 }
 
 for (const name of [
   "clickTopRightShopMenu",
+  "dismissKnownShopSwitchInformationalOverlay",
   "clickVisibleActionText",
   "clickShopSwitchEntry",
   "recoverTransientShopSwitchError",
@@ -32,6 +33,16 @@ assert.match(
   functionBody("clickTopRightShopMenu"),
   /headerShopName/,
   "Top-right shop menu opening must target the Doudian header shop-name structure"
+);
+assert.match(
+  functionBody("dismissKnownShopSwitchInformationalOverlay"),
+  /平台已为您开通[\s\S]*优质快递服务[\s\S]*平台智能透标模式[\s\S]*locator\("button, \[role='button'\][\s\S]*closeControl\.click\([\s\S]*remainedVisible/,
+  "Known shop-switch informational overlays must be closed through a scoped DOM control with visibility readback"
+);
+assert.match(
+  functionBody("ensureShopContextAttempt"),
+  /dismissKnownShopSwitchInformationalOverlay\(page\)[\s\S]*waitForTopRightShopMenuAnchor/,
+  "Shop switching must dismiss known blocking informational overlays before opening the header menu"
 );
 assert.doesNotMatch(
   functionBody("clickTopRightShopMenu"),

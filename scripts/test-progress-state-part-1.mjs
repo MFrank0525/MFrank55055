@@ -1860,6 +1860,19 @@ const operationOnlyAlertId = "20260810191710415ABD1F463214C338AD";
 assert.deepEqual(
   evaluatePublishSubmission({
     url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",
+    bodyText: "商品状态 1、上架：商品发布后会在售卖中做展示 2、下架：商品发布后会在已下架做展示，需在已下架操作上架 必填项进度100% 发布商品",
+    visibleErrorAlerts: []
+  }),
+  {
+    submitted: false,
+    issue: "No publish success signal was detected after clicking 发布商品.",
+    freshCreatePage: false
+  },
+  "Static publish-page guidance must not be promoted to a post-submit platform rejection"
+);
+assert.deepEqual(
+  evaluatePublishSubmission({
+    url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",
     bodyText: `必填项进度 100%\n操作ID:${operationOnlyAlertId}`,
     visibleErrorAlerts: [`操作ID:${operationOnlyAlertId}`]
   }),

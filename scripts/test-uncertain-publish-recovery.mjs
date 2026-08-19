@@ -10,6 +10,8 @@ import {
 } from "../dist/src/business/publish-from-spu/product-list-verification-action.js";
 import { reconcilePositiveUncertainPublish } from "../dist/src/autolist/reconcile-positive-uncertain-publish.js";
 import { findLatestIncompletePublishManifestForResume } from "../dist/src/autolist/unsafe-publish-resume.js";
+import { auditPublishCoverage } from "../dist/src/autolist/audit-rules.js";
+import { consumeConfirmedRejectionRetry } from "../dist/src/autolist/confirmed-rejection-retry.js";
 
 assert.equal(isKnownCategoryMisplacementWarning(
   "检测到您有3个商品类目错放，逾期未改会被平台下架，请尽快修改！建议使用推荐类目，若你认为平台判断有误，可发起申诉"
@@ -30,12 +32,28 @@ assert.match(
 );
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "listing-uncertain-recovery-"));
-const runtimeDir = path.join(root, "publish-target");
+const runDir = path.join(root, "run");
+const runtimeDir = path.join(runDir, "publish", "publish-target");
 const shopFolder = path.join(root, "02shop");
 fs.mkdirSync(path.join(runtimeDir, "screenshots"), { recursive: true });
 fs.mkdirSync(shopFolder, { recursive: true });
 fs.writeFileSync(path.join(runtimeDir, "screenshots", "doudian-list-full-title-02shop-not-found.png"), "evidence");
 fs.writeFileSync(path.join(runtimeDir, "publish-submit-attempt.json"), JSON.stringify({ state: "attempted_or_unknown" }));
+const canonicalIdentity = { batchFingerprint: "batch", recordId: "record", taskId: "task", shopCode: "02", watermarkNo: 8 };
+fs.writeFileSync(path.join(runDir, "publish-manifest.json"), JSON.stringify({ entries: [{
+  targetIdentity: canonicalIdentity,
+  targetKey: "publish-target",
+  runtimeKey: "publish-target",
+  productFolder: path.join(root, "product-08"),
+  shopFolder,
+  watermarkNo: 8,
+  status: "failed",
+  finalVerifyStatus: "needs_manual_review",
+  resultFile: path.join(runtimeDir, "result.json"),
+  message: "uncertain",
+  errorClass: "validation_blocked",
+  updatedAt: "2026-08-09T00:00:00.000Z"
+}] }));
 fs.writeFileSync(path.join(runtimeDir, "result.json"), JSON.stringify({
   ok: true,
   status: "published",
@@ -45,7 +63,7 @@ fs.writeFileSync(path.join(runtimeDir, "result.json"), JSON.stringify({
     shopFolder,
     metadata: {
       title: "精确标题",
-      canonicalIdentity: { batchFingerprint: "batch", recordId: "record", taskId: "task", shopCode: "02", watermarkNo: 8 }
+      canonicalIdentity
     },
     browser: { publishClickAttempted: true, publishClicked: false, publishIssue: "no submission success signal" }
   }
@@ -72,6 +90,31 @@ try {
   assert.equal(result.manualRecovery.type, "operator_reviewed_stable_negative_list_verification");
   assert.equal(fs.existsSync(approved.archiveFile), true);
   assert.equal(readPublishResultSummary(approved.resultFile).reviewedNegativeRetryApproved, true);
+  const approvedManifest = JSON.parse(fs.readFileSync(path.join(runDir, "publish-manifest.json"), "utf8"));
+  assert.equal(approvedManifest.entries[0].status, "pending");
+  assert.equal(approvedManifest.entries[0].finalVerifyStatus, "not_checked");
+  assert.equal(approvedManifest.entries[0].errorClass, "reviewed_negative_retry_approved");
+  const recoveryAudit = auditPublishCoverage({
+    tasks: [{
+      taskId: "task",
+      status: "failed",
+      generatedProductFolders: [path.join(root, "product-08")],
+      feishuProductRecord: { recordId: "record", productCategory: "医疗器械" },
+      publishArtifact: { results: [{
+        targetIdentity: canonicalIdentity,
+        targetKey: "publish-target",
+        productFolder: path.join(root, "product-08"),
+        ok: false,
+        status: "failed",
+        message: "uncertain",
+        finalVerifyStatus: "needs_manual_review"
+      }], simulated: false }
+    }],
+    manifestEntries: approvedManifest.entries,
+    allowInProgress: true
+  });
+  assert.equal(recoveryAudit.ok, true);
+  assert.equal(recoveryAudit.summary.inProgressPublishCount, 1);
   result.manualRecovery.title = "另一个标题";
   fs.writeFileSync(approved.resultFile, JSON.stringify(result));
   assert.equal(readPublishResultSummary(approved.resultFile).reviewedNegativeRetryApproved, false);
@@ -95,6 +138,20 @@ try {
       })
     }),
     /not a stable zero result/
+  );
+  consumeConfirmedRejectionRetry(runtimeDir, {
+    targetKey: "publish-target",
+    title: "精确标题",
+    shopFolder
+  });
+  await assert.rejects(
+    approveReviewedNegativeUncertainPublishRetry({
+      runtimeDir,
+      shopFolder,
+      now: () => Date.parse("2026-08-09T03:00:00.000Z"),
+      verify: async () => { throw new Error("verification must not run after retry consumption"); }
+    }),
+    /controlled retry was already consumed/
   );
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

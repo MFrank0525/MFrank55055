@@ -152,6 +152,65 @@ async function confirmDoudianLoginRequired(page: Page): Promise<boolean> {
   return isDoudianLoginRequired(page);
 }
 
+async function dismissKnownShopSwitchInformationalOverlay(page: Page): Promise<boolean> {
+  const overlayMarkers = ["平台已为您开通", "优质快递服务", "平台智能透标模式"];
+  const visibleRoots = page
+    .locator("body div")
+    .filter({ hasText: overlayMarkers[0] })
+    .filter({ hasText: overlayMarkers[1] })
+    .filter({ hasText: overlayMarkers[2] })
+    .filter({ visible: true });
+  const rootCount = await visibleRoots.count().catch(() => 0);
+  if (rootCount === 0) {
+    return false;
+  }
+
+  const matchingRoots: Array<{ root: Locator; textLength: number }> = [];
+  for (let index = 0; index < rootCount; index += 1) {
+    const candidate = visibleRoots.nth(index);
+    const text = await candidate.innerText().catch(() => "");
+    const normalized = text.replace(/\s+/g, "").trim();
+    if (overlayMarkers.every((marker) => normalized.includes(marker))) {
+      matchingRoots.push({ root: candidate, textLength: normalized.length });
+    }
+  }
+  matchingRoots.sort((left, right) => left.textLength - right.textLength);
+  let closeControl: Locator | undefined;
+  for (const { root } of matchingRoots) {
+    const controls = root
+      .locator("button, [role='button'], [aria-label], [title], [class*='close' i]")
+      .filter({ visible: true });
+    const matchingControls: Locator[] = [];
+    for (let index = 0; index < (await controls.count().catch(() => 0)); index += 1) {
+      const control = controls.nth(index);
+      const signature = await control.evaluate((element) => [
+        (element as HTMLElement).innerText || element.textContent || "",
+        element.getAttribute("aria-label") || "",
+        element.getAttribute("title") || "",
+        String((element as HTMLElement).className || "")
+      ].join(" ").replace(/\s+/g, "").toLowerCase()).catch(() => "");
+      if (/关闭|close|(^|[^a-z])x([^a-z]|$)|×/.test(signature) && !signature.includes("查看详情")) {
+        matchingControls.push(control);
+      }
+    }
+    if (matchingControls.length === 1) {
+      closeControl = matchingControls[0];
+      break;
+    }
+  }
+  if (!closeControl) {
+    throw new Error("Known Doudian shop-switch informational overlay has no controlled close action.");
+  }
+  await closeControl.click({ timeout: 3000 });
+  await page.waitForTimeout(300);
+  const remainedVisible = await visibleRoots.count().then((count) => count > 0).catch(() => false);
+  if (remainedVisible) {
+    throw new Error("Known Doudian shop-switch informational overlay remained visible after close.");
+  }
+  logInfo("Dismissed known Doudian shop-switch informational overlay.");
+  return true;
+}
+
 async function clickTopRightShopMenu(page: Page): Promise<boolean> {
   const menuVisible = async (): Promise<boolean> =>
     page.evaluate(() => {
@@ -919,6 +978,7 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
   }
   let lastActual = currentBefore || "";
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    await dismissKnownShopSwitchInformationalOverlay(page);
     const anchorReady = await waitForTopRightShopMenuAnchor(page, 10000 + attempt * 3000);
     if (!anchorReady) {
       await gotoWithTolerance(page, PLATFORM_SPU_URL, 5000 + attempt * 1500).catch(() => {});
@@ -1098,3 +1158,5 @@ export async function ensureShopContext(page: Page, runtimeDir: string, shopFold
   }
   throw lastError;
 }
+
+export { dismissKnownShopSwitchInformationalOverlay };

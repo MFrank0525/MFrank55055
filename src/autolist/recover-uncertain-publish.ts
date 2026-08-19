@@ -3,6 +3,8 @@ import path from "node:path";
 import { verifyPublishedProductInDoudianList } from "../business/publish-from-spu/product-list-verification-action.js";
 import { readPublishAttemptState } from "./publish-attempt-state.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
+import { loadPublishManifest, savePublishManifest } from "./publish-manifest.js";
+import { isConfirmedRejectionRetryConsumed } from "./confirmed-rejection-retry.js";
 
 const MIN_REVIEW_AGE_MS = 10 * 60 * 1000;
 
@@ -43,6 +45,28 @@ export async function approveReviewedNegativeUncertainPublishRetry(input: {
   }
   if (path.resolve(resultShopFolder) !== path.resolve(input.shopFolder)) {
     throw new Error(`Recovery shop mismatch: expected=${resultShopFolder}; actual=${input.shopFolder}`);
+  }
+  const runDir = path.dirname(path.dirname(input.runtimeDir));
+  const runtimeKey = path.basename(input.runtimeDir);
+  const manifest = loadPublishManifest(runDir);
+  const manifestEntries = manifest.entries.filter((entry) => entry.runtimeKey === runtimeKey);
+  if (manifestEntries.length !== 1) {
+    throw new Error(`Recovery requires the canonical publish manifest entry: ${runtimeKey}`);
+  }
+  const manifestEntry = manifestEntries[0];
+  if (
+    JSON.stringify(manifestEntry.targetIdentity) !== JSON.stringify(canonicalIdentity)
+    || path.resolve(manifestEntry.shopFolder) !== path.resolve(input.shopFolder)
+    || path.resolve(manifestEntry.resultFile || "") !== path.resolve(resultFile)
+  ) {
+    throw new Error(`Recovery manifest identity mismatch for canonical target: ${runtimeKey}`);
+  }
+  if (isConfirmedRejectionRetryConsumed(input.runtimeDir, {
+    targetKey: manifestEntry.targetKey,
+    title,
+    shopFolder: input.shopFolder
+  })) {
+    throw new Error(`Recovery controlled retry was already consumed for canonical target: ${manifestEntry.targetKey}`);
   }
   if (readPublishAttemptState(input.runtimeDir) !== "attempted_or_unknown") {
     throw new Error("Recovery requires an attempted_or_unknown durable submit boundary.");
@@ -97,6 +121,12 @@ export async function approveReviewedNegativeUncertainPublishRetry(input: {
     evidenceFile
   };
   atomicWriteJson(resultFile, result);
+  manifestEntry.status = "pending";
+  manifestEntry.finalVerifyStatus = "not_checked";
+  manifestEntry.errorClass = "reviewed_negative_retry_approved";
+  manifestEntry.message = "Operator-reviewed stable exact-title negative evidence approved one identity-bound controlled retry.";
+  manifestEntry.updatedAt = new Date(now).toISOString();
+  savePublishManifest(runDir, manifest);
   return {
     runtimeDir: input.runtimeDir,
     resultFile,
