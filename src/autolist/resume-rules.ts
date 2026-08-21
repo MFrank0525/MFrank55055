@@ -238,3 +238,29 @@ export function selectRemainingResumeProductFolderNames(input: {
     .filter(Boolean));
   return [...new Set(input.allProductFolderNames.filter(Boolean))].filter((name) => !safelyPublishedNames.has(name));
 }
+
+export function resolveResumeStartStepForMissingDistribution(input: {
+  plannedStartStep: AutoListingStep;
+  expectedResumeFolderCount: number;
+  existingWorkbookFolderCount: number;
+  reusableRawImageCount: number;
+  expectedRawImageCount: number;
+}): AutoListingStep {
+  if (
+    input.plannedStartStep !== "published"
+    || input.expectedResumeFolderCount === 0
+    || input.existingWorkbookFolderCount >= input.expectedResumeFolderCount
+  ) {
+    return input.plannedStartStep;
+  }
+  if (
+    input.expectedRawImageCount > 0
+    && input.reusableRawImageCount >= input.expectedRawImageCount
+  ) {
+    return "main_images_generated";
+  }
+  throw new Error(
+    `Resume is missing distributed folders with workbook files (${input.existingWorkbookFolderCount}/${input.expectedResumeFolderCount}) `
+    + `and does not have a complete same-task verified raw image set (${input.reusableRawImageCount}/${input.expectedRawImageCount}).`
+  );
+}

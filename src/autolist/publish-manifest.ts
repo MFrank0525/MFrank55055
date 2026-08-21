@@ -19,7 +19,6 @@ export const SAFE_PUBLISH_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
 
 export const BATCH_COMPLETION_FINAL_VERIFY_STATUSES: PublishFinalVerifyStatus[] = [
   ...SAFE_PUBLISH_FINAL_VERIFY_STATUSES,
-  "submit_accepted_unconfirmed",
   "submit_rejected_exhausted"
 ];
 
@@ -186,9 +185,7 @@ export function isPublishOutcomeAcceptedForBatchCompletion(entry: {
     return entry.finalVerifyStatus === "submit_rejected_exhausted"
       && entry.errorClass === "final_publish_submit_transient";
   }
-  return entry.status === "failed" &&
-    entry.finalVerifyStatus === "submit_accepted_unconfirmed" &&
-    entry.errorClass === "final_publish_state_uncertain";
+  return false;
 }
 
 export function isManifestEntryAcceptedForBatchCompletion(entry: PublishManifestEntry | undefined): boolean {

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DEFAULT_ARCHIVE_ROOT } from "./archive-main-images.js";
 import { selectCleanupTargets, selectStaleRunHistoryTargets } from "./cleanup-rules.js";
-import { selectMaintenanceResidueTargets } from "./maintenance-rules.js";
+import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
 import type { CleanupArtifact } from "./types.js";
 
 function pathContains(parent: string, child: string): boolean {
@@ -62,74 +62,6 @@ export function cleanupMaintenanceResidue(options: {
   return { selectedPaths, removedPaths, applied: options.apply };
 }
 
-function collectTitleDirTargets(titleDir?: string): string[] {
-  if (!titleDir || !fs.existsSync(titleDir)) {
-    return [];
-  }
-  return fs
-    .readdirSync(titleDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.(xlsx|csv)$/i.test(entry.name))
-    .map((entry) => path.join(titleDir, entry.name));
-}
-
-function collectMainImageDirTargets(mainImageWorkDir?: string): string[] {
-  if (!mainImageWorkDir || !fs.existsSync(mainImageWorkDir)) {
-    return [];
-  }
-  return fs
-    .readdirSync(mainImageWorkDir, { withFileTypes: true })
-    .filter((entry) => entry.name !== ".gitkeep")
-    .map((entry) => path.join(mainImageWorkDir, entry.name));
-}
-
-function collectDirectoryChildren(dir?: string): string[] {
-  if (!dir || !fs.existsSync(dir)) {
-    return [];
-  }
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.name !== ".gitkeep")
-    .map((entry) => path.join(dir, entry.name));
-}
-
-function collectShopRootStaleTargets(shopRootDir?: string): string[] {
-  if (!shopRootDir || !fs.existsSync(shopRootDir)) {
-    return [];
-  }
-
-  return fs.readdirSync(shopRootDir, { withFileTypes: true }).flatMap((entry) => {
-    const entryPath = path.join(shopRootDir, entry.name);
-    if (entry.name === ".gitkeep") {
-      return [];
-    }
-    if (!entry.isDirectory()) {
-      return [entryPath];
-    }
-    return collectDirectoryChildren(entryPath);
-  });
-}
-
-function collectGeneratedResumeJobTargets(autoListingInputDir?: string): string[] {
-  if (!autoListingInputDir || !fs.existsSync(autoListingInputDir)) {
-    return [];
-  }
-  return fs
-    .readdirSync(autoListingInputDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.resume\.generated\.json$/i.test(entry.name))
-    .map((entry) => path.join(autoListingInputDir, entry.name));
-}
-
-function collectGeneratedMaintenanceResidueTargets(autoListingInputDir?: string): string[] {
-  if (!autoListingInputDir || !fs.existsSync(autoListingInputDir)) {
-    return [];
-  }
-  const candidates = fs
-    .readdirSync(autoListingInputDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.generated\.json$/i.test(entry.name))
-    .map((entry) => path.join(autoListingInputDir, entry.name));
-  return selectMaintenanceResidueTargets({ filePaths: candidates }).map((target) => target.filePath);
-}
-
 export function cleanupAfterPublish(options: {
   distributedFolders: string[];
   titleWorkbookFiles: string[];
@@ -163,19 +95,6 @@ export function cleanupAfterPublish(options: {
     ...(options.wordFiles || []),
     ...(options.publishRuntimeDirs || []),
     ...(options.taskRuntimeDir ? [options.taskRuntimeDir] : []),
-    ...collectTitleDirTargets(options.titleDir),
-    ...collectMainImageDirTargets(options.mainImageWorkDir),
-    ...(!options.simulateOnly
-      ? [
-          ...collectDirectoryChildren(options.feishuImageDir),
-          ...collectDirectoryChildren(options.qualificationDir),
-          ...collectDirectoryChildren(options.titleDir),
-          ...collectDirectoryChildren(options.mainImageWorkDir),
-          ...collectShopRootStaleTargets(options.shopRootDir),
-          ...collectGeneratedResumeJobTargets(options.autoListingInputDir),
-          ...collectGeneratedMaintenanceResidueTargets(options.autoListingInputDir)
-        ]
-      : []),
     ...(!options.simulateOnly && options.cleanupSourceImageAfterPublish
       ? [options.sourceImagePath, ...(options.sourceAssetFiles || [])]
       : [])
@@ -218,6 +137,21 @@ function collectRunDirs(runtimeRootDir: string): string[] {
     .map((entry) => path.join(runtimeRootDir, entry.name));
 }
 
+function runHasUnresolvedPublishBoundary(runDir: string): boolean {
+  const manifestFile = path.join(runDir, "publish-manifest.json");
+  if (!fs.existsSync(manifestFile)) return false;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8")) as { entries?: Array<Record<string, unknown>> };
+    return (manifest.entries || []).some((entry) =>
+      entry.status === "pending"
+      || entry.status === "failed"
+      || !isManifestEntryAcceptedForBatchCompletion(entry as never)
+    );
+  } catch {
+    return true;
+  }
+}
+
 export function cleanupStaleRunHistory(options: {
   runtimeRootDir: string;
   activeRuntimeDir: string;
@@ -234,10 +168,11 @@ export function cleanupStaleRunHistory(options: {
   }
 
   const runDirs = collectRunDirs(options.runtimeRootDir);
+  const unresolvedPublishRunDirs = runDirs.filter(runHasUnresolvedPublishBoundary);
   const targets = selectStaleRunHistoryTargets({
     runDirs,
     activeRunDir: options.activeRuntimeDir,
-    protectedRunDirs: options.protectedRunDirs || []
+    protectedRunDirs: [...(options.protectedRunDirs || []), ...unresolvedPublishRunDirs]
   });
 
   for (const target of targets) {

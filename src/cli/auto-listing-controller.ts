@@ -44,6 +44,7 @@ import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-m
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
   inferResumeStartStepForTask,
+  resolveResumeStartStepForMissingDistribution,
   resolveCanonicalRecoveryTask,
   resolveCanonicalResumeDecision
 } from "../autolist/resume-rules.js";
@@ -260,6 +261,22 @@ function collectResumeProductFolderNames(task: ResumeEvidenceTask): string[] {
         .filter(Boolean)
     )
   );
+}
+
+function countResumeWorkbookFolders(shopRootDir: string | undefined, folderNames: string[]): number {
+  if (!shopRootDir || !fs.existsSync(shopRootDir) || folderNames.length === 0) return 0;
+  const expected = new Set(folderNames);
+  let count = 0;
+  for (const shopEntry of fs.readdirSync(shopRootDir, { withFileTypes: true })) {
+    if (!shopEntry.isDirectory()) continue;
+    const shopDir = path.join(shopRootDir, shopEntry.name);
+    for (const productEntry of fs.readdirSync(shopDir, { withFileTypes: true })) {
+      if (!productEntry.isDirectory() || !expected.has(productEntry.name)) continue;
+      const productDir = path.join(shopDir, productEntry.name);
+      if (fs.readdirSync(productDir).some((name) => name.toLowerCase().endsWith(".xlsx"))) count += 1;
+    }
+  }
+  return count;
 }
 
 function listStateFilesNewestFirst(): string[] {
@@ -576,6 +593,7 @@ function findLatestUnsafePublishManifestForResume(): {
   resultFile: string;
   result: AutoListingResultFile;
   unsafeEntries: NonNullable<PublishManifestFile["entries"]>;
+  task: ResumeEvidenceTask;
 } | undefined {
   return selectLatestUnsafePublishManifestForResume({
     rootDir,
@@ -623,6 +641,18 @@ function writeCanonicalResumeJob(options: {
     batchFingerprint: options.batchFingerprint,
     productFolderNames: decision.resumeProductFolderNames
   });
+  const categoryPlan = getProductCategoryPlan(options.task.feishuProductRecord?.productCategory);
+  const reusableArtifacts = summarizeReusableTaskArtifacts({
+    runtimeDir: options.runtimeDir,
+    taskId
+  });
+  const effectiveStartStep = resolveResumeStartStepForMissingDistribution({
+    plannedStartStep: decision.startStep,
+    expectedResumeFolderCount: decision.resumeProductFolderNames.length,
+    existingWorkbookFolderCount: countResumeWorkbookFolders(shopRootDir, decision.resumeProductFolderNames),
+    reusableRawImageCount: reusableArtifacts.reusableRawImageCount,
+    expectedRawImageCount: categoryPlan.titleCount
+  });
   const resumeJob: AutoListingJobFile = {
     ...options.sourceJob,
     runtimeDir: options.runtimeDir,
@@ -631,7 +661,7 @@ function writeCanonicalResumeJob(options: {
     input: {
       ...options.sourceJob.input,
       ...(shopRootDir ? { shopRootDir } : {}),
-      startStep: decision.startStep,
+      startStep: effectiveStartStep,
       endStep: "done",
       resumeSourceImagePath: sourceImagePath,
       resumeTaskId: taskId,
@@ -658,10 +688,7 @@ function ensureResumeJobFromLatestFailure(): AutoListingJobFile | undefined {
 
   const unsafeLatest = findLatestUnsafePublishManifestForResume();
   if (unsafeLatest?.result.businessRuleFingerprint === buildAutoListingBusinessRuleFingerprint()) {
-    const sourceImagePath = unsafeLatest.unsafeEntries[0]?.sourceImagePath;
-    const task = (unsafeLatest.result.tasks || []).find((item) =>
-      sourceImagePath && item.sourceImagePath && path.resolve(rootDir, item.sourceImagePath) === path.resolve(rootDir, sourceImagePath)
-    );
+    const task = unsafeLatest.task;
     if (task?.sourceImagePath) {
       return writeCanonicalResumeJob({
         sourceJob,

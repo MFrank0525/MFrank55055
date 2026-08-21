@@ -8,10 +8,22 @@ type JsonObject = Record<string, unknown>;
 
 interface PublishManifestFile {
   entries?: Array<{
+    targetKey?: string;
+    targetIdentity?: {
+      batchFingerprint?: string;
+      recordId?: string;
+      taskId?: string;
+      shopCode?: string;
+      watermarkNo?: number;
+    };
     productFolder?: string;
     sourceImagePath?: string;
+    taskId?: string;
+    recordId?: string;
+    batchFingerprint?: string;
     status?: "pending" | "published" | "failed" | "skipped";
     finalVerifyStatus?: string;
+    errorClass?: string;
   }>;
 }
 
@@ -20,6 +32,7 @@ interface ResultTask {
   taskId?: string;
   generatedProductFolders?: string[];
   shopDistributionArtifact?: { distributedFolders?: string[] };
+  feishuProductRecord?: { recordId?: string };
 }
 
 export function findLatestIncompletePublishManifestForResume(options: {
@@ -117,20 +130,73 @@ export function findLatestUnsafePublishManifestForResume(options: {
   fileMtimeMs: (file: string) => number | undefined;
   countSafelyPublishedManifestEntries: (runtimeDir: string) => number;
   shouldResumeSourceImageForCurrentFeishuBatch: (sourceImagePath: string, reusableArtifactCount: number, runtimeBatchFingerprint?: string) => boolean;
-}): { runtimeDir: string; resultFile: string; result: AutoListingResultFile; unsafeEntries: NonNullable<PublishManifestFile["entries"]> } | undefined {
+}): { runtimeDir: string; resultFile: string; result: AutoListingResultFile; unsafeEntries: NonNullable<PublishManifestFile["entries"]>; task: ResultTask } | undefined {
   const candidates = options.resultFiles.flatMap((resultFile) => {
     const result = readJsonFile<AutoListingResultFile>(resultFile);
     const runtimeDir = result?.runtimeDir || path.dirname(resultFile);
+    const manifest = readJsonFile<PublishManifestFile>(path.join(runtimeDir, "publish-manifest.json"));
     const unsafeEntries = unsafePublishEntriesForResume(runtimeDir);
-    const firstSourceImagePath = unsafeEntries[0]?.sourceImagePath ? path.resolve(options.rootDir, unsafeEntries[0].sourceImagePath) : "";
-    const sameSource = unsafeEntries.every((entry) => entry.sourceImagePath && path.resolve(options.rootDir, entry.sourceImagePath) === firstSourceImagePath);
-    const task = result?.tasks?.find((item) => item.sourceImagePath && path.resolve(options.rootDir, item.sourceImagePath) === firstSourceImagePath);
     const safelyPublishedCount = options.countSafelyPublishedManifestEntries(runtimeDir);
-    if (!result || !unsafeEntries.length || !firstSourceImagePath || !sameSource || !fs.existsSync(firstSourceImagePath) || !task?.sourceImagePath ||
-      !options.shouldResumeSourceImageForCurrentFeishuBatch(task.sourceImagePath, Math.max(unsafeEntries.length, safelyPublishedCount), result.feishuBatchFingerprint)) {
+    if (!result || !unsafeEntries.length) {
       return [];
     }
-    return [{ runtimeDir, resultFile, result, unsafeEntries, safelyPublishedCount, mtimeMs: options.fileMtimeMs(path.join(runtimeDir, "publish-manifest.json")) || options.fileMtimeMs(resultFile) || 0 }];
+    const grouped = new Map<string, NonNullable<PublishManifestFile["entries"]>>();
+    for (const entry of unsafeEntries) {
+      const sourceImagePath = entry.sourceImagePath ? path.resolve(options.rootDir, entry.sourceImagePath) : "";
+      const taskId = entry.targetIdentity?.taskId || entry.taskId || "";
+      const recordId = entry.targetIdentity?.recordId || entry.recordId || "";
+      if (!sourceImagePath || !taskId || !recordId) continue;
+      const key = `${sourceImagePath}\u0000${taskId}\u0000${recordId}`;
+      grouped.set(key, [...(grouped.get(key) || []), entry]);
+    }
+    return [...grouped.entries()].flatMap(([key, productUnsafeEntries]) => {
+      const [sourceImagePath, taskId, recordId] = key.split("\u0000");
+      if (!sourceImagePath || !fs.existsSync(sourceImagePath)) return [];
+      const manifestProductFolders = (manifest?.entries || [])
+        .filter((entry) =>
+          path.resolve(options.rootDir, entry.sourceImagePath || "") === sourceImagePath
+          && (entry.targetIdentity?.taskId || entry.taskId) === taskId
+          && (entry.targetIdentity?.recordId || entry.recordId) === recordId
+        )
+        .map((entry) => entry.productFolder || "")
+        .filter(Boolean);
+      const resultTask = result.tasks?.find((item) =>
+        item.sourceImagePath
+        && path.resolve(options.rootDir, item.sourceImagePath) === sourceImagePath
+        && (!item.taskId || item.taskId === taskId)
+      );
+      const task: ResultTask = resultTask || {
+        sourceImagePath,
+        taskId,
+        generatedProductFolders: manifestProductFolders,
+        feishuProductRecord: { recordId }
+      };
+      if (!task.generatedProductFolders?.length && !task.shopDistributionArtifact?.distributedFolders?.length) {
+        task.generatedProductFolders = manifestProductFolders;
+      }
+      if (!options.shouldResumeSourceImageForCurrentFeishuBatch(
+        sourceImagePath,
+        Math.max(manifestProductFolders.length, productUnsafeEntries.length, safelyPublishedCount),
+        result.feishuBatchFingerprint
+      )) return [];
+      const firstWatermark = Math.min(...productUnsafeEntries.map((entry) => Number(entry.targetIdentity?.watermarkNo || 999)));
+      return [{
+        runtimeDir,
+        resultFile,
+        result,
+        unsafeEntries: productUnsafeEntries,
+        task,
+        firstWatermark,
+        taskId,
+        safelyPublishedCount,
+        mtimeMs: options.fileMtimeMs(path.join(runtimeDir, "publish-manifest.json")) || options.fileMtimeMs(resultFile) || 0
+      }];
+    });
   });
-  return candidates.sort((a, b) => b.safelyPublishedCount - a.safelyPublishedCount || b.mtimeMs - a.mtimeMs)[0];
+  return candidates.sort((a, b) =>
+    b.safelyPublishedCount - a.safelyPublishedCount
+    || b.mtimeMs - a.mtimeMs
+    || a.taskId.localeCompare(b.taskId)
+    || a.firstWatermark - b.firstWatermark
+  )[0];
 }

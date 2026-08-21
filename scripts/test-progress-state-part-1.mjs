@@ -90,6 +90,7 @@ import {
   isConfirmedRejectionRetryConsumed
 } from "../dist/src/autolist/confirmed-rejection-retry.js";
 import { isManifestEntryAcceptedForBatchCompletion } from "../dist/src/autolist/publish-manifest.js";
+import { findLatestUnsafePublishManifestForResume } from "../dist/src/autolist/unsafe-publish-resume.js";
 import {
   shouldFailAutoListingControllerStatusForFeishuCacheInvalid,
   shouldPreserveAutoListingControllerCompletedStatusForFeishuCacheInvalid
@@ -111,6 +112,7 @@ import {
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
   inferResumeStartStepForTask,
+  resolveResumeStartStepForMissingDistribution,
   selectRemainingResumeProductFolderNames
 } from "../dist/src/autolist/resume-rules.js";
 import {
@@ -886,6 +888,108 @@ assert.deepEqual(
   ["product-水印02", "product-水印03"],
   "Manifest-backed recovery must include every not-yet-safe target after the failed shop, not only the single failed entry."
 );
+assert.equal(
+  isManifestEntryAcceptedForBatchCompletion({
+    status: "failed",
+    finalVerifyStatus: "submit_accepted_unconfirmed",
+    errorClass: "final_publish_state_uncertain"
+  }),
+  false,
+  "A final-submit uncertainty is a mandatory review target, never completed batch coverage."
+);
+assert.deepEqual(
+  selectRemainingResumeProductFolderNames({
+    allProductFolderNames: ["product-水印01", "product-水印02"],
+    manifestEntries: [{
+      productFolder: "/shops/01/product-水印01",
+      status: "failed",
+      finalVerifyStatus: "submit_accepted_unconfirmed",
+      errorClass: "final_publish_state_uncertain"
+    }]
+  }),
+  ["product-水印01", "product-水印02"],
+  "Final-submit uncertainty must remain first in the resume list so publish recovery can perform read-only reconciliation."
+);
+assert.equal(
+  resolveResumeStartStepForMissingDistribution({
+    plannedStartStep: "published",
+    expectedResumeFolderCount: 5,
+    existingWorkbookFolderCount: 0,
+    reusableRawImageCount: 20,
+    expectedRawImageCount: 20
+  }),
+  "main_images_generated",
+  "A publish resume whose distribution was removed by legacy cleanup must rebuild from the same verified raw images instead of failing directory discovery."
+);
+assert.throws(
+  () => resolveResumeStartStepForMissingDistribution({
+    plannedStartStep: "published",
+    expectedResumeFolderCount: 5,
+    existingWorkbookFolderCount: 0,
+    reusableRawImageCount: 19,
+    expectedRawImageCount: 20
+  }),
+  /missing distributed folders.*verified raw image/i,
+  "Missing distribution without a complete same-task raw-image set must fail closed."
+);
+
+const crossTaskResumeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cross-task-publish-resume-"));
+const crossTaskRunDir = path.join(crossTaskResumeRoot, "data/auto-listing/runs/run-1");
+const crossTaskResultFile = path.join(crossTaskRunDir, "result.json");
+const sourceA = path.join(crossTaskResumeRoot, "source-a.png");
+const sourceB = path.join(crossTaskResumeRoot, "source-b.png");
+fs.mkdirSync(crossTaskRunDir, { recursive: true });
+fs.writeFileSync(sourceA, "a");
+fs.writeFileSync(sourceB, "b");
+fs.writeFileSync(crossTaskResultFile, JSON.stringify({
+  runId: "run-1",
+  runtimeDir: crossTaskRunDir,
+  feishuBatchFingerprint: "batch-1",
+  businessRuleFingerprint: "rules-1",
+  tasks: [{ taskId: "image-001", sourceImagePath: sourceA, status: "done" }]
+}));
+fs.writeFileSync(path.join(crossTaskRunDir, "publish-manifest.json"), JSON.stringify({
+  entries: [
+    {
+      targetKey: "batch-1__record-a__image-001__07__07",
+      targetIdentity: { batchFingerprint: "batch-1", recordId: "record-a", taskId: "image-001", shopCode: "07", watermarkNo: 7 },
+      productFolder: "/shops/07/product-a-水印07",
+      sourceImagePath: sourceA,
+      taskId: "image-001",
+      recordId: "record-a",
+      batchFingerprint: "batch-1",
+      status: "failed",
+      finalVerifyStatus: "submit_accepted_unconfirmed",
+      errorClass: "final_publish_state_uncertain"
+    },
+    {
+      targetKey: "batch-1__record-b__image-002__16__16",
+      targetIdentity: { batchFingerprint: "batch-1", recordId: "record-b", taskId: "image-002", shopCode: "16", watermarkNo: 16 },
+      productFolder: "/shops/16/product-b-水印16",
+      sourceImagePath: sourceB,
+      taskId: "image-002",
+      recordId: "record-b",
+      batchFingerprint: "batch-1",
+      status: "failed",
+      finalVerifyStatus: "not_checked",
+      errorClass: "doudian_login_required"
+    }
+  ]
+}));
+const crossTaskResume = findLatestUnsafePublishManifestForResume({
+  rootDir: crossTaskResumeRoot,
+  resultFiles: [crossTaskResultFile],
+  fileMtimeMs: (file) => fs.statSync(file).mtimeMs,
+  countSafelyPublishedManifestEntries: () => 0,
+  shouldResumeSourceImageForCurrentFeishuBatch: () => true
+});
+assert.equal(crossTaskResume?.task?.taskId, "image-001");
+assert.deepEqual(
+  crossTaskResume?.task?.generatedProductFolders,
+  ["/shops/07/product-a-水印07"],
+  "Manifest identity must reconstruct the earliest unresolved product even when the latest result no longer contains every task."
+);
+fs.rmSync(crossTaskResumeRoot, { recursive: true, force: true });
 assert.equal(
   isManifestEntryAcceptedForBatchCompletion({
     status: "skipped",
@@ -2373,18 +2477,24 @@ const nonRunDir = path.join(cleanupRunRoot, "control");
 const protectedPaidImageRunDir = path.join(cleanupRunRoot, "20260610-232736");
 const nestedPaidImageRunDir = path.join(cleanupRunRoot, "20260610-233000");
 const submittedLedgerRunDir = path.join(cleanupRunRoot, "20260610-233500");
+const unresolvedPublishRunDir = path.join(cleanupRunRoot, "20260610-234000");
 fs.mkdirSync(oldRunDir, { recursive: true });
 fs.mkdirSync(activeRunDir, { recursive: true });
 fs.mkdirSync(nonRunDir, { recursive: true });
 fs.mkdirSync(protectedPaidImageRunDir, { recursive: true });
 fs.mkdirSync(path.join(nestedPaidImageRunDir, "tasks/image-001/main-image-01/openai-compatible/raw"), { recursive: true });
 fs.mkdirSync(path.join(submittedLedgerRunDir, "tasks/image-001/paid-image-ledger/batch/record/slots"), { recursive: true });
+fs.mkdirSync(unresolvedPublishRunDir, { recursive: true });
 fs.writeFileSync(path.join(oldRunDir, "state.json"), "{}\n");
 fs.writeFileSync(path.join(activeRunDir, "state.json"), "{}\n");
 fs.writeFileSync(path.join(protectedPaidImageRunDir, "state.json"), "{}\n");
 fs.writeFileSync(
   path.join(submittedLedgerRunDir, "tasks/image-001/paid-image-ledger/batch/record/slots/01.json"),
   JSON.stringify({ version: 1, slot: 1, state: "submitted", providerTaskId: "paid-task-1" }) + "\n"
+);
+fs.writeFileSync(
+  path.join(unresolvedPublishRunDir, "publish-manifest.json"),
+  JSON.stringify({ entries: [{ status: "failed", finalVerifyStatus: "submit_accepted_unconfirmed", errorClass: "final_publish_state_uncertain" }] }) + "\n"
 );
 fs.writeFileSync(
   path.join(nestedPaidImageRunDir, "tasks/image-001/main-image-01/openai-compatible/raw/generated-01.png"),
@@ -2402,6 +2512,7 @@ assert.equal(fs.existsSync(oldRunDir), false);
 assert.equal(fs.existsSync(activeRunDir), true);
 assert.equal(fs.existsSync(nonRunDir), true);
 assert.equal(fs.existsSync(protectedPaidImageRunDir), true);
+assert.equal(fs.existsSync(unresolvedPublishRunDir), true);
 assert.equal(
   fs.existsSync(nestedPaidImageRunDir),
   false,

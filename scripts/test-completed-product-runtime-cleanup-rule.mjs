@@ -13,9 +13,13 @@ const publishRuntimeDir = path.join(tmp, "runs", "20260628-120000", "publish", "
 const screenshotFile = path.join(publishRuntimeDir, "screenshots", "publish-page-basic-filled.png");
 const taskRuntimeDir = path.join(tmp, "runs", "20260628-120000", "tasks", "image-001");
 const productFolder = path.join(tmp, "shops", "01shop", "product-01");
+const pendingProductFolder = path.join(tmp, "shops", "01shop", "product-02-pending");
 const titleFile = path.join(tmp, "titles", "product-01.xlsx");
+const pendingTitleFile = path.join(tmp, "titles", "product-02.xlsx");
+const pendingSourceImage = path.join(tmp, "feishu-images", "product-02-white.png");
+const generatedResumeJob = path.join(tmp, "auto-listing", "pending.resume.generated.json");
 
-for (const filePath of [sourceImagePath, qualificationPath, screenshotFile, path.join(taskRuntimeDir, "prompt.docx"), path.join(productFolder, "main.png"), titleFile]) {
+for (const filePath of [sourceImagePath, qualificationPath, screenshotFile, path.join(taskRuntimeDir, "prompt.docx"), path.join(productFolder, "main.png"), titleFile, path.join(pendingProductFolder, "main.png"), pendingTitleFile, pendingSourceImage, generatedResumeJob]) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, "artifact");
 }
@@ -87,6 +91,11 @@ const completedCleanup = cleanupAfterPublish({
   sourceAssetFiles: [sourceImagePath, qualificationPath],
   taskRuntimeDir,
   publishRuntimeDirs: [publishRuntimeDir],
+  feishuImageDir: path.dirname(sourceImagePath),
+  qualificationDir: path.dirname(qualificationPath),
+  shopRootDir: path.join(tmp, "shops"),
+  autoListingInputDir: path.join(tmp, "auto-listing"),
+  titleDir: path.dirname(titleFile),
   cleanupAfterPublish: true,
   cleanupSourceImageAfterPublish: true,
   simulateOnly: false
@@ -94,6 +103,10 @@ const completedCleanup = cleanupAfterPublish({
 
 assert.equal(fs.existsSync(screenshotFile), false, "completed products must remove publish runtime screenshots");
 assert.ok(completedCleanup.removedPaths.includes(publishRuntimeDir));
+assert.equal(fs.existsSync(path.join(pendingProductFolder, "main.png")), true, "completed-product cleanup must preserve another product's pending shop folder");
+assert.equal(fs.existsSync(pendingTitleFile), true, "completed-product cleanup must preserve another product's pending workbook");
+assert.equal(fs.existsSync(pendingSourceImage), true, "completed-product cleanup must preserve another product's pending Feishu source image");
+assert.equal(fs.existsSync(generatedResumeJob), true, "completed-product cleanup must preserve another product's active resume job");
 
 const residueAfterCleanup = auditIntermediateArtifactResidue({
   tasks: [

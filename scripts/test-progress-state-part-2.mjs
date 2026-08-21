@@ -1403,9 +1403,10 @@ const reviewMiddleWithLaterPublishedProgress = resolveAutoListingControllerPubli
     }))
   ]
 });
-assert.equal(reviewMiddleWithLaterPublishedProgress.failed, 0);
+assert.equal(reviewMiddleWithLaterPublishedProgress.failed, 1);
 assert.equal(reviewMiddleWithLaterPublishedProgress.review || 0, 0);
 assert.equal(reviewMiddleWithLaterPublishedProgress.reviewWatermarkNo || 0, 0);
+assert.equal(reviewMiddleWithLaterPublishedProgress.failedWatermarkNo, 13);
 assert.equal(reviewMiddleWithLaterPublishedProgress.productIndex, 18);
 const compactReviewMiddleStatus = formatAutoListingControllerCompactStatusText({
   status: "running",

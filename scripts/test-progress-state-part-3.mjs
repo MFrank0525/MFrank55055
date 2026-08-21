@@ -1245,8 +1245,8 @@ assert.equal(
       updatedAt: new Date().toISOString()
     }))
   }),
-  true,
-  "A platform-accepted submit with uncertain final signal must close Feishu batch processing instead of rediscovering a cleaned source image."
+  false,
+  "A final-submit uncertainty must keep the Feishu product incomplete until exact read-only reconciliation produces safe publish evidence."
 );
 assert.equal(
   isProductFullyProcessed({
@@ -1326,10 +1326,11 @@ const acceptedSubmitPublishAudit = auditPublishCoverage({
     updatedAt: new Date().toISOString()
   }))
 });
-assert.equal(acceptedSubmitPublishAudit.ok, true);
-assert.equal(acceptedSubmitPublishAudit.summary.safelyPublishedCount, 20);
-assert.equal(acceptedSubmitPublishAudit.warnings.length, 1);
-assert.equal(acceptedSubmitPublishAudit.warnings[0].code, "publish_result_submit_accepted_unconfirmed");
+assert.equal(acceptedSubmitPublishAudit.ok, false);
+assert.equal(acceptedSubmitPublishAudit.summary.safelyPublishedCount, 19);
+assert.equal(acceptedSubmitPublishAudit.warnings.length, 0);
+assert.equal(acceptedSubmitPublishAudit.errors.length, 1);
+assert.equal(acceptedSubmitPublishAudit.errors[0].code, "publish_result_unsafe");
 assert.equal(
   resolveAutoListingControllerStartAfterFeishuRefresh({
     currentBatchComplete: true,
