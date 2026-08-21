@@ -590,6 +590,31 @@ const repeatedProviderServiceErrorAudit = [
       'provider task failed: {"code":"service_error","message":"任务处理失败","error":{"category":"service","code":"service_error","type":"服务异常","message":"任务处理失败","retryable":false}}'
   }
 ];
+const repeatedProviderInternetErrorAudit = [
+  {
+    state: "failed_after_acceptance",
+    at: "2026-08-21T01:50:00.000Z",
+    reason:
+      'provider task failed: {"code":"upstream_error","message":"exit","error":{"code":"upstream_error","message":"exit"}}'
+  },
+  {
+    state: "failed_after_acceptance",
+    at: "2026-08-21T02:05:00.000Z",
+    reason:
+      'provider task failed: {"code":"upstream_error","message":"Internet Error，请耐心等待！","error":{"code":"upstream_error","message":"Internet Error，请耐心等待！"}}'
+  }
+];
+assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: repeatedProviderInternetErrorAudit[1].reason,
+    audit: repeatedProviderInternetErrorAudit,
+    recordedPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-08-21T02:06:00.000Z")
+  }),
+  { action: "defer_to_supervisor", usePolicyCompatiblePrompt: false, deferMs: 5 * 60 * 1000 },
+  "Accepted upstream Internet Error/exit failures must share the fixed-slot availability circuit without changing prompt identity"
+);
 assert.deepEqual(
   resolvePaidImageProviderServiceRetry({
     failureReason: repeatedProviderServiceErrorAudit[1].reason,

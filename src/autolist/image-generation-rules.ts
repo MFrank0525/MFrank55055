@@ -421,11 +421,18 @@ export function resolvePaidImageProviderTimeoutRetry(input: {
 }
 
 export function isAcceptedPaidImageTaskServiceAvailabilityReason(reason: string): boolean {
+  const acceptedTaskContext = /provider task failed|videos-base64 task .* failed/i.test(reason);
+  const explicitServiceFailure =
+    /"category"\s*:\s*"service"/i.test(reason) ||
+    /"code"\s*:\s*"service_error"/i.test(reason) ||
+    /服务异常/.test(reason);
+  const explicitUpstreamAvailabilityFailure =
+    /"code"\s*:\s*"upstream_error"/i.test(reason) &&
+    (/"message"\s*:\s*"Internet Error[，,]?请耐心等待[！!]?"/i.test(reason) ||
+      /"message"\s*:\s*"exit"/i.test(reason));
   return (
-    /provider task failed|videos-base64 task .* failed/i.test(reason) &&
-    (/"category"\s*:\s*"service"/i.test(reason) ||
-      /"code"\s*:\s*"service_error"/i.test(reason) ||
-      /服务异常/.test(reason)) &&
+    acceptedTaskContext &&
+    (explicitServiceFailure || explicitUpstreamAvailabilityFailure) &&
     !isUnsafePaidImageReplayReason(reason)
   );
 }

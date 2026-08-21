@@ -339,6 +339,31 @@ assert.equal(
   true,
   "Provider service outages must remain self-driven after the generic recovery budget is exhausted"
 );
+for (const providerAvailabilityMessage of ["Internet Error，请耐心等待！", "exit"]) {
+  const acceptedTaskAvailabilityFailure =
+    `failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; reasons: videos-base64 task task_service failed: {"code":"upstream_error","message":"${providerAvailabilityMessage}","error":{"code":"upstream_error","message":"${providerAvailabilityMessage}"}}`;
+  assert.equal(
+    isRetryableExternalServiceAvailabilityFailure(acceptedTaskAvailabilityFailure),
+    true,
+    `Provider upstream availability signal must enter external-service wait: ${providerAvailabilityMessage}`
+  );
+  assert.equal(
+    shouldConsumeSupervisorRecoveryAttempt(acceptedTaskAvailabilityFailure),
+    false,
+    `Provider upstream availability signal must not consume generic recovery attempts: ${providerAvailabilityMessage}`
+  );
+  assert.equal(
+    shouldResumeFeishuBatchAfterRetryableChildFailure({
+      exitCode: 1,
+      batchComplete: false,
+      retryableFailureMessage: acceptedTaskAvailabilityFailure,
+      recoveryAttempts: 12,
+      maxRecoveryAttempts: 12
+    }),
+    true,
+    `Provider upstream availability signal must remain self-driven after generic recovery exhaustion: ${providerAvailabilityMessage}`
+  );
+}
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
     exitCode: 1,

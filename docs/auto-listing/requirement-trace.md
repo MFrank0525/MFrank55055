@@ -414,3 +414,12 @@ Final evidence: clean build; full rule/contradiction closure; all Doctor modes; 
 | Resume the exact failed batch safely | Preserve batch `360004ca9f328d5fbf0161af`, reuse paid/generated artifacts and restart target 01 from its pre-submit boundary | Two deep audits prove exact batch/record/target identity, 20/20 paid images complete and `sideEffects: unconfirmed=0` | verified |
 
 Final evidence before delivery: clean build; full rules and contradiction closure; all Doctor modes; two-price representative simulation; live Feishu 24-field API check; two passing eight-dimension audits; and 20-shop read-only Doudian audit `20260820-001207` with `publishAttempted=false` and `formMutationAttempted=false`.
+
+## 2026-08-21 Accepted image-task upstream availability circuit
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain the current 18/20 stop from durable evidence | Fixed slots 09 and 10 each accumulated accepted tasks ending in `upstream_error` with `exit` or `Internet Error，请耐心等待！`; the supervisor misclassified them as ordinary provider failures and exhausted recovery 12/12 | Locked batch `6c747dd36f0c2a989d9ef69c`; paid-image slot ledgers; run `20260821-102344` | verified |
+| Separate provider availability from business and safety failures | The rule layer recognizes only accepted-task `upstream_error` with the two explicit availability messages, while content policy, permission, balance and ambiguous-acceptance failures keep their existing fail-closed paths | Red-before-green controller regression plus existing negative provider classifications | verified |
+| Stop burning retries and paid slots during an outage | The action layer routes these failures through the existing fixed-slot exponential circuit and the supervisor's independent `external_service_wait`; ordinary child recovery attempts are not consumed | Fixed-slot recovery regression and supervisor recovery-budget regression | verified |
+| Preserve successful work on continuation | The persistent ledger remains at 18 completed slots and authorizes submission only for failed fixed slots 09 and 10; original prompt identity remains unchanged | Live ledger summary before continuation and paid-resume-plan regression | verified |
