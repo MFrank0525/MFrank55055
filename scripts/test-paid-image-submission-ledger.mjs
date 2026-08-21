@@ -15,6 +15,7 @@ import {
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
   recordPaidImageFailedAfterAcceptance,
+  recordPaidImageRecoveredFromExistingResult,
   recordPaidImageFailedBeforeAcceptance,
   reconcileAmbiguousPaidImageProviderFailure,
   reconcileAmbiguousPaidImageNoAcceptance,
@@ -24,7 +25,8 @@ import {
   resolvePaidImageSlotAction,
   sha256File,
   sha256Text,
-  summarizePaidImageProductLedger
+  summarizePaidImageProductLedger,
+  validatePaidImageExistingResultRecoveryPlan
 } from "../dist/src/autolist/paid-image-submission-ledger.js";
 
 const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-ledger-"));
@@ -378,6 +380,73 @@ assert.equal(reuse.action, "reuse");
 assert.equal(fs.readFileSync(reuse.resultFile, "utf8"), "generated-image");
 assert.equal(completed.resultDigest, sha256File(reuse.resultFile));
 assert.equal(sha256Text("generated-image"), sha256File(resultSource));
+
+const operatorRecoveryProduct = initializePaidImageProductLedger({
+  ...identity,
+  rootDir: fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-operator-recovery-")),
+  batchFingerprint: "batch-operator-recovery",
+  recordId: "record-operator-recovery",
+  expectedSlotCount: 2
+});
+reservePaidImageSlot({
+  productDir: operatorRecoveryProduct.productDir,
+  slot: 1,
+  requestDigest: "operator-source-request",
+  promptDigest: "operator-source-prompt",
+  owner: ownerA
+});
+recordPaidImageSubmitted({ productDir: operatorRecoveryProduct.productDir, slot: 1, providerTaskId: "operator-source-task" });
+const operatorSource = recordPaidImageCompleted({
+  productDir: operatorRecoveryProduct.productDir,
+  slot: 1,
+  sourceFile: resultSource,
+  providerTaskId: "operator-source-task"
+});
+reservePaidImageSlot({
+  productDir: operatorRecoveryProduct.productDir,
+  slot: 2,
+  requestDigest: "operator-target-request",
+  promptDigest: "operator-target-prompt",
+  owner: ownerA
+});
+recordPaidImageSubmitted({ productDir: operatorRecoveryProduct.productDir, slot: 2, providerTaskId: "failed-provider-task-2" });
+recordPaidImageFailedAfterAcceptance({
+  productDir: operatorRecoveryProduct.productDir,
+  slot: 2,
+  providerTaskId: "failed-provider-task-2",
+  reason: 'provider task failed: {"code":"upstream_error","message":"Internet Error，请耐心等待！"}'
+});
+validatePaidImageExistingResultRecoveryPlan({
+  productDir: operatorRecoveryProduct.productDir,
+  mappings: [{ targetSlot: 2, sourceSlot: 1 }]
+});
+assert.throws(
+  () => validatePaidImageExistingResultRecoveryPlan({
+    productDir: operatorRecoveryProduct.productDir,
+    mappings: [{ targetSlot: 2, sourceSlot: 1 }, { targetSlot: 2, sourceSlot: 1 }]
+  }),
+  /unique target slots/i
+);
+const operatorRecovered = recordPaidImageRecoveredFromExistingResult({
+  productDir: operatorRecoveryProduct.productDir,
+  targetSlot: 2,
+  sourceSlot: 1,
+  reason: "operator confirmed the current image set is sufficient"
+});
+assert.equal(operatorRecovered.state, "completed");
+assert.equal(operatorRecovered.providerTaskId, undefined);
+assert.equal(operatorRecovered.resultDigest, operatorSource.resultDigest);
+assert.deepEqual(operatorRecovered.resultProvenance, {
+  kind: "operator_approved_existing_result",
+  sourceSlot: 1,
+  sourceResultDigest: operatorSource.resultDigest,
+  reason: "operator confirmed the current image set is sufficient"
+});
+assert.equal(resolvePaidImageSlotAction({ productDir: operatorRecoveryProduct.productDir, slot: 2 }).action, "reuse");
+assert.throws(
+  () => recordPaidImageRecoveredFromExistingResult({ productDir: operatorRecoveryProduct.productDir, targetSlot: 1, sourceSlot: 2, reason: "not failed" }),
+  /failed_after_acceptance/i
+);
 
 const terminalRaceProduct = initializePaidImageProductLedger({
   ...identity,

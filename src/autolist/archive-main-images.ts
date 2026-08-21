@@ -2,6 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { sanitizeFileName } from "../utils/path-names.js";
 import type { MainImageArtifact } from "./types.js";
+import {
+  readPaidImageProductLedger,
+  readPaidImageSlotRecord,
+  sha256File,
+  type PaidImageResultProvenance
+} from "./paid-image-submission-ledger.js";
 
 const DEFAULT_ARCHIVE_ROOT = "/Users/mfrank/Desktop/FFC的文件夹/工作/001电商/2026AI主图";
 
@@ -107,6 +113,85 @@ export function archiveUnwatermarkedMainImages(options: {
     }
     return targetFile;
   });
+}
+
+export interface PaidImageLedgerSnapshotArtifact {
+  archiveDir: string;
+  files: string[];
+  manifestFile: string;
+}
+
+export function archivePaidImageLedgerSnapshot(options: {
+  productDir: string;
+  productName: string;
+  archiveRootDir?: string;
+  label: string;
+  now?: Date;
+}): PaidImageLedgerSnapshotArtifact {
+  const ledger = readPaidImageProductLedger(options.productDir);
+  const archiveRootDir = options.archiveRootDir || DEFAULT_ARCHIVE_ROOT;
+  const productName = sanitizeFileName(options.productName || "未命名产品");
+  const label = sanitizeFileName(options.label || "恢复快照");
+  const archiveDir = resolveUniqueArchiveDir(
+    path.join(archiveRootDir, `${archiveTimestamp(options.now)}${productName}-${label}`)
+  );
+  fs.mkdirSync(archiveDir, { recursive: true });
+  const files: string[] = [];
+  const slots: Array<{
+    slot: number;
+    resultDigest: string;
+    archivedFile: string;
+    resultProvenance?: PaidImageResultProvenance;
+  }> = [];
+  const missingSlots: number[] = [];
+  for (let slot = 1; slot <= ledger.expectedSlotCount; slot += 1) {
+    const record = readPaidImageSlotRecord({ productDir: options.productDir, slot });
+    if (
+      record?.state !== "completed" ||
+      !record.resultFile ||
+      !record.resultDigest ||
+      !fs.existsSync(record.resultFile) ||
+      sha256File(record.resultFile) !== record.resultDigest
+    ) {
+      missingSlots.push(slot);
+      continue;
+    }
+    const ext = path.extname(record.resultFile) || ".png";
+    const targetFile = path.join(archiveDir, `${productName}无水印主图${String(slot).padStart(2, "0")}${ext}`);
+    fs.copyFileSync(record.resultFile, targetFile, fs.constants.COPYFILE_EXCL);
+    if (sha256File(targetFile) !== record.resultDigest) {
+      throw new Error(`Paid image ledger snapshot digest mismatch for slot ${slot}`);
+    }
+    files.push(targetFile);
+    slots.push({
+      slot,
+      resultDigest: record.resultDigest,
+      archivedFile: path.basename(targetFile),
+      ...(record.resultProvenance ? { resultProvenance: record.resultProvenance } : {})
+    });
+  }
+  const manifestFile = path.join(archiveDir, "manifest.json");
+  fs.writeFileSync(
+    manifestFile,
+    JSON.stringify(
+      {
+        version: 1,
+        batchFingerprint: ledger.batchFingerprint,
+        recordId: ledger.recordId,
+        productName,
+        label,
+        capturedAt: (options.now || new Date()).toISOString(),
+        expectedSlotCount: ledger.expectedSlotCount,
+        completedSlotCount: files.length,
+        missingSlots,
+        slots
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
+  return { archiveDir, files, manifestFile };
 }
 
 export function resolveArchiveProductName(input: {

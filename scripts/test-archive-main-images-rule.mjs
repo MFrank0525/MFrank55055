@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  archivePaidImageLedgerSnapshot,
   archiveUnwatermarkedMainImages,
   resolveArchiveProductName
 } from "../dist/src/autolist/archive-main-images.js";
@@ -115,3 +117,50 @@ assert.equal(
   20,
   "Artifact and disk-discovered raw images must be deduplicated before archiving."
 );
+
+const ledgerSnapshotProductDir = path.join(tmp, "paid-ledger", "batch", "record");
+fs.mkdirSync(path.join(ledgerSnapshotProductDir, "results"), { recursive: true });
+fs.mkdirSync(path.join(ledgerSnapshotProductDir, "slots"), { recursive: true });
+fs.writeFileSync(
+  path.join(ledgerSnapshotProductDir, "product.json"),
+  JSON.stringify({
+    version: 1,
+    batchFingerprint: "batch",
+    recordId: "record",
+    expectedSlotCount: 2,
+    providerIdentity: "provider",
+    sourceImageDigest: "a".repeat(64),
+    createdAt: "2026-08-21T00:00:00.000Z"
+  })
+);
+const snapshotResult = path.join(ledgerSnapshotProductDir, "results", "01.png");
+fs.writeFileSync(snapshotResult, "snapshot-image");
+fs.writeFileSync(
+  path.join(ledgerSnapshotProductDir, "slots", "01.json"),
+  JSON.stringify({
+    version: 1,
+    slot: 1,
+    requestDigest: "request",
+    promptDigest: "prompt",
+    state: "completed",
+    createdAt: "2026-08-21T00:00:00.000Z",
+    updatedAt: "2026-08-21T00:01:00.000Z",
+    resultFile: snapshotResult,
+    resultDigest: crypto.createHash("sha256").update("snapshot-image").digest("hex"),
+    audit: [{ state: "completed", at: "2026-08-21T00:01:00.000Z" }]
+  })
+);
+const snapshot = archivePaidImageLedgerSnapshot({
+  productDir: ledgerSnapshotProductDir,
+  productName,
+  archiveRootDir: archiveRoot,
+  label: "恢复前",
+  now: new Date("2026-08-21T05:00:00.000Z")
+});
+assert.equal(snapshot.files.length, 1);
+assert.match(snapshot.archiveDir, /恢复前/);
+assert.equal(fs.readFileSync(snapshot.files[0], "utf8"), "snapshot-image");
+const snapshotManifest = JSON.parse(fs.readFileSync(snapshot.manifestFile, "utf8"));
+assert.equal(snapshotManifest.expectedSlotCount, 2);
+assert.equal(snapshotManifest.completedSlotCount, 1);
+assert.deepEqual(snapshotManifest.missingSlots, [2]);

@@ -1094,7 +1094,18 @@ export async function generateWithOpenAiCompatibleProvider(options: {
         if (!fs.existsSync(targetFile) || sha256File(targetFile) !== sha256File(slotAction.resultFile)) {
           fs.copyFileSync(slotAction.resultFile, targetFile);
         }
-        options.onProgress?.(`Image ${absoluteImageIndex}: reused completed paid image ledger result.`);
+        writeImageGenerationJsonLog(`${targetFile}.provenance.json`, {
+          kind: slotAction.record.resultProvenance?.kind || "paid_ledger_reuse",
+          slot: ledgerSlot,
+          sourceSlot: slotAction.record.resultProvenance?.sourceSlot,
+          resultDigest: slotAction.record.resultDigest,
+          providerSubmissionPerformed: false
+        });
+        options.onProgress?.(
+          slotAction.record.resultProvenance?.kind === "operator_approved_existing_result"
+            ? `Image ${absoluteImageIndex}: materialized operator-approved existing result from slot ${slotAction.record.resultProvenance.sourceSlot}; no provider submission.`
+            : `Image ${absoluteImageIndex}: materialized completed paid ledger result; no provider submission.`
+        );
         return { file: targetFile, submitId: slotAction.record.providerTaskId || "ledger-reuse" };
       }
       if (slotAction.action === "poll") {
@@ -1320,6 +1331,12 @@ export async function generateWithOpenAiCompatibleProvider(options: {
         slot: ledgerSlot,
         providerTaskId: taskId,
         sourceFile: targetFile
+      });
+      writeImageGenerationJsonLog(`${targetFile}.provenance.json`, {
+        kind: "provider_task_result",
+        slot: ledgerSlot,
+        resultDigest: sha256File(targetFile),
+        providerSubmissionPerformed: true
       });
     }
     options.onProgress?.(`Image ${absoluteImageIndex}: saved ${path.basename(targetFile)}.`);

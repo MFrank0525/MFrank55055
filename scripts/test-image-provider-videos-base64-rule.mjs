@@ -727,6 +727,9 @@ assert.match(
 );
 assert.match(source, /readVideosBase64SubmittedTask/);
 assert.match(source, /resuming submitted videos-base64 task/);
+assert.match(source, /providerSubmissionPerformed:\s*false/);
+assert.match(source, /providerSubmissionPerformed:\s*true/);
+assert.match(source, /materialized completed paid ledger result; no provider submission/);
 assert.match(source, /initializePaidImageProductLedger/);
 assert.match(source, /reservePaidImageSlot/);
 assert.match(source, /resolvePaidImageSlotAction/);

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { submitTransportFailureProvesNoPaidTaskAccepted } from "./image-generation-rules.js";
+import { isUnsafePaidImageReplayReason, submitTransportFailureProvesNoPaidTaskAccepted } from "./image-generation-rules.js";
 
 export type PaidImageSlotState =
   | "reserved"
@@ -42,9 +42,17 @@ export interface PaidImageSlotRecord {
   providerResponseSummary?: Record<string, unknown>;
   resultFile?: string;
   resultDigest?: string;
+  resultProvenance?: PaidImageResultProvenance;
   reason?: string;
   replayDisposition?: PaidImageReplayDisposition;
   audit: PaidImageSlotAuditEntry[];
+}
+
+export interface PaidImageResultProvenance {
+  kind: "operator_approved_existing_result";
+  sourceSlot: number;
+  sourceResultDigest: string;
+  reason: string;
 }
 
 export interface PaidImageProductLedger {
@@ -148,6 +156,55 @@ export interface RecordPaidImageCompletedInput {
   slot: number;
   sourceFile: string;
   providerTaskId?: string;
+}
+
+export interface RecordPaidImageRecoveredFromExistingResultInput {
+  productDir: string;
+  targetSlot: number;
+  sourceSlot: number;
+  reason: string;
+}
+
+export function validatePaidImageExistingResultRecoveryPlan(input: {
+  productDir: string;
+  mappings: Array<{ targetSlot: number; sourceSlot: number }>;
+}): void {
+  if (!input.mappings.length) throw new Error("operator-approved paid image recovery requires mappings");
+  if (new Set(input.mappings.map((item) => item.targetSlot)).size !== input.mappings.length) {
+    throw new Error("operator-approved paid image recovery requires unique target slots");
+  }
+  if (new Set(input.mappings.map((item) => item.sourceSlot)).size !== input.mappings.length) {
+    throw new Error("operator-approved paid image recovery requires unique source slots");
+  }
+  for (const mapping of input.mappings) {
+    validateSlotRange(input.productDir, mapping.targetSlot);
+    validateSlotRange(input.productDir, mapping.sourceSlot);
+    if (mapping.targetSlot === mapping.sourceSlot) {
+      throw new Error("operator-approved paid image recovery requires different source and target slots");
+    }
+    const target = readSlotRecord(input.productDir, mapping.targetSlot);
+    const source = readSlotRecord(input.productDir, mapping.sourceSlot);
+    if (!target || target.state !== "failed_after_acceptance") {
+      throw new Error(
+        `operator-approved paid image recovery target slot ${mapping.targetSlot} must be failed_after_acceptance, got ${target?.state || "missing"}`
+      );
+    }
+    if (target.replayDisposition === "non_replayable" || isUnsafePaidImageReplayReason(target.reason || "")) {
+      throw new Error(`operator-approved paid image recovery target slot ${mapping.targetSlot} has unsafe terminal evidence`);
+    }
+    if (
+      !source ||
+      source.state !== "completed" ||
+      !source.resultFile ||
+      !source.resultDigest ||
+      !fs.existsSync(source.resultFile) ||
+      sha256File(source.resultFile) !== source.resultDigest
+    ) {
+      throw new Error(
+        `operator-approved paid image recovery source slot ${mapping.sourceSlot} is not a valid completed result`
+      );
+    }
+  }
 }
 
 export interface RecordPaidImageAmbiguousInput {
@@ -579,6 +636,13 @@ function readProductLedger(
   return { ...ledger, productDir };
 }
 
+export function readPaidImageProductLedger(
+  productDir: string,
+  expectedIdentity?: PaidImageLedgerExpectedIdentity
+): PaidImageProductLedger {
+  return readProductLedger(productDir, expectedIdentity);
+}
+
 function productLedgerHasAcceptedOrActivePaidSlots(productDir: string, expectedSlotCount: number): boolean {
   for (let slot = 1; slot <= expectedSlotCount; slot += 1) {
     const file = slotFile(productDir, slot);
@@ -682,6 +746,12 @@ function validateSlotRecord(value: unknown, expectedSlot: number): PaidImageSlot
     (record.resultFile !== undefined && (typeof record.resultFile !== "string" || !path.isAbsolute(record.resultFile))) ||
     (record.resultDigest !== undefined &&
       (typeof record.resultDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.resultDigest))) ||
+    (record.resultProvenance !== undefined &&
+      (record.resultProvenance.kind !== "operator_approved_existing_result" ||
+        !Number.isInteger(record.resultProvenance.sourceSlot) ||
+        record.resultProvenance.sourceSlot < 1 ||
+        !/^[a-f0-9]{64}$/.test(record.resultProvenance.sourceResultDigest) ||
+        !isValidLegacyPersistedText(record.resultProvenance.reason))) ||
     (record.reason !== undefined && !isValidLegacyPersistedText(record.reason)) ||
     (record.replayDisposition !== undefined && record.replayDisposition !== "non_replayable") ||
     (record.owner !== undefined && !isValidOwner(record.owner))
@@ -1089,6 +1159,69 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
     return transitionSlotUnlocked(input.productDir, input.slot, ["submitted"], "completed", {
       resultFile,
       resultDigest: sha256File(resultFile)
+    });
+  });
+}
+
+export function recordPaidImageRecoveredFromExistingResult(
+  input: RecordPaidImageRecoveredFromExistingResultInput
+): PaidImageSlotRecord {
+  validateSlotRange(input.productDir, input.targetSlot);
+  validateSlotRange(input.productDir, input.sourceSlot);
+  if (input.targetSlot === input.sourceSlot) {
+    throw new Error("operator-approved paid image recovery requires different source and target slots");
+  }
+  const reason = cleanText(requireNonEmpty(input.reason, "reason"));
+  const source = readSlotRecord(input.productDir, input.sourceSlot);
+  if (
+    !source ||
+    source.state !== "completed" ||
+    !source.resultFile ||
+    !source.resultDigest ||
+    !fs.existsSync(source.resultFile) ||
+    sha256File(source.resultFile) !== source.resultDigest
+  ) {
+    throw new Error(`operator-approved paid image recovery source slot ${input.sourceSlot} is not a valid completed result`);
+  }
+  const sourceResultFile = source.resultFile;
+  const sourceResultDigest = source.resultDigest;
+  return withSlotLock(input.productDir, input.targetSlot, () => {
+    const target = readSlotRecordUnlocked(input.productDir, input.targetSlot);
+    if (!target || target.state !== "failed_after_acceptance") {
+      throw new Error(
+        `operator-approved paid image recovery target slot ${input.targetSlot} must be failed_after_acceptance, got ${target?.state || "missing"}`
+      );
+    }
+    if (target.replayDisposition === "non_replayable" || isUnsafePaidImageReplayReason(target.reason || "")) {
+      throw new Error(`operator-approved paid image recovery target slot ${input.targetSlot} has unsafe terminal evidence`);
+    }
+    const resultFile = path.join(input.productDir, "results", `${String(input.targetSlot).padStart(2, "0")}.png`);
+    const tempResult = `${resultFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    let tempResultFd: number | undefined;
+    try {
+      fs.copyFileSync(sourceResultFile, tempResult, fs.constants.COPYFILE_EXCL);
+      tempResultFd = fs.openSync(tempResult, "r");
+      fs.fsyncSync(tempResultFd);
+      fs.closeSync(tempResultFd);
+      tempResultFd = undefined;
+      fs.renameSync(tempResult, resultFile);
+      fsyncDirectory(path.dirname(resultFile));
+    } finally {
+      if (tempResultFd !== undefined) fs.closeSync(tempResultFd);
+      if (fs.existsSync(tempResult)) fs.unlinkSync(tempResult);
+    }
+    return transitionSlotUnlocked(input.productDir, input.targetSlot, ["failed_after_acceptance"], "completed", {
+      providerTaskId: undefined,
+      providerResponseSummary: undefined,
+      resultFile,
+      resultDigest: sha256File(resultFile),
+      resultProvenance: {
+        kind: "operator_approved_existing_result",
+        sourceSlot: input.sourceSlot,
+        sourceResultDigest,
+        reason
+      },
+      reason
     });
   });
 }
