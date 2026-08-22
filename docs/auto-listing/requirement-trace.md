@@ -436,3 +436,14 @@ Final evidence before delivery: clean build; full rules and contradiction closur
 | Preserve both sides of recovery without watermarks | The archive action writes separate pre-recovery and post-recovery snapshots with slot-numbered raw files and manifests containing missing slots and recovery provenance | Archive snapshot regression; live `202608211339GYD凉感镇痛贴-恢复前原始无水印图` and `202608211339GYD凉感镇痛贴-恢复后完整无水印图` inspection | verified |
 
 Final evidence: full rules and contradiction closure, all Doctor modes, representative simulation, live 24-field Feishu check, two passing eight-dimension audits with paid images `20/20` and `unconfirmed=0`, plus the 20-shop read-only Doudian audit `20260821-134147` with `publishAttempted=false` and `formMutationAttempted=false`.
+
+## 2026-08-22 Bounded image-service recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain the apparent infinite image wait | Durable run history shows repeated `videos-base64 ... fetch failed` runs approximately every four minutes while the controller stayed `running`; the no-acceptance branch used a 10-second delay and bypassed the ordinary finite budget | Runtime timeline for batch `55c5cc41c894ec8eae59aa59` and controller log | verified |
+| Route every image transport outage through one service-wait policy | No-acceptance `fetch failed` and `fail_to_fetch_task` now classify as external service availability and use the canonical three-minute wait | Progress-state rule regressions | verified |
+| Guarantee controller convergence | External waits have an independent default 12-attempt budget; exhaustion refuses another child run and exits terminal failed while preserving the locked batch and paid-slot ledger | Supervisor recovery-budget regressions | verified |
+| Stop the whole task at an unresolved final-submit boundary | The orchestrator now treats `submit_accepted_unconfirmed`, `needs_manual_review`, and `not_checked` outcomes as blocking even when the browser action result still carries `ok=true/status=published`; cleanup, completion evidence, and the next Feishu product cannot advance | Publish-result contract regression plus representative simulation | verified |
+| Prevent false durable completion at the persistence boundary | `saveCompletedProductEvidence` independently recomputes complete identity-bound accepted coverage and rejects unsafe/incomplete manifests even if an upstream caller supplies `task.status=done` | Deep-audit completion-sink regression | verified |
+| Continue the exact current batch after deployment | Pause at a safe publish boundary, restart with `auto-listing:hermes-continue`, and verify forward progress without Feishu refresh | Real controller continuation | implemented-unverified |

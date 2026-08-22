@@ -266,8 +266,8 @@ const videosBase64NoAcceptanceFetchFailure =
   "failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 1, 3, 5; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 1, 2, 4; reasons: fetch failed | fetch failed | fetch failed";
 assert.equal(
   isRetryableExternalServiceAvailabilityFailure(videosBase64NoAcceptanceFetchFailure),
-  false,
-  "videos-base64 no-acceptance submit transport failures must not enter long external-service wait"
+  true,
+  "videos-base64 no-acceptance submit transport failures must enter the external-service wait policy"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
@@ -290,8 +290,37 @@ assert.equal(
     failureMessage: videosBase64NoAcceptanceFetchFailure,
     externalServiceWaitAttempts: 0
   }),
-  10000,
-  "videos-base64 no-acceptance submit transport failures must retry quickly instead of waiting ten minutes"
+  3 * 60 * 1000,
+  "videos-base64 no-acceptance submit transport failures must use the canonical three-minute service backoff"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64NoAcceptanceFetchFailure,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12,
+    externalServiceWaitAttempts: 12,
+    maxExternalServiceWaitAttempts: 12
+  }),
+  false,
+  "external-service recovery must terminate after its independent finite budget instead of waiting forever"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64NoAcceptanceFetchFailure,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12,
+    externalServiceWaitAttempts: 12,
+    maxExternalServiceWaitAttempts: 12,
+    childMode: "full",
+    activeStep: "main_images_generated",
+    activeMessage: "Prompt 5/5: Image 2: submitting videos-base64 request."
+  }),
+  false,
+  "the supervisor must converge to a terminal failure when the bounded service-wait episode is exhausted"
 );
 const videosBase64SingleTaskProviderFailure =
   'failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 3; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 2; reasons: videos-base64 task task_cCj166vYLmQVsX0MMjLVQ0JHTOTYVyaR failed: {"code":"upstream_error","message":"提示词或图片中可能包含违规信息，请修改后重试"}';
@@ -412,8 +441,8 @@ const videosBase64RetrySubmitFailToFetchTask =
   'failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 3; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 2, 4; reasons: videos-base64 submit failed with HTTP 400: {"code":"fail_to_fetch_task","message":"<html><head><title>400 Bad Request</title></head><body><center><h1>400 Bad Request</h1></center><hr><center>openresty</center></body></html>","data":null} | videos-base64 submit failed with HTTP 400: {"code":"fail_to_fetch_task","message":"<html><head><title>400 Bad Request</title></head><body><center><h1>400 Bad Request</h1></center><hr><center>openresty</center></body></html>","data":null}';
 assert.equal(
   isRetryableExternalServiceAvailabilityFailure(videosBase64RetrySubmitFailToFetchTask),
-  false,
-  "videos-base64 fail_to_fetch_task submit failures must not enter long external-service wait"
+  true,
+  "videos-base64 fail_to_fetch_task submit failures must enter the same bounded external-service wait"
 );
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({

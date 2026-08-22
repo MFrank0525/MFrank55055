@@ -2233,6 +2233,20 @@ assert.equal(
   "Published-looking results that require manual review must stop cleanup and must not be treated as safe."
 );
 assert.equal(
+  selectLatestBlockingPublishResult([
+    {
+      productFolder: "/shops/07/水印07",
+      ok: true,
+      status: "published",
+      message: "Publish button click was issued; platform success signal was not observed.",
+      finalVerifyStatus: "submit_accepted_unconfirmed",
+      errorClass: "final_publish_state_uncertain"
+    }
+  ])?.productFolder,
+  "/shops/07/水印07",
+  "An attempted-but-unconfirmed final submit must fail the task even when the browser action result still looks published."
+);
+assert.equal(
   isPublishOutcomeAcceptedForBatchCompletion({
     status: "skipped",
     finalVerifyStatus: "submit_rejected_exhausted",

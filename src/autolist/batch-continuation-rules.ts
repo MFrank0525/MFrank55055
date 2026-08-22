@@ -1,15 +1,24 @@
 import { isManifestEntryAcceptedForBatchCompletion } from "./publish-manifest.js";
 import { formatAutoListingBatchProgressLabel, formatAutoListingPublishProgressLabel, replaceAutoListingPublishProgressProductName, resolveAutoListingPublishGroupIdentity } from "./status-progress-rules.js";
+import { isUnsafePaidImageReplayReason } from "./image-generation-rules.js";
 import {
-  imageServiceWaitCeilingMs,
-  isAcceptedPaidImageTaskServiceAvailabilityReason,
-  isUnsafePaidImageReplayReason
-} from "./image-generation-rules.js";
-import { isPaidImageAcceptedTaskHeartbeatText } from "./paid-image-wait-rules.js";
+  isPaidImageSubmissionSafetyBlock,
+  isPaidMainImageTransportFailure,
+  isRetryableExternalServiceAvailabilityFailure,
+  isRetryableVideosBase64NoAcceptanceTransportFailure,
+  isRetryableVideosBase64ProviderTaskFailure,
+  resolveDefaultExternalServiceWaitAttempts
+} from "./external-service-recovery-rules.js";
 import { isDoudianLoginRequiredFailure } from "./doudian-login-recovery-rules.js";
 import { resolveMissingSpecTemplateHermesMessage } from "./spec-template-status-rules.js";
 export { formatAutoListingControllerExternalServiceWaitSummary } from "./doudian-login-recovery-rules.js";
 export { shouldExposePublishProgressInAutoListingControllerStatus } from "./status-progress-rules.js";
+export {
+  isRetryableExternalServiceAvailabilityFailure,
+  resolveDefaultExternalServiceWaitAttempts,
+  resolveSupervisorRecoveryDelayMs,
+  shouldConsumeSupervisorRecoveryAttempt
+} from "./external-service-recovery-rules.js";
 export type FeishuBatchContinuationInput = {
   exitCode: number | null;
   batchComplete: boolean;
@@ -41,89 +50,12 @@ export type FeishuBatchRetryAfterFailureInput = {
   retryableFailureMessage?: string;
   recoveryAttempts: number;
   maxRecoveryAttempts: number;
+  externalServiceWaitAttempts?: number;
+  maxExternalServiceWaitAttempts?: number;
 };
 
 export function resolveDefaultRetryableChildFailureRecoveryAttempts(): number {
   return 12;
-}
-
-function isPaidMainImageTransportFailure(message: string): boolean {
-  return (
-    /main_images_generated|main image/i.test(message) &&
-    /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR/i.test(message)
-  );
-}
-
-function isPaidImageSubmissionSafetyBlock(message: string): boolean {
-  return /paid image ledger blocked slot|blocked_(?:reserved|ambiguous)|paid submission safety block/i.test(message);
-}
-
-function isRetryableVideosBase64NoAcceptanceTransportFailure(message: string): boolean {
-  return (
-    /main_images_generated|videos-base64/i.test(message) &&
-    /videos-base64 paid image slots failed/i.test(message) &&
-    /fetch failed|failed to fetch|fail_to_fetch_task|Bad Request|openresty|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|AbortError|aborted/i.test(
-      message
-    ) &&
-    !/blocked_(?:reserved|ambiguous)|paid submission safety block|ambiguous|reserved/i.test(message) &&
-    !/videos-base64 task .*did not finish|videos-base64 task .*failed|provider task failed/i.test(message)
-  );
-}
-
-function isRetryableVideosBase64ProviderTaskFailure(message: string): boolean {
-  return (
-    /main_images_generated|videos-base64/i.test(message) &&
-    /videos-base64 task .* failed|provider task failed/i.test(message) &&
-    !isUnsafePaidImageReplayReason(message) &&
-    !/please contact administrator/i.test(message)
-  );
-}
-
-function isRetryableVideosBase64AcceptedQueueWait(message: string): boolean {
-  return /main_images_generated|main image|watchdog|no progress/i.test(message) &&
-    isPaidImageAcceptedTaskHeartbeatText(message);
-}
-
-export function isRetryableExternalServiceAvailabilityFailure(message: string): boolean {
-  if (
-    isPaidImageSubmissionSafetyBlock(message) ||
-    isUnsafePaidImageReplayReason(message) ||
-    /please contact administrator/i.test(message)
-  ) {
-    return false;
-  }
-  return (
-    isRetryableVideosBase64AcceptedQueueWait(message) ||
-    /paid image provider (?:timeout |service )?circuit open/i.test(message) ||
-    isAcceptedPaidImageTaskServiceAvailabilityReason(message) ||
-    (!isRetryableVideosBase64NoAcceptanceTransportFailure(message) && isPaidMainImageTransportFailure(message)) ||
-    (/main_images_generated/i.test(message) && /videos-base64 task .*did not finish/i.test(message)) ||
-    (/main_images_generated|image generation|main image/i.test(message) &&
-      (/HTTP\s*(429|502|503|504|520|521|522|523|524)/i.test(message) ||
-        /temporarily unavailable|gateway unavailable|service unavailable|resource[_ -]?overloaded|server overloaded|timed out|timeout|aborted/i.test(message)))
-  );
-}
-
-export function shouldConsumeSupervisorRecoveryAttempt(failureMessage: string): boolean {
-  return !isRetryableVideosBase64NoAcceptanceTransportFailure(failureMessage) &&
-    !isRetryableExternalServiceAvailabilityFailure(failureMessage);
-}
-
-export function resolveSupervisorRecoveryDelayMs(input: {
-  failureMessage: string;
-  externalServiceWaitAttempts: number;
-}): number {
-  if (!isRetryableExternalServiceAvailabilityFailure(input.failureMessage)) {
-    return 10000;
-  }
-  const normalDelayMs = imageServiceWaitCeilingMs;
-  const retryMatch =
-    /paid image provider (?:timeout |service )?circuit open[\s\S]*?retry after\s+(\d+)ms/i.exec(
-      input.failureMessage
-    );
-  const slotDelayMs = retryMatch ? Number(retryMatch[1]) : Number.NaN;
-  const validSlotDelay = slotDelayMs >= 1000 && slotDelayMs <= 6 * 60 * 60 * 1000;
-  return validSlotDelay ? slotDelayMs : normalDelayMs;
 }
 
 function isDeterministicDetailQualificationFailure(message: string): boolean {
@@ -192,7 +124,8 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
     isRetryableExternalServiceAvailabilityFailure(retryableFailureMessage) ||
     isRetryableVideosBase64NoAcceptanceTransportFailure(retryableFailureMessage)
   ) {
-    return true;
+    return (input.externalServiceWaitAttempts || 0) <
+      (input.maxExternalServiceWaitAttempts ?? resolveDefaultExternalServiceWaitAttempts());
   }
   if (input.recoveryAttempts >= input.maxRecoveryAttempts) {
     return false;

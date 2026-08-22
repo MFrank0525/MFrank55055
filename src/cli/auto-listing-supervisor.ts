@@ -4,6 +4,7 @@ import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import {
   resolveDefaultRetryableChildFailureRecoveryAttempts,
+  resolveDefaultExternalServiceWaitAttempts,
   isAutoListingControllerProgressArtifactRelativePath,
   isRetryableExternalServiceAvailabilityFailure,
   resolveSupervisorRecoveryChildMode,
@@ -71,6 +72,10 @@ const childStallTimeoutMs = Math.max(180000, Number(process.env.AUTO_LISTING_CHI
 const maxChildRecoveryAttempts = Math.max(
   0,
   Number(process.env.AUTO_LISTING_CHILD_RECOVERY_ATTEMPTS || resolveDefaultRetryableChildFailureRecoveryAttempts())
+);
+const maxExternalServiceWaitAttempts = Math.max(
+  1,
+  Number(process.env.AUTO_LISTING_EXTERNAL_SERVICE_WAIT_ATTEMPTS || resolveDefaultExternalServiceWaitAttempts())
 );
 let latestChildStallProgress: { activeStep?: string; activeMessage?: string } = {};
 
@@ -709,7 +714,9 @@ async function main(): Promise<void> {
         activeMessage: failureProgress.activeMessage,
         publishAttemptState,
         recoveryAttempts: childRecoveryAttempts,
-        maxRecoveryAttempts: maxChildRecoveryAttempts
+        maxRecoveryAttempts: maxChildRecoveryAttempts,
+        externalServiceWaitAttempts,
+        maxExternalServiceWaitAttempts
       })
     ) {
       const consumeRecoveryAttempt = shouldConsumeSupervisorRecoveryAttempt(failureMessage);
@@ -745,6 +752,15 @@ async function main(): Promise<void> {
       nextMode = recoveryMode;
       fullFlowReason = "same_batch_pending";
       continue;
+    }
+
+    if (
+      isRetryableExternalServiceAvailabilityFailure(failureMessage) &&
+      externalServiceWaitAttempts >= maxExternalServiceWaitAttempts
+    ) {
+      console.error(
+        `External image service recovery budget exhausted after ${externalServiceWaitAttempts}/${maxExternalServiceWaitAttempts} waits; terminating the controller so an explicit continue can start a new bounded recovery episode. Reason: ${failureMessage || "unknown"}`
+      );
     }
 
     if (exitCode === 0 && currentBatch.batchComplete) {

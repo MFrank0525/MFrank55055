@@ -287,6 +287,10 @@ const completedEvidenceManifestEntry = {
   status: "published",
   finalVerifyStatus: "publish_signal_confirmed",
   message: "ok",
+  batchFingerprint: "batch-a",
+  taskId: "image-001",
+  sourceImagePath: "/work/current.png",
+  recordId: "record-a",
   updatedAt: new Date().toISOString()
 };
 saveCompletedProductEvidence(completedEvidenceRoot, {
@@ -298,6 +302,24 @@ saveCompletedProductEvidence(completedEvidenceRoot, {
   task: completedEvidenceTask,
   manifestEntries: [completedEvidenceManifestEntry]
 });
+assert.throws(
+  () => saveCompletedProductEvidence(completedEvidenceRoot, {
+    version: 1,
+    batchFingerprint: "batch-a",
+    businessRuleFingerprint: "rules-a",
+    recordId: "record-a",
+    createdAt: new Date().toISOString(),
+    task: completedEvidenceTask,
+    manifestEntries: [{
+      ...completedEvidenceManifestEntry,
+      status: "failed",
+      finalVerifyStatus: "submit_accepted_unconfirmed",
+      errorClass: "final_publish_state_uncertain"
+    }]
+  }),
+  /complete safe publish coverage/,
+  "The durable completion sink must reject unsafe manifest coverage even when an upstream caller labels the task done."
+);
 assert.deepEqual(
   loadCompletedProductEvidenceForBatch(completedEvidenceRoot, "batch-a").map((item) => ({
     recordId: item.recordId,

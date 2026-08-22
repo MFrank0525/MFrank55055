@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import type { PublishManifestEntry } from "./publish-manifest.js";
+import { isProductFullyProcessed } from "./processed-completion-rules.js";
 import type { ImageTaskState } from "./types.js";
 
 export interface CompletedProductEvidence {
@@ -28,6 +29,21 @@ export function saveCompletedProductEvidence(rootDir: string, evidence: Complete
   }
   if (evidence.task.status !== "done" || evidence.manifestEntries.length === 0) {
     throw new Error("Completed product evidence requires a done task and non-empty canonical publish coverage.");
+  }
+  if (!isProductFullyProcessed({
+    task: evidence.task,
+    publishManifestEntries: evidence.manifestEntries,
+    productIdentity: {
+      batchFingerprint: evidence.batchFingerprint,
+      taskId: evidence.task.taskId,
+      sourceImagePath: evidence.task.sourceImagePath,
+      recordId: evidence.recordId,
+      userCognitionName: evidence.task.feishuProductRecord?.userCognitionName,
+      genericName: evidence.task.feishuProductRecord?.genericName,
+      productCategory: evidence.task.feishuProductRecord?.productCategory
+    }
+  })) {
+    throw new Error("Completed product evidence requires complete safe publish coverage for its canonical product identity.");
   }
   const file = completedProductEvidenceFile(rootDir, evidence.batchFingerprint, evidence.recordId);
   atomicWriteJson(file, evidence);

@@ -314,7 +314,11 @@ export function selectLatestBlockingPublishResult<T extends { ok: boolean; final
 ): T | undefined {
   return [...results].reverse().find((item) =>
     !isPublishOutcomeAcceptedForBatchCompletion(item) &&
-    (!item.ok || item.status === "failed" || item.finalVerifyStatus === "needs_manual_review")
+    (
+      !item.ok ||
+      item.status === "failed" ||
+      ["not_checked", "submit_accepted_unconfirmed", "needs_manual_review"].includes(item.finalVerifyStatus || "")
+    )
   );
 }
 
