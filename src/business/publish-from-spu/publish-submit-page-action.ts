@@ -528,7 +528,7 @@ async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolea
   for (let attempt = 0; attempt < 8; attempt += 1) {
     await page.waitForTimeout(1500).catch(() => {});
     const beforeDismiss = await readPublishSubmissionState(page).catch(() => null);
-    if (beforeDismiss?.submitted || beforeDismiss?.issue.includes("系统异常")) {
+    if (beforeDismiss && (beforeDismiss.submitted || /系统异常|规格值不能重复/.test(beforeDismiss.issue || ""))) {
       return beforeDismiss;
     }
     await clickVisibleDialogAction(page, ["不修改，继续发布", "确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
@@ -538,6 +538,9 @@ async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolea
       issue: error instanceof Error ? error.message : String(error)
     }));
     if (state.submitted) {
+      return state;
+    }
+    if (/系统异常|规格值不能重复/.test(state.issue || "")) {
       return state;
     }
   }
@@ -613,7 +616,7 @@ async function waitForPublishSubmissionFromContext(
       if (beforeDismiss?.submitted) {
         return { page: candidate, submitted: true, issue: "" };
       }
-      if (beforeDismiss?.issue.includes("系统异常")) {
+      if (beforeDismiss && /系统异常|规格值不能重复/.test(beforeDismiss.issue || "")) {
         return { page: candidate, submitted: false, issue: beforeDismiss.issue };
       }
       await clickVisibleDialogAction(candidate, ["不修改，继续发布", "确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
@@ -628,6 +631,9 @@ async function waitForPublishSubmissionFromContext(
       lastState = { page: candidate, submitted: state.submitted, issue: state.issue };
       if (state.submitted) {
         return { page: candidate, submitted: true, issue: "" };
+      }
+      if (/系统异常|规格值不能重复/.test(state.issue || "")) {
+        return { page: candidate, submitted: false, issue: state.issue };
       }
     }
 

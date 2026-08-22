@@ -515,6 +515,14 @@ export function evaluatePublishSubmission(snapshot: PublishPageSnapshot): Publis
     };
   }
 
+  if (bodyText.includes("规格值不能重复")) {
+    return {
+      submitted: false,
+      issue: "平台明确拒绝发布：规格值不能重复",
+      freshCreatePage: false
+    };
+  }
+
   const freshCreatePage = isFreshPublishCreatePage(snapshot);
   const issue = (snapshot.visibleErrorAlerts || [])
     .map((alert) => alert.replace(/\s+/g, " ").trim())
@@ -538,6 +546,9 @@ export function evaluatePublishSubmissionAfterAction(
 export function classifyPublishFailure(message: string): string {
   const text = normalizeVisibleText(message);
   if (!text) return "";
+  if (text.includes("规格值不能重复")) {
+    return "spec_value_duplicate_rejected";
+  }
   if (
     text.includes("Publishfill-checkisstillrunning") ||
     text.includes("Publishfill-checkdidnotsettle") ||
@@ -902,6 +913,14 @@ export function evaluatePublishResult(input: PublishResultRuleInput): PublishRes
       finalVerifyStatus: "publish_signal_confirmed",
       errorClass: "",
       issue: ""
+    };
+  }
+  if (input.publishClickAttempted === true && errorClass === "spec_value_duplicate_rejected") {
+    return {
+      safelyPublished: false,
+      finalVerifyStatus: "submit_rejected_exhausted",
+      errorClass,
+      issue: publishIssue || message || "The platform explicitly rejected duplicate specification values."
     };
   }
   if (input.publishClickAttempted === true && !publishIssue && input.status === "published") {

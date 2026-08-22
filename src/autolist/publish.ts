@@ -597,6 +597,39 @@ export async function publishDistributedProducts(options: {
           failureCircuit = { signature: "", consecutive: 0, open: false };
           continue;
         }
+        if (existingDecision.finalVerifyStatus === "submit_rejected_exhausted") {
+          const message = `Platform deterministically rejected this target and exact-title verification found no product; deferring without another publish click: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
+          results.push({
+            targetIdentity,
+            targetKey,
+            productFolder,
+            ok: false,
+            status: "skipped",
+            message,
+            resultFile: existingResultFile,
+            finalVerifyStatus: "submit_rejected_exhausted",
+            errorClass: existingDecision.errorClass
+          });
+          upsertPublishManifestEntry(options.runtimeDir, {
+            targetIdentity,
+            targetKey,
+            productFolder,
+            runtimeKey,
+            shopFolder,
+            watermarkNo: extractWatermarkNo(productFolder),
+            status: "skipped",
+            finalVerifyStatus: "submit_rejected_exhausted",
+            resultFile: existingResultFile,
+            message,
+            errorClass: existingDecision.errorClass,
+            ...productIdentityFields
+          });
+          clearCheckpoint(targetRuntimeDir);
+          failureCircuit = { signature: "", consecutive: 0, open: false };
+          logInfo(message);
+          options.onProgress?.(message);
+          continue;
+        }
         if (
           (existingDecision.finalVerifyStatus === "submit_rejected_confirmed"
             || existingSummary.reviewedNegativeRetryApproved === true)

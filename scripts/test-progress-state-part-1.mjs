@@ -466,6 +466,11 @@ assert.match(
 );
 assert.match(
   publishSource,
+  /existingDecision\.finalVerifyStatus === "submit_rejected_exhausted"[\s\S]*deferring without another publish click[\s\S]*status: "skipped"/,
+  "Resume must preserve a deterministic platform validation rejection as a terminal skipped target without another click."
+);
+assert.match(
+  publishSource,
   /requiresPostSubmitListVerification\(existingDecision,\s*existingSummary\)[\s\S]*verifyPublishedProductInDoudianList[\s\S]*finalVerifyStatus:\s*"list_verified"[\s\S]*continue;[\s\S]*refusing to replay publish/,
   "Auto-listing resume must resolve an existing uncertain submit read-only or stop without replaying publish"
 );
@@ -1978,6 +1983,37 @@ assert.deepEqual(
     freshCreatePage: false
   },
   "Static publish-page guidance must not be promoted to a post-submit platform rejection"
+);
+const duplicateSpecPlatformIssue = "平台明确拒绝发布：规格值不能重复";
+assert.deepEqual(
+  evaluatePublishSubmission({
+    url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",
+    bodyText: "1个错误问题待处理 错误提示 规格值 错误 规格值不能重复 发布商品",
+    visibleErrorAlerts: []
+  }),
+  {
+    submitted: false,
+    issue: duplicateSpecPlatformIssue,
+    freshCreatePage: false
+  },
+  "A visible duplicate-spec rejection after submit must be classified explicitly instead of timing out as an uncertain click."
+);
+assert.equal(classifyPublishFailure(duplicateSpecPlatformIssue), "spec_value_duplicate_rejected");
+assert.deepEqual(
+  evaluatePublishResult({
+    ok: true,
+    status: "published",
+    publishClickAttempted: true,
+    publishClicked: false,
+    publishIssue: duplicateSpecPlatformIssue
+  }),
+  {
+    safelyPublished: false,
+    finalVerifyStatus: "submit_rejected_exhausted",
+    errorClass: "spec_value_duplicate_rejected",
+    issue: duplicateSpecPlatformIssue
+  },
+  "A shop template whose duplicate spec values are explicitly rejected is deterministic and must not consume another publish click."
 );
 assert.deepEqual(
   evaluatePublishSubmission({

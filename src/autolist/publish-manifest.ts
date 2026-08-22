@@ -183,7 +183,7 @@ export function isPublishOutcomeAcceptedForBatchCompletion(entry: {
   }
   if (entry.status === "skipped") {
     return entry.finalVerifyStatus === "submit_rejected_exhausted"
-      && entry.errorClass === "final_publish_submit_transient";
+      && ["final_publish_submit_transient", "spec_value_duplicate_rejected"].includes(entry.errorClass || "");
   }
   return false;
 }

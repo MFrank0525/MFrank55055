@@ -2256,6 +2256,15 @@ assert.equal(
   "A durable exhausted rejection must have one shared non-replay product-completion classification."
 );
 assert.equal(
+  isPublishOutcomeAcceptedForBatchCompletion({
+    status: "skipped",
+    finalVerifyStatus: "submit_rejected_exhausted",
+    errorClass: "spec_value_duplicate_rejected"
+  }),
+  true,
+  "A deterministic duplicate-spec rejection must be terminal accepted coverage after exact-title absence is verified."
+);
+assert.equal(
   selectLatestBlockingPublishResult([
     {
       productFolder: "/shops/06/水印06",
