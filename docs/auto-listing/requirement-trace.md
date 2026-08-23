@@ -426,6 +426,14 @@ Final evidence before delivery: clean build; full rules and contradiction closur
 | Stop burning retries and paid slots during an outage | The action layer routes these failures through the existing fixed-slot exponential circuit and the supervisor's independent `external_service_wait`; ordinary child recovery attempts are not consumed | Fixed-slot recovery regression and supervisor recovery-budget regression | verified |
 | Preserve successful work on continuation | The persistent ledger remains at 18 completed slots and authorizes submission only for failed fixed slots 09 and 10; original prompt identity remains unchanged | Live ledger summary before continuation and paid-resume-plan regression | verified |
 
+## 2026-08-23 Recharge-gated fixed-slot recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Resume after the user restores provider funds without weakening financial fail-closed rules | Dedicated operator action accepts only `failed_before_acceptance + non_replayable + HTTP 403 insufficient_user_quota/用户额度不足`, with no provider task ID or response summary | Red-before-green paid-ledger regression; production slots 15–20 evidence | verified |
+| Preserve paid identity and prevent whole-round replay | Approval keeps request/prompt digests and authorizes only the explicitly listed fixed slots; completed slots remain immutable | Paid-ledger action regression and post-approval ledger audit | verified |
+| Make the financial override auditable | Controller must be stopped; product ledger and every target slot are validated together and archived before approval entries are appended | Recharge recovery CLI archive and approval manifest | verified |
+
 ## 2026-08-21 Paid-image materialization provenance and operator-approved completion
 
 | Requirement | Implementation | Verification | Status |

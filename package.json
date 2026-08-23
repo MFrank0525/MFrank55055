@@ -13,6 +13,7 @@
     "auto-listing:hermes-pause": "npm run auto-listing:pause",
     "auto-listing:resume-ready": "npm run build && node dist/src/cli/auto-listing-controller.js resume-ready --text",
     "auto-listing:reconcile-paid-image-task": "npm run build && node dist/src/cli/reconcile-paid-image-task.js",
+    "auto-listing:approve-paid-image-recharge-retry": "npm run build && node dist/src/cli/approve-paid-image-recharge-retry.js",
     "auto-listing:recover-existing-paid-images": "npm run build && node dist/src/cli/recover-existing-paid-image-results.js",
     "auto-listing:regenerate-distributed-titles": "npm run build && node dist/src/cli/regenerate-distributed-titles.js",
     "auto-listing:hermes-start": "npm --silent run build && node dist/src/cli/auto-listing-controller.js start-new --text",

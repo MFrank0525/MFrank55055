@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  approvePaidImageRechargeRetry,
   currentPaidImageLedgerProcessIdentity,
   expireSubmittedPaidImageQueue,
   initializePaidImageProductLedger,
@@ -40,6 +41,43 @@ const identity = {
 };
 const ownerA = { runId: "run-a", taskId: "task-a", pid: 101 };
 const ownerB = { runId: "run-b", taskId: "task-b", pid: 202 };
+
+const rechargeLedger = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-recharge",
+  recordId: "record-recharge"
+});
+reservePaidImageSlot({
+  productDir: rechargeLedger.productDir,
+  slot: 15,
+  requestDigest: "recharge-request",
+  promptDigest: "recharge-prompt",
+  owner: ownerA
+});
+recordPaidImageFailedBeforeAcceptance({
+  productDir: rechargeLedger.productDir,
+  slot: 15,
+  reason: 'HTTP 403: {"code":"insufficient_user_quota","message":"用户额度不足, 剩余额度: ¥0.000000"}',
+  replayDisposition: "non_replayable"
+});
+const rechargeApproved = approvePaidImageRechargeRetry({
+  productDir: rechargeLedger.productDir,
+  slot: 15,
+  reason: "operator confirmed external account funding restored"
+});
+assert.equal(rechargeApproved.state, "failed_before_acceptance");
+assert.equal(rechargeApproved.replayDisposition, undefined);
+assert.equal(resolvePaidImageSlotAction({ productDir: rechargeLedger.productDir, slot: 15 }).action, "retry_failed_before_acceptance");
+assert.throws(
+  () => approvePaidImageRechargeRetry({ productDir: rechargeLedger.productDir, slot: 15, reason: "duplicate" }),
+  /not recharge-recoverable/i
+);
+const rechargeCliSource = fs.readFileSync("src/cli/approve-paid-image-recharge-retry.ts", "utf8");
+const rechargePackage = JSON.parse(fs.readFileSync("package.json", "utf8"));
+assert.match(rechargeCliSource, /controller\.status === "running"/);
+assert.match(rechargeCliSource, /recovery-archives/);
+assert.match(rechargeCliSource, /approvePaidImageRechargeRetry/);
+assert.match(rechargePackage.scripts["auto-listing:approve-paid-image-recharge-retry"], /approve-paid-image-recharge-retry/);
 const currentProcessIdentity = currentPaidImageLedgerProcessIdentity();
 assert.ok(currentProcessIdentity.identity);
 assert.match(currentProcessIdentity.source, /^(ps-lstart-command-sha256|local-process-start-sha256)$/);

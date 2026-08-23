@@ -222,6 +222,12 @@ export interface RecordPaidImageFailedBeforeAcceptanceInput {
   replayDisposition?: PaidImageReplayDisposition;
 }
 
+export interface ApprovePaidImageRechargeRetryInput {
+  productDir: string;
+  slot: number;
+  reason: string;
+}
+
 export interface RecordPaidImageFailedAfterAcceptanceInput {
   productDir: string;
   slot: number;
@@ -1238,6 +1244,42 @@ export function recordPaidImageFailedBeforeAcceptance(input: RecordPaidImageFail
   return transitionSlot(input.productDir, input.slot, ["reserved"], "failed_before_acceptance", {
     reason: cleanText(requireNonEmpty(input.reason, "reason")),
     ...(input.replayDisposition ? { replayDisposition: input.replayDisposition } : {})
+  });
+}
+
+export function approvePaidImageRechargeRetry(
+  input: ApprovePaidImageRechargeRetryInput
+): PaidImageSlotRecord {
+  validateSlotRange(input.productDir, input.slot);
+  return withSlotLock(input.productDir, input.slot, () => {
+    const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    const originalReason = record?.reason || "";
+    const explicitQuotaRejection = /HTTP\s*403/i.test(originalReason)
+      && /insufficient_user_quota|用户额度不足/i.test(originalReason);
+    if (
+      !record
+      || record.state !== "failed_before_acceptance"
+      || record.replayDisposition !== "non_replayable"
+      || record.providerTaskId
+      || record.providerResponseSummary
+      || !explicitQuotaRejection
+    ) {
+      throw new Error(`paid image slot ${input.slot} is not recharge-recoverable`);
+    }
+    const at = new Date().toISOString();
+    const approvalReason = cleanText(requireNonEmpty(input.reason, "reason"));
+    const { replayDisposition: _discardedDisposition, ...withoutDisposition } = record;
+    const next: PaidImageSlotRecord = {
+      ...withoutDisposition,
+      reason: "operator-approved no-acceptance fixed-slot retry",
+      updatedAt: at,
+      audit: [
+        ...record.audit,
+        { state: "failed_before_acceptance", at, reason: approvalReason }
+      ]
+    };
+    atomicWriteJson(slotFile(input.productDir, input.slot), next);
+    return validateSlotRecord(next, input.slot);
   });
 }
 
