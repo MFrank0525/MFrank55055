@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isFullyDecodableImageFile } from "../utils/image-integrity.js";
 
 export interface ReusableTaskArtifactSummary {
   reusableRawImageCount: number;
@@ -23,13 +24,14 @@ export function hasIncompleteFixedMainImageRoundFiles(options: {
     .map((entry) => path.join(taskDir, entry.name, "openai-compatible", "raw"))
     .filter((dir) => fs.existsSync(dir));
   return roundDirs.some((rawDir) => {
+    const candidateNames = fs.readdirSync(rawDir).filter((name) => /^generated-(\d+).*\.(png|jpe?g|webp)$/i.test(name));
     const indexes = new Set(
-      fs.readdirSync(rawDir).flatMap((name) => {
+      candidateNames.flatMap((name) => {
         const match = /^generated-(\d+).*\.(png|jpe?g|webp)$/i.exec(name);
-        return match ? [Number(match[1])] : [];
+        return match && isFullyDecodableImageFile(path.join(rawDir, name)) ? [Number(match[1])] : [];
       })
     );
-    return indexes.size > 0 && expected.some((index) => !indexes.has(index));
+    return candidateNames.length > 0 && expected.some((index) => !indexes.has(index));
   });
 }
 
@@ -48,7 +50,11 @@ function walkFiles(rootDir: string, visit: (file: string) => void): void {
 }
 
 export function isReusableRawMainImageFile(file: string): boolean {
-  return path.basename(path.dirname(file)) === "raw" && /^generated-\d+.*\.(png|jpe?g|webp)$/i.test(path.basename(file));
+  return (
+    path.basename(path.dirname(file)) === "raw" &&
+    /^generated-\d+.*\.(png|jpe?g|webp)$/i.test(path.basename(file)) &&
+    isFullyDecodableImageFile(file)
+  );
 }
 
 export function isReusablePaidImageLedgerSlotFile(file: string): boolean {

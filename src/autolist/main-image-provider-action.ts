@@ -19,23 +19,28 @@ import {
   shouldRetryImageGenerationWithPolicyPrompt,
   shouldKeepPaidImagePolicyCompatiblePrompt,
   resolvePaidImageFixedSlotRecovery,
+  shouldFallbackToAuthenticatedTaskContent,
   shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted
 } from "./image-generation-rules.js";
 import { readManualTextBlock } from "./operation-manual.js";
 import {
   initializePaidImageProductLedger,
+  paidImageProductLedgerDir,
   recordPaidImageAmbiguous,
   recordPaidImageCompleted,
   recordPaidImageFailedAfterAcceptance,
   recordPaidImageFailedBeforeAcceptance,
   recordPaidImageSubmitted,
   reservePaidImageSlot,
+  resolvePaidImageProviderIdentityProofCandidate,
   resolvePaidImageSlotAction,
+  rotatePaidImageProviderIdentityWithAuthenticatedTaskProof,
   sha256File,
   sha256Text
 } from "./paid-image-submission-ledger.js";
 import { getShopSpecs, shopCodeFromFolder } from "./product-category.js";
 import { requireOpenAiCompatibleImageProvider } from "./image-generation-provider.js";
+import { writeFullyValidatedImageAtomic } from "../utils/image-integrity.js";
 
 export interface OpenAiCompatibleImageConfig {
   provider: "openai-compatible";
@@ -380,7 +385,7 @@ export function isTransientImageProviderErrorMessage(message: string): boolean {
   if (isBillingError(message)) {
     return false;
   }
-  return /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|abort|timeout|timed out/i.test(message);
+  return /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|abort|timeout|timed out|full decode validation|image artifact.*decode|image file is truncated/i.test(message);
 }
 
 export async function settleConcurrentWork<T>(work: Array<Promise<T>>, label: string): Promise<T[]> {
@@ -589,7 +594,7 @@ export async function downloadGeneratedImage(url: string, targetFile: string, ap
       throw normalizeImageGenerationError("Image download failed with HTTP " + response.status + ": " + safeDownloadText);
     }
     const buffer = Buffer.from(await response.arrayBuffer());
-    fs.writeFileSync(targetFile, buffer);
+    writeFullyValidatedImageAtomic(targetFile, buffer);
   } catch (error) {
     const safeErrorText = sanitizeImageGenerationProviderErrorText(
       error instanceof Error ? error.message : String(error),
@@ -779,27 +784,17 @@ export async function generateWithOpenAiCompatibleProvider(options: {
     }
   });
 
-  const videosBase64Ledger =
-    options.paidImageLedger
-      ? initializePaidImageProductLedger({
-          rootDir: options.paidImageLedger.rootDir,
-          batchFingerprint: options.paidImageLedger.batchFingerprint,
-          recordId: options.paidImageLedger.recordId,
-          expectedSlotCount: options.paidImageLedger.expectedSlotCount,
-          providerIdentity: sha256Text(
-            JSON.stringify({
-              apiUrl: config.apiUrl,
-              statusUrl: "",
-              model: config.model,
-              mode,
-              size: MAIN_IMAGE_PROVIDER_SIZE,
-              videoMetadata: config.videoMetadata || {},
-              requestExtra: config.requestExtra || {}
-            })
-          ),
-          sourceImageDigest: sha256File(options.sourceImagePath)
-        })
-      : undefined;
+  const providerIdentity = sha256Text(
+    JSON.stringify({
+      apiUrl: config.apiUrl,
+      credentialFingerprint: sha256Text(config.apiKey || ""),
+      model: config.model,
+      mode,
+      size: MAIN_IMAGE_PROVIDER_SIZE,
+      videoMetadata: config.videoMetadata || {},
+      requestExtra: config.requestExtra || {}
+    })
+  );
   const fetchVideosBase64Task = async (taskId: string, content = false): Promise<Response> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -816,6 +811,53 @@ export async function generateWithOpenAiCompatibleProvider(options: {
       clearTimeout(timer);
     }
   };
+  let videosBase64Ledger: ReturnType<typeof initializePaidImageProductLedger> | undefined;
+  if (options.paidImageLedger) {
+    const productDir = paidImageProductLedgerDir(
+      options.paidImageLedger.rootDir,
+      options.paidImageLedger.batchFingerprint,
+      options.paidImageLedger.recordId
+    );
+    if (fs.existsSync(productDir)) {
+      const proof = resolvePaidImageProviderIdentityProofCandidate(productDir);
+      if (proof && proof.currentProviderIdentity !== providerIdentity) {
+        const proofResponse = await fetchVideosBase64Task(proof.providerTaskId, false);
+        if (!proofResponse.ok) {
+          throw new Error(
+            `Paid image provider credential identity changed and same-account proof failed with HTTP ${proofResponse.status}.`
+          );
+        }
+        const proofPayload = await proofResponse.json().catch(() => undefined);
+        const proofTaskId = proofPayload ? extractVideosBase64TaskId(proofPayload) : "";
+        const proofStatus = String(proofPayload?.status ?? proofPayload?.data?.status ?? "").toLowerCase();
+        const proofModel = String(proofPayload?.model ?? proofPayload?.data?.model ?? "");
+        const proofSize = String(proofPayload?.size ?? proofPayload?.data?.size ?? "");
+        if (
+          proofTaskId !== proof.providerTaskId ||
+          !["completed", "succeeded", "success"].includes(proofStatus) ||
+          proofModel !== config.model ||
+          proofSize !== MAIN_IMAGE_PROVIDER_SIZE
+        ) {
+          throw new Error("Paid image provider credential identity changed and authenticated task proof did not match the ledger contract.");
+        }
+        rotatePaidImageProviderIdentityWithAuthenticatedTaskProof({
+          productDir,
+          previousProviderIdentity: proof.currentProviderIdentity,
+          nextProviderIdentity: providerIdentity,
+          proofProviderTaskId: proof.providerTaskId,
+          proofResultDigest: proof.resultDigest
+        });
+      }
+    }
+    videosBase64Ledger = initializePaidImageProductLedger({
+      rootDir: options.paidImageLedger.rootDir,
+      batchFingerprint: options.paidImageLedger.batchFingerprint,
+      recordId: options.paidImageLedger.recordId,
+      expectedSlotCount: options.paidImageLedger.expectedSlotCount,
+      providerIdentity,
+      sourceImageDigest: sha256File(options.sourceImagePath)
+    });
+  }
 
   const sendVideosBase64SubmitWithTransientRetries = async (
     imageIndex: number,
@@ -933,6 +975,9 @@ export async function generateWithOpenAiCompatibleProvider(options: {
         return;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (shouldFallbackToAuthenticatedTaskContent(message)) {
+          throw error;
+        }
         const transient =
           isTransientImageProviderErrorMessage(message) || /HTTP\s+(429|500|502|503|504)\b/i.test(message);
         if (!transient || attempt >= transportRetryPolicy.maxRetries) {
@@ -943,12 +988,12 @@ export async function generateWithOpenAiCompatibleProvider(options: {
     }
   };
 
-  const downloadVideosBase64TaskContent = async (
+  const downloadVideosBase64TaskContentOnce = async (
     taskId: string,
     targetFile: string,
     imageIndex: number
   ): Promise<void> => {
-    const contentResponse = await fetchVideosBase64TaskWithTransportRetries(taskId, true, imageIndex, "content");
+    const contentResponse = await fetchVideosBase64Task(taskId, true);
     if (!contentResponse.ok) {
       const contentError = await contentResponse.text().catch(() => "");
       const safeContentError = sanitizeImageGenerationProviderErrorText(contentError, contentResponse.statusText);
@@ -960,7 +1005,28 @@ export async function generateWithOpenAiCompatibleProvider(options: {
     if (contentType && !/^image\/|application\/octet-stream/i.test(contentType)) {
       throw normalizeImageGenerationError("videos-base64 content response was not an image: " + contentType);
     }
-    fs.writeFileSync(targetFile, Buffer.from(await contentResponse.arrayBuffer()));
+    writeFullyValidatedImageAtomic(targetFile, Buffer.from(await contentResponse.arrayBuffer()));
+  };
+
+  const downloadVideosBase64TaskContent = async (
+    taskId: string,
+    targetFile: string,
+    imageIndex: number
+  ): Promise<void> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await downloadVideosBase64TaskContentOnce(taskId, targetFile, imageIndex);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const transient =
+          isTransientImageProviderErrorMessage(message) || /HTTP\s+(429|500|502|503|504)\b/i.test(message);
+        if (!transient || attempt >= transportRetryPolicy.maxRetries) {
+          throw error;
+        }
+        await waitBeforeVideosBase64ReadRetry(taskId, imageIndex, "content-delivery", attempt, message);
+      }
+    }
   };
 
   const buildPromptForImageIndex = (_imageIndex: number): string => options.promptText;
@@ -1283,6 +1349,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
     }
 
     let resultUrlStatus: number | undefined;
+    let resultUrlArtifactInvalid = false;
     try {
       const resultUrl = extractVideosBase64ResultUrl(statusPayload);
       if (resultUrl) {
@@ -1290,12 +1357,13 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           await downloadVideosBase64ResultWithTransportRetries(resultUrl, targetFile, taskId, absoluteImageIndex);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          if (!/HTTP\s+404\b/i.test(message)) {
+          if (!shouldFallbackToAuthenticatedTaskContent(message)) {
             throw error;
           }
-          resultUrlStatus = 404;
+          resultUrlStatus = /HTTP\s+404\b/i.test(message) ? 404 : undefined;
+          resultUrlArtifactInvalid = /full decode validation|image artifact.*decode|image file is truncated/i.test(message);
           options.onProgress?.(
-            `Image ${absoluteImageIndex}: result URL missing; falling back to authenticated content for accepted task ${taskId}.`
+            `Image ${absoluteImageIndex}: result URL delivery was unusable; falling back to authenticated content for accepted task ${taskId}.`
           );
           await downloadVideosBase64TaskContent(taskId, targetFile, absoluteImageIndex);
         }
@@ -1306,11 +1374,14 @@ export async function generateWithOpenAiCompatibleProvider(options: {
       const message = error instanceof Error ? error.message : String(error);
       const contentStatusMatch = /videos-base64 content download failed with HTTP\s+(\d{3})\b/i.exec(message);
       const contentStatus = contentStatusMatch ? Number(contentStatusMatch[1]) : undefined;
+      const contentArtifactInvalid = /full decode validation|image artifact.*decode|image file is truncated/i.test(message);
       const completedResultDeliveryExhausted = shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted({
         taskCompleted: videosBase64Succeeded(statusPayload),
         resultUrlStatus,
         contentStatus,
-        contentRetriesExhausted: true
+        contentRetriesExhausted: true,
+        resultUrlArtifactInvalid,
+        contentArtifactInvalid
       });
       if ((contentStatus === 404 || completedResultDeliveryExhausted) && videosBase64Ledger) {
         recordPaidImageFailedAfterAcceptance({
@@ -1318,7 +1389,9 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           slot: ledgerSlot,
           providerTaskId: taskId,
           reason: completedResultDeliveryExhausted
-            ? `accepted provider task missing result after completed status: result URL HTTP 404; authenticated content HTTP ${contentStatus} exhausted transient retries`
+            ? contentArtifactInvalid
+              ? "accepted provider task returned invalid image bytes from both result URL and authenticated content after completed status"
+              : `accepted provider task missing result after completed status: result URL HTTP 404; authenticated content HTTP ${contentStatus} exhausted transient retries`
             : "accepted provider task expired: authenticated content endpoint returned HTTP 404 after completed status",
           providerResponse: statusPayload
         });

@@ -255,13 +255,24 @@ export function shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted(input
   resultUrlStatus?: number;
   contentStatus?: number;
   contentRetriesExhausted: boolean;
+  resultUrlArtifactInvalid?: boolean;
+  contentArtifactInvalid?: boolean;
 }): boolean {
   return (
     input.taskCompleted &&
-    input.resultUrlStatus === 404 &&
     input.contentRetriesExhausted &&
-    [502, 503, 504, 520, 521, 522, 523, 524].includes(Number(input.contentStatus || 0))
+    (
+      (
+        input.resultUrlStatus === 404 &&
+        [502, 503, 504, 520, 521, 522, 523, 524].includes(Number(input.contentStatus || 0))
+      ) ||
+      (input.resultUrlArtifactInvalid === true && input.contentArtifactInvalid === true)
+    )
   );
+}
+
+export function shouldFallbackToAuthenticatedTaskContent(message: string): boolean {
+  return /HTTP\s+404\b|full decode validation|image artifact.*decode|image file is truncated/i.test(message);
 }
 
 function isPaidImageSubmitStageUncertaintyReason(reason: string): boolean {
@@ -474,6 +485,17 @@ export function resolvePaidImageFixedSlotRecovery(input: {
 } {
   const failureReason = input.failureReason || "";
   const unsafeReplay = isUnsafePaidImageReplayReason(failureReason);
+  const irretrievableCompletedResult =
+    /accepted provider task returned invalid image bytes from both result URL and authenticated content after completed status/i.test(
+      failureReason
+    );
+  if (irretrievableCompletedResult && !unsafeReplay) {
+    return {
+      action: "retry_fixed_slot_now",
+      usePolicyCompatiblePrompt: false,
+      deferMs: 0
+    };
+  }
   const explicitServiceAvailability = isAcceptedPaidImageTaskServiceAvailabilityReason(failureReason);
   if (explicitServiceAvailability && !unsafeReplay) {
     const serviceRetry = resolvePaidImageProviderServiceRetry(input);

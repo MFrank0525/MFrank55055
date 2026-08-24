@@ -11,6 +11,7 @@ import {
 import { applyLocalWatermark } from "./local-watermark.js";
 import { ensureSquareMainImageFile } from "./main-image-square-action.js";
 import { evaluateMainImageSquareRule } from "./main-image-shape-rules.js";
+import { isFullyDecodableImageFile } from "../utils/image-integrity.js";
 import {
   paidImageProductLedgerDir,
   summarizePaidImageProductLedger
@@ -109,7 +110,9 @@ async function recoverExistingRoundOutputs(options: {
   }> = [];
 
   const startImageIndex = options.startImageIndex;
-  const rawCandidates = listImageFilesRecursive(options.roundDir).filter((file) => file.includes(path.sep + "raw" + path.sep));
+  const rawCandidates = listImageFilesRecursive(options.roundDir).filter(
+    (file) => file.includes(path.sep + "raw" + path.sep) && isFullyDecodableImageFile(file)
+  );
   const rawByLocalIndex = new Map(
     rawCandidates.flatMap((file) => {
       const match = /^generated-(\d+)/i.exec(path.basename(file));
@@ -136,7 +139,10 @@ async function recoverExistingRoundOutputs(options: {
     const expectedWatermarkText = Number.isInteger(imageIndex) ? options.resolveWatermarkText(imageIndex) : "";
     const stagedShapeValid = (() => {
       try {
-        return evaluateMainImageSquareRule(readImageDimensions(stagedFile)).action === "reuse";
+        return (
+          isFullyDecodableImageFile(stagedFile) &&
+          evaluateMainImageSquareRule(readImageDimensions(stagedFile)).action === "reuse"
+        );
       } catch {
         return false;
       }

@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getPythonCommand, sanitizePythonRuntimeEnv } from "../utils/platform.js";
-import { readImageDimensions, type ImageDimensions } from "../utils/image-dimensions.js";
+import type { ImageDimensions } from "../utils/image-dimensions.js";
+import { inspectDecodedImageFile } from "../utils/image-integrity.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { evaluateMainImageSquareRule } from "./main-image-shape-rules.js";
 import type { MainImageArtifact } from "./types.js";
@@ -17,6 +18,11 @@ export interface MainImageSquareNormalizationResult {
   sourceDimensions: ImageDimensions;
   outputDimensions: ImageDimensions;
   evidenceFile?: string;
+}
+
+function fullyDecodedDimensions(file: string): ImageDimensions {
+  const { width, height } = inspectDecodedImageFile(file);
+  return { width, height };
 }
 
 function atomicReplaceFile(sourceFile: string, targetFile: string): void {
@@ -32,7 +38,7 @@ export async function ensureSquareMainImageFile(options: {
   if (!fs.existsSync(options.sourceFile)) {
     throw new Error(`Main image file not found for square normalization: ${options.sourceFile}`);
   }
-  const sourceDimensions = readImageDimensions(options.sourceFile);
+  const sourceDimensions = fullyDecodedDimensions(options.sourceFile);
   const decision = evaluateMainImageSquareRule(sourceDimensions);
   if (decision.action === "reuse") {
     return {
@@ -73,7 +79,7 @@ export async function ensureSquareMainImageFile(options: {
       })
     }
   );
-  const outputDimensions = readImageDimensions(temporaryOutput);
+  const outputDimensions = fullyDecodedDimensions(temporaryOutput);
   if (outputDimensions.width !== decision.targetSide || outputDimensions.height !== decision.targetSide) {
     fs.rmSync(temporaryOutput, { force: true });
     throw new Error(
@@ -181,7 +187,7 @@ export async function repairMainImageArtifactShapes(options: {
             evidenceDir: path.join(options.evidenceDir, "raw")
           })
         : undefined;
-    const finalDimensions = readImageDimensions(item.imageFile);
+    const finalDimensions = fullyDecodedDimensions(item.imageFile);
     const finalDecision = evaluateMainImageSquareRule(finalDimensions);
     if (rawResult?.changed || finalDecision.action === "pad_to_square") {
       const finalEvidenceDir = path.join(options.evidenceDir, "watermarked");
@@ -209,7 +215,7 @@ export async function repairMainImageArtifactShapes(options: {
           evidenceDir: finalEvidenceDir
         });
       }
-      const repairedDimensions = readImageDimensions(item.imageFile);
+      const repairedDimensions = fullyDecodedDimensions(item.imageFile);
       if (repairedDimensions.width !== repairedDimensions.height) {
         throw new Error(
           `Repaired watermarked main image is still not square: ${path.basename(item.imageFile)} (${repairedDimensions.width}x${repairedDimensions.height}).`

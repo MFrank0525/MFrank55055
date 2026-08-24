@@ -3,6 +3,7 @@ import "./test-main-image-square-normalization-rule.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+const validImageFixture = fs.readFileSync("input/fixed-main-images/辅助图02.png");
 import { readLatestTaskProgressEvent } from "../dist/src/autolist/progress-events.js";
 import { buildFeishuSellingPointText } from "../dist/src/autolist/selling-point-rules.js";
 import {
@@ -694,13 +695,13 @@ const incompleteFixedSlotsRaw = path.join(
 );
 fs.mkdirSync(incompleteFixedSlotsRaw, { recursive: true });
 for (const index of [2, 3, 4]) {
-  fs.writeFileSync(path.join(incompleteFixedSlotsRaw, `generated-${String(index).padStart(2, "0")}.png`), String(index));
+  fs.writeFileSync(path.join(incompleteFixedSlotsRaw, `generated-${String(index).padStart(2, "0")}.png`), validImageFixture);
 }
 assert.equal(
   hasIncompleteFixedMainImageRoundFiles({ runtimeDir: incompleteFixedSlotsRun, taskId: "image-001", expectedImagesPerRound: 4 }),
   true
 );
-fs.writeFileSync(path.join(incompleteFixedSlotsRaw, "generated-01.png"), "1");
+fs.writeFileSync(path.join(incompleteFixedSlotsRaw, "generated-01.png"), validImageFixture);
 assert.equal(
   hasIncompleteFixedMainImageRoundFiles({ runtimeDir: incompleteFixedSlotsRun, taskId: "image-001", expectedImagesPerRound: 4 }),
   false
@@ -2534,7 +2535,7 @@ fs.writeFileSync(
 );
 fs.writeFileSync(
   path.join(nestedPaidImageRunDir, "tasks/image-001/main-image-01/openai-compatible/raw/generated-01.png"),
-  "paid raw image\n"
+  validImageFixture
 );
 const staleRunCleanup = cleanupStaleRunHistory({
   runtimeRootDir: cleanupRunRoot,
@@ -2572,7 +2573,7 @@ fs.writeFileSync(
 );
 fs.writeFileSync(
   path.join(reusableArtifactRuntimeDir, "tasks/image-001/main-image-01/openai-compatible/raw/generated-01.png"),
-  "raw image\n"
+  validImageFixture
 );
 assert.deepEqual(
   summarizeReusableTaskArtifacts({ runtimeDir: reusableArtifactRuntimeDir, taskId: "image-001" }),

@@ -4,6 +4,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { isUnsafePaidImageReplayReason, submitTransportFailureProvesNoPaidTaskAccepted } from "./image-generation-rules.js";
+import { inspectDecodedImageFile, isFullyDecodableImageFile } from "../utils/image-integrity.js";
+import {
+  isPaidImageProviderIdentityMigrationHistoryValid,
+  isPaidImageCompletedResultValid,
+  selectPaidImageProviderIdentityProofCandidate,
+  validatePaidImageExistingResultRecoveryPlanRule,
+  type PaidImageProviderIdentityMigration,
+  type PaidImageProviderIdentityProofCandidate,
+  type PaidImageProviderIdentityRotationInput
+} from "./paid-image-provider-identity-rules.js";
 
 export type PaidImageSlotState =
   | "reserved"
@@ -63,6 +73,7 @@ export interface PaidImageProductLedger {
   providerIdentity: string;
   sourceImageDigest: string;
   createdAt: string;
+  providerIdentityMigrations?: PaidImageProviderIdentityMigration[];
   productDir: string;
 }
 
@@ -169,42 +180,13 @@ export function validatePaidImageExistingResultRecoveryPlan(input: {
   productDir: string;
   mappings: Array<{ targetSlot: number; sourceSlot: number }>;
 }): void {
-  if (!input.mappings.length) throw new Error("operator-approved paid image recovery requires mappings");
-  if (new Set(input.mappings.map((item) => item.targetSlot)).size !== input.mappings.length) {
-    throw new Error("operator-approved paid image recovery requires unique target slots");
-  }
-  if (new Set(input.mappings.map((item) => item.sourceSlot)).size !== input.mappings.length) {
-    throw new Error("operator-approved paid image recovery requires unique source slots");
-  }
-  for (const mapping of input.mappings) {
-    validateSlotRange(input.productDir, mapping.targetSlot);
-    validateSlotRange(input.productDir, mapping.sourceSlot);
-    if (mapping.targetSlot === mapping.sourceSlot) {
-      throw new Error("operator-approved paid image recovery requires different source and target slots");
-    }
-    const target = readSlotRecord(input.productDir, mapping.targetSlot);
-    const source = readSlotRecord(input.productDir, mapping.sourceSlot);
-    if (!target || target.state !== "failed_after_acceptance") {
-      throw new Error(
-        `operator-approved paid image recovery target slot ${mapping.targetSlot} must be failed_after_acceptance, got ${target?.state || "missing"}`
-      );
-    }
-    if (target.replayDisposition === "non_replayable" || isUnsafePaidImageReplayReason(target.reason || "")) {
-      throw new Error(`operator-approved paid image recovery target slot ${mapping.targetSlot} has unsafe terminal evidence`);
-    }
-    if (
-      !source ||
-      source.state !== "completed" ||
-      !source.resultFile ||
-      !source.resultDigest ||
-      !fs.existsSync(source.resultFile) ||
-      sha256File(source.resultFile) !== source.resultDigest
-    ) {
-      throw new Error(
-        `operator-approved paid image recovery source slot ${mapping.sourceSlot} is not a valid completed result`
-      );
-    }
-  }
+  const product = readProductLedger(input.productDir);
+  validatePaidImageExistingResultRecoveryPlanRule({
+    expectedSlotCount: product.expectedSlotCount,
+    mappings: input.mappings,
+    readRecord: (slot) => readSlotRecord(input.productDir, slot),
+    sha256File
+  });
 }
 
 export interface RecordPaidImageAmbiguousInput {
@@ -611,7 +593,8 @@ function validateProductLedger(value: unknown, expected?: InitializePaidImagePro
     ledger.expectedSlotCount > 20 ||
     typeof ledger.providerIdentity !== "string" ||
     typeof ledger.sourceImageDigest !== "string" ||
-    typeof ledger.createdAt !== "string"
+    typeof ledger.createdAt !== "string" ||
+    !isPaidImageProviderIdentityMigrationHistoryValid(ledger.providerIdentityMigrations)
   ) {
     throw new Error("invalid paid image product ledger");
   }
@@ -628,10 +611,7 @@ function validateProductLedger(value: unknown, expected?: InitializePaidImagePro
   return ledger;
 }
 
-function readProductLedger(
-  productDir: string,
-  expectedIdentity?: PaidImageLedgerExpectedIdentity
-): PaidImageProductLedger {
+function readProductLedger(productDir: string, expectedIdentity?: PaidImageLedgerExpectedIdentity): PaidImageProductLedger {
   const ledger = validateProductLedger(readJson(productFile(productDir)));
   if (
     expectedIdentity &&
@@ -642,10 +622,54 @@ function readProductLedger(
   return { ...ledger, productDir };
 }
 
-export function readPaidImageProductLedger(
-  productDir: string,
-  expectedIdentity?: PaidImageLedgerExpectedIdentity
+export function resolvePaidImageProviderIdentityProofCandidate(productDir: string): PaidImageProviderIdentityProofCandidate | undefined {
+  const product = readProductLedger(productDir);
+  const records = Array.from({ length: product.expectedSlotCount }, (_, index) => readSlotRecord(productDir, index + 1))
+    .filter((record): record is PaidImageSlotRecord => Boolean(record));
+  return selectPaidImageProviderIdentityProofCandidate({
+    currentProviderIdentity: product.providerIdentity,
+    records,
+    resultIsValid: (record) => isPaidImageCompletedResultValid(record as PaidImageSlotRecord, sha256File)
+  });
+}
+
+export function rotatePaidImageProviderIdentityWithAuthenticatedTaskProof(
+  input: PaidImageProviderIdentityRotationInput
 ): PaidImageProductLedger {
+  requireNonEmpty(input.nextProviderIdentity, "nextProviderIdentity");
+  const file = productFile(input.productDir);
+  const lockFile = `${file}.lock`;
+  const lockMetadata = acquireExclusiveLock(lockFile);
+  try {
+    const product = validateProductLedger(readJson(file));
+    if (product.providerIdentity === input.nextProviderIdentity) return { ...product, productDir: input.productDir };
+    if (product.providerIdentity !== input.previousProviderIdentity) {
+      throw new Error("paid image provider identity changed while proof was being verified");
+    }
+    const proofRecord = Array.from({ length: product.expectedSlotCount }, (_, index) =>
+      readSlotRecordUnlocked(input.productDir, index + 1)
+    ).find((record) => record?.state === "completed" && record.providerTaskId === input.proofProviderTaskId &&
+      record.resultDigest === input.proofResultDigest && record.resultFile && fs.existsSync(record.resultFile) &&
+      sha256File(record.resultFile) === input.proofResultDigest && isFullyDecodableImageFile(record.resultFile));
+    if (!proofRecord) throw new Error("paid image provider identity proof does not match a valid completed slot");
+    const next: PaidImageProductLedger = {
+      ...product,
+      providerIdentity: input.nextProviderIdentity,
+      providerIdentityMigrations: [...(product.providerIdentityMigrations || []), {
+        at: new Date().toISOString(), previousProviderIdentity: product.providerIdentity,
+        nextProviderIdentity: input.nextProviderIdentity, proofProviderTaskId: input.proofProviderTaskId,
+        proofResultDigest: input.proofResultDigest
+      }],
+      productDir: input.productDir
+    };
+    atomicWriteJson(file, next);
+    return validateProductLedger(next);
+  } finally {
+    releaseExclusiveLock(lockFile, lockMetadata);
+  }
+}
+
+export function readPaidImageProductLedger(productDir: string, expectedIdentity?: PaidImageLedgerExpectedIdentity): PaidImageProductLedger {
   return readProductLedger(productDir, expectedIdentity);
 }
 
@@ -884,7 +908,14 @@ function actionForRecord(record: PaidImageSlotRecord): PaidImageSlotAction {
     case "submitted":
       return { action: "poll", record, providerTaskId: record.providerTaskId! };
     case "completed":
-      if (!fs.existsSync(record.resultFile!) || sha256File(record.resultFile!) !== record.resultDigest) {
+      if (
+        !fs.existsSync(record.resultFile!) ||
+        sha256File(record.resultFile!) !== record.resultDigest ||
+        !isFullyDecodableImageFile(record.resultFile!)
+      ) {
+        if (record.providerTaskId) {
+          return { action: "poll", record, providerTaskId: record.providerTaskId };
+        }
         throw new Error(`completed paid image result is missing or invalid for slot ${record.slot}`);
       }
       return { action: "reuse", record, resultFile: record.resultFile! };
@@ -1120,6 +1151,7 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
   if (input.providerTaskId !== undefined && !isSafeProviderTaskId(input.providerTaskId)) {
     throw new Error("providerTaskId must be a bounded safe scalar");
   }
+  inspectDecodedImageFile(input.sourceFile);
   const sourceDigest = sha256File(input.sourceFile);
   validateSlotRange(input.productDir, input.slot);
   return withSlotLock(input.productDir, input.slot, () => {
@@ -1130,14 +1162,19 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
         record.resultFile &&
           record.resultDigest &&
           fs.existsSync(record.resultFile) &&
-          sha256File(record.resultFile) === record.resultDigest
+          sha256File(record.resultFile) === record.resultDigest &&
+          isFullyDecodableImageFile(record.resultFile)
       );
-      if (!sameProviderTask || !storedResultIsValid || sourceDigest !== record.resultDigest) {
+      if (sameProviderTask && !storedResultIsValid) {
+        // A provider task may have reached completed while its result transport was truncated.
+        // Re-polling the same accepted task is safe; replace only its invalid local evidence.
+      } else if (!sameProviderTask || !storedResultIsValid || sourceDigest !== record.resultDigest) {
         throw new Error(`conflicting completed terminal evidence for paid image slot ${input.slot}`);
+      } else {
+        return record;
       }
-      return record;
     }
-    if (!record || record.state !== "submitted") {
+    if (!record || (record.state !== "submitted" && record.state !== "completed")) {
       throw new Error(`invalid slot transition for slot ${input.slot}: ${record?.state || "missing"} -> completed`);
     }
     if (input.providerTaskId && record.providerTaskId !== input.providerTaskId) {
@@ -1162,7 +1199,7 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
         fs.unlinkSync(tempResult);
       }
     }
-    return transitionSlotUnlocked(input.productDir, input.slot, ["submitted"], "completed", {
+    return transitionSlotUnlocked(input.productDir, input.slot, ["submitted", "completed"], "completed", {
       resultFile,
       resultDigest: sha256File(resultFile)
     });
@@ -1185,7 +1222,8 @@ export function recordPaidImageRecoveredFromExistingResult(
     !source.resultFile ||
     !source.resultDigest ||
     !fs.existsSync(source.resultFile) ||
-    sha256File(source.resultFile) !== source.resultDigest
+    sha256File(source.resultFile) !== source.resultDigest ||
+    !isFullyDecodableImageFile(source.resultFile)
   ) {
     throw new Error(`operator-approved paid image recovery source slot ${input.sourceSlot} is not a valid completed result`);
   }
@@ -1304,7 +1342,9 @@ export function recordPaidImageFailedAfterAcceptance(input: RecordPaidImageFaile
       }
       return record;
     }
-    if (!record || record.state !== "submitted") {
+    const completedResultIsInvalid = record?.state === "completed" &&
+      record.providerTaskId === input.providerTaskId && !isPaidImageCompletedResultValid(record, sha256File);
+    if (!record || (record.state !== "submitted" && !completedResultIsInvalid)) {
       throw new Error(
         `invalid slot transition for slot ${input.slot}: ${record?.state || "missing"} -> failed_after_acceptance`
       );
@@ -1312,7 +1352,7 @@ export function recordPaidImageFailedAfterAcceptance(input: RecordPaidImageFaile
     if (input.providerTaskId && record.providerTaskId !== input.providerTaskId) {
       throw new Error(`provider task id mismatch for failed slot ${input.slot}`);
     }
-    return transitionSlotUnlocked(input.productDir, input.slot, ["submitted"], "failed_after_acceptance", {
+    return transitionSlotUnlocked(input.productDir, input.slot, ["submitted", "completed"], "failed_after_acceptance", {
       reason,
       providerResponseSummary: responseSummary,
       ...(input.replayDisposition ? { replayDisposition: input.replayDisposition } : {})
@@ -1407,7 +1447,8 @@ function scanPaidImageProductLedger(
           realResultsDir === path.join(realProductDir, "results") &&
           fs.realpathSync(canonicalResultFile) === path.join(realResultsDir, `${String(record.slot).padStart(2, "0")}.png`) &&
           record.resultDigest &&
-          sha256File(canonicalResultFile) === record.resultDigest
+          sha256File(canonicalResultFile) === record.resultDigest &&
+          isFullyDecodableImageFile(canonicalResultFile)
         );
       } catch {
         resultIsValid = false;

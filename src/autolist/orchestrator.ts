@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { readImageDimensions } from "../utils/image-dimensions.js";
+import { inspectDecodedImageFile } from "../utils/image-integrity.js";
 import { generatePosterPromptsWithDeepSeek } from "./deepseek-prompts.js";
 import {
   assertDeepSeekPromptsBelongToCurrentProduct,
@@ -197,7 +197,7 @@ function assertMainImageCompletionGate(input: {
       .filter((filePath) => fs.existsSync(filePath))
       .flatMap((filePath) => {
         try {
-          return [[path.resolve(filePath), readImageDimensions(filePath)] as const];
+          return [[path.resolve(filePath), inspectDecodedImageFile(filePath)] as const];
         } catch {
           return [];
         }
@@ -229,7 +229,7 @@ function assertPublishMainImageSubsetGate(input: {
     generatedFiles
       .flatMap((item) => [item.imageFile, item.rawImageFile].filter(Boolean) as string[])
       .filter((filePath) => fs.existsSync(filePath))
-      .map((filePath) => [path.resolve(filePath), readImageDimensions(filePath)] as const)
+      .map((filePath) => [path.resolve(filePath), inspectDecodedImageFile(filePath)] as const)
   );
   const audit = auditPublishMainImageSubset({
     taskId: input.task.taskId,

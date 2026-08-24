@@ -27,6 +27,7 @@ import {
   resolvePaidImageProviderTimeoutRetry,
   resolvePaidImageProviderServiceRetry,
   resolvePaidImageFixedSlotRecovery,
+  shouldFallbackToAuthenticatedTaskContent,
   shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
@@ -796,8 +797,15 @@ assert.doesNotMatch(
   "videos-base64 paid submit requests must not bypass transient HTTP retry handling"
 );
 assert.match(source, /fetchVideosBase64TaskWithTransportRetries\(taskId, false/);
-assert.match(source, /fetchVideosBase64TaskWithTransportRetries\(taskId, true/);
+assert.match(source, /fetchVideosBase64Task\(taskId, true\)/);
 assert.match(source, /downloadVideosBase64ResultWithTransportRetries\(resultUrl, targetFile/);
+assert.equal(
+  shouldFallbackToAuthenticatedTaskContent("Image artifact failed full decode validation"),
+  true,
+  "a corrupt CDN result must fall back to authenticated content for the same accepted task"
+);
+assert.equal(shouldFallbackToAuthenticatedTaskContent("Image download failed with HTTP 404"), true);
+assert.equal(shouldFallbackToAuthenticatedTaskContent("Image download failed with HTTP 403"), false);
 assert.match(source, /summarizePaidImageProductLedger/);
 assert.match(source, /resolvePaidImageLedgerFailureDisposition/);
 assert.match(
@@ -952,6 +960,27 @@ assert.equal(
   }),
   true
 );
+assert.equal(
+  shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted({
+    taskCompleted: true,
+    contentRetriesExhausted: true,
+    resultUrlArtifactInvalid: true,
+    contentArtifactInvalid: true
+  }),
+  true,
+  "a completed task with corrupt bytes from both delivery paths must authorize one fixed-slot replacement"
+);
+assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: "accepted provider task returned invalid image bytes from both result URL and authenticated content after completed status",
+    audit: [],
+    recordedPromptDigest: "original",
+    policyCompatiblePromptDigest: "policy",
+    nowMs: Date.now()
+  }),
+  { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: false, deferMs: 0 },
+  "irretrievable completed-task bytes must replace only the same fixed slot without changing its prompt"
+);
 for (const unsafeCase of [
   { taskCompleted: false, resultUrlStatus: 404, contentStatus: 502, contentRetriesExhausted: true },
   { taskCompleted: true, resultUrlStatus: 200, contentStatus: 502, contentRetriesExhausted: true },
@@ -1043,7 +1072,7 @@ const product = initializePaidImageProductLedger({
   sourceImageDigest: "source-a"
 });
 const completedImage = path.join(tmp, "completed.png");
-fs.writeFileSync(completedImage, "image-bytes");
+fs.writeFileSync(completedImage, fs.readFileSync("input/fixed-main-images/辅助图02.png"));
 for (const slot of [1, 2, 4]) {
   reservePaidImageSlot({
     productDir: product.productDir,
@@ -1116,7 +1145,7 @@ const unsafeRestartLedger = initializePaidImageProductLedger({
   expectedSlotCount: 1,
   providerIdentity: sha256Text(JSON.stringify({
     apiUrl: unsafeRestartConfig.apiUrl,
-    statusUrl: "",
+    credentialFingerprint: sha256Text(unsafeRestartConfig.apiKey),
     model: unsafeRestartConfig.model,
     mode: unsafeRestartConfig.mode,
     size: unsafeRestartConfig.size,

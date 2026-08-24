@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { readImageDimensions } from "../utils/image-dimensions.js";
+import { inspectDecodedImageFile } from "../utils/image-integrity.js";
 import { auditAutoListingContinuity, auditCompletedBatchResidue, auditDistributedTitleArtifacts, auditIntermediateArtifactResidue, auditMainImageGeneration, auditPublishCoverage, buildCanonicalPublishTargetKeys, resolveDistributedTitleAuditFolders, shouldAuditDistributedTitleTask, summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
@@ -443,7 +443,7 @@ async function main(): Promise<void> {
       .filter((filePath) => fs.existsSync(filePath))
       .flatMap((filePath) => {
         try {
-          return [[path.resolve(filePath), readImageDimensions(filePath)] as const];
+          return [[path.resolve(filePath), inspectDecodedImageFile(filePath)] as const];
         } catch {
           return [];
         }

@@ -41,6 +41,7 @@ const identity = {
 };
 const ownerA = { runId: "run-a", taskId: "task-a", pid: 101 };
 const ownerB = { runId: "run-b", taskId: "task-b", pid: 202 };
+const validImageFixture = fs.readFileSync("input/fixed-main-images/辅助图02.png");
 
 const rechargeLedger = initializePaidImageProductLedger({
   ...identity,
@@ -397,7 +398,7 @@ assert.throws(
 );
 
 const resultSource = path.join(rootDir, "generated.png");
-fs.writeFileSync(resultSource, "generated-image", "utf8");
+fs.writeFileSync(resultSource, validImageFixture);
 const resultFsyncEvents = [];
 fs.fsyncSync = (fd) => {
   const stat = fs.fstatSync(fd);
@@ -415,9 +416,9 @@ assert.ok(
 assert.equal(completed.state, "completed");
 const reuse = resolvePaidImageSlotAction({ productDir, slot: 1 });
 assert.equal(reuse.action, "reuse");
-assert.equal(fs.readFileSync(reuse.resultFile, "utf8"), "generated-image");
+assert.deepEqual(fs.readFileSync(reuse.resultFile), validImageFixture);
 assert.equal(completed.resultDigest, sha256File(reuse.resultFile));
-assert.equal(sha256Text("generated-image"), sha256File(resultSource));
+assert.equal(sha256File(resultSource), sha256File(reuse.resultFile));
 
 const operatorRecoveryProduct = initializePaidImageProductLedger({
   ...identity,
@@ -508,9 +509,9 @@ recordPaidImageSubmitted({
 const terminalCompleteSourceA = path.join(rootDir, "terminal-complete-a.png");
 const terminalCompleteSourceB = path.join(rootDir, "terminal-complete-b.png");
 const terminalCompleteConflict = path.join(rootDir, "terminal-complete-conflict.png");
-fs.writeFileSync(terminalCompleteSourceA, "same-terminal-image", "utf8");
-fs.writeFileSync(terminalCompleteSourceB, "same-terminal-image", "utf8");
-fs.writeFileSync(terminalCompleteConflict, "different-terminal-image", "utf8");
+fs.writeFileSync(terminalCompleteSourceA, validImageFixture);
+fs.writeFileSync(terminalCompleteSourceB, validImageFixture);
+fs.writeFileSync(terminalCompleteConflict, fs.readFileSync("input/fixed-main-images/辅助图03.png"));
 const firstTerminalCompletion = recordPaidImageCompleted({
   productDir: terminalRaceProduct.productDir,
   slot: 1,
@@ -1317,7 +1318,7 @@ const legacyUrlProduct = initializePaidImageProductLedger({
   expectedSlotCount: 4
 });
 const legacyUrlResultSource = path.join(rootDir, "legacy-url-result.png");
-fs.writeFileSync(legacyUrlResultSource, "legacy-url-result", "utf8");
+fs.writeFileSync(legacyUrlResultSource, validImageFixture);
 reservePaidImageSlot({
   productDir: legacyUrlProduct.productDir,
   slot: 1,

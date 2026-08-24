@@ -11,7 +11,7 @@ export function resolveDefaultExternalServiceWaitAttempts(): number {
 
 export function isPaidMainImageTransportFailure(message: string): boolean {
   return /main_images_generated|main image/i.test(message) &&
-    /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR/i.test(message);
+    /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|full decode validation|image artifact.*decode|image file is truncated/i.test(message);
 }
 
 export function isPaidImageSubmissionSafetyBlock(message: string): boolean {

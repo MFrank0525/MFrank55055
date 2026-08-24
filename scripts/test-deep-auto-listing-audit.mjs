@@ -537,7 +537,7 @@ assert.deepEqual(distinctCanonicalLedgers.errors, []);
 const paidAuditFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-deep-audit-"));
 const paidAuditBatch = "current-feishu-batch";
 const fixtureResultSource = path.join(paidAuditFixtureRoot, "generated.png");
-fs.writeFileSync(fixtureResultSource, "verified-generated-image", "utf8");
+fs.writeFileSync(fixtureResultSource, fs.readFileSync("input/fixed-main-images/辅助图02.png"));
 
 function createPaidAuditLedger(
   recordId,

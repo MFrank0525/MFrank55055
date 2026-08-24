@@ -9,7 +9,7 @@ import {
   REQUIRED_MAIN_IMAGE_RATIO_TOLERANCE
 } from "./constants.js";
 import { resolveFeishuAssetRecordForFolder } from "./asset-rules.js";
-import { readImageDimensions } from "../../utils/image-dimensions.js";
+import { inspectDecodedImageFile } from "../../utils/image-integrity.js";
 import type { ProductAssets } from "./types.js";
 
 function sortZh(items: string[]): string[] {
@@ -293,7 +293,7 @@ export function classifyAssets(productFolder: string, options: { feishuRecordId?
 export function validateMainImageAspectRatio(mainImages: string[]): string {
   const invalidImages = mainImages
     .map((filePath) => {
-      const { width, height } = readImageDimensions(filePath);
+      const { width, height } = inspectDecodedImageFile(filePath);
       const ratio = width / height;
       const diff = Math.abs(ratio - REQUIRED_MAIN_IMAGE_RATIO);
       return diff > REQUIRED_MAIN_IMAGE_RATIO_TOLERANCE
