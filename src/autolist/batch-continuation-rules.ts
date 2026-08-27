@@ -421,6 +421,46 @@ export type AutoListingControllerStartAfterFeishuRefreshDecision =
 
 export type AutoListingControllerLaunchIntent = "start_new_batch" | "continue_current_batch";
 
+export type AutoListingControllerBatchOwnershipDecision =
+  | "no_running_controller"
+  | "reuse_current_controller"
+  | "supersede_waiting_controller"
+  | "block_conflicting_controller";
+
+export function resolveAutoListingControllerBatchOwnership(input: {
+  controllerRunning: boolean;
+  controllerBatchFingerprint?: string;
+  currentBatchFingerprint?: string;
+  controllerOwnsWaitState: boolean;
+  controllerChildActive: boolean;
+}): AutoListingControllerBatchOwnershipDecision {
+  if (!input.controllerRunning) {
+    return "no_running_controller";
+  }
+  if (
+    input.controllerBatchFingerprint &&
+    input.currentBatchFingerprint &&
+    input.controllerBatchFingerprint === input.currentBatchFingerprint
+  ) {
+    return "reuse_current_controller";
+  }
+  if (input.controllerOwnsWaitState && !input.controllerChildActive) {
+    return "supersede_waiting_controller";
+  }
+  return "block_conflicting_controller";
+}
+
+export function resolveAutoListingSupervisorBatchOwnership(input: {
+  ownedBatchFingerprint?: string;
+  currentBatchFingerprint?: string;
+}): "continue_owned_batch" | "stop_superseded_batch" {
+  return input.ownedBatchFingerprint &&
+    input.currentBatchFingerprint &&
+    input.ownedBatchFingerprint === input.currentBatchFingerprint
+    ? "continue_owned_batch"
+    : "stop_superseded_batch";
+}
+
 export function resolveAutoListingControllerContinueDecision(input: {
   batchComplete?: boolean;
 }): "report_complete" | "select_recovery" {

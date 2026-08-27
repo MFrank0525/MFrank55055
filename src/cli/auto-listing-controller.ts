@@ -12,7 +12,7 @@ import {
   resolveAutoListingControllerLaunchPolicy, resolveAutoListingControllerPaidImageRecordId,
   resolveAutoListingControllerProgressAgeSeconds, resolveAutoListingControllerPublishGroupProgress,
   resolveAutoListingControllerRealtimeProgressSignal, resolveAutoListingControllerRuntimeStatus,
-  resolveAutoListingControllerContinueDecision,
+  resolveAutoListingControllerContinueDecision, resolveAutoListingControllerBatchOwnership,
   resolveAutoListingControllerStartAfterFeishuRefresh, selectAutoListingControllerActiveRunIdFromLogLines,
   selectAutoListingControllerFailedResumeCandidate, selectAutoListingControllerLatestResultFileForJobStatus,
   selectAutoListingControllerStatusResultFile, selectAutoListingControllerStatusRuntimeDir,
@@ -39,7 +39,11 @@ import { getProductCategoryPlan } from "../autolist/product-category.js";
 import type { ImageGenerationProvider } from "../autolist/image-generation-provider.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { resolveControllerJobClosure, type ControllerJobStatus } from "../autolist/maintenance-rules.js";
-import { cleanupInertControllerSupervisor, isControllerRunnerJobRunning } from "./controller-process-liveness.js";
+import {
+  cleanupInertControllerSupervisor,
+  cleanupSupersededWaitingController,
+  inspectControllerRunnerOwnership
+} from "./controller-process-liveness.js";
 import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-manifest.js";
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
@@ -853,14 +857,54 @@ async function start(
 ): Promise<void> {
   fs.mkdirSync(controlDir, { recursive: true });
   const current = readJsonFile<RunnerJob>(jobFile);
-  const runnerJobRunning = Boolean(current && isRunnerJobRunning(current));
-  if (
-    shouldClearPauseSignalOnAutoListingControllerStart({
-      pauseSignalExists: fs.existsSync(pauseFile),
-      runnerJobRunning
-    })
-  ) {
-    fs.rmSync(pauseFile);
+  let runnerJobRunning = Boolean(current && isRunnerJobRunning(current));
+  const launchPolicy = resolveAutoListingControllerLaunchPolicy(intent);
+  const beforeRefreshProgress = launchPolicy.refreshBeforeSelection ? undefined : summarizeFeishuProgress();
+  let currentProgress = beforeRefreshProgress;
+  let selectedBatchFingerprint =
+    typeof currentProgress?.batchFingerprint === "string" ? String(currentProgress.batchFingerprint) : "";
+  if (current && runnerJobRunning) {
+    const ownership = inspectControllerRunnerOwnership({
+      job: current,
+      childControlFile,
+      waitStateFile: externalServiceWaitFile
+    });
+    const ownershipDecision = intent === "continue_current_batch"
+      ? resolveAutoListingControllerBatchOwnership({
+          controllerRunning: true,
+          controllerBatchFingerprint: current.batchFingerprint,
+          currentBatchFingerprint: selectedBatchFingerprint,
+          controllerOwnsWaitState: ownership.controllerOwnsWaitState,
+          controllerChildActive: ownership.controllerChildActive
+        })
+      : "reuse_current_controller";
+    if (ownershipDecision === "supersede_waiting_controller") {
+      if (dryRun) {
+        const result = {
+          ok: true,
+          dryRun: true,
+          status: "would_supersede_waiting_controller",
+          pid: current.pid,
+          controllerBatchFingerprint: current.batchFingerprint,
+          currentBatchFingerprint: selectedBatchFingerprint
+        };
+        console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
+        return;
+      }
+      const superseded = await cleanupSupersededWaitingController({
+        job: current,
+        childControlFile,
+        waitStateFile: externalServiceWaitFile
+      });
+      if (!superseded) {
+        throw new Error("The superseded auto-listing controller left its wait-only state before ownership transfer; refusing to overlap batch execution.");
+      }
+      runnerJobRunning = false;
+    } else if (ownershipDecision === "block_conflicting_controller") {
+      throw new Error(
+        `A live auto-listing controller owns another batch (${current.batchFingerprint || "unknown"}) and is not in a safe wait-only state; refusing to overlap it with current batch ${selectedBatchFingerprint || "unknown"}.`
+      );
+    }
   }
   if (current && runnerJobRunning) {
     const status = existingStatus(findLatestInterruptedStateForResume);
@@ -878,18 +922,23 @@ async function start(
     console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
     return;
   }
+  if (
+    shouldClearPauseSignalOnAutoListingControllerStart({
+      pauseSignalExists: fs.existsSync(pauseFile),
+      runnerJobRunning
+    })
+  ) {
+    fs.rmSync(pauseFile);
+  }
   if (!dryRun) {
     await cleanupInertControllerSupervisor({ job: current });
     await cleanupRecordedAutoListingControllerChild();
   }
-
-  const launchPolicy = resolveAutoListingControllerLaunchPolicy(intent);
-  const beforeRefreshProgress = launchPolicy.refreshBeforeSelection ? undefined : summarizeFeishuProgress();
   if (!dryRun && launchPolicy.refreshBeforeSelection) {
     runFeishuAssetsRefreshForStart();
   }
-  const currentProgress = launchPolicy.refreshBeforeSelection ? summarizeFeishuProgress() : beforeRefreshProgress;
-  const selectedBatchFingerprint =
+  currentProgress = launchPolicy.refreshBeforeSelection ? summarizeFeishuProgress() : beforeRefreshProgress;
+  selectedBatchFingerprint =
     typeof currentProgress?.batchFingerprint === "string" ? String(currentProgress.batchFingerprint) : "";
   if (!dryRun && !selectedBatchFingerprint) {
     throw new Error(
@@ -975,8 +1024,14 @@ async function start(
   assertAutoListingControllerImageGenerationContract(selected.job.input, rootDir);
   await assertRealFlowNetworkPreflight(selected.imageGenerationConfigFile);
 
+  const selectedArgs = [
+    ...selected.args,
+    "--batch-fingerprint",
+    selectedBatchFingerprint
+  ];
+
   const logFd = fs.openSync(logFile, "a");
-  const child = spawn(selected.command, selected.args, {
+  const child = spawn(selected.command, selectedArgs, {
     cwd: rootDir,
     detached: true,
     env: sanitizePythonRuntimeEnv({
@@ -993,7 +1048,7 @@ async function start(
     startedAt: new Date().toISOString(),
     cwd: rootDir,
     command: selected.command,
-    args: selected.args,
+    args: selectedArgs,
     logFile,
     expectedResultFile: selected.expectedResultFile,
     mode: selected.mode,

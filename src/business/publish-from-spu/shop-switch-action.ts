@@ -502,7 +502,7 @@ async function recoverTransientShopSwitchError(page: Page): Promise<boolean> {
   return false;
 }
 
-async function waitForChooseShopDialog(page: Page): Promise<boolean> {
+async function isChooseShopSurfaceVisible(page: Page): Promise<boolean> {
   const dialogByLocator = page
     .locator("div[role='dialog'], div[aria-modal='true'], .semi-modal, .ant-modal, .ecom-g-modal, [class*='modal']")
     .filter({ hasText: "请选择店铺" })
@@ -516,17 +516,20 @@ async function waitForChooseShopDialog(page: Page): Promise<boolean> {
   if (dialogVisibleByLocator) {
     return true;
   }
+  return page.evaluate(() => {
+    const text = (document.body?.innerText || "").replace(/\s+/g, "");
+    return text.includes("请选择店铺");
+  }).catch((error) => {
+    if (isNavigationContextDestroyedError(error)) {
+      return false;
+    }
+    throw error;
+  });
+}
+
+async function waitForChooseShopDialog(page: Page): Promise<boolean> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const visible = await page.evaluate(() => {
-      const text = (document.body?.innerText || "").replace(/\s+/g, "");
-      return text.includes("请选择店铺");
-    }).catch((error) => {
-      if (isNavigationContextDestroyedError(error)) {
-        return false;
-      }
-      throw error;
-    });
-    if (visible) {
+    if (await isChooseShopSurfaceVisible(page)) {
       return true;
     }
     await page.waitForTimeout(400);
@@ -590,6 +593,13 @@ async function getChooseShopDialog(page: Page): Promise<Locator | null> {
     .first();
   if (await dialog.isVisible().catch(() => false)) {
     return dialog;
+  }
+  const fullPageHeading = page.getByText("请选择店铺", { exact: true }).first();
+  if (await fullPageHeading.isVisible().catch(() => false)) {
+    const fullPageChooser = fullPageHeading.locator("xpath=..");
+    if (await fullPageChooser.isVisible().catch(() => false)) {
+      return fullPageChooser;
+    }
   }
   return null;
 }
@@ -979,6 +989,35 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
   let lastActual = currentBefore || "";
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await dismissKnownShopSwitchInformationalOverlay(page);
+    if (await isChooseShopSurfaceVisible(page)) {
+      const selectedFromLoginChooser = await selectShopFromDialog(page, expectedShopName);
+      if (!selectedFromLoginChooser) {
+        await saveShopSwitchDomSnapshot(page, runtimeDir, "login-shop-chooser-target-missing.html").catch(() => "");
+        const screenshotFile = await savePageScreenshot(page, runtimeDir, "login-shop-chooser-target-missing.png").catch(() => "");
+        throw new Error(
+          `Shop switch failed: target shop not found in post-login chooser for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
+        );
+      }
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      await gotoWithTolerance(page, PLATFORM_SPU_URL, 7000 + attempt * 1500).catch(() => {});
+      await waitForTopRightShopMenuAnchor(page, 10000 + attempt * 2000).catch(() => false);
+      const verificationMenuOpened = await clickTopRightShopMenu(page).catch(() => false);
+      const selectedShopName = normalizeShopName(
+        verificationMenuOpened
+          ? await readCurrentShopNameFromMenu(page)
+          : await detectCurrentShopName(page)
+      );
+      await page.keyboard.press("Escape").catch(() => {});
+      if (selectedShopName && selectedShopName.includes(expectedShopName)) {
+        return selectedShopName;
+      }
+      lastActual = selectedShopName;
+      if (attempt < 2) {
+        await page.waitForTimeout(1000 + attempt * 500);
+        continue;
+      }
+      break;
+    }
     const anchorReady = await waitForTopRightShopMenuAnchor(page, 10000 + attempt * 3000);
     if (!anchorReady) {
       await gotoWithTolerance(page, PLATFORM_SPU_URL, 5000 + attempt * 1500).catch(() => {});

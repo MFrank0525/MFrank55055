@@ -45,6 +45,35 @@ try {
   assert.equal(await page.locator("#selected").textContent(), "延草纲目身体护理专卖店");
 
   await page.setContent(`
+    <style>
+      .login-shop-chooser { width: 640px; height: 680px; }
+      .list { height: 520px; overflow-y: auto; }
+      .card { width: 520px; height: 110px; margin: 16px; }
+    </style>
+    <main class="login-shop-chooser">
+      <h1>请选择店铺</h1>
+      <div class="list">
+        ${shops.map((shop) => `<div class="card" data-shop="${shop}"><span>${shop}</span><span>子账号 专卖店 正常营业</span></div>`).join("")}
+      </div>
+    </main>
+    <output id="selected"></output>
+    <script>
+      document.querySelectorAll('.card').forEach((card) => {
+        card.addEventListener('click', () => {
+          document.querySelector('#selected').textContent = card.dataset.shop;
+          document.querySelector('.login-shop-chooser').remove();
+        });
+      });
+    </script>
+  `);
+  assert.equal(
+    await selectShopFromDialog(page, "延草纲目防护用品专卖店"),
+    true,
+    "the post-login full-page shop chooser must use the same exact-card selection contract"
+  );
+  assert.equal(await page.locator("#selected").textContent(), "延草纲目防护用品专卖店");
+
+  await page.setContent(`
     <div class="known-overlay">
       <section>
         <h1>平台已为您开通 优质快递服务-平台智能透标模式</h1>

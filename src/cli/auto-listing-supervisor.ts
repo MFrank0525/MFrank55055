@@ -15,6 +15,7 @@ import {
   shouldContinueFeishuAfterBatchRefresh,
   shouldRecoverFullFlowAfterChildFailure,
   shouldRefreshFeishuAssetsBeforeFullFlow,
+  resolveAutoListingSupervisorBatchOwnership,
   type FullFlowContinuationReason
 } from "../autolist/batch-continuation-rules.js";
 import { isDoudianLoginRequiredFailure, resolveDoudianLoginRecoveryPollMs } from "../autolist/doudian-login-recovery-rules.js";
@@ -132,6 +133,11 @@ function parseInitialMode(argv: string[]): InitialMode {
     return value;
   }
   throw new Error("Usage: auto-listing-supervisor --initial <resume|full>");
+}
+
+function parseOwnedBatchFingerprint(argv: string[]): string {
+  const index = argv.indexOf("--batch-fingerprint");
+  return index >= 0 ? String(argv[index + 1] || "") : "";
 }
 
 function sleep(ms: number): Promise<void> {
@@ -340,10 +346,21 @@ function writeExternalServiceWait(reason: string, retryDelayMs: number, attempt:
   writeWaitState("external_service_wait", reason, retryDelayMs, attempt);
 }
 
-async function waitForDoudianLoginRecovery(reason: string): Promise<boolean> {
+async function waitForDoudianLoginRecovery(reason: string, ownedBatchFingerprint: string): Promise<boolean> {
   const retryDelayMs = resolveDoudianLoginRecoveryPollMs();
   let attempt = 0;
   while (true) {
+    const currentBatchFingerprint = readBatchProgress().fingerprint;
+    if (resolveAutoListingSupervisorBatchOwnership({
+      ownedBatchFingerprint,
+      currentBatchFingerprint
+    }) === "stop_superseded_batch") {
+      clearExternalServiceWait();
+      console.log(
+        `Auto-listing supervisor batch ${ownedBatchFingerprint || "unknown"} was superseded by ${currentBatchFingerprint || "unknown"}; stopping the old login waiter without launching work.`
+      );
+      return false;
+    }
     if (fs.existsSync(pauseSignalFile)) {
       clearExternalServiceWait();
       return false;
@@ -627,11 +644,23 @@ function runFullFlow(reason: FullFlowContinuationReason): Promise<number | null>
 async function main(): Promise<void> {
   clearExternalServiceWait();
   let nextMode: InitialMode | "" = parseInitialMode(process.argv.slice(2));
+  let ownedBatchFingerprint = parseOwnedBatchFingerprint(process.argv.slice(2)) || readBatchProgress().fingerprint;
   let fullFlowReason: FullFlowContinuationReason = "initial_full";
   let childRecoveryAttempts = 0;
   let externalServiceWaitAttempts = 0;
   while (nextMode) {
     clearExternalServiceWait();
+    const launchBatchFingerprint = readBatchProgress().fingerprint;
+    if (resolveAutoListingSupervisorBatchOwnership({
+      ownedBatchFingerprint,
+      currentBatchFingerprint: launchBatchFingerprint
+    }) === "stop_superseded_batch") {
+      console.log(
+        `Auto-listing supervisor batch ${ownedBatchFingerprint || "unknown"} was superseded by ${launchBatchFingerprint || "unknown"}; stopping before child launch.`
+      );
+      process.exitCode = 0;
+      return;
+    }
     const childMode: InitialMode = nextMode;
     const exitCode: number | null = childMode === "resume" ? await runResume() : await runFullFlow(fullFlowReason);
     fullFlowReason = "initial_full";
@@ -689,7 +718,7 @@ async function main(): Promise<void> {
         return;
       }
       console.log("Doudian login is unavailable; preserving the fixed headed browser and exact checkpoint while waiting for read-only session recovery.");
-      if (!(await waitForDoudianLoginRecovery(failureMessage))) {
+      if (!(await waitForDoudianLoginRecovery(failureMessage, ownedBatchFingerprint))) {
         process.exitCode = 0;
         return;
       }
@@ -766,6 +795,7 @@ async function main(): Promise<void> {
         refreshedBatchComplete: refreshedBatch.batchComplete
       })) {
         console.log("Feishu table has a new batch after refresh; continuing full real flow.");
+        ownedBatchFingerprint = refreshedBatch.fingerprint;
         nextMode = "full";
         fullFlowReason = "new_batch_after_refresh";
         continue;

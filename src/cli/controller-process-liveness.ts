@@ -14,6 +14,12 @@ export interface ControllerRunnerJob {
   status: "running" | "completed" | "failed";
 }
 
+export interface ControllerRunnerOwnershipState {
+  processConfirmed: boolean;
+  controllerOwnsWaitState: boolean;
+  controllerChildActive: boolean;
+}
+
 type ControllerWaitState = {
   supervisorPid?: number;
   status?: "external_service_wait" | "doudian_login_wait";
@@ -57,6 +63,27 @@ function isProcessGroupRunning(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+export function inspectControllerRunnerOwnership(input: {
+  job: ControllerRunnerJob;
+  childControlFile: string;
+  waitStateFile: string;
+}): ControllerRunnerOwnershipState {
+  const command = readProcessCommand(input.job.pid);
+  const processConfirmed = isAutoListingControllerRunningProcessConfirmed({
+    pidAlive: isPidRunning(input.job.pid),
+    processGroupAlive: isProcessGroupRunning(input.job.pid),
+    command
+  });
+  const child = readJsonFile<{ pid?: number }>(input.childControlFile);
+  const controllerChildActive = Boolean(child?.pid && isPidRunning(child.pid));
+  const waitState = readJsonFile<ControllerWaitState>(input.waitStateFile);
+  const controllerOwnsWaitState = Boolean(
+    waitState?.supervisorPid === input.job.pid &&
+    (waitState.status === "external_service_wait" || waitState.status === "doudian_login_wait")
+  );
+  return { processConfirmed, controllerOwnsWaitState, controllerChildActive };
 }
 
 export function isControllerRunnerJobRunning(input: {
@@ -144,4 +171,24 @@ export async function cleanupInertControllerSupervisor(input: {
       }
     }
   }
+}
+
+export async function cleanupSupersededWaitingController(input: {
+  job: ControllerRunnerJob;
+  childControlFile: string;
+  waitStateFile: string;
+}): Promise<boolean> {
+  const ownership = inspectControllerRunnerOwnership(input);
+  if (!ownership.processConfirmed || !ownership.controllerOwnsWaitState || ownership.controllerChildActive) {
+    return false;
+  }
+  await cleanupInertControllerSupervisor({ job: input.job });
+  if (isPidRunning(input.job.pid) || isProcessGroupRunning(input.job.pid)) {
+    return false;
+  }
+  const waitState = readJsonFile<ControllerWaitState>(input.waitStateFile);
+  if (waitState?.supervisorPid === input.job.pid) {
+    fs.rmSync(input.waitStateFile, { force: true });
+  }
+  return true;
 }

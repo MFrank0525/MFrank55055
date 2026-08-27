@@ -63,11 +63,43 @@ import {
   resolveAutoListingControllerIdleStatus,
   resolveAutoListingControllerDryRunStartDecision,
   resolveAutoListingControllerContinueDecision,
+  resolveAutoListingControllerBatchOwnership,
+  resolveAutoListingSupervisorBatchOwnership,
   resolveAutoListingControllerPublishGroupProgress,
   resolveAutoListingControllerPaidImageRecordId,
   shouldSuppressTerminalFailureBehindNewerProgress,
   compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
+
+assert.equal(resolveAutoListingControllerBatchOwnership({
+  controllerRunning: true,
+  controllerBatchFingerprint: "batch-old",
+  currentBatchFingerprint: "batch-current",
+  controllerOwnsWaitState: true,
+  controllerChildActive: false
+}), "supersede_waiting_controller");
+assert.equal(resolveAutoListingControllerBatchOwnership({
+  controllerRunning: true,
+  controllerBatchFingerprint: "batch-old",
+  currentBatchFingerprint: "batch-current",
+  controllerOwnsWaitState: false,
+  controllerChildActive: true
+}), "block_conflicting_controller");
+assert.equal(resolveAutoListingControllerBatchOwnership({
+  controllerRunning: true,
+  controllerBatchFingerprint: "batch-current",
+  currentBatchFingerprint: "batch-current",
+  controllerOwnsWaitState: true,
+  controllerChildActive: false
+}), "reuse_current_controller");
+assert.equal(resolveAutoListingSupervisorBatchOwnership({
+  ownedBatchFingerprint: "batch-old",
+  currentBatchFingerprint: "batch-current"
+}), "stop_superseded_batch");
+assert.equal(resolveAutoListingSupervisorBatchOwnership({
+  ownedBatchFingerprint: "batch-current",
+  currentBatchFingerprint: "batch-current"
+}), "continue_owned_batch");
 import { shouldTreatControllerSupervisorAsInert } from "../dist/src/autolist/maintenance-rules.js";
 import {
   isDoudianLoginRequiredFailure,
@@ -804,6 +836,21 @@ assert.match(
   controllerProcessLivenessSource,
   /isAutoListingControllerSupervisorProcessCommand[\s\S]*process\.kill\(-job\.pid,\s*"SIGTERM"\)/,
   "Inert supervisor cleanup must verify the exact project supervisor command before terminating its process group"
+);
+assert.match(
+  hermesRunnerSource,
+  /resolveAutoListingControllerBatchOwnership\([\s\S]*cleanupSupersededWaitingController\([\s\S]*if \(current && runnerJobRunning\)/,
+  "Continue must transfer ownership from a different-batch wait-only controller before applying already-running reuse"
+);
+assert.match(
+  controllerProcessLivenessSource,
+  /cleanupSupersededWaitingController[\s\S]*controllerOwnsWaitState[\s\S]*controllerChildActive[\s\S]*cleanupInertControllerSupervisor/,
+  "Supersession must be limited to a verified wait-only supervisor with no active child"
+);
+assert.match(
+  hermesSupervisorSource,
+  /waitForDoudianLoginRecovery[\s\S]*resolveAutoListingSupervisorBatchOwnership[\s\S]*stop_superseded_batch[\s\S]*assertDoudianPublishSessionReady/,
+  "Login recovery must revalidate locked batch ownership before probing the browser or resuming work"
 );
 const inertCleanupSource = controllerProcessLivenessSource.slice(
   controllerProcessLivenessSource.indexOf("export async function cleanupInertControllerSupervisor")

@@ -18,6 +18,8 @@ for (const name of [
   "clickVisibleActionText",
   "clickShopSwitchEntry",
   "recoverTransientShopSwitchError",
+  "isChooseShopSurfaceVisible",
+  "getChooseShopDialog",
   "selectShopFromDialogExact",
   "selectShopFromDialogByVisibleText",
   "selectShopFromDialog",
@@ -43,6 +45,16 @@ assert.match(
   functionBody("ensureShopContextAttempt"),
   /dismissKnownShopSwitchInformationalOverlay\(page\)[\s\S]*waitForTopRightShopMenuAnchor/,
   "Shop switching must dismiss known blocking informational overlays before opening the header menu"
+);
+assert.match(
+  functionBody("ensureShopContextAttempt"),
+  /isChooseShopSurfaceVisible\(page\)[\s\S]*selectShopFromDialog\(page, expectedShopName\)[\s\S]*readCurrentShopNameFromMenu/,
+  "The post-login full-page shop chooser must be selected and identity-verified before the header-menu path"
+);
+assert.ok(
+  functionBody("ensureShopContextAttempt").indexOf("isChooseShopSurfaceVisible(page)") <
+    functionBody("ensureShopContextAttempt").indexOf("waitForTopRightShopMenuAnchor(page"),
+  "The post-login chooser must be handled before waiting for a workspace header that does not exist yet"
 );
 assert.doesNotMatch(
   functionBody("clickTopRightShopMenu"),
@@ -90,7 +102,7 @@ assert.match(
   "Shop switching must treat navigation-destroyed evaluate contexts as a recoverable navigation signal"
 );
 assert.match(
-  functionBody("waitForChooseShopDialog"),
+  functionBody("isChooseShopSurfaceVisible"),
   /isNavigationContextDestroyedError/,
   "Waiting for the shop dialog must not fail when selecting a shop destroys the old execution context"
 );
@@ -108,6 +120,11 @@ assert.match(
   functionBody("selectShopFromDialogExact"),
   /getByText\(expectedShopName, \{ exact: true \}\)[\s\S]*nameNode as HTMLElement\)\.click\(\)/,
   "Exact shop selection fallback must use the exact visible shop text without obsolete hashed classes"
+);
+assert.match(
+  functionBody("getChooseShopDialog"),
+  /getByText\("请选择店铺", \{ exact: true \}\)[\s\S]*locator\("xpath=\.\."\)/,
+  "The chooser root must support the exact heading container used by the post-login full-page shop selector"
 );
 assert.match(
   functionBody("selectShopFromDialog"),
