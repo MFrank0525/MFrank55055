@@ -176,6 +176,7 @@ export interface ShopSwitchMenuStateInput {
   expectedShopName: string;
   currentShopName: string;
   menuOpened: boolean;
+  menuLoading?: boolean;
   switchEntryVisible: boolean;
 }
 
@@ -362,6 +363,9 @@ export function evaluateShopSwitchMenuState(input: ShopSwitchMenuStateInput): Sh
   }
   if (!input.menuOpened) {
     return { action: "open_menu", issue: "Shop switch menu is not open." };
+  }
+  if (input.menuLoading) {
+    return { action: "retry_menu", issue: "Shop switch menu metadata is still loading." };
   }
   if (input.switchEntryVisible) {
     return { action: "click_switch_entry", issue: "" };

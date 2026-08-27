@@ -12,7 +12,8 @@ import { normalizeShopName, resolveExpectedShopName } from "./shop-name.js";
 import {
   evaluateShopSwitchMenuState,
   evaluateShopTargetSelectionState,
-  isDoudianLoginPageText
+  isDoudianLoginPageText,
+  isExpectedShopContext
 } from "./publish-rules.js";
 
 async function evaluateAfterNavigationSettles<T>(
@@ -324,6 +325,38 @@ async function waitForTopRightShopMenuAnchor(page: Page, timeoutMs = 12000): Pro
     await page.waitForTimeout(600);
   }
   return false;
+}
+
+async function isTopRightShopMenuLoading(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    return Array.from(document.querySelectorAll("[aria-busy='true']"))
+      .map((node) => node as HTMLElement)
+      .some((busy) => {
+        const tooltip = busy.closest("[role='tooltip']") as HTMLElement | null;
+        if (!tooltip) return false;
+        const rect = tooltip.getBoundingClientRect();
+        const style = window.getComputedStyle(tooltip);
+        return (
+          rect.width > 180 &&
+          rect.height > 200 &&
+          rect.top < 180 &&
+          rect.left > window.innerWidth * 0.68 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        );
+      });
+  }).catch(() => false);
+}
+
+async function waitForTopRightShopMenuLoadingToSettle(page: Page, timeoutMs = 8000): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!(await isTopRightShopMenuLoading(page))) {
+      return false;
+    }
+    await page.waitForTimeout(500);
+  }
+  return isTopRightShopMenuLoading(page);
 }
 
 async function clickVisibleActionText(page: Page, text: string): Promise<boolean> {
@@ -989,6 +1022,10 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
   let lastActual = currentBefore || "";
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await dismissKnownShopSwitchInformationalOverlay(page);
+    const currentFromHeader = normalizeShopName(await detectCurrentShopName(page));
+    if (isExpectedShopContext(currentFromHeader, expectedShopName)) {
+      return currentFromHeader;
+    }
     if (await isChooseShopSurfaceVisible(page)) {
       const selectedFromLoginChooser = await selectShopFromDialog(page, expectedShopName);
       if (!selectedFromLoginChooser) {
@@ -1041,11 +1078,14 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
       throw new Error(`Shop switch failed: could not open top-right shop menu for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
     }
 
+    const menuLoading = await waitForTopRightShopMenuLoadingToSettle(page);
+    const currentFromHeaderAfterMenuOpen = normalizeShopName(await detectCurrentShopName(page));
     const currentFromMenuBeforeSwitch = normalizeShopName(await readCurrentShopNameFromMenu(page));
     const initialSwitchDecision = evaluateShopSwitchMenuState({
       expectedShopName,
-      currentShopName: currentFromMenuBeforeSwitch || lastActual || currentBefore,
+      currentShopName: currentFromMenuBeforeSwitch || currentFromHeaderAfterMenuOpen || currentFromHeader || lastActual || currentBefore,
       menuOpened,
+      menuLoading,
       switchEntryVisible: await isShopSwitchEntryVisible(page)
     });
     if (initialSwitchDecision.action === "already_in_target_shop") {
@@ -1068,15 +1108,17 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
     }
     if (!switcherClicked) {
       const currentFromMenu = normalizeShopName(await readCurrentShopNameFromMenu(page));
+      const currentFromHeaderAfterMenu = normalizeShopName(await detectCurrentShopName(page));
       const finalSwitchDecision = evaluateShopSwitchMenuState({
         expectedShopName,
-        currentShopName: currentFromMenu || lastActual || currentBefore,
+        currentShopName: currentFromMenu || currentFromHeaderAfterMenu || currentFromHeader || lastActual || currentBefore,
         menuOpened: true,
+        menuLoading,
         switchEntryVisible: false
       });
       if (finalSwitchDecision.action === "already_in_target_shop") {
         await page.keyboard.press("Escape").catch(() => {});
-        return currentFromMenu || expectedShopName;
+        return currentFromMenu || currentFromHeaderAfterMenu || currentFromHeader || expectedShopName;
       }
       await saveShopSwitchDomSnapshot(page, runtimeDir, "shop-switch-entry-missing.html").catch(() => "");
       const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-entry-missing.png").catch(() => "");

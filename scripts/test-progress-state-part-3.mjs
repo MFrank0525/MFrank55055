@@ -783,6 +783,28 @@ assert.equal(
   true,
   "A watchdog kill with durable proof that the publish button was never attempted must resume the exact manifest-backed target"
 );
+const shopMenuLoadingFailure =
+  "failed at published: Publish failed for shop-03: Shop switch failed: could not find 切换组织/店铺 for 延草纲目个护保健专营店";
+assert.equal(
+  resolveSupervisorRecoveryChildMode(shopMenuLoadingFailure),
+  "resume",
+  "A pre-submit shop-menu availability failure must select exact manifest-backed resume"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "full",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: shopMenuLoadingFailure,
+    activeStep: "task_failed",
+    activeMessage: shopMenuLoadingFailure,
+    publishAttemptState: "attempted_or_unknown",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "A classified pre-submit shop-menu failure must stay supervisor-driven instead of stopping the batch"
+);
 const publishAttemptRuntime = fs.mkdtempSync(path.join(os.tmpdir(), "publish-attempt-state-"));
 assert.equal(readPublishAttemptState(publishAttemptRuntime), "attempted_or_unknown");
 initializePublishAttemptState(publishAttemptRuntime);

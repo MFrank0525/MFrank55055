@@ -20,6 +20,8 @@ for (const name of [
   "recoverTransientShopSwitchError",
   "isChooseShopSurfaceVisible",
   "getChooseShopDialog",
+  "isTopRightShopMenuLoading",
+  "waitForTopRightShopMenuLoadingToSettle",
   "selectShopFromDialogExact",
   "selectShopFromDialogByVisibleText",
   "selectShopFromDialog",
@@ -47,6 +49,11 @@ assert.match(
   "Shop switching must dismiss known blocking informational overlays before opening the header menu"
 );
 assert.match(
+  functionBody("isTopRightShopMenuLoading"),
+  /\[aria-busy='true'\][\s\S]*role='tooltip'[\s\S]*window\.innerWidth \* 0\.68/,
+  "Account-menu readiness must use the scoped aria-busy loading signal instead of treating blurred metadata as actionable"
+);
+assert.match(
   functionBody("ensureShopContextAttempt"),
   /isChooseShopSurfaceVisible\(page\)[\s\S]*selectShopFromDialog\(page, expectedShopName\)[\s\S]*readCurrentShopNameFromMenu/,
   "The post-login full-page shop chooser must be selected and identity-verified before the header-menu path"
@@ -55,6 +62,11 @@ assert.ok(
   functionBody("ensureShopContextAttempt").indexOf("isChooseShopSurfaceVisible(page)") <
     functionBody("ensureShopContextAttempt").indexOf("waitForTopRightShopMenuAnchor(page"),
   "The post-login chooser must be handled before waiting for a workspace header that does not exist yet"
+);
+assert.match(
+  functionBody("ensureShopContextAttempt"),
+  /for \(let attempt[\s\S]*detectCurrentShopName\(page\)[\s\S]*isExpectedShopContext[\s\S]*clickTopRightShopMenu/,
+  "Every shop-switch retry must re-read the canonical header identity before depending on account-menu metadata"
 );
 assert.doesNotMatch(
   functionBody("clickTopRightShopMenu"),

@@ -2399,6 +2399,17 @@ assert.deepEqual(switchEntryUnavailable, {
   issue: "Shop switch entry is unavailable while current shop does not match target."
 });
 
+assert.deepEqual(evaluateShopSwitchMenuState({
+  expectedShopName: "延草纲目康复理疗专营店",
+  currentShopName: "延草纲目个护保健专营店",
+  menuOpened: true,
+  menuLoading: true,
+  switchEntryVisible: true
+}), {
+  action: "retry_menu",
+  issue: "Shop switch menu metadata is still loading."
+});
+
 assert.deepEqual(
   evaluateShopTargetSelectionState({
     selectionReported: false,
