@@ -299,12 +299,10 @@ assert.equal(
     batchComplete: false,
     retryableFailureMessage: videosBase64NoAcceptanceFetchFailure,
     recoveryAttempts: 0,
-    maxRecoveryAttempts: 12,
-    externalServiceWaitAttempts: 12,
-    maxExternalServiceWaitAttempts: 12
+    maxRecoveryAttempts: 12
   }),
-  false,
-  "external-service recovery must terminate after its independent finite budget instead of waiting forever"
+  true,
+  "external-service availability recovery must remain project-owned after any number of safe wait cycles"
 );
 assert.equal(
   shouldRecoverFullFlowAfterChildFailure({
@@ -313,14 +311,17 @@ assert.equal(
     retryableFailureMessage: videosBase64NoAcceptanceFetchFailure,
     recoveryAttempts: 0,
     maxRecoveryAttempts: 12,
-    externalServiceWaitAttempts: 12,
-    maxExternalServiceWaitAttempts: 12,
     childMode: "full",
     activeStep: "main_images_generated",
     activeMessage: "Prompt 5/5: Image 2: submitting videos-base64 request."
   }),
-  false,
-  "the supervisor must converge to a terminal failure when the bounded service-wait episode is exhausted"
+  true,
+  "the supervisor must keep the locked batch alive while external availability failures remain safely retryable"
+);
+assert.doesNotMatch(
+  hermesSupervisorSource,
+  /External image service recovery budget exhausted|explicit continue can start a new bounded recovery episode/,
+  "The supervisor must not require a user-issued continue merely to renew an external-service wait budget"
 );
 const videosBase64SingleTaskProviderFailure =
   'failed at main_images_generated: videos-base64 prompt rounds failed after all concurrent work settled; failed indexes: 3; reasons: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 2; reasons: videos-base64 task task_cCj166vYLmQVsX0MMjLVQ0JHTOTYVyaR failed: {"code":"upstream_error","message":"提示词或图片中可能包含违规信息，请修改后重试"}';

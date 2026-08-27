@@ -6,8 +6,7 @@ import {
   isPaidMainImageTransportFailure,
   isRetryableExternalServiceAvailabilityFailure,
   isRetryableVideosBase64NoAcceptanceTransportFailure,
-  isRetryableVideosBase64ProviderTaskFailure,
-  resolveDefaultExternalServiceWaitAttempts
+  isRetryableVideosBase64ProviderTaskFailure
 } from "./external-service-recovery-rules.js";
 import { isDoudianLoginRequiredFailure } from "./doudian-login-recovery-rules.js";
 import { resolveMissingSpecTemplateHermesMessage } from "./spec-template-status-rules.js";
@@ -15,7 +14,6 @@ export { formatAutoListingControllerExternalServiceWaitSummary } from "./doudian
 export { shouldExposePublishProgressInAutoListingControllerStatus } from "./status-progress-rules.js";
 export {
   isRetryableExternalServiceAvailabilityFailure,
-  resolveDefaultExternalServiceWaitAttempts,
   resolveSupervisorRecoveryDelayMs,
   shouldConsumeSupervisorRecoveryAttempt
 } from "./external-service-recovery-rules.js";
@@ -50,8 +48,6 @@ export type FeishuBatchRetryAfterFailureInput = {
   retryableFailureMessage?: string;
   recoveryAttempts: number;
   maxRecoveryAttempts: number;
-  externalServiceWaitAttempts?: number;
-  maxExternalServiceWaitAttempts?: number;
 };
 
 export function resolveDefaultRetryableChildFailureRecoveryAttempts(): number {
@@ -124,8 +120,7 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
     isRetryableExternalServiceAvailabilityFailure(retryableFailureMessage) ||
     isRetryableVideosBase64NoAcceptanceTransportFailure(retryableFailureMessage)
   ) {
-    return (input.externalServiceWaitAttempts || 0) <
-      (input.maxExternalServiceWaitAttempts ?? resolveDefaultExternalServiceWaitAttempts());
+    return true;
   }
   if (input.recoveryAttempts >= input.maxRecoveryAttempts) {
     return false;

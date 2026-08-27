@@ -5,10 +5,6 @@ import {
 } from "./image-generation-rules.js";
 import { isPaidImageAcceptedTaskHeartbeatText } from "./paid-image-wait-rules.js";
 
-export function resolveDefaultExternalServiceWaitAttempts(): number {
-  return 12;
-}
-
 export function isPaidMainImageTransportFailure(message: string): boolean {
   return /main_images_generated|main image/i.test(message) &&
     /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|full decode validation|image artifact.*decode|image file is truncated/i.test(message);
