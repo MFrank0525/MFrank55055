@@ -242,6 +242,14 @@ async function clickLastMainImagePreviewDeleteControl(page: Page): Promise<boole
   return true;
 }
 
+const detailDeleteControlSelector = [
+  "i[class*='iconDelete']",
+  "button[aria-label*='删除']",
+  "[role='button'][aria-label*='删除']",
+  "button[title*='删除']",
+  "[role='button'][title*='删除']"
+].join(", ");
+
 async function clickLastDetailImagePreviewDeleteControl(page: Page): Promise<boolean> {
   const fieldRoot = page
     .locator("[attr-field-id='商品详情']")
@@ -249,12 +257,27 @@ async function clickLastDetailImagePreviewDeleteControl(page: Page): Promise<boo
   if ((await fieldRoot.count()) !== 1) {
     return false;
   }
-  const deleteControls = fieldRoot.locator("i[class*='iconDelete']");
-  if ((await deleteControls.count()) === 0) {
+
+  const sortableItems = fieldRoot.locator("[role='button'][aria-roledescription='sortable']");
+  const preview = (await sortableItems.count()) > 0 ? sortableItems.last() : fieldRoot;
+  if (preview !== fieldRoot) {
+    await preview.scrollIntoViewIfNeeded();
+    await preview.hover({ timeout: 3000 });
+  }
+
+  const deleteControls = preview.locator(detailDeleteControlSelector);
+  const visibleDeleteControls: Locator[] = [];
+  for (let index = 0; index < await deleteControls.count(); index += 1) {
+    const candidate = deleteControls.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      visibleDeleteControls.push(candidate);
+    }
+  }
+  if (visibleDeleteControls.length !== 1) {
     return false;
   }
 
-  const deleteControl = deleteControls.last();
+  const deleteControl = visibleDeleteControls[0]!;
   const sortableItem = deleteControl.locator(
     "xpath=ancestor::*[@role='button' and @aria-roledescription='sortable'][1]"
   );
@@ -820,6 +843,24 @@ export async function clickFillFromMainForDetailSection(page: Page): Promise<boo
   return false;
 }
 
+async function waitForDetailPreviewCountDecrease(
+  page: Page,
+  beforeCount: number,
+  timeoutMs = 10000
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let currentCount = beforeCount;
+  while (Date.now() < deadline) {
+    currentCount = await countDetailImagePreviews(page).catch(() => currentCount);
+    if (currentCount < beforeCount) {
+      return currentCount;
+    }
+    await page.waitForTimeout(500);
+    await dismissTransientOverlays(page);
+  }
+  return currentCount;
+}
+
 export async function clearDetailImagePreviewsStrict(page: Page, maxAttempts = 12): Promise<number> {
   let removedCount = 0;
   await ensurePublishSectionTab(page, "\u56fe\u6587\u4fe1\u606f");
@@ -839,14 +880,6 @@ export async function clearDetailImagePreviewsStrict(page: Page, maxAttempts = 1
       break;
     }
 
-    let previews = await getGraphicSectionPreviewRectsStrict(page, "\u8be6\u60c5\u9875").catch(() => []);
-    if (!previews.length) {
-      previews = await getGraphicSectionPreviewRectsStrict(page, "\u5546\u54c1\u8be6\u60c5").catch(() => []);
-    }
-    if (!previews.length) {
-      break;
-    }
-
     const clicked =
       (await clickLastGraphicSectionPreviewDeleteByDom(page, "\u8be6\u60c5\u9875").catch(() => false)) ||
       (await clickLastGraphicSectionPreviewDeleteByDom(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false));
@@ -856,9 +889,8 @@ export async function clearDetailImagePreviewsStrict(page: Page, maxAttempts = 1
     await page.waitForTimeout(900);
     await clickConfirmIfVisibleStrict(page);
     await dismissTransientOverlays(page);
-    await page.waitForTimeout(700);
 
-    const afterCount = await countDetailImagePreviews(page).catch(() => beforeCount);
+    const afterCount = await waitForDetailPreviewCountDecrease(page, beforeCount);
     if (afterCount < beforeCount) {
       removedCount += beforeCount - afterCount;
       continue;

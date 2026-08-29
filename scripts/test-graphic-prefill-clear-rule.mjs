@@ -42,8 +42,23 @@ assert.match(
 );
 assert.match(
   previewActionSource,
-  /clickLastDetailImagePreviewDeleteControl[\s\S]*attr-field-id='商品详情'[\s\S]*iconDelete[\s\S]*aria-roledescription='sortable'[\s\S]*\.hover\([\s\S]*deleteControl\.click/,
+  /clickLastDetailImagePreviewDeleteControl[\s\S]*attr-field-id='商品详情'[\s\S]*detailDeleteControlSelector[\s\S]*aria-roledescription='sortable'[\s\S]*\.hover\([\s\S]*deleteControl\.click/,
   "detail prefill clearing must scope to the exact detail field and click its current delete control"
+);
+assert.match(
+  previewActionSource,
+  /detailDeleteControlSelector[\s\S]*aria-label\*='删除'[\s\S]*title\*='删除'[\s\S]*clickLastDetailImagePreviewDeleteControl/,
+  "detail clearing must recognize semantic delete controls instead of depending on one platform icon class"
+);
+assert.doesNotMatch(
+  previewActionSource,
+  /clearDetailImagePreviewsStrict[\s\S]*getGraphicSectionPreviewRectsStrict[\s\S]*if \(!previews\.length\) \{\s*break;/,
+  "exact detail-field deletion must not be blocked by heuristic preview rectangles"
+);
+assert.match(
+  previewActionSource,
+  /clearDetailImagePreviewsStrict[\s\S]*waitForDetailPreviewCountDecrease\(page, beforeCount/,
+  "detail deletion must wait for a bounded DOM count decrease instead of relying on a fixed delay"
 );
 assert.match(
   previewActionSource,
