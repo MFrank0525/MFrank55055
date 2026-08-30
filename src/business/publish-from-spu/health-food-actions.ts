@@ -1,6 +1,7 @@
 import type { Locator, Page } from "playwright";
 import { resolveHealthFoodFunctionOptionCandidateGroups } from "./health-food-rules.js";
 import type { PublishFromSpuMetadata } from "./types.js";
+import { fillAndCommitLocator } from "./browser-session.js";
 
 export interface HealthFoodTextReadbackResult {
   action: "fill_text";
@@ -695,53 +696,18 @@ async function applyHealthFoodSpecificationEditorOnPage(
 ): Promise<void> {
   const markerBase = `health-food-spec-editor-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const fillQuantityOnPage = async (index: number, value: string): Promise<void> => {
-    await page.evaluate(({ quantityIndex, quantityValue }) => {
-      const normalize = (text: string): string => text.replace(/\s+/g, "").trim();
-      const visible = (element: HTMLElement): boolean => {
-        const style = window.getComputedStyle(element);
-        return Boolean(element.offsetParent) && style.display !== "none" && style.visibility !== "hidden";
-      };
-      const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
-        let current: HTMLElement | null = element;
-        while (current && current !== document.body) {
-          const style = window.getComputedStyle(current);
-          const className = String(current.className || "");
-          if (
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            className.includes("ecom-g-popover-hidden") ||
-            className.includes("ecom-g-select-dropdown-hidden")
-          ) {
-            return false;
-          }
-          current = current.parentElement;
-        }
-        return true;
-      };
-      const popup = Array.from(document.querySelectorAll(".ecom-g-popover-content"))
-        .map((node) => node as HTMLElement)
-        .find((element) => notHiddenByEcomContainer(element) && normalize(element.innerText || "").includes("选择规则"));
-      if (!popup) {
-        throw new Error("Health-food specification split editor popover not found after opening combined value input.");
+    const popups = page.locator(".ecom-g-popover-content").filter({ hasText: "选择规则" });
+    for (let popupIndex = 0; popupIndex < await popups.count(); popupIndex += 1) {
+      const popup = popups.nth(popupIndex);
+      if (!(await popup.isVisible().catch(() => false))) continue;
+      const quantityInputs = popup.locator('input.ecom-g-input[placeholder="请输入"]:visible');
+      const input = quantityInputs.nth(index);
+      if (await input.count()) {
+        await fillAndCommitLocator(input, value, "Tab");
+        return;
       }
-      const quantityInputs = Array.from(popup.querySelectorAll('input.ecom-g-input[placeholder="请输入"]'))
-        .map((node) => node as HTMLInputElement)
-        .filter((input) => visible(input) && !input.disabled && !input.readOnly);
-      const input = quantityInputs[quantityIndex] || (quantityIndex === 0 ? quantityInputs[0] : undefined);
-      if (!input) {
-        throw new Error(`Health-food specification split editor missing quantity input index=${quantityIndex}; actual=${quantityInputs.length}`);
-      }
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-      input.focus();
-      setter?.call(input, "");
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
-      setter?.call(input, quantityValue);
-      const tracker = (input as unknown as { _valueTracker?: { setValue: (nextValue: string) => void } })._valueTracker;
-      tracker?.setValue("");
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: quantityValue, inputType: "insertText" }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      input.dispatchEvent(new Event("blur", { bubbles: true }));
-    }, { quantityIndex: index, quantityValue: value });
+    }
+    throw new Error(`Health-food specification split editor missing quantity input index=${index}.`);
   };
   const waitForSecondPartControls = async (): Promise<void> => {
     await page.evaluate(async () => {

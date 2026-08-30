@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { launchPersistentBrowser } from "../../browser/launch.js";
 
 export class PublishCreatePageReopenRequiredError extends Error {
@@ -27,6 +27,24 @@ export function attachSafeDialogHandler(page: Page): void {
   page.on("dialog", (dialog) => {
     dialog.dismiss().catch(() => {});
   });
+}
+
+export async function fillAndCommitLocator(
+  locator: Locator,
+  value: string,
+  commitKey: "Tab" | "Enter" = "Tab"
+): Promise<string> {
+  const expected = value.trim();
+  await locator.scrollIntoViewIfNeeded();
+  await locator.click();
+  await locator.fill("");
+  await locator.fill(value);
+  await locator.press(commitKey);
+  const readBack = (await locator.inputValue()).trim();
+  if (readBack !== expected) {
+    throw new Error(`Publish input readback mismatch: expected=${expected}; actual=${readBack}`);
+  }
+  return readBack;
 }
 
 export async function gotoWithTolerance(page: Page, url: string, waitMs = 3500): Promise<void> {

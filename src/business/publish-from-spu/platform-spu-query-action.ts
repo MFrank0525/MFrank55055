@@ -17,6 +17,7 @@ import {
   attachSafeDialogHandler,
   closeCreatePagesExcept,
   closeExtraPages,
+  fillAndCommitLocator,
   gotoWithTolerance,
   normalizeMatchText,
   normalizeSpuMatchText,
@@ -300,7 +301,8 @@ async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", val
     return;
   }
 
-  await page.evaluate((nextValue) => {
+  const marker = `doudian-platform-spu-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const located = await page.evaluate(({ markerValue }) => {
       const visible = (el: HTMLElement): boolean => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
@@ -339,20 +341,18 @@ async function setPlatformQueryInputValue(page: Page, kind: "brand" | "spu", val
         .sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x)[0]?.input;
 
       if (!target) {
-        return;
+        return false;
       }
-
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-      target.focus();
-      setter?.call(target, "");
-      target.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
-      setter?.call(target, nextValue);
-      target.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
-      target.dispatchEvent(new Event("change", { bubbles: true }));
-      target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
-      target.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }));
-      target.blur();
-    }, value);
+      target.setAttribute("data-auto-listing-platform-spu-input", markerValue);
+      return true;
+    }, { markerValue: marker });
+  if (!located) return;
+  const locator = page.locator(`[data-auto-listing-platform-spu-input="${marker}"]`);
+  try {
+    await fillAndCommitLocator(locator, value, "Enter");
+  } finally {
+    await locator.evaluate((node) => node.removeAttribute("data-auto-listing-platform-spu-input")).catch(() => {});
+  }
 }
 
 async function readPlatformQueryInputValue(page: Page, kind: "brand" | "spu"): Promise<string> {

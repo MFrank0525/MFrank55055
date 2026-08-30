@@ -11,6 +11,7 @@ import {
   attachSafeDialogHandler,
   closeCreatePagesExcept,
   closeExtraPages,
+  fillAndCommitLocator,
   gotoWithTolerance,
   isNavigationContextDestroyedError,
   normalizeMatchText,
@@ -264,8 +265,9 @@ async function setBasicPublishFieldValue(
   value: string
 ): Promise<boolean> {
   const aliases = resolveBasicFieldIdAliases(field);
-  const updated = await page.evaluate(
-    ({ fieldAliases, nextValue }) => {
+  const marker = `doudian-basic-field-${field}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const located = await page.evaluate(
+    ({ fieldAliases, markerValue }) => {
       const normalize = (text: string): string => text.replace(/\s+/g, " ").trim();
       const visible = (el: HTMLElement): boolean => {
         const rect = el.getBoundingClientRect();
@@ -299,23 +301,20 @@ async function setBasicPublishFieldValue(
       if (!input) {
         return false;
       }
-      const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-      input.scrollIntoView({ block: "center", inline: "nearest" });
-      input.focus();
-      setter?.call(input, "");
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
-      setter?.call(input, nextValue);
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Tab" }));
-      input.blur();
+      input.setAttribute("data-auto-listing-basic-field", markerValue);
       return true;
     },
-    { fieldAliases: aliases, nextValue: value }
+    { fieldAliases: aliases, markerValue: marker }
   );
-  await page.waitForTimeout(150);
-  return updated;
+  if (!located) return false;
+  const locator = page.locator(`[data-auto-listing-basic-field="${marker}"]`);
+  try {
+    await fillAndCommitLocator(locator, value, "Tab");
+    await page.waitForTimeout(150);
+    return true;
+  } finally {
+    await locator.evaluate((node) => node.removeAttribute("data-auto-listing-basic-field")).catch(() => {});
+  }
 }
 
 type BasicFieldSnapshot = {

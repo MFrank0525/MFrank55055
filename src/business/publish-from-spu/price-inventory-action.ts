@@ -1,6 +1,6 @@
 import type { Locator, Page } from "playwright";
 import { evaluatePriceInventoryRowCardinality, type PriceInventoryRowValue } from "./price-inventory-rules.js";
-import { savePageScreenshot } from "./browser-session.js";
+import { fillAndCommitLocator, savePageScreenshot } from "./browser-session.js";
 import { dismissTransientOverlays } from "./dom-actions.js";
 import {
   ensurePublishSectionTab,
@@ -260,18 +260,7 @@ async function readVisiblePriceInventoryRows(
 }
 
 async function setLocatorInputValue(locator: Locator, value: string): Promise<string> {
-  return locator.evaluate((node, nextValue) => {
-    const input = node as HTMLInputElement | HTMLTextAreaElement;
-    const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    input.focus();
-    setter?.call(input, "");
-    input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "", inputType: "deleteContentBackward" }));
-    setter?.call(input, nextValue);
-    input.dispatchEvent(new InputEvent("input", { bubbles: true, data: nextValue, inputType: "insertText" }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-    return (input.value || "").trim();
-  }, value);
+  return fillAndCommitLocator(locator, value, "Tab");
 }
 
 async function fillVisiblePriceInventoryRowByTableDom(
