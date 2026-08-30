@@ -37,6 +37,7 @@ import {
   queryPlatformSpu
 } from "./platform-spu-query-action.js";
 import {
+  assertPublishMutationBoundaryReady,
   recoverUsablePageFromContext,
   recoverUsablePublishPage,
   waitForPublishCreatePageReady
@@ -301,6 +302,7 @@ export async function runPublishFlow(
     configuredFields.push(...basicResult.configuredFields);
 
     let priceInventoryCompleted = false;
+    await assertPublishMutationBoundaryReady(page, runtimeDir, "before_graphic_info");
     for (let specAttempt = 0; specAttempt < 2; specAttempt += 1) {
       if (specAttempt === 0) {
         logInfo(`publish module started: ${"graphic_info"} (${path.basename(shopFolder)})`);
@@ -335,6 +337,7 @@ export async function runPublishFlow(
         }
       }
 
+      await assertPublishMutationBoundaryReady(page, runtimeDir, "before_price_inventory");
       const specPriceResult = await runSpecPriceAction(
         {
           queryPlatformSpu,
@@ -398,6 +401,7 @@ export async function runPublishFlow(
     }
     stages.push({ step: "apply_price_inventory", status: "completed" });
 
+    await assertPublishMutationBoundaryReady(page, runtimeDir, "before_service_fulfillment");
     logInfo(`publish module started: ${"service_fulfillment"} (${path.basename(shopFolder)})`);
     const serviceResult = await runServiceAction(
       {
@@ -425,6 +429,7 @@ export async function runPublishFlow(
     if (!stopBeforePublish) {
       logInfo(`publish module started: final_submit (${path.basename(shopFolder)})`);
     }
+    await assertPublishMutationBoundaryReady(page, runtimeDir, "before_final_submit");
     const submitResult = await runSubmitAction(
       {
         runPublishCheckOnPage,

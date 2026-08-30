@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import {
   classifyPublishFailure,
   shouldRetryPublishFailure,
@@ -22,6 +23,21 @@ assert.deepEqual(
     issue: "Publish create page reported recoverable data/network error."
   }
 );
+
+const readinessActionSource = fs.readFileSync("src/business/publish-from-spu/publish-page-readiness.ts", "utf8");
+const publishFlowSource = fs.readFileSync("src/business/publish-from-spu/publish-flow.ts", "utf8");
+assert.match(
+  readinessActionSource,
+  /export async function assertPublishMutationBoundaryReady/,
+  "Every publish module needs one shared, read-only session/readiness boundary"
+);
+for (const boundary of ["before_graphic_info", "before_price_inventory", "before_service_fulfillment", "before_final_submit"]) {
+  assert.match(
+    publishFlowSource,
+    new RegExp(`assertPublishMutationBoundaryReady\\([^)]*${boundary}`),
+    `Publish flow must verify the visible session and create-page health at ${boundary}`
+  );
+}
 
 assert.deepEqual(
   evaluatePublishCreatePageReadiness({

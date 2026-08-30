@@ -143,6 +143,27 @@ export async function waitForPublishCreatePageReady(
   }
 }
 
+export async function assertPublishMutationBoundaryReady(
+  page: Page,
+  runtimeDir: string,
+  label: string
+): Promise<void> {
+  try {
+    await waitForPublishCreatePageReady(page, runtimeDir, page.url(), label, 2, {
+      allowPageNavigationRecovery: false
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/Doudian login is required|扫码登录|login required/i.test(message)) {
+      const screenshotFile = await savePageScreenshot(page, runtimeDir, `${label}-doudian-login-required.png`).catch(() => "");
+      throw new Error(
+        `Doudian login required before publish mutation boundary ${label}.${screenshotFile ? ` screenshot=${screenshotFile}` : ""}`
+      );
+    }
+    throw error;
+  }
+}
+
 export async function recoverUsablePageFromContext(context: Awaited<ReturnType<typeof launchPersistentBrowser>>, preferredUrlPart?: string): Promise<Page> {
   const recoveredPage =
     (preferredUrlPart
