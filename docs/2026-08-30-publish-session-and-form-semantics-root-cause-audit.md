@@ -16,6 +16,6 @@
 
 | 需求 | 实现 | 验证 | 状态 |
 | --- | --- | --- | --- |
-| 消除视觉已填、表单模型未提交 | 共享 `fillAndCommitLocator` 与四类关键输入迁移 | `test-publish-native-form-input-rule.mjs`、构建、现场断点续跑 | implemented-unverified |
-| 登录失效不得丢进度或重复发布 | 固定浏览器、登录等待、精确 manifest 断点、提交不确定性门 | controller 日志与深度运行审计 | implemented-unverified |
-| 禁止用规避风控手段替代稳定性工程 | 稳定性规则明确禁止验证码绕过和指纹伪装 | 规则完整性审计 | implemented-unverified |
+| 消除视觉已填、表单模型未提交 | 共享 `fillAndCommitLocator` 与四类关键输入迁移 | `test-publish-native-form-input-rule.mjs`、构建；新代码在第 16 店首次基础信息填写即通过并确认发布 | verified |
+| 登录失效不得丢进度或重复发布 | 固定浏览器、登录等待、精确 manifest 断点、提交不确定性门 | 第 11 店登录恢复后成功发布；安全暂停保留 15/20，恢复后从 16/20 继续；运行中深度审计 `unconfirmed=0` | verified |
+| 禁止用规避风控手段替代稳定性工程 | 稳定性规则明确禁止验证码绕过和指纹伪装 | `rules:check`、运行中八维深度审计 | verified |
