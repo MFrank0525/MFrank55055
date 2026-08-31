@@ -347,6 +347,16 @@ export function isDoudianLoginPageText(value: string): boolean {
   );
 }
 
+export function isDoudianAuthenticatedShopSelectionText(value: string): boolean {
+  const text = normalizeVisibleText(value);
+  return (
+    text.includes("请选择店铺") &&
+    text.includes("抖店工作台") &&
+    text.includes("正常营业") &&
+    (text.includes("子账号") || text.includes("主账号"))
+  );
+}
+
 export function normalizeShopRuleText(value: string): string {
   return normalizeVisibleText(value).replace(/^\d+/, "");
 }
@@ -449,6 +459,9 @@ export function evaluateBasicPrefillReadiness(input: BasicPrefillReadinessInput)
 export function evaluatePlatformSpuQueryPageReadiness(input: PlatformSpuQueryPageReadinessInput): PlatformSpuQueryPageReadinessDecision {
   const bodyText = normalizeVisibleText(input.bodyText || "");
   const loginRoute = /(?:^|\/)(?:login|passport)(?:[\/?#]|$)/i.test(input.url || "");
+  if (loginRoute && isDoudianAuthenticatedShopSelectionText(bodyText)) {
+    return { ready: false, issue: "Authenticated Doudian shop selection is required." };
+  }
   if (loginRoute || isDoudianLoginPageText(bodyText)) {
     return { ready: false, issue: "Doudian login is required before publishing can continue." };
   }

@@ -542,6 +542,27 @@ async function waitForPlatformSpuQueryPageReady(page: Page, timeoutMs = 45000): 
   return { ready: false, issue: lastIssue || "Platform SPU query page did not become ready before timeout." };
 }
 
+async function selectAuthenticatedDoudianShop(page: Page): Promise<string> {
+  const shopNames = await page.locator("body").evaluate<string[]>((body) =>
+    Array.from(new Set<string>(((body as HTMLElement).innerText || "").split(/\r?\n/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) => /(?:专营店|专卖店|旗舰店)$/.test(line))))
+  );
+  for (const shopName of shopNames) {
+    const matches = page.getByText(shopName, { exact: true });
+    const count = await matches.count();
+    for (let index = 0; index < count; index += 1) {
+      const match = matches.nth(index);
+      if (!(await match.isVisible().catch(() => false))) continue;
+      await match.scrollIntoViewIfNeeded();
+      await match.click({ timeout: 5000 });
+      await page.waitForTimeout(2500);
+      return shopName;
+    }
+  }
+  throw new Error("Authenticated Doudian shop selection page did not expose one visible shop-name control.");
+}
+
 async function ensurePlatformSpuTabActive(page: Page, runtimeDir: string): Promise<void> {
   const platformTab = page.getByRole("tab", { name: "\u5E73\u53F0\u6807\u54C1", exact: true });
   const tabCount = await platformTab.count();
@@ -605,6 +626,13 @@ async function ensurePlatformSpuQueryPageActive(
   await page.waitForTimeout(300);
   await gotoWithTolerance(page, PLATFORM_SPU_URL, 3500).catch(() => {});
   await page.keyboard.press("Escape").catch(() => {});
+  const landingDecision = await readPlatformSpuQueryPageSnapshot(page)
+    .then((snapshot) => evaluatePlatformSpuQueryPageReadiness(snapshot));
+  if (landingDecision.issue === "Authenticated Doudian shop selection is required.") {
+    await selectAuthenticatedDoudianShop(page);
+    await gotoWithTolerance(page, PLATFORM_SPU_URL, 3500).catch(() => {});
+    await page.keyboard.press("Escape").catch(() => {});
+  }
   const decision = await waitForPlatformSpuQueryPageReady(page, timeoutMs);
   if (!decision.ready) {
     if (decision.issue === "Doudian login is required before publishing can continue.") {

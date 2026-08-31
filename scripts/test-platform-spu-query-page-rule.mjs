@@ -167,6 +167,20 @@ assert.deepEqual(
   "An explicit Doudian login route must fail as login-required even when the page body is unavailable or rendered in an iframe"
 );
 
+assert.deepEqual(
+  evaluatePlatformSpuQueryPageReadiness({
+    url: "https://fxg.jinritemai.com/login/common?extra=target",
+    bodyText: "抖店 优质流量 自主经营 请选择店铺 抖店工作台 延草纲目滋补专卖店 子账号 专卖店 正常营业",
+    visibleInputCount: 0,
+    brandInputFound: false,
+    spuInputFound: false,
+    accountMenuOpen: false,
+    loading: false
+  }),
+  { ready: false, issue: "Authenticated Doudian shop selection is required." },
+  "An authenticated shop chooser must not be misclassified as a logged-out session merely because it remains on /login/common"
+);
+
 assert.equal(
   isDoudianLoginPageText("抖店 优质流量 自主经营 手机登录 邮箱登录 手机号码 验证码 发送验证码 登录 用户协议 隐私条款"),
   true
