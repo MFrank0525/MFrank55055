@@ -448,7 +448,8 @@ export function evaluateBasicPrefillReadiness(input: BasicPrefillReadinessInput)
 
 export function evaluatePlatformSpuQueryPageReadiness(input: PlatformSpuQueryPageReadinessInput): PlatformSpuQueryPageReadinessDecision {
   const bodyText = normalizeVisibleText(input.bodyText || "");
-  if (isDoudianLoginPageText(bodyText)) {
+  const loginRoute = /(?:^|\/)(?:login|passport)(?:[\/?#]|$)/i.test(input.url || "");
+  if (loginRoute || isDoudianLoginPageText(bodyText)) {
     return { ready: false, issue: "Doudian login is required before publishing can continue." };
   }
   if (!input.url.includes("/ffa/g/spu-record")) {

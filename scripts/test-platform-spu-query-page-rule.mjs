@@ -153,6 +153,20 @@ assert.deepEqual(
   { ready: false, issue: "Doudian login is required before publishing can continue." }
 );
 
+assert.deepEqual(
+  evaluatePlatformSpuQueryPageReadiness({
+    url: "https://fxg.jinritemai.com/login/common?extra=target",
+    bodyText: "",
+    visibleInputCount: 0,
+    brandInputFound: false,
+    spuInputFound: false,
+    accountMenuOpen: false,
+    loading: false
+  }),
+  { ready: false, issue: "Doudian login is required before publishing can continue." },
+  "An explicit Doudian login route must fail as login-required even when the page body is unavailable or rendered in an iframe"
+);
+
 assert.equal(
   isDoudianLoginPageText("抖店 优质流量 自主经营 手机登录 邮箱登录 手机号码 验证码 发送验证码 登录 用户协议 隐私条款"),
   true
