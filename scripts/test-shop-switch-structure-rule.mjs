@@ -19,6 +19,8 @@ for (const name of [
   "clickShopSwitchEntry",
   "recoverTransientShopSwitchError",
   "isChooseShopSurfaceVisible",
+  "isChooseShopLoadingSurfaceVisible",
+  "waitForChooseShopSurfaceReady",
   "getChooseShopDialog",
   "isTopRightShopMenuLoading",
   "waitForTopRightShopMenuLoadingToSettle",
@@ -119,6 +121,21 @@ assert.match(
   "Waiting for the shop dialog must not fail when selecting a shop destroys the old execution context"
 );
 assert.match(
+  functionBody("isChooseShopLoadingSurfaceVisible"),
+  /role='dialog'[\s\S]*aria-modal='true'[\s\S]*加载中[\s\S]*rect\.width >= 300[\s\S]*rect\.height >= 240/,
+  "Shop switching must recognize a scoped visible loading chooser shell before declaring the dialog missing"
+);
+assert.match(
+  functionBody("waitForChooseShopSurfaceReady"),
+  /isChooseShopSurfaceVisible\(page\)[\s\S]*isChooseShopLoadingSurfaceVisible\(page\)[\s\S]*return sawLoading \? "loading" : "absent"/,
+  "Shop chooser readiness must preserve ready, loading, and absent as distinct states"
+);
+assert.match(
+  functionBody("ensureShopContextAttempt"),
+  /waitForChooseShopSurfaceReady\(page\)[\s\S]*dialogState === "loading"[\s\S]*gotoWithTolerance\(page, PLATFORM_SPU_URL[\s\S]*continue/,
+  "A loading shop chooser must recover through bounded canonical-page retries instead of being reported missing"
+);
+assert.match(
   functionBody("selectShopFromDialogByVisibleText"),
   /isNavigationContextDestroyedError/,
   "Shop selection must not report target missing when a successful click immediately navigates"
@@ -151,7 +168,7 @@ for (const name of ["selectShopFromDialogExact", "selectShopFromDialogByVisibleT
 }
 assert.match(
   functionBody("ensureShopContextAttempt"),
-  /if \(!dialogVisible\) \{[\s\S]*confirmDoudianLoginRequired\(page\)[\s\S]*Doudian login required[\s\S]*shop-switch-dialog-missing/,
+  /if \(dialogState !== "ready"\) \{[\s\S]*confirmDoudianLoginRequired\(page\)[\s\S]*Doudian login required[\s\S]*shop-switch-dialog-missing/,
   "A missing shop switch dialog must be reclassified as login expiry when the page has landed on the Doudian login screen"
 );
 assert.match(
@@ -171,7 +188,7 @@ assert.match(
 );
 assert.match(
   functionBody("ensureShopContextAttempt"),
-  /if \(!dialogVisible\) \{[\s\S]*recoverTransientShopSwitchError\(page\)/,
+  /dialogState === "absent"[\s\S]*recoverTransientShopSwitchError\(page\)/,
   "A missing shop chooser must attempt bounded recovery of the Doudian transient error modal"
 );
 assert.match(

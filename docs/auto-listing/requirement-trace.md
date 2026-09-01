@@ -266,6 +266,13 @@
 | Preserve fail-closed behavior | A stable chooser without the target still fails; a vanished chooser with neither click confirmation nor exact current-shop readback remains bounded-retry only | `test-progress-state-part-1.mjs`; `test-shop-switch-structure-rule.mjs` | verified |
 | Preserve canonical coverage across repeated recovery | Publish-plan persistence merges by immutable target identity instead of overwriting the plan with only remaining folders; existing narrowed plans may recover only when their identity/path-verified union with the manifest covers exactly all 20 targets | Regression with manifest targets 1-17 plus narrowed plan targets 2-20; incomplete union and identity/path conflicts remain fail-closed | verified |
 
+## 2026-09-01 Shop chooser loading-state recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Do not confuse a visible loading chooser with a missing dialog | The shop-switch action observes `ready`, `loading`, and `absent` independently; a large visible modal containing `加载中` is durable loading evidence | Headed delayed-ready, persistent-loading, and absent-surface regressions passed; structural rule passed | verified |
+| Recover without replaying a publish side effect | A loading chooser waits up to 25 seconds, archives DOM/screenshot evidence, then returns to the canonical SPU page and retries the switch at most three rounds; this occurs before any create-form or publish mutation | Medical-device 20/20 live shop-access audit `20260901-092754` passed, including target 14; `publishAttempted=false`, `formMutationAttempted=false`; failed target submit boundary remains `not_attempted` | verified |
+
 ## 2026-08-12 Completed archive audit closure
 
 | Requirement | Implementation | Verification | Status |

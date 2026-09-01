@@ -560,6 +560,55 @@ async function isChooseShopSurfaceVisible(page: Page): Promise<boolean> {
   });
 }
 
+async function isChooseShopLoadingSurfaceVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const normalize = (value: string): string => String(value || "").replace(/\s+/g, "").trim();
+    return Array.from(document.querySelectorAll(
+      "div[role='dialog'], div[aria-modal='true'], .semi-modal, .ant-modal, .ecom-g-modal, [class*='modal']"
+    ))
+      .map((node) => node as HTMLElement)
+      .some((el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const text = normalize(el.innerText || el.textContent || "");
+        return (
+          text.includes("加载中") &&
+          !text.includes("请选择店铺") &&
+          rect.width >= 300 &&
+          rect.height >= 240 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        );
+      });
+  }).catch((error) => {
+    if (isNavigationContextDestroyedError(error)) {
+      return false;
+    }
+    throw error;
+  });
+}
+
+export async function waitForChooseShopSurfaceReady(
+  page: Page,
+  timeoutMs = 25_000
+): Promise<"ready" | "loading" | "absent"> {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  let sawLoading = false;
+  do {
+    if (await isChooseShopSurfaceVisible(page)) {
+      return "ready";
+    }
+    if (await isChooseShopLoadingSurfaceVisible(page)) {
+      sawLoading = true;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining > 0) {
+      await page.waitForTimeout(Math.min(500, remaining));
+    }
+  } while (Date.now() < deadline);
+  return sawLoading ? "loading" : "absent";
+}
+
 async function waitForChooseShopDialog(page: Page): Promise<boolean> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     if (await isChooseShopSurfaceVisible(page)) {
@@ -1125,18 +1174,33 @@ async function ensureShopContextAttempt(page: Page, runtimeDir: string, shopFold
       throw new Error(`Shop switch failed: could not find 切换组织/店铺 for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`);
     }
 
-    let dialogVisible = await waitForChooseShopDialog(page);
-    if (!dialogVisible && await recoverTransientShopSwitchError(page)) {
-      dialogVisible = await waitForChooseShopDialog(page);
+    let dialogState = await waitForChooseShopSurfaceReady(page);
+    if (dialogState === "absent" && await recoverTransientShopSwitchError(page)) {
+      dialogState = await waitForChooseShopSurfaceReady(page);
     }
-    if (!dialogVisible) {
+    if (dialogState === "absent") {
       await clickShopSwitchEntry(page).catch(() => false);
-      dialogVisible = await waitForChooseShopDialog(page);
+      dialogState = await waitForChooseShopSurfaceReady(page);
     }
-    if (!dialogVisible && await recoverTransientShopSwitchError(page)) {
-      dialogVisible = await waitForChooseShopDialog(page);
+    if (dialogState === "absent" && await recoverTransientShopSwitchError(page)) {
+      dialogState = await waitForChooseShopSurfaceReady(page);
     }
-    if (!dialogVisible) {
+    if (dialogState === "loading") {
+      await saveShopSwitchDomSnapshot(page, runtimeDir, `shop-switch-dialog-loading-${attempt + 1}.html`).catch(() => "");
+      await savePageScreenshot(page, runtimeDir, `shop-switch-dialog-loading-${attempt + 1}.png`).catch(() => "");
+      if (attempt < 2) {
+        logWarn(`shop chooser remained loading; retrying from canonical page (${attempt + 1}/3)`);
+        await gotoWithTolerance(page, PLATFORM_SPU_URL, 7000 + attempt * 1500).catch(() => {});
+        await page.waitForLoadState("domcontentloaded").catch(() => {});
+        await page.waitForTimeout(1000 + attempt * 500);
+        continue;
+      }
+      const screenshotFile = await savePageScreenshot(page, runtimeDir, "shop-switch-dialog-loading-exhausted.png").catch(() => "");
+      throw new Error(
+        `Shop switch failed: shop chooser remained loading after bounded recovery for ${expectedShopName}${screenshotFile ? `; screenshot=${screenshotFile}` : ""}`
+      );
+    }
+    if (dialogState !== "ready") {
       if (await confirmDoudianLoginRequired(page)) {
         const screenshotFile = await savePageScreenshot(page, runtimeDir, "doudian-login-required.png").catch(() => "");
         throw new Error(

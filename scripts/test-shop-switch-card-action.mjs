@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import {
   dismissKnownShopSwitchInformationalOverlay,
-  selectShopFromDialog
+  selectShopFromDialog,
+  waitForChooseShopSurfaceReady
 } from "../dist/src/business/publish-from-spu/shop-switch-action.js";
 
 const browser = await chromium.launch({ headless: false });
@@ -89,6 +90,35 @@ try {
   `);
   assert.equal(await dismissKnownShopSwitchInformationalOverlay(page), true);
   assert.equal(await page.locator(".known-overlay").count(), 0);
+
+  await page.setContent(`
+    <style>.shop-chooser-shell { width: 640px; height: 680px; }</style>
+    <div role="dialog" class="shop-chooser-shell"><span>加载中</span></div>
+    <script>
+      setTimeout(() => {
+        document.querySelector('.shop-chooser-shell').innerHTML = '<h1>请选择店铺</h1>';
+      }, 250);
+    </script>
+  `);
+  assert.equal(
+    await waitForChooseShopSurfaceReady(page, 2_000),
+    "ready",
+    "a visible loading chooser shell must be awaited until its shop list becomes ready"
+  );
+
+  await page.setContent('<style>.shop-chooser-shell { width: 640px; height: 680px; }</style><div role="dialog" class="shop-chooser-shell"><span>加载中</span></div>');
+  assert.equal(
+    await waitForChooseShopSurfaceReady(page, 300),
+    "loading",
+    "a chooser shell that remains loading must be distinguished from a missing dialog"
+  );
+
+  await page.setContent('<main>标品管理</main>');
+  assert.equal(
+    await waitForChooseShopSurfaceReady(page, 300),
+    "absent",
+    "a genuinely absent chooser must remain distinct from a loading chooser shell"
+  );
 } finally {
   await browser.close();
 }
