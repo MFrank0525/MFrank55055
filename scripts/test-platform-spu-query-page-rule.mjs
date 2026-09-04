@@ -322,6 +322,16 @@ const publishSource = [
 ].join("\n");
 assert.match(
   publishSource,
+  /getByRole\("button", \{ name: "立即刷新", exact: true \}\)/,
+  "Platform SPU data-error recovery must click the exact built-in refresh action"
+);
+assert.match(
+  publishSource,
+  /recoverPlatformSpuDataErrorSurface/,
+  "Platform SPU readiness must run bounded data-error-surface recovery"
+);
+assert.match(
+  publishSource,
   /evaluatePlatformSpuQueryPageReadiness/,
   "SPU query page readiness must use the rule-layer evaluator instead of loose body-text checks"
 );

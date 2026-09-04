@@ -542,6 +542,28 @@ async function waitForPlatformSpuQueryPageReady(page: Page, timeoutMs = 45000): 
   return { ready: false, issue: lastIssue || "Platform SPU query page did not become ready before timeout." };
 }
 
+export async function recoverPlatformSpuDataErrorSurface(page: Page, maxAttempts = 2): Promise<boolean> {
+  let clicked = false;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const snapshot = await readPlatformSpuQueryPageSnapshot(page).catch(() => undefined);
+    const normalized = (snapshot?.bodyText || "").replace(/\s+/g, "");
+    const hasDataError = normalized.includes("数据异常请刷新重试")
+      || (normalized.includes("数据异常") && normalized.includes("刷新重试"));
+    if (!hasDataError) return clicked;
+    const refreshButton = page.getByRole("button", { name: "立即刷新", exact: true });
+    const count = await refreshButton.count().catch(() => 0);
+    if (count !== 1 || !(await refreshButton.isVisible().catch(() => false))) return clicked;
+    await refreshButton.click({ timeout: 5000 });
+    clicked = true;
+    await page.waitForFunction(() => {
+      const text = (document.body?.innerText || "").replace(/\s+/g, "");
+      return !text.includes("数据异常请刷新重试") && !(text.includes("数据异常") && text.includes("刷新重试"));
+    }, undefined, { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1200 + attempt * 800).catch(() => {});
+  }
+  return clicked;
+}
+
 async function selectAuthenticatedDoudianShop(page: Page): Promise<string> {
   const shopNames = await page.locator("body").evaluate<string[]>((body) =>
     Array.from(new Set<string>(((body as HTMLElement).innerText || "").split(/\r?\n/)
@@ -633,6 +655,7 @@ async function ensurePlatformSpuQueryPageActive(
     await gotoWithTolerance(page, PLATFORM_SPU_URL, 3500).catch(() => {});
     await page.keyboard.press("Escape").catch(() => {});
   }
+  await recoverPlatformSpuDataErrorSurface(page);
   const decision = await waitForPlatformSpuQueryPageReady(page, timeoutMs);
   if (!decision.ready) {
     if (decision.issue === "Doudian login is required before publishing can continue.") {

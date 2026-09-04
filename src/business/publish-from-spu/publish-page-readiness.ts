@@ -93,6 +93,18 @@ async function getPublishCreatePageHealth(page: Page): Promise<{
   });
 }
 
+export async function recoverPublishDataErrorSurface(page: Page): Promise<boolean> {
+  const refreshButton = page.getByRole("button", { name: "立即刷新", exact: true });
+  const count = await refreshButton.count().catch(() => 0);
+  if (count !== 1 || !(await refreshButton.isVisible().catch(() => false))) return false;
+  await refreshButton.click({ timeout: 5000 });
+  await page.waitForFunction(() => {
+    const text = (document.body?.innerText || "").replace(/\s+/g, "");
+    return !text.includes("数据异常请刷新重试") && !(text.includes("数据异常") && text.includes("刷新重试"));
+  }, undefined, { timeout: 8000 }).catch(() => {});
+  return true;
+}
+
 export async function waitForPublishCreatePageReady(
   page: Page,
   runtimeDir: string,
@@ -127,6 +139,12 @@ export async function waitForPublishCreatePageReady(
     }
     await savePageScreenshot(page, runtimeDir, `${label}-publish-page-not-ready-${attempt + 1}.png`).catch(() => "");
     if (attempt < maxAttempts - 1) {
+      const usedPlatformRefresh = readiness.issue.includes("recoverable data/network error")
+        && await recoverPublishDataErrorSurface(page).catch(() => false);
+      if (usedPlatformRefresh) {
+        await page.waitForTimeout(1800 + attempt * 600).catch(() => {});
+        continue;
+      }
       if (allowPageNavigationRecovery) {
         if (page.url().includes("/ffa/g/create")) {
           await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});

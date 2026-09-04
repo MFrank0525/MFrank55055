@@ -25,6 +25,11 @@ assert.deepEqual(
 );
 
 const readinessActionSource = fs.readFileSync("src/business/publish-from-spu/publish-page-readiness.ts", "utf8");
+assert.match(
+  readinessActionSource,
+  /getByRole\("button", \{ name: "立即刷新", exact: true \}\)/,
+  "A publish-page data-error surface must use its exact DOM refresh action before navigation fallback"
+);
 const publishFlowSource = fs.readFileSync("src/business/publish-from-spu/publish-flow.ts", "utf8");
 assert.match(
   readinessActionSource,
