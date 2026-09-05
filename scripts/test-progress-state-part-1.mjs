@@ -1662,6 +1662,15 @@ assert.equal(
 assert.equal(
   resolvePublishFillCheckDialogAction({
     title: "发布提醒",
+    text: "标题待优化 标题中不允许出现连续重复片段「面部膜医用面部膜医用」，建议修改后提交",
+    visibleActions: ["去修改", "返回确认"]
+  }),
+  "return_to_confirm",
+  "fill-check must dismiss the title-optimization advisory through 返回确认 so the unchanged title can proceed to the real publish button"
+);
+assert.equal(
+  resolvePublishFillCheckDialogAction({
+    title: "发布提醒",
     text: "未知提醒",
     visibleActions: ["不修改，继续发布", "返回确认"]
   }),

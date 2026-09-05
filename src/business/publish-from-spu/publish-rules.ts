@@ -72,9 +72,12 @@ export function resolvePublishFillCheckDialogAction(input: {
   const title = input.title.replace(/\s+/g, "").trim();
   const text = input.text.replace(/\s+/g, "").trim();
   const actions = input.visibleActions.map((value) => value.replace(/\s+/g, "").trim());
+  const isKnownNonBlockingAdvisory =
+    text.includes("\u89c4\u683c\u4fe1\u606f\u51b2\u7a81") ||
+    text.includes("\u6807\u9898\u5f85\u4f18\u5316");
   if (
     title === "\u53d1\u5e03\u63d0\u9192" &&
-    text.includes("\u89c4\u683c\u4fe1\u606f\u51b2\u7a81") &&
+    isKnownNonBlockingAdvisory &&
     actions.includes("\u8fd4\u56de\u786e\u8ba4")
   ) {
     return "return_to_confirm";

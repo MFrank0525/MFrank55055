@@ -228,9 +228,13 @@ export async function runPublishCheckOnPage(
       if (dialogAction !== "return_to_confirm") {
         throw new Error(`Pre-submit dialog remained visible during fill-check: ${dialogSnapshot.text.slice(0, 240)}`);
       }
-      const returnButton = visibleDialog.getByRole("button", { name: "\u8fd4\u56de\u786e\u8ba4", exact: true }).first();
+      const returnButton = visibleDialog.getByRole("button", { name: "\u8fd4\u56de\u786e\u8ba4", exact: true });
+      const returnButtonCount = await returnButton.count();
+      if (returnButtonCount !== 1 || !(await returnButton.isVisible().catch(() => false))) {
+        throw new Error(`Fill-check advisory did not expose one unique visible \u8fd4\u56de\u786e\u8ba4 action: count=${returnButtonCount}`);
+      }
       await returnButton.click({ timeout: 3000 });
-      await activePage.waitForTimeout(500);
+      await visibleDialog.waitFor({ state: "hidden", timeout: 5000 });
       continue;
     }
 
