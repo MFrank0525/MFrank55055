@@ -101,6 +101,31 @@ assert.deepEqual(
   "医疗器械记录不应因为同表保健食品专用列为空而失败"
 );
 
+const omittedSpecificationCell = normalizeFeishuProductRecord(
+  {
+    ...baseRecord,
+    recordId: "rec-otc-omitted-specification-cell",
+    fields: {
+      ...baseRecord.fields,
+      产品类目: "非处方药",
+      规格模板: "买二送一"
+    }
+  },
+  {
+    ...config,
+    fieldMap: {
+      ...config.fieldMap,
+      specification: "规格"
+    }
+  }
+);
+assert.equal(
+  omittedSpecificationCell.specification,
+  "",
+  "an omitted optional 规格 cell must not fuzzy-alias the overlapping 规格模板 field"
+);
+assert.equal(omittedSpecificationCell.specTemplate, "买二送一");
+
 const shuffledMedicalDeviceRecord = normalizeFeishuProductRecord(
   {
     recordId: "rec-medical-shuffled-extra-columns",

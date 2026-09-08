@@ -10,7 +10,9 @@ import {
   isStablePlatformBrandSelection
 } from "./publish-rules.js";
 import {
+  type PlatformBrandCandidateAttemptState,
   resolveExactPlatformBrandCandidateSequence,
+  resolvePlatformBrandCandidateMissTransition,
   selectPlatformSpuPublishCandidate
 } from "./platform-spu-query-rules.js";
 import {
@@ -25,8 +27,52 @@ import {
 } from "./browser-session.js";
 
 const maxPlatformSpuQueryRetries = 4;
+const maxPlatformBrandCandidateResultRefreshes = 3;
 const platformSpuPublishActionAttribute = "data-auto-listing-platform-spu-publish-action";
 const platformSpuCreatePageNavigationTimeoutMs = 25000;
+
+async function prepareNextPlatformBrandCandidateAttempt(input: {
+  page: Page;
+  runtimeDir: string;
+  state: PlatformBrandCandidateAttemptState;
+  selectedBrandIdentity: string;
+  brand: string;
+  spu: string;
+  missKind: "no_rows" | "specification_mismatch";
+  expectedSpecification?: string;
+}): Promise<PlatformBrandCandidateAttemptState | null> {
+  const transition = resolvePlatformBrandCandidateMissTransition({
+    candidateIndex: input.state.index,
+    candidateCount: input.state.identities.length,
+    resultRefreshCount: input.state.resultRefreshCount,
+    maxResultRefreshes: maxPlatformBrandCandidateResultRefreshes
+  });
+  if (transition.action === "exhausted") {
+    return null;
+  }
+  const candidateOrdinal = input.state.index + 1;
+  if (transition.action === "refresh_current") {
+    logWarn(
+      `platform brand candidate ${input.missKind} result; refreshing current candidate ${transition.resultRefreshCount}/${maxPlatformBrandCandidateResultRefreshes}. brand=${input.brand}; optionIdentity=${input.selectedBrandIdentity}; spu=${input.spu}; expectedSpecification=${input.expectedSpecification || "<empty>"}`
+    );
+    await savePageScreenshot(
+      input.page,
+      input.runtimeDir,
+      `platform-spu-brand-candidate-${candidateOrdinal}-${input.missKind}-refresh-${transition.resultRefreshCount}.png`
+    ).catch(() => "");
+    await gotoWithTolerance(input.page, PLATFORM_SPU_URL, 6500).catch(() => {});
+    await input.page.waitForTimeout(1500);
+  } else {
+    logWarn(
+      `platform brand candidate exhausted ${maxPlatformBrandCandidateResultRefreshes} ${input.missKind} result refreshes; advancing candidate ${transition.candidateIndex + 1}/${input.state.identities.length}. brand=${input.brand}; optionIdentity=${input.selectedBrandIdentity}; spu=${input.spu}`
+    );
+  }
+  return {
+    identities: input.state.identities,
+    index: transition.candidateIndex,
+    resultRefreshCount: transition.resultRefreshCount
+  };
+}
 
 async function waitForPlatformSpuCreatePage(
   context: BrowserContext,
@@ -788,7 +834,7 @@ export async function queryPlatformSpu(
   request: PlatformSpuQueryRequest,
   shopFolder?: string,
   retryNo = 0,
-  brandCandidateState?: { identities: string[]; index: number }
+  brandCandidateState?: PlatformBrandCandidateAttemptState
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -862,7 +908,11 @@ export async function queryPlatformSpu(
       brand,
       brandCandidateState?.identities[brandCandidateState.index]
     );
-    const candidateState = brandCandidateState || { identities: discoveredBrandIdentities, index: 0 };
+    const candidateState = brandCandidateState || {
+      identities: discoveredBrandIdentities,
+      index: 0,
+      resultRefreshCount: 0
+    };
     if (!candidateState.identities.length || candidateState.index >= candidateState.identities.length) {
       const error = new Error(`No exact platform brand candidates found. brand=${brand}`) as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-brand-candidates-missing.png");
@@ -968,21 +1018,19 @@ export async function queryPlatformSpu(
       matched = pickMatchedCandidate(allCandidates);
     }
 
-    const hasNextBrandCandidate = candidateState.index + 1 < candidateState.identities.length;
-    const nextBrandCandidateState = {
-      identities: candidateState.identities,
-      index: candidateState.index + 1
-    };
-
-    if (!allCandidates.length && hasNextBrandCandidate) {
-      logWarn(
-        `platform brand candidate returned no visible SPU rows; advancing candidate ${candidateState.index + 1}/${candidateState.identities.length}. brand=${brand}; optionIdentity=${selectedBrandIdentity}; spu=${spu}`
-      );
-      await savePageScreenshot(page, runtimeDir, `platform-spu-brand-candidate-${candidateState.index + 1}-no-rows.png`).catch(() => "");
-      return queryPlatformSpu(runtimeDir, request, shopFolder, retryNo, nextBrandCandidateState);
-    }
-
     if (!allCandidates.length) {
+      const nextAttempt = await prepareNextPlatformBrandCandidateAttempt({
+        page,
+        runtimeDir,
+        state: candidateState,
+        selectedBrandIdentity,
+        brand,
+        spu,
+        missKind: "no_rows"
+      });
+      if (nextAttempt) {
+        return queryPlatformSpu(runtimeDir, request, shopFolder, retryNo, nextAttempt);
+      }
       const error = new Error("No visible publish rows found in result table.") as QueryDiagnosticError;
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-no-rows.png");
       throw error;
@@ -994,14 +1042,21 @@ export async function queryPlatformSpu(
         expectedSpecification: request.expectedSpecification
       });
       if (
-        actionableDecision.issue.includes("none matched Feishu specification exactly") &&
-        hasNextBrandCandidate
+        actionableDecision.issue.includes("none matched Feishu specification exactly")
       ) {
-        logWarn(
-          `platform brand candidate had no exact Feishu specification match; advancing candidate ${candidateState.index + 1}/${candidateState.identities.length}. brand=${brand}; optionIdentity=${selectedBrandIdentity}; expectedSpecification=${request.expectedSpecification || "<empty>"}`
-        );
-        await savePageScreenshot(page, runtimeDir, `platform-spu-brand-candidate-${candidateState.index + 1}-specification-mismatch.png`).catch(() => "");
-        return queryPlatformSpu(runtimeDir, request, shopFolder, retryNo, nextBrandCandidateState);
+        const nextAttempt = await prepareNextPlatformBrandCandidateAttempt({
+          page,
+          runtimeDir,
+          state: candidateState,
+          selectedBrandIdentity,
+          brand,
+          spu,
+          missKind: "specification_mismatch",
+          expectedSpecification: request.expectedSpecification
+        });
+        if (nextAttempt) {
+          return queryPlatformSpu(runtimeDir, request, shopFolder, retryNo, nextAttempt);
+        }
       }
       if (actionableDecision.issue) {
         const error = new Error(actionableDecision.issue) as QueryDiagnosticError;

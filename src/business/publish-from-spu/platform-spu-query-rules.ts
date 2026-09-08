@@ -5,6 +5,17 @@ export interface PlatformBrandCandidate {
   optionIdentity: string;
 }
 
+export interface PlatformBrandCandidateAttemptState {
+  identities: string[];
+  index: number;
+  resultRefreshCount: number;
+}
+
+export type PlatformBrandCandidateMissTransition =
+  | { action: "refresh_current"; candidateIndex: number; resultRefreshCount: number }
+  | { action: "advance_candidate"; candidateIndex: number; resultRefreshCount: number }
+  | { action: "exhausted"; candidateIndex: number; resultRefreshCount: number };
+
 export interface PlatformSpuPublishCandidateInput {
   rowId: string;
   rowText?: string;
@@ -47,6 +58,56 @@ export function resolveExactPlatformBrandCandidateSequence(
     sequence.push(identity);
   }
   return sequence;
+}
+
+export function resolvePlatformBrandCandidateMissTransition(input: {
+  candidateIndex: number;
+  candidateCount: number;
+  resultRefreshCount: number;
+  maxResultRefreshes?: number;
+}): PlatformBrandCandidateMissTransition {
+  const maxResultRefreshes = Math.max(0, input.maxResultRefreshes ?? 3);
+  if (input.resultRefreshCount < maxResultRefreshes) {
+    return {
+      action: "refresh_current",
+      candidateIndex: input.candidateIndex,
+      resultRefreshCount: input.resultRefreshCount + 1
+    };
+  }
+  if (input.candidateIndex + 1 < input.candidateCount) {
+    return {
+      action: "advance_candidate",
+      candidateIndex: input.candidateIndex + 1,
+      resultRefreshCount: 0
+    };
+  }
+  return {
+    action: "exhausted",
+    candidateIndex: input.candidateIndex,
+    resultRefreshCount: input.resultRefreshCount
+  };
+}
+
+export function resolveOtcPlatformSpuExpectedSpecification(input: {
+  explicitSpecification?: string;
+  specTemplate?: string;
+  genericName?: string;
+  titleSuffixText?: string;
+}): string {
+  const explicitSpecification = (input.explicitSpecification || "").replace(/\s+/g, "").trim();
+  const specTemplate = (input.specTemplate || "").replace(/\s+/g, "").trim();
+  if (
+    explicitSpecification &&
+    normalizePlatformSpuSpecification(explicitSpecification) !== normalizePlatformSpuSpecification(specTemplate)
+  ) {
+    return explicitSpecification;
+  }
+  const genericName = (input.genericName || "").replace(/\s+/g, "").trim();
+  const titleSuffixText = (input.titleSuffixText || "").replace(/\s+/g, "").trim();
+  if (genericName && titleSuffixText.startsWith(genericName)) {
+    return titleSuffixText.slice(genericName.length).trim();
+  }
+  return "";
 }
 
 export function extractPlatformSpuRowSpecifications(rowText: string): string[] {

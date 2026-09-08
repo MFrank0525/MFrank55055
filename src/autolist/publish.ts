@@ -41,6 +41,7 @@ import {
   isConfirmedRejectionRetryConsumed
 } from "./confirmed-rejection-retry.js";
 import { getPublishCategoryMutationPolicy } from "../business/publish-from-spu/publish-category-policy.js";
+import { resolveOtcPlatformSpuExpectedSpecification } from "../business/publish-from-spu/platform-spu-query-rules.js";
 import { assertTitlePreservesFeishuFixedSuffix } from "./title-rules.js";
 
 type ProductWorkbookFields = {
@@ -90,7 +91,14 @@ export function buildPublishJobMetadata(input: {
     productStandardCode: feishuProductRecord.productStandardCode,
     ingredients: feishuProductRecord.ingredients,
     healthFunction: feishuProductRecord.healthFunction,
-    specification: feishuProductRecord.specification,
+    specification: mutationPolicy.platformSpuSpecificationMatch === "require_exact"
+      ? resolveOtcPlatformSpuExpectedSpecification({
+          explicitSpecification: feishuProductRecord.specification,
+          specTemplate: feishuProductRecord.specTemplate,
+          genericName: feishuProductRecord.genericName,
+          titleSuffixText: feishuProductRecord.titleSuffixText
+        })
+      : feishuProductRecord.specification,
     canonicalIdentity: { ...targetIdentity }
   };
 }

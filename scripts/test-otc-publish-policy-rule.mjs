@@ -76,6 +76,24 @@ assert.equal(
   "",
   "OTC publish metadata must discard a stale workbook modelSpec value before browser actions"
 );
+assert.equal(
+  buildPublishJobMetadata({
+    workbookFields: {
+      ...workbookFields,
+      title: "测试标题烟酰胺片0.1g*24片"
+    },
+    feishuProductRecord: {
+      ...baseRecord,
+      productCategory: "非处方药",
+      genericName: "烟酰胺片",
+      titleSuffixText: "烟酰胺片0.1g*24片",
+      specification: "买一送一"
+    },
+    targetIdentity
+  }).specification,
+  "0.1g*24片",
+  "OTC platform-SPU identity must not confuse the specification template with the product specification"
+);
 assert.throws(
   () =>
     buildPublishJobMetadata({

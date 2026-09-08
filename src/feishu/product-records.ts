@@ -144,10 +144,7 @@ function resolveFieldName(key: FeishuFieldKey, availableFieldNames: Iterable<str
   if (exact) {
     return exact.fieldName;
   }
-  const contained = normalizedAvailable.find((item) =>
-    candidates.some((candidate) => candidate && (item.normalized.includes(candidate) || candidate.includes(item.normalized)))
-  );
-  return contained?.fieldName || "";
+  return configuredName;
 }
 
 export function resolveFeishuFieldMap(

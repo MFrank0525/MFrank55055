@@ -659,6 +659,12 @@ export function classifyPublishFailure(message: string): string {
     return "platform_page_not_ready";
   }
   if (
+    text.includes("PlatformSPUqueryfoundexactbrand/SPUrowsbutnonematchedFeishuspecificationexactly") ||
+    text.includes("Novisiblepublishrowsfoundinresulttable")
+  ) {
+    return "platform_spu_result_not_ready";
+  }
+  if (
     text.includes("PlatformSPUtablookupwasambiguous") ||
     text.includes("PlatformSPUtabdidnotbecomeactive")
   ) {
@@ -878,6 +884,7 @@ const VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES = new Set([
   "spec_template_not_ready",
   "spec_template_surface_missing",
   "main_image_upload_not_ready",
+  "platform_spu_result_not_ready",
   "shop_switch_entry_unavailable",
   "browser_remote_debugging_unavailable"
 ]);
@@ -889,7 +896,7 @@ export function isVerifiedPreSubmitRecoveryFailure(input: {
 } | undefined): boolean {
   if (input?.finalVerifyStatus !== "not_checked") return false;
   const storedClass = input.errorClass || "";
-  const effectiveClass = !storedClass || storedClass === "unknown_publish_failure"
+  const effectiveClass = !storedClass || ["unknown_publish_failure", "spu_query_or_match_failed"].includes(storedClass)
     ? classifyPublishFailure(input.message || "")
     : storedClass;
   return VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES.has(effectiveClass);

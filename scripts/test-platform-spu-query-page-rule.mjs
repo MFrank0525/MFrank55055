@@ -11,6 +11,8 @@ import {
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 import {
   extractPlatformSpuRowSpecifications,
+  resolveOtcPlatformSpuExpectedSpecification,
+  resolvePlatformBrandCandidateMissTransition,
   resolveExactPlatformBrandCandidateSequence,
   selectPlatformSpuPublishCandidate
 } from "../dist/src/business/publish-from-spu/platform-spu-query-rules.js";
@@ -55,6 +57,55 @@ assert.deepEqual(
   "Exact same-name brand identities must be frozen once in dropdown order and deduplicated by stable option identity"
 );
 
+assert.equal(
+  resolveOtcPlatformSpuExpectedSpecification({
+    explicitSpecification: "买二送一",
+    specTemplate: "买二送一",
+    genericName: "烟酰胺片",
+    titleSuffixText: "烟酰胺片0.1g*24片"
+  }),
+  "0.1g*24片",
+  "a polluted specification/template collision must fall back to the exact Feishu title-suffix specification"
+);
+assert.equal(
+  resolveOtcPlatformSpuExpectedSpecification({
+    explicitSpecification: "买二送一",
+    specTemplate: "买二送一",
+    genericName: "烟酰胺片",
+    titleSuffixText: "烟酰胺片50mg*100片"
+  }),
+  "50mg*100片"
+);
+assert.equal(
+  resolveOtcPlatformSpuExpectedSpecification({
+    explicitSpecification: "480丸",
+    specTemplate: "买二送一",
+    genericName: "锁阳固精丸",
+    titleSuffixText: "锁阳固精丸北方经开9g*10丸"
+  }),
+  "480丸",
+  "an explicit Feishu product specification must outrank title-suffix derivation"
+);
+
+assert.deepEqual(
+  resolvePlatformBrandCandidateMissTransition({ candidateIndex: 0, candidateCount: 2, resultRefreshCount: 0 }),
+  { action: "refresh_current", candidateIndex: 0, resultRefreshCount: 1 }
+);
+assert.deepEqual(
+  resolvePlatformBrandCandidateMissTransition({ candidateIndex: 0, candidateCount: 2, resultRefreshCount: 2 }),
+  { action: "refresh_current", candidateIndex: 0, resultRefreshCount: 3 }
+);
+assert.deepEqual(
+  resolvePlatformBrandCandidateMissTransition({ candidateIndex: 0, candidateCount: 2, resultRefreshCount: 3 }),
+  { action: "advance_candidate", candidateIndex: 1, resultRefreshCount: 0 },
+  "each exact same-name brand identity must receive three bounded result refreshes before advancing"
+);
+assert.deepEqual(
+  resolvePlatformBrandCandidateMissTransition({ candidateIndex: 1, candidateCount: 2, resultRefreshCount: 3 }),
+  { action: "exhausted", candidateIndex: 1, resultRefreshCount: 3 },
+  "the final brand identity must stop after its third refresh instead of looping"
+);
+
 assert.deepEqual(
   extractPlatformSpuRowSpecifications(
     "龙仕康/480丸/锁阳固精丸/国药准字Z22025437 规格：480丸 品牌：龙仕康 生产企业名称：吉林省鑫辉药业有限公司"
@@ -96,6 +147,23 @@ assert.deepEqual(
     issue: "Platform SPU query found exact brand/SPU rows but none matched Feishu specification exactly: expected=360丸; actual=300丸 | 480丸 | 6g*12袋 | 6g*7袋"
   },
   "A missing OTC specification must advance to the next same-name brand identity instead of picking another specification"
+);
+const stalePlatformSpuResultMessage =
+  "Platform SPU query found exact brand/SPU rows but none matched Feishu specification exactly: expected=买二送一; actual=0.1g*24片 | 100片";
+assert.equal(classifyPublishFailure(stalePlatformSpuResultMessage), "platform_spu_result_not_ready");
+assert.equal(
+  shouldRetryPublishFailure("platform_spu_result_not_ready", 0),
+  false,
+  "the outer publish loop must not multiply the per-brand three-refresh budget"
+);
+assert.equal(
+  isVerifiedPreSubmitRecoveryFailure({
+    errorClass: "spu_query_or_match_failed",
+    finalVerifyStatus: "not_checked",
+    message: stalePlatformSpuResultMessage
+  }),
+  true,
+  "a legacy broad class must be reclassified from its exact safe pre-submit result message"
 );
 
 assert.equal(
@@ -309,7 +377,7 @@ assert.equal(
 
 assert.equal(
   classifyPublishFailure("No visible publish rows found in result table."),
-  "spu_query_or_match_failed"
+  "platform_spu_result_not_ready"
 );
 
 const loginFailureClass = classifyPublishFailure("Doudian login required: open the automation browser and scan the QR code with the Doudian app before publishing 延草纲目");
@@ -469,9 +537,9 @@ assert.doesNotMatch(
   "SPU query must not silently swallow an ambiguous 平台标品 text click"
 );
 assert.match(
-  querySource,
-  /!allCandidates\.length && hasNextBrandCandidate[\s\S]*platform-spu-brand-candidate-[\s\S]*queryPlatformSpu\(runtimeDir, request, shopFolder, retryNo, nextBrandCandidateState\)/,
-  "An empty query must advance through the frozen same-name brand identity sequence"
+  publishSource,
+  /maxPlatformBrandCandidateResultRefreshes = 3[\s\S]*resolvePlatformBrandCandidateMissTransition[\s\S]*transition\.action === "exhausted"[\s\S]*transition\.action === "refresh_current"/,
+  "An empty or stale query must refresh each current same-name brand three times before advancing the frozen identity sequence"
 );
 assert.doesNotMatch(
   querySource,
