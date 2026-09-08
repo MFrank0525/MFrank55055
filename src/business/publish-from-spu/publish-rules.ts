@@ -564,6 +564,16 @@ export function evaluatePublishSubmissionAfterAction(
   return state;
 }
 
+export function isPreSubmitMainImageUploadFailure(message: string): boolean {
+  const text = normalizeVisibleText(message);
+  return (
+    text.includes("Mainimageslotsdidnotcontain5imagesafterupload") ||
+    text.includes("Mainimageuploaddidnotreach5preview(s)afterrestart") ||
+    text.includes("Mainimagefieldrootwasnotuniquelyvisiblebeforeprefillclearing") ||
+    text.includes("Mainimageuploadfieldwasnotuniquelyvisiblebeforefileselection")
+  );
+}
+
 export function classifyPublishFailure(message: string): string {
   const text = normalizeVisibleText(message);
   if (!text) return "";
@@ -738,6 +748,9 @@ export function classifyPublishFailure(message: string): string {
   ) {
     return "detail_qualification_not_ready";
   }
+  if (isPreSubmitMainImageUploadFailure(message)) {
+    return "main_image_upload_not_ready";
+  }
   if (
     text.includes("Mainimagesmustalreadysatisfy1:1ratiobeforeupload") ||
     text.includes("Mainimagemustbesquarebeforedownstreamsteps") ||
@@ -825,6 +838,8 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
         ? Math.max(maxRetryAttempts, 3)
       : errorClass === "spec_template_surface_missing"
         ? Math.max(maxRetryAttempts, 3)
+      : errorClass === "main_image_upload_not_ready"
+        ? Math.max(maxRetryAttempts, 3)
       : maxRetryAttempts;
   if (retryAttempt >= effectiveMaxRetryAttempts) {
     return false;
@@ -840,6 +855,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "transient_overlay_blocked",
     "price_inventory_not_ready",
     "spec_template_surface_missing",
+    "main_image_upload_not_ready",
     "page_context_lost",
     "shop_switch_entry_unavailable",
     "browser_remote_debugging_unavailable"
@@ -861,6 +877,7 @@ const VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES = new Set([
   "price_inventory_not_ready",
   "spec_template_not_ready",
   "spec_template_surface_missing",
+  "main_image_upload_not_ready",
   "shop_switch_entry_unavailable",
   "browser_remote_debugging_unavailable"
 ]);

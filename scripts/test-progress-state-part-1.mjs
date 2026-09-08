@@ -81,6 +81,7 @@ import {
 } from "../dist/src/autolist/paid-image-wait-rules.js";
 import { shouldRefreshFeishuAssetsToCandidateCache } from "../dist/src/autolist/feishu-refresh-rules.js";
 import { shouldRetainStoppedControllerPublishCheckpoint } from "../dist/src/autolist/status-progress-rules.js";
+import { selectUniqueVisibleMainImageRootIndex } from "../dist/src/business/publish-from-spu/graphic-section-preview-action.js";
 import {
   initializePublishAttemptState,
   markPublishAttemptStarted,
@@ -574,8 +575,29 @@ assert.match(
 );
 assert.match(
   graphicPreviewSource,
-  /locator\("div\.goods-publish-highlight-group"\)[\s\S]*filter\(\{ has: page\.getByText\("主图", \{ exact: true \}\) \}\)[\s\S]*roots\.count\(\)\) === 1/,
-  "the shared main-image field resolver must require exactly one publish-form root containing an exact 主图 label"
+  /selectUniqueVisibleMainImageRoot[\s\S]*isVisible[\s\S]*input\[type='file'\]\[accept\*='image'\][\s\S]*resolveExactMainImageFieldRoot[\s\S]*attr-field-id='主图'[\s\S]*goods-publish-highlight-group/,
+  "the shared main-image field resolver must prefer the semantic field id and ignore hidden duplicate form roots"
+);
+assert.equal(
+  selectUniqueVisibleMainImageRootIndex([
+    { visible: false, imageInputCount: 5 },
+    { visible: true, imageInputCount: 5 }
+  ]),
+  1,
+  "a hidden duplicate main-image form root must not block the unique visible upload field"
+);
+assert.equal(
+  selectUniqueVisibleMainImageRootIndex([
+    { visible: true, imageInputCount: 5 },
+    { visible: true, imageInputCount: 5 }
+  ]),
+  null,
+  "multiple visible main-image roots must remain fail-closed"
+);
+assert.equal(
+  selectUniqueVisibleMainImageRootIndex([{ visible: true, imageInputCount: 0 }]),
+  null,
+  "a visible label without a live image input is not an upload field"
 );
 const exactMainPreviewCounterSource = graphicPreviewSource.slice(
   graphicPreviewSource.indexOf("export async function countMainImagePreviews"),
@@ -1618,6 +1640,51 @@ assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 0), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 3), true);
 assert.equal(shouldRetryPublishFailure(pageNotReadyClass, 4), false);
 assert.equal(shouldRetryPublishFailure("validation_blocked", 0), false);
+const mainImageUploadNotReadyMessage =
+  "Publish failed for /shops/18店/商品-水印18: Sequential publish flow stopped: 图文信息模块未完成。Main image slots did not contain 5 images after upload; actual=0.";
+assert.equal(
+  classifyPublishFailure(mainImageUploadNotReadyMessage),
+  "main_image_upload_not_ready",
+  "a failed pre-submit main-image upload readback must have its own recoverable class"
+);
+assert.equal(shouldRetryPublishFailure("main_image_upload_not_ready", 0), true);
+assert.equal(shouldRetryPublishFailure("main_image_upload_not_ready", 2), true);
+assert.equal(shouldRetryPublishFailure("main_image_upload_not_ready", 3), false);
+assert.equal(
+  resolveSupervisorRecoveryChildMode(mainImageUploadNotReadyMessage),
+  "resume",
+  "a pre-submit main-image upload failure must resume the locked publish batch instead of rebuilding paid artifacts"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: mainImageUploadNotReadyMessage,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12,
+    childMode: "resume",
+    activeStep: "published",
+    activeMessage: "Publishing product folder: 商品-水印18 (18店)",
+    publishAttemptState: "not_attempted"
+  }),
+  true,
+  "the supervisor may recover this exact failure only while durable submit state proves no publish click occurred"
+);
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: mainImageUploadNotReadyMessage,
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12,
+    childMode: "resume",
+    activeStep: "published",
+    activeMessage: "Publishing product folder: 商品-水印18 (18店)",
+    publishAttemptState: "attempted_or_unknown"
+  }),
+  false,
+  "the same upload failure must never be replayed once final-submit state is attempted or unknown"
+);
 assert.deepEqual(
   evaluatePublishPreSubmitReadiness({
     fillCheckBusy: true,

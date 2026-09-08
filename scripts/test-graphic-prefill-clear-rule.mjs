@@ -36,6 +36,11 @@ assert.match(
   "main-image prefill clearing must hover the exact last preview and click the platform delete action container"
 );
 assert.match(
+  resetSource,
+  /clearMainImagePrefillAndConfirmEmpty[\s\S]*resolveExactMainImageFieldRoot[\s\S]*throw new Error/,
+  "main-image clearing must not treat a missing field root as an already-empty section"
+);
+assert.match(
   previewActionSource,
   /sectionName === "主图"[\s\S]*clickLastMainImagePreviewDeleteControl/,
   "generic graphic clearing must route main images through the exact field action"

@@ -692,7 +692,7 @@ export async function uploadMainImagesToSection(page: Page, files: string[]): Pr
   }
 
   if (!(await resolveCurrentMainImageUploadInput(page, 0))) {
-    return 0;
+    throw new Error("Main image upload field was not uniquely visible before file selection.");
   }
 
   const uploadSequenceOnce = async (): Promise<{ uploaded: number; confirmed: number }> => {

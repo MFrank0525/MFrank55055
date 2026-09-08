@@ -446,11 +446,41 @@ export async function clickLastGraphicSectionPreviewDeleteByDom(page: Page, sect
   );
 }
 
+export function selectUniqueVisibleMainImageRootIndex(
+  candidates: Array<{ visible: boolean; imageInputCount: number }>
+): number | null {
+  const eligible = candidates
+    .map((candidate, index) => ({ ...candidate, index }))
+    .filter((candidate) => candidate.visible && candidate.imageInputCount > 0);
+  return eligible.length === 1 ? eligible[0]!.index : null;
+}
+
+async function selectUniqueVisibleMainImageRoot(roots: Locator): Promise<Locator | null> {
+  const candidates: Array<{ visible: boolean; imageInputCount: number }> = [];
+  for (let index = 0; index < await roots.count(); index += 1) {
+    const root = roots.nth(index);
+    candidates.push({
+      visible: await root.isVisible().catch(() => false),
+      imageInputCount: await root.locator("input[type='file'][accept*='image']").count().catch(() => 0)
+    });
+  }
+  const selectedIndex = selectUniqueVisibleMainImageRootIndex(candidates);
+  return selectedIndex === null ? null : roots.nth(selectedIndex);
+}
+
 export async function resolveExactMainImageFieldRoot(page: Page): Promise<Locator | null> {
-  const roots = page
+  const semanticRoots = page
+    .locator("[attr-field-id='主图']")
+    .filter({ has: page.locator("input[type='file'][accept*='image']") });
+  const visibleSemanticRoot = await selectUniqueVisibleMainImageRoot(semanticRoots);
+  if (visibleSemanticRoot) {
+    return visibleSemanticRoot;
+  }
+
+  const highlightRoots = page
     .locator("div.goods-publish-highlight-group")
     .filter({ has: page.getByText("主图", { exact: true }) });
-  return (await roots.count()) === 1 ? roots.first() : null;
+  return selectUniqueVisibleMainImageRoot(highlightRoots);
 }
 
 async function countGraphicSectionPreviewsStrict(page: Page, sectionName: string): Promise<number> {

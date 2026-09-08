@@ -10,6 +10,7 @@ import {
 } from "./external-service-recovery-rules.js";
 import { isDoudianLoginRequiredFailure } from "./doudian-login-recovery-rules.js";
 import { resolveMissingSpecTemplateHermesMessage } from "./spec-template-status-rules.js";
+import { isPreSubmitMainImageUploadFailure } from "../business/publish-from-spu/publish-rules.js";
 export { formatAutoListingControllerExternalServiceWaitSummary } from "./doudian-login-recovery-rules.js";
 export { shouldExposePublishProgressInAutoListingControllerStatus } from "./status-progress-rules.js";
 export {
@@ -75,7 +76,7 @@ function isRetryablePublishPageFailure(message: string): boolean {
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
     (/基础信息模块未完成|Basic info gate failed|input not found on publish page|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|page context was lost|Execution context was destroyed|Target closed/i.test(
       message
-    ) || isDeterministicDetailQualificationFailure(message) || isRetryablePreSubmitShippingPreconditionFailure(message) || isRetryableShopContextAvailabilityFailure(message))
+    ) || isDeterministicDetailQualificationFailure(message) || isRetryablePreSubmitShippingPreconditionFailure(message) || isRetryableShopContextAvailabilityFailure(message) || isPreSubmitMainImageUploadFailure(message))
   );
 }
 
@@ -105,7 +106,7 @@ function isSafeManifestBackedPublishResumeFailure(message: string): boolean {
 }
 
 export function resolveSupervisorRecoveryChildMode(failureMessage: string): SupervisorChildMode {
-  return isSafeResumeTransitionFailure(failureMessage) || isSafeManifestBackedPublishResumeFailure(failureMessage)
+  return isSafeResumeTransitionFailure(failureMessage) || isSafeManifestBackedPublishResumeFailure(failureMessage) || isPreSubmitMainImageUploadFailure(failureMessage)
     ? "resume"
     : "full";
 }
@@ -157,10 +158,14 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
     isChildWatchdogFailure(failureMessage) &&
     input.publishAttemptState === "not_attempted" &&
     /published|Publishing product folder/i.test(activeText);
+  const safePreSubmitMainImageResume =
+    isPreSubmitMainImageUploadFailure(failureMessage) &&
+    input.publishAttemptState === "not_attempted";
   if (
     /published|Publishing product folder|Retrying publish|Publish failed/i.test(activeText) &&
     !safeManifestBackedPublishResume &&
-    !safePreSubmitWatchdogResume
+    !safePreSubmitWatchdogResume &&
+    !safePreSubmitMainImageResume
   ) {
     return false;
   }
@@ -172,6 +177,7 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
     isSafeResumeTransitionFailure(failureMessage) ||
     safeManifestBackedPublishResume ||
     safePreSubmitWatchdogResume ||
+    safePreSubmitMainImageResume ||
     input.childMode === "resume" && retryablePublishFailure ||
     isChildWatchdogFailure(failureMessage)
   );

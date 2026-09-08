@@ -4,10 +4,14 @@ import {
   clearDetailImagePreviewsStrict,
   clearGraphicSectionPreviewsStrict,
   countDetailImagePreviews,
-  countMainImagePreviews
+  countMainImagePreviews,
+  resolveExactMainImageFieldRoot
 } from "./graphic-section-preview-action.js";
 
 export async function clearMainImagePrefillAndConfirmEmpty(page: Page): Promise<number> {
+  if (!(await resolveExactMainImageFieldRoot(page))) {
+    throw new Error("Main image field root was not uniquely visible before prefill clearing.");
+  }
   const existingCount = await countMainImagePreviews(page);
   if (existingCount > 0) {
     await clearGraphicSectionPreviewsStrict(page, "主图", Math.max(10, existingCount + 3));
