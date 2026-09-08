@@ -33,10 +33,13 @@ import { cleanupStaleRunHistory } from "../autolist/cleanup.js";
 import { removePaidImageBatchLedger } from "../autolist/paid-image-submission-ledger.js";
 import { readPublishAttemptState, type PublishAttemptState } from "../autolist/publish-attempt-state.js";
 import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-manifest.js";
+import { resolveControllerJobBatchTransition } from "../autolist/controller-job-ownership-rules.js";
+import type { RunnerJob } from "./auto-listing-controller-contract.js";
 
 type InitialMode = "resume" | "full";
 
 interface AutoListingJobFile {
+  resultFile?: string;
   input?: {
     feishuProductDataFile?: string;
     processedImageManifest?: string;
@@ -64,6 +67,7 @@ const fullRealJobFile = path.resolve(rootDir, "input/auto-listing.job.mac-feishu
 const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job.mac-feishu-real.resume.generated.json");
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
 const childControlFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-child.json");
+const controllerJobFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-controller-job.json");
 const externalServiceWaitFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-wait.json");
 const pauseSignalFile = path.resolve(rootDir, "data/auto-listing/control/pause.requested");
 const childStallExitCode = 124;
@@ -138,6 +142,25 @@ function parseInitialMode(argv: string[]): InitialMode {
 function parseOwnedBatchFingerprint(argv: string[]): string {
   const index = argv.indexOf("--batch-fingerprint");
   return index >= 0 ? String(argv[index + 1] || "") : "";
+}
+
+function synchronizeControllerJobOwnership(batchFingerprint: string, mode: InitialMode): void {
+  const resumeResultFile = mode === "resume"
+    ? readJsonFile<AutoListingJobFile>(resumeJobFile)?.resultFile
+    : undefined;
+  const transition = resolveControllerJobBatchTransition({
+    job: readJsonFile<RunnerJob>(controllerJobFile),
+    supervisorPid: process.pid,
+    nextBatchFingerprint: batchFingerprint,
+    nextMode: mode === "resume" ? "resume-real-job" : "full-real-flow",
+    nextExpectedResultFile: resumeResultFile ? path.resolve(rootDir, resumeResultFile) : undefined
+  });
+  if (transition.action === "refuse") {
+    throw new Error("Refusing to overwrite controller ownership metadata owned by another supervisor process.");
+  }
+  if (transition.action === "update") {
+    atomicWriteJson(controllerJobFile, transition.job);
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -662,6 +685,7 @@ async function main(): Promise<void> {
       return;
     }
     const childMode: InitialMode = nextMode;
+    synchronizeControllerJobOwnership(launchBatchFingerprint, childMode);
     const exitCode: number | null = childMode === "resume" ? await runResume() : await runFullFlow(fullFlowReason);
     fullFlowReason = "initial_full";
     const currentBatch = readBatchProgress();
