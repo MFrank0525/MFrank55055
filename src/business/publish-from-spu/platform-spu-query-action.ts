@@ -730,7 +730,10 @@ export async function assertDoudianPublishSessionReady(options: {
       (await context.newPage());
     attachSafeDialogHandler(page);
     await closeCreatePagesExcept(context, [page]);
-    await page.bringToFront();
+    await Promise.race([
+      page.bringToFront().catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, 2000))
+    ]);
     await ensurePlatformSpuQueryPageActive(
       page,
       options.runtimeDir,

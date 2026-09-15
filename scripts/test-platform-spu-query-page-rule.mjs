@@ -69,6 +69,17 @@ assert.equal(
 );
 assert.equal(
   resolveOtcPlatformSpuExpectedSpecification({
+    explicitSpecification: "买一送一",
+    specTemplate: "买一送一",
+    genericName: "烟酰胺片",
+    brand: "圣迪",
+    titleSuffixText: "烟酰胺片圣迪0.1g*24片"
+  }),
+  "0.1g*24片",
+  "OTC suffix derivation must remove the exact generic-name and brand prefixes before matching Doudian specification"
+);
+assert.equal(
+  resolveOtcPlatformSpuExpectedSpecification({
     explicitSpecification: "买二送一",
     specTemplate: "买二送一",
     genericName: "烟酰胺片",
@@ -365,6 +376,28 @@ assert.equal(
   }),
   true,
   "A classified failure before any final-submit attempt is a safe pending recovery boundary"
+);
+
+const closedBrowserClass = classifyPublishFailure(
+  "page.evaluate: Target page, context or browser has been closed"
+);
+assert.equal(
+  closedBrowserClass,
+  "page_context_lost",
+  "Playwright's standard closed page/context/browser failure must be classified as a recoverable browser disconnect"
+);
+assert.equal(
+  shouldRetryPublishFailure(closedBrowserClass, 0),
+  true,
+  "A browser disconnect before final submit must enter bounded recovery"
+);
+assert.equal(
+  isVerifiedPreSubmitRecoveryFailure({
+    errorClass: closedBrowserClass,
+    finalVerifyStatus: "not_checked"
+  }),
+  true,
+  "A classified browser disconnect with no final-submit attempt must remain resumable"
 );
 assert.equal(
   isVerifiedPreSubmitRecoveryFailure({

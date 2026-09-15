@@ -30,6 +30,19 @@ export function markPublishAttemptStarted(runtimeDir: string): string {
   return file;
 }
 
+export function resetPublishAttemptStateForControlledRetry(runtimeDir: string, reason: string): string {
+  if (!reason.trim()) {
+    throw new Error("Controlled publish retry reset requires a reason.");
+  }
+  const file = publishAttemptStateFile(runtimeDir);
+  atomicWriteJson(file, {
+    state: "not_attempted",
+    controlledRetryAuthorizedAt: new Date().toISOString(),
+    reason: reason.trim()
+  });
+  return file;
+}
+
 export function readPublishAttemptState(runtimeDir: string): PublishAttemptState {
   const file = publishAttemptStateFile(runtimeDir);
   if (!fs.existsSync(file)) {

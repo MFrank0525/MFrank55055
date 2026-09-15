@@ -35,14 +35,26 @@ import type { FeishuProductRecord } from "../feishu/types.js";
 import type { PublishTargetIdentity } from "./publish-identity.js";
 import type { PublishManifestEntry, PublishProductIdentity } from "./publish-manifest.js";
 import type { PublishArtifact } from "./types.js";
-import { initializePublishAttemptState } from "./publish-attempt-state.js";
+import {
+  initializePublishAttemptState,
+  readPublishAttemptState,
+  resetPublishAttemptStateForControlledRetry
+} from "./publish-attempt-state.js";
 import {
   consumeConfirmedRejectionRetry,
   isConfirmedRejectionRetryConsumed
 } from "./confirmed-rejection-retry.js";
+import {
+  consumeCategoryValidationRetry,
+  isCategoryValidationRetryConsumed
+} from "./category-validation-retry.js";
 import { getPublishCategoryMutationPolicy } from "../business/publish-from-spu/publish-category-policy.js";
 import { resolveOtcPlatformSpuExpectedSpecification } from "../business/publish-from-spu/platform-spu-query-rules.js";
 import { assertTitlePreservesFeishuFixedSuffix } from "./title-rules.js";
+import {
+  buildCategoryValidationFallbackTitles,
+  replaceDistributedWorkbookTitle
+} from "./title-sheets.js";
 
 type ProductWorkbookFields = {
   title: string;
@@ -79,6 +91,13 @@ export function buildPublishJobMetadata(input: {
     brand: feishuProductRecord.brand || workbookFields.brand,
     spu: feishuProductRecord.spu || workbookFields.spu,
     title: workbookFields.title,
+    categoryFallbackTitles: buildCategoryValidationFallbackTitles({
+      keywordText: feishuProductRecord.titleKeywordText,
+      fixedSuffixText: feishuProductRecord.titleSuffixText,
+      productCategory: feishuProductRecord.productCategory,
+      currentTitle: workbookFields.title,
+      limit: 3
+    }),
     shortTitle: feishuProductRecord.shortTitle || workbookFields.shortTitle,
     modelSpec: mutationPolicy.categoryAttributes === "fill_model_spec" ? workbookFields.modelSpec || "盒装" : "",
     productPriceText: feishuProductRecord.productPriceText || workbookFields.productPriceText,
@@ -96,6 +115,7 @@ export function buildPublishJobMetadata(input: {
           explicitSpecification: feishuProductRecord.specification,
           specTemplate: feishuProductRecord.specTemplate,
           genericName: feishuProductRecord.genericName,
+          brand: feishuProductRecord.brand,
           titleSuffixText: feishuProductRecord.titleSuffixText
         })
       : feishuProductRecord.specification,
@@ -232,7 +252,9 @@ type PublishResultSummary = {
   publishClicked?: boolean;
   publishClickAttempted?: boolean;
   publishIssue?: string;
+  title?: string;
   reviewedNegativeRetryApproved?: boolean;
+  reviewedCategoryValidationRetryApproved?: boolean;
 };
 
 export function readPublishResultSummary(resultFile: string): PublishResultSummary {
@@ -267,8 +289,18 @@ export function readPublishResultSummary(resultFile: string): PublishResultSumma
     publishClicked: result.data?.browser?.publishClicked,
     publishClickAttempted: result.data?.browser?.publishClickAttempted,
     publishIssue: result.data?.browser?.publishIssue,
+    title: result.data?.metadata?.title,
     reviewedNegativeRetryApproved:
       result.manualRecovery?.type === "operator_reviewed_stable_negative_list_verification"
+      && result.manualRecovery?.approved === true
+      && Boolean(result.manualRecovery?.title)
+      && Boolean(result.manualRecovery?.shopFolder)
+      && Boolean(result.manualRecovery?.canonicalIdentity)
+      && result.manualRecovery?.title === result.data?.metadata?.title
+      && path.resolve(result.manualRecovery?.shopFolder || "") === path.resolve(result.data?.shopFolder || "")
+      && JSON.stringify(result.manualRecovery?.canonicalIdentity || {}) === JSON.stringify(result.data?.metadata?.canonicalIdentity || {}),
+    reviewedCategoryValidationRetryApproved:
+      result.manualRecovery?.type === "operator_reviewed_category_validation_negative_list_verification"
       && result.manualRecovery?.approved === true
       && Boolean(result.manualRecovery?.title)
       && Boolean(result.manualRecovery?.shopFolder)
@@ -560,6 +592,15 @@ export async function publishDistributedProducts(options: {
     const existingResultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
     const targetRuntimeDir = path.join(options.runtimeDir, "publish", runtimeKey);
     const retryIdentity = { targetKey, title: metadata.title || "", shopFolder };
+    const syncEffectiveTitle = (summary: PublishResultSummary): void => {
+      const effectiveTitle = summary.title?.trim();
+      if (!effectiveTitle || effectiveTitle === metadata.title) return;
+      const workbookFile = findWorkbookFile(productFolder);
+      replaceDistributedWorkbookTitle(workbookFile, effectiveTitle);
+      metadata.title = effectiveTitle;
+      retryIdentity.title = effectiveTitle;
+      logInfo(`category-validation fallback title persisted: target=${targetKey} title=${effectiveTitle}`);
+    };
     if (fs.existsSync(existingResultFile)) {
       const existingSummary = readPublishResultSummary(existingResultFile);
       const existingDecision = evaluatePublishResult(existingSummary);
@@ -640,10 +681,25 @@ export async function publishDistributedProducts(options: {
         }
         if (
           (existingDecision.finalVerifyStatus === "submit_rejected_confirmed"
-            || existingSummary.reviewedNegativeRetryApproved === true)
+            || existingSummary.reviewedNegativeRetryApproved === true
+            || existingSummary.reviewedCategoryValidationRetryApproved === true)
           && listVerification.found === false
         ) {
-          if (isConfirmedRejectionRetryConsumed(targetRuntimeDir, retryIdentity)) {
+          if (existingSummary.reviewedCategoryValidationRetryApproved === true) {
+            if (isCategoryValidationRetryConsumed(targetRuntimeDir, retryIdentity)) {
+              throw new Error(`Category-validation recovery retry was already consumed for canonical target: ${targetKey}`);
+            }
+            consumeCategoryValidationRetry(targetRuntimeDir, retryIdentity);
+            resetPublishAttemptStateForControlledRetry(
+              targetRuntimeDir,
+              "operator_reviewed_category_validation_negative_list_verification"
+            );
+            confirmedRejectionRetryAttempt = 1;
+            const retryMessage = "Operator-reviewed category-validation evidence plus stable negative exact-title verification approved one final identity-bound recovery retry.";
+            logInfo(`${retryMessage} target=${targetKey}`);
+            options.onProgress?.(`${retryMessage} ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+            clearCheckpoint(path.join(options.runtimeDir, "publish", runtimeKey));
+          } else if (isConfirmedRejectionRetryConsumed(targetRuntimeDir, retryIdentity)) {
             const message = `Platform-confirmed rejection remains absent after its one durable controlled retry; deferring this target without replay: ${path.basename(productFolder)} (${path.basename(shopFolder)})`;
             results.push({
               targetIdentity,
@@ -676,14 +732,22 @@ export async function publishDistributedProducts(options: {
             options.onProgress?.(message);
             continue;
           }
-          consumeConfirmedRejectionRetry(targetRuntimeDir, retryIdentity);
-          confirmedRejectionRetryAttempt = 1;
-          const retryMessage = existingSummary.reviewedNegativeRetryApproved === true
-            ? "Operator-reviewed stable negative exact-title evidence approved one controlled recovery retry through runPublishFromSpuJob."
-            : "Platform confirmed rejection plus negative exact-title list verification; allowing one controlled retry through runPublishFromSpuJob.";
-          logInfo(`${retryMessage} target=${targetKey}`);
-          options.onProgress?.(`${retryMessage} ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
-          clearCheckpoint(path.join(options.runtimeDir, "publish", runtimeKey));
+          if (existingSummary.reviewedCategoryValidationRetryApproved !== true) {
+            consumeConfirmedRejectionRetry(targetRuntimeDir, retryIdentity);
+            resetPublishAttemptStateForControlledRetry(
+              targetRuntimeDir,
+              existingSummary.reviewedNegativeRetryApproved === true
+                ? "operator_reviewed_stable_negative_list_verification"
+                : "platform_confirmed_rejection_negative_list_verification"
+            );
+            confirmedRejectionRetryAttempt = 1;
+            const retryMessage = existingSummary.reviewedNegativeRetryApproved === true
+              ? "Operator-reviewed stable negative exact-title evidence approved one controlled recovery retry through runPublishFromSpuJob."
+              : "Platform confirmed rejection plus negative exact-title list verification; allowing one controlled retry through runPublishFromSpuJob.";
+            logInfo(`${retryMessage} target=${targetKey}`);
+            options.onProgress?.(`${retryMessage} ${path.basename(productFolder)} (${path.basename(shopFolder)})`);
+            clearCheckpoint(path.join(options.runtimeDir, "publish", runtimeKey));
+          }
         } else {
           const message = "Doudian 全部 tab full-title verification returned no product for an existing uncertain submit; preserving the non-idempotent boundary and refusing to replay publish.";
           results.push({
@@ -815,8 +879,16 @@ export async function publishDistributedProducts(options: {
       }
     );
     let resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
+    syncEffectiveTitle(resultSummary);
     let decision = evaluatePublishResult(resultSummary);
-    for (let retryAttempt = 0; !decision.safelyPublished && shouldRetryPublishFailure(decision.errorClass, retryAttempt); retryAttempt += 1) {
+    for (
+      let retryAttempt = 0;
+      !decision.safelyPublished
+        && shouldRetryPublishFailure(decision.errorClass, retryAttempt)
+        && decision.finalVerifyStatus === "not_checked"
+        && readPublishAttemptState(targetRuntimeDir) === "not_attempted";
+      retryAttempt += 1
+    ) {
       options.assertNotPaused?.();
       logInfo(
         `retrying publish after retryable system failure: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.errorClass}; attempt ${retryAttempt + 1}`
@@ -869,6 +941,7 @@ export async function publishDistributedProducts(options: {
         }
       );
       resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
+      syncEffectiveTitle(resultSummary);
       decision = evaluatePublishResult(resultSummary);
     }
     while (requiresPostSubmitListVerification(decision, resultSummary)) {
@@ -954,6 +1027,7 @@ export async function publishDistributedProducts(options: {
             }
           );
           resultSummary = readPublishResultSummary(publishResult.artifacts.resultFile);
+          syncEffectiveTitle(resultSummary);
           decision = evaluatePublishResult(resultSummary);
           continue;
         }

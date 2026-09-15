@@ -4,6 +4,11 @@ import fs from "node:fs";
 const resetSource = fs.readFileSync("src/business/publish-from-spu/graphic-prefill-clear-action.ts", "utf8");
 const uploadSource = fs.readFileSync("src/business/publish-from-spu/graphic-upload-page-action.ts", "utf8");
 const previewActionSource = fs.readFileSync("src/business/publish-from-spu/graphic-section-preview-action.ts", "utf8");
+const publishRulesSource = fs.readFileSync("src/business/publish-from-spu/publish-rules.ts", "utf8");
+const categoryAdviceOverlaySource = fs.readFileSync(
+  "src/business/publish-from-spu/category-advice-overlay-action.ts",
+  "utf8"
+);
 
 assert.match(
   resetSource,
@@ -69,6 +74,26 @@ assert.match(
   previewActionSource,
   /sectionName === "商品详情" \|\| sectionName === "详情页"[\s\S]*clickLastDetailImagePreviewDeleteControl/,
   "generic graphic clearing must route both detail section labels through the exact field action"
+);
+assert.match(
+  publishRulesSource,
+  /DetailimageprefillclearwasnotconfirmedbyDOMreadback[\s\S]*transient_overlay_blocked/,
+  "A failed detail-prefill clear before final submit must enter bounded safe recovery instead of unknown-submit failure"
+);
+assert.match(
+  resetSource,
+  /dismissCategoryAdviceOverlayWithoutMutation\(page\)[\s\S]*clearDetailImagePreviewsStrict/,
+  "Detail-prefill clearing must dismiss an early category-advice overlay before it can block the delete control"
+);
+assert.match(
+  categoryAdviceOverlaySource,
+  /\[attr-field-id=['"]商品类目['"]\][\s\S]*去查看其他类目选项[\s\S]*getByText\(beforeCategory\.category[\s\S]*waitFor\(\{ state: "visible", timeout: 5000 \}\)[\s\S]*itemSelected[\s\S]*fresh SPU page restart required/,
+  "The early category overlay must reselect the exact original category and require a fresh SPU-page restart"
+);
+assert.doesNotMatch(
+  categoryAdviceOverlaySource,
+  /getByRole\("button", \{ name: "确认修改"[\s\S]{0,200}\.click/,
+  "The category mutation action must never be clicked"
 );
 
 console.log("graphic prefill clear rule passed");

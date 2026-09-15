@@ -16,6 +16,7 @@ import {
   paidImageProductLedgerDir,
   summarizePaidImageProductLedger
 } from "./paid-image-submission-ledger.js";
+import { reconcileStrictProviderLogNoAcceptance } from "./paid-image-provider-log-reconciliation-action.js";
 import { resolveMainImageShopAssignments, shopCodeFromFolder } from "./product-category.js";
 import type { ImageGenerationProvider, MainImageArtifact, MainImageCountStrategy, MainImageGeneratedFile } from "./types.js";
 import { requireOpenAiCompatibleImageProvider } from "./image-generation-provider.js";
@@ -619,28 +620,63 @@ export async function generateMainImageAssets(options: {
   };
 
   const promptIndexes = Array.from({ length: promptCount }, (_, index) => index);
-  try {
-    const concurrentRounds = await settleConcurrentWork(
-      promptIndexes.map((promptIndex) => processPromptRound(promptIndex)),
-      "videos-base64 prompt rounds"
-    );
-    stagedFiles.push(...concurrentRounds.flat());
-  } catch (error) {
-    const productDir = paidImageProductLedgerDir(
-      options.paidImageSubmissionLedgerDir,
-      options.feishuBatchFingerprint,
-      options.feishuRecordId
-    );
+  const productDir = paidImageProductLedgerDir(
+    options.paidImageSubmissionLedgerDir,
+    options.feishuBatchFingerprint,
+    options.feishuRecordId
+  );
+  let roundFailure: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const concurrentRounds = await settleConcurrentWork(
+        promptIndexes.map((promptIndex) => processPromptRound(promptIndex)),
+        "videos-base64 prompt rounds"
+      );
+      stagedFiles.push(...concurrentRounds.flat());
+      roundFailure = undefined;
+      break;
+    } catch (error) {
+      roundFailure = error;
+      if (attempt > 0 || !fs.existsSync(productDir)) {
+        break;
+      }
+      const summary = summarizePaidImageProductLedger(productDir);
+      if (resolvePaidImageLedgerFailureDisposition(summary) !== "safety_block" || summary.reserved > 0) {
+        break;
+      }
+      try {
+        const reconciledSlots = await reconcileStrictProviderLogNoAcceptance({
+          configFile: options.imageGenerationConfigFile,
+          productDir,
+          taskDir,
+          expectedImagesPerRound: options.mainImageExpectedCount
+        });
+        if (reconciledSlots.length === 0) {
+          break;
+        }
+        options.onProgress?.(
+          `Provider logs proved zero-billed no-acceptance for fixed slots ${formatSlotList(reconciledSlots)}; retrying only those slots.`
+        );
+      } catch (reconciliationError) {
+        const original = error instanceof Error ? error.message : String(error);
+        const reconciliationMessage =
+          reconciliationError instanceof Error ? reconciliationError.message : String(reconciliationError);
+        roundFailure = new Error(`${original}; automatic provider-log reconciliation declined: ${reconciliationMessage}`);
+        break;
+      }
+    }
+  }
+  if (roundFailure) {
     if (fs.existsSync(productDir)) {
       const summary = summarizePaidImageProductLedger(productDir);
       if (resolvePaidImageLedgerFailureDisposition(summary) === "safety_block") {
-        const original = error instanceof Error ? error.message : String(error);
+        const original = roundFailure instanceof Error ? roundFailure.message : String(roundFailure);
         throw normalizeImageGenerationError(
           `paid submission safety block: paid image ledger has ambiguous=${summary.ambiguous}, reserved=${summary.reserved}; original: ${original}`
         );
       }
     }
-    throw error;
+    throw roundFailure;
   }
   stagedFiles.sort((left, right) => left.imageIndex - right.imageIndex);
 

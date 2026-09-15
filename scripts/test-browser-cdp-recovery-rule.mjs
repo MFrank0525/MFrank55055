@@ -18,6 +18,16 @@ assert.match(
   /chromium\.connectOverCDP\([^;]+timeout: CDP_CONNECT_TIMEOUT_MS/s,
   "Playwright CDP connections must have an explicit hard timeout"
 );
+assert.match(
+  launchSource,
+  /const CDP_DISCONNECT_TIMEOUT_MS = \d+/,
+  "Playwright CDP disconnection must have an explicit hard timeout"
+);
+assert.match(
+  launchSource,
+  /disconnectAutomationBrowserConnections[\s\S]*Promise\.race\([\s\S]*CDP_DISCONNECT_TIMEOUT_MS/,
+  "A stalled CDP disconnect must not hold the browser-profile lease or login recovery loop forever"
+);
 
 assert.match(
   launchSource,

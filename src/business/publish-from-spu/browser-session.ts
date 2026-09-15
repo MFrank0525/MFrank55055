@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Locator, Page } from "playwright";
+import type { Dialog, Locator, Page } from "playwright";
 import { launchPersistentBrowser } from "../../browser/launch.js";
 
 export class PublishCreatePageReopenRequiredError extends Error {
@@ -23,10 +23,27 @@ export function isNavigationContextDestroyedError(error: unknown): boolean {
   return /Execution context was destroyed|Cannot find context|Most likely because of a navigation/i.test(message);
 }
 
+const safeDialogHandlers = new WeakMap<Page, (dialog: Dialog) => void>();
+
 export function attachSafeDialogHandler(page: Page): void {
-  page.on("dialog", (dialog) => {
+  if (safeDialogHandlers.has(page)) return;
+  const handler = (dialog: Dialog): void => {
     dialog.dismiss().catch(() => {});
-  });
+  };
+  safeDialogHandlers.set(page, handler);
+  page.on("dialog", handler);
+}
+
+export function suspendSafeDialogHandler(page: Page): () => void {
+  const handler = safeDialogHandlers.get(page);
+  if (!handler) return () => {};
+  page.off("dialog", handler);
+  let restored = false;
+  return () => {
+    if (restored || page.isClosed()) return;
+    restored = true;
+    page.on("dialog", handler);
+  };
 }
 
 export async function fillAndCommitLocator(

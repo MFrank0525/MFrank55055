@@ -120,6 +120,46 @@ export function buildTitlesFromFeishuKeywords(options: {
   return titles;
 }
 
+export function buildCategoryValidationFallbackTitles(options: {
+  keywordText?: string;
+  fixedSuffixText: string;
+  productCategory?: string;
+  currentTitle: string;
+  limit?: number;
+}): string[] {
+  const limit = Math.max(0, Math.min(3, Math.trunc(options.limit ?? 3)));
+  if (!limit || !options.keywordText?.trim()) return [];
+  for (let titleCount = 20; titleCount >= 1; titleCount -= 1) {
+    try {
+      return buildTitlesFromFeishuKeywords({
+        keywordText: options.keywordText,
+        fixedSuffixText: options.fixedSuffixText,
+        productCategory: options.productCategory,
+        titleCount
+      })
+        .filter((title) => title !== options.currentTitle.trim())
+        .slice(0, limit);
+    } catch (error) {
+      if (titleCount === 1) throw error;
+    }
+  }
+  return [];
+}
+
+export function replaceDistributedWorkbookTitle(workbookFile: string, title: string): void {
+  const rows = readWorkbookRows(workbookFile);
+  if (rows[1]?.[0]?.trim() !== "标题") {
+    throw new Error(`Title replacement could not find the canonical 标题 row in ${workbookFile}.`);
+  }
+  const temporaryFile = `${workbookFile}.${process.pid}.title-replace.tmp`;
+  try {
+    writeSimpleWorkbook(temporaryFile, rows.map((row, index) => index === 1 ? [row[0], title] : row));
+    fs.renameSync(temporaryFile, workbookFile);
+  } finally {
+    if (fs.existsSync(temporaryFile)) fs.rmSync(temporaryFile, { force: true });
+  }
+}
+
 export function regenerateDistributedTitleWorkbooks(options: {
   productFolders: string[];
   keywordText: string;

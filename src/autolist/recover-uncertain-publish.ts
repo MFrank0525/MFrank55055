@@ -5,6 +5,7 @@ import { readPublishAttemptState } from "./publish-attempt-state.js";
 import { atomicWriteJson } from "../utils/atomic-file.js";
 import { loadPublishManifest, savePublishManifest } from "./publish-manifest.js";
 import { isConfirmedRejectionRetryConsumed } from "./confirmed-rejection-retry.js";
+import { isCategoryValidationRetryConsumed } from "./category-validation-retry.js";
 
 const MIN_REVIEW_AGE_MS = 10 * 60 * 1000;
 
@@ -18,6 +19,41 @@ export interface UncertainPublishRecoveryResult {
   screenshotFile: string;
 }
 
+function isFinalSubmitUncertainty(result: Record<string, any>): boolean {
+  const browser = result.data?.browser || {};
+  return browser.publishClickAttempted === true
+    && browser.publishClicked !== true
+    && /success signal was not observed|no submission success signal/i.test(
+      `${result.message || ""} ${browser.publishIssue || ""}`
+    );
+}
+
+function recoverArchivedUncertaintyAfterKnownPreSubmitFailure(
+  runtimeDir: string,
+  currentResult: Record<string, any>
+): Record<string, any> | undefined {
+  if (!/Platform SPU query page was not ready after navigation/i.test(String(currentResult.message || ""))) {
+    return undefined;
+  }
+  const recoveryRoot = path.join(runtimeDir, "manual-recovery");
+  if (!fs.existsSync(recoveryRoot)) return undefined;
+  const candidates = fs.readdirSync(recoveryRoot).sort().reverse();
+  for (const name of candidates) {
+    const file = path.join(recoveryRoot, name, "result.before-review.json");
+    if (!fs.existsSync(file)) continue;
+    const archived = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, any>;
+    const checkHints = archived.data?.browser?.checkHints;
+    if (
+      isFinalSubmitUncertainty(archived)
+      && Array.isArray(checkHints)
+      && checkHints.some((hint: unknown) => String(hint).replace(/\s+/g, "").includes("类目填写错误"))
+    ) {
+      return archived;
+    }
+  }
+  return undefined;
+}
+
 export async function approveReviewedNegativeUncertainPublishRetry(input: {
   runtimeDir: string;
   shopFolder: string;
@@ -26,7 +62,10 @@ export async function approveReviewedNegativeUncertainPublishRetry(input: {
 }): Promise<UncertainPublishRecoveryResult> {
   const resultFile = path.join(input.runtimeDir, "result.json");
   if (!fs.existsSync(resultFile)) throw new Error(`Uncertain publish result is missing: ${resultFile}`);
-  const result = JSON.parse(fs.readFileSync(resultFile, "utf8")) as Record<string, any>;
+  const currentResult = JSON.parse(fs.readFileSync(resultFile, "utf8")) as Record<string, any>;
+  const result = isFinalSubmitUncertainty(currentResult)
+    ? currentResult
+    : recoverArchivedUncertaintyAfterKnownPreSubmitFailure(input.runtimeDir, currentResult) || currentResult;
   const browser = result.data?.browser || {};
   const title = String(result.data?.metadata?.title || "").trim();
   const canonicalIdentity = result.data?.metadata?.canonicalIdentity;
@@ -34,9 +73,7 @@ export async function approveReviewedNegativeUncertainPublishRetry(input: {
   if (browser.publishClickAttempted !== true || browser.publishClicked === true) {
     throw new Error("Recovery requires one attempted but unconfirmed publish click.");
   }
-  if (!/success signal was not observed|no submission success signal/i.test(
-    `${result.message || ""} ${browser.publishIssue || ""}`
-  )) {
+  if (!isFinalSubmitUncertainty(result)) {
     throw new Error("Recovery result is not a final-submit uncertainty.");
   }
   if (!title) throw new Error("Recovery requires the exact generated title from the publish result.");
@@ -61,12 +98,20 @@ export async function approveReviewedNegativeUncertainPublishRetry(input: {
   ) {
     throw new Error(`Recovery manifest identity mismatch for canonical target: ${runtimeKey}`);
   }
-  if (isConfirmedRejectionRetryConsumed(input.runtimeDir, {
+  const retryIdentity = {
     targetKey: manifestEntry.targetKey,
     title,
     shopFolder: input.shopFolder
-  })) {
+  };
+  const confirmedRetryConsumed = isConfirmedRejectionRetryConsumed(input.runtimeDir, retryIdentity);
+  const categoryValidationEvidence = Array.isArray(browser.checkHints)
+    && browser.checkHints.some((hint: unknown) => String(hint).replace(/\s+/g, "").includes("类目填写错误"))
+    && fs.existsSync(path.join(input.runtimeDir, "screenshots", "publish-page-published.png"));
+  if (confirmedRetryConsumed && !categoryValidationEvidence) {
     throw new Error(`Recovery controlled retry was already consumed for canonical target: ${manifestEntry.targetKey}`);
+  }
+  if (confirmedRetryConsumed && isCategoryValidationRetryConsumed(input.runtimeDir, retryIdentity)) {
+    throw new Error(`Category-validation recovery retry was already consumed for canonical target: ${manifestEntry.targetKey}`);
   }
   if (readPublishAttemptState(input.runtimeDir) !== "attempted_or_unknown") {
     throw new Error("Recovery requires an attempted_or_unknown durable submit boundary.");
@@ -109,8 +154,11 @@ export async function approveReviewedNegativeUncertainPublishRetry(input: {
     priorNegativeScreenshots,
     liveVerification: verification
   });
+  const recoveryType = confirmedRetryConsumed
+    ? "operator_reviewed_category_validation_negative_list_verification"
+    : "operator_reviewed_stable_negative_list_verification";
   result.manualRecovery = {
-    type: "operator_reviewed_stable_negative_list_verification",
+    type: recoveryType,
     approved: true,
     approvedAt: new Date(now).toISOString(),
     title,

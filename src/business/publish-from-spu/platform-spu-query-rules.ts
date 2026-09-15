@@ -92,6 +92,7 @@ export function resolveOtcPlatformSpuExpectedSpecification(input: {
   explicitSpecification?: string;
   specTemplate?: string;
   genericName?: string;
+  brand?: string;
   titleSuffixText?: string;
 }): string {
   const explicitSpecification = (input.explicitSpecification || "").replace(/\s+/g, "").trim();
@@ -103,9 +104,13 @@ export function resolveOtcPlatformSpuExpectedSpecification(input: {
     return explicitSpecification;
   }
   const genericName = (input.genericName || "").replace(/\s+/g, "").trim();
+  const brand = (input.brand || "").replace(/\s+/g, "").trim();
   const titleSuffixText = (input.titleSuffixText || "").replace(/\s+/g, "").trim();
   if (genericName && titleSuffixText.startsWith(genericName)) {
-    return titleSuffixText.slice(genericName.length).trim();
+    const suffixAfterGenericName = titleSuffixText.slice(genericName.length).trim();
+    return brand && suffixAfterGenericName.startsWith(brand)
+      ? suffixAfterGenericName.slice(brand.length).trim()
+      : suffixAfterGenericName;
   }
   return "";
 }

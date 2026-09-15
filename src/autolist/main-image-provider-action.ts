@@ -10,7 +10,7 @@ import {
   resolveVideosBase64SubmitConcurrency,
   resolveVideosBase64SubmitTimeoutMs,
   resolveVideosBase64AcceptedTaskPollCeilingMs,
-  resolveImageGenerationHttpRetryPolicy,
+  resolvePaidImageSubmitHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
   providerExplicitlyProvesNoPaidTaskAccepted,
   isUnsafePaidImageReplayPayload,
@@ -41,6 +41,25 @@ import {
 import { getShopSpecs, shopCodeFromFolder } from "./product-category.js";
 import { requireOpenAiCompatibleImageProvider } from "./image-generation-provider.js";
 import { writeFullyValidatedImageAtomic } from "../utils/image-integrity.js";
+import {
+  redactImageGenerationLogText,
+  redactImageGenerationLogValue,
+  sanitizeImageGenerationProviderErrorText,
+  settleConcurrentWork,
+  writeImageGenerationJsonLog,
+  writeImageGenerationTextLog
+} from "./image-provider-error-boundaries.js";
+import { prepareVideosBase64ReferenceImage } from "./videos-base64-reference.js";
+
+export {
+  redactImageGenerationLogText,
+  redactImageGenerationLogValue,
+  sanitizeImageGenerationProviderErrorText,
+  settleConcurrentWork,
+  writeImageGenerationJsonLog,
+  writeImageGenerationTextLog
+} from "./image-provider-error-boundaries.js";
+export { prepareVideosBase64ReferenceImage, VIDEOS_BASE64_REFERENCE_MAX_BYTES } from "./videos-base64-reference.js";
 
 export interface OpenAiCompatibleImageConfig {
   provider: "openai-compatible";
@@ -213,60 +232,6 @@ export function summarizeVideosBase64PaidResumePlan(
   return plan;
 }
 
-export function redactImageGenerationLogValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => redactImageGenerationLogValue(item));
-  }
-  if (typeof value === "string" && /^data:image\/[^;]+;base64,/i.test(value)) {
-    return "[redacted base64 image data url]";
-  }
-  if (typeof value === "string") {
-    return redactImageGenerationLogText(value);
-  }
-  if (!value || typeof value !== "object") {
-    return value;
-  }
-
-  const redacted: Record<string, unknown> = {};
-  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-    if (/api(?:[-_\s]?key)|authorization|bearer|secret|token|cookie/i.test(key)) {
-      redacted[key] = "[redacted]";
-      continue;
-    }
-    if (/url|image|images|reference/i.test(key) && typeof nestedValue === "string" && /^https?:\/\//i.test(nestedValue)) {
-      redacted[key] = "[redacted image url]";
-      continue;
-    }
-    redacted[key] = redactImageGenerationLogValue(nestedValue);
-  }
-  return redacted;
-}
-
-export function writeImageGenerationJsonLog(filePath: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(redactImageGenerationLogValue(value), null, 2) + "\n", "utf8");
-}
-
-export function redactImageGenerationLogText(text: string): string {
-  return text
-    .replace(/(authorization|bearer|api(?:[-_\s]?key)|secret|token|cookie)(["'\s:=]+)([^"'\s,}]+)/gi, "$1$2[redacted]")
-    .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "[redacted api key]")
-    .replace(/https?:\/\/[^\s"',}]+/gi, "[redacted url]");
-}
-
-export function sanitizeImageGenerationProviderErrorText(text: string, fallback: string): string {
-  return redactImageGenerationLogText(text || fallback);
-}
-
-export function writeImageGenerationTextLog(filePath: string, text: string): void {
-  try {
-    writeImageGenerationJsonLog(filePath, JSON.parse(text));
-  } catch {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, redactImageGenerationLogText(text) + "\n", "utf8");
-  }
-}
-
 export function parseSellingPointFields(sellingPointText: string): {
   brand: string;
   userCognitionName: string;
@@ -386,23 +351,6 @@ export function isTransientImageProviderErrorMessage(message: string): boolean {
     return false;
   }
   return /fetch failed|network|socket|terminated|reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|abort|timeout|timed out|full decode validation|image artifact.*decode|image file is truncated/i.test(message);
-}
-
-export async function settleConcurrentWork<T>(work: Array<Promise<T>>, label: string): Promise<T[]> {
-  const settled = await Promise.allSettled(work);
-  const failures = settled
-    .map((result, index) => ({ result, index }))
-    .filter((item): item is { result: PromiseRejectedResult; index: number } => item.result.status === "rejected");
-  if (failures.length > 0) {
-    const reasons = failures.map((item) =>
-      item.result.reason instanceof Error ? item.result.reason.message : String(item.result.reason)
-    );
-    throw new AggregateError(
-      failures.map((item) => item.result.reason),
-      `${label} failed after all concurrent work settled; failed indexes: ${failures.map((item) => item.index + 1).join(", ")}; reasons: ${reasons.join(" | ")}`
-    );
-  }
-  return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
 export function createConcurrencyGate(maxConcurrent: number): ConcurrencyGate {
@@ -734,6 +682,10 @@ export async function generateWithOpenAiCompatibleProvider(options: {
   const submitGate =
     options.videosBase64SubmitGate || createConcurrencyGate(resolveVideosBase64SubmitConcurrency(config.submitConcurrency));
   const transportRetryPolicy = resolveImageGenerationTransportRetryPolicy(config.maxTransientRetries);
+  const preparedReferenceImagePath = await prepareVideosBase64ReferenceImage({
+    sourceImagePath: options.sourceImagePath,
+    outputDir: options.downloadDir
+  });
   const sendRequest = async (
     requestBody: BodyInit,
     contentType?: string,
@@ -780,7 +732,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
       ...(config.videoMetadata || {}),
       aspect_ratio: MAIN_IMAGE_ASPECT_RATIO,
       size: MAIN_IMAGE_PROVIDER_SIZE,
-      urls: [sourceImageToDataUrl(options.sourceImagePath)]
+      urls: [sourceImageToDataUrl(preparedReferenceImagePath)]
     }
   });
 
@@ -859,13 +811,13 @@ export async function generateWithOpenAiCompatibleProvider(options: {
     });
   }
 
-  const sendVideosBase64SubmitWithTransientRetries = async (
+  const sendVideosBase64SubmitWithProvenNoAcceptanceRetries = async (
     imageIndex: number,
     requestBody: string
   ): Promise<{ response: Response; text: string }> => {
     for (let attempt = 0; ; attempt += 1) {
       const result = await sendRequest(requestBody, "application/json", videosBase64SubmitTimeoutMs);
-      const retryPolicy = resolveImageGenerationHttpRetryPolicy({
+      const retryPolicy = resolvePaidImageSubmitHttpRetryPolicy({
         status: result.response.status,
         responseText: result.text,
         configuredMaxRetries: config.maxTransientRetries
@@ -1074,13 +1026,19 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action !== "missing" &&
           "record" in slotAction &&
           slotAction.record?.replayDisposition === "non_replayable";
+        const persistedReplayable =
+          slotAction.action !== "missing" &&
+          "record" in slotAction &&
+          slotAction.record?.replayDisposition === "replayable";
         const definitiveNoAcceptanceWithLossyReason =
           slotAction.action === "retry_failed_before_acceptance" &&
           failedRetryReason.trim().toLowerCase() === "[redacted]";
         if (
           slotAction.action !== "missing" &&
           (persistedNonReplayable ||
-            (!definitiveNoAcceptanceWithLossyReason && isUnsafePaidImageReplayReason(failedRetryReason)))
+            (!persistedReplayable &&
+              !definitiveNoAcceptanceWithLossyReason &&
+              isUnsafePaidImageReplayReason(failedRetryReason)))
         ) {
           const safeFailedRetryReason = sanitizeImageGenerationProviderErrorText(
             failedRetryReason,
@@ -1151,7 +1109,10 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           requestDigest,
           promptDigest,
           owner: options.paidImageLedger?.owner || { pid: process.pid },
-          allowFailedAfterAcceptanceDigestChange
+          allowFailedAfterAcceptanceDigestChange,
+          allowFailedBeforeAcceptanceRequestDigestChange:
+            slotAction.action === "retry_failed_before_acceptance" &&
+            preparedReferenceImagePath !== options.sourceImagePath
         });
       }
 
@@ -1215,7 +1176,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
       let response: Response;
       let text = "";
       try {
-        const result = await submitGate.run(() => sendVideosBase64SubmitWithTransientRetries(absoluteImageIndex, requestBody));
+        const result = await submitGate.run(() => sendVideosBase64SubmitWithProvenNoAcceptanceRetries(absoluteImageIndex, requestBody));
         response = result.response;
         text = result.text;
       } catch (error) {

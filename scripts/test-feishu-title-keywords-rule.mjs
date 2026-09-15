@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  buildCategoryValidationFallbackTitles,
   buildTitlesFromFeishuKeywords,
   parseFeishuTitleKeywords,
   regenerateDistributedTitleWorkbooks
@@ -19,6 +20,17 @@ const keywords = parseFeishuTitleKeywords(
   "唇部护理,保湿凝胶,聚乙二醇,润护敷料,干燥护理,水润修护,透明凝胶,医用敷料,唇周护理,正品护理,日常护理,管装凝胶,温和润护,唇部,润护,水润"
 );
 assert.deepEqual(keywords.slice(0, 3), ["唇部护理", "保湿凝胶", "聚乙二醇"]);
+
+const categoryFallbackTitles = buildCategoryValidationFallbackTitles({
+  keywordText: keywords.join(","),
+  fixedSuffixText: "医用聚乙二醇润护敷料",
+  productCategory: "医疗器械",
+  currentTitle: "旧标题医用聚乙二醇润护敷料",
+  limit: 3
+});
+assert.equal(categoryFallbackTitles.length, 3);
+assert.equal(new Set(categoryFallbackTitles).size, 3);
+assert.ok(!categoryFallbackTitles.includes("旧标题医用聚乙二醇润护敷料"));
 
 const medicalTitles = buildTitlesFromFeishuKeywords({
   keywordText: keywords.join(","),

@@ -701,6 +701,20 @@ assert.equal(
 assert.equal(
   shouldExposePublishProgressInAutoListingControllerStatus({
     running: true,
+    waitingForDoudianLogin: true,
+    publishProgressAvailable: true,
+    currentTaskStatus: "failed",
+    currentTaskRecordId: "rec-current-publish",
+    publishRecordId: "rec-current-publish",
+    stateProgressTimestamp: "2026-09-08T15:27:15.351Z",
+    publishProgressTimestamp: "2026-09-08T15:27:15.311Z"
+  }),
+  true,
+  "A live Doudian-login waiter must retain the exact current product manifest progress even when the terminal state write is milliseconds newer."
+);
+assert.equal(
+  shouldExposePublishProgressInAutoListingControllerStatus({
+    running: true,
     publishProgressAvailable: true,
     currentTaskStatus: "published",
     stateProgressTimestamp: "2026-05-28T02:12:13.117Z",
@@ -2242,6 +2256,25 @@ assert.equal(
   }),
   "doudian_login_wait",
   "A live supervisor waiting for the fixed headed browser login must remain observable instead of becoming terminal failed"
+);
+assert.equal(
+  formatAutoListingControllerCompactStatusText({
+    status: "doudian_login_wait",
+    summary: "抖店登录已失效；请在项目固定有头浏览器完成登录。系统保持原断点，30秒后只读复检，确认登录恢复后自动继续。",
+    productName: "延草纲目李时珍牙科护理剂",
+    publishProductIndex: 18,
+    publishProductTotal: 20,
+    publishShopIndex: 9,
+    publishShopTotal: 10,
+    publishSafelyPublished: 17,
+    publishFailed: 1,
+    publishFailedWatermarkNo: 18,
+    feishuCompleted: 2,
+    feishuProductIndex: 3,
+    feishuTotal: 3
+  }).split("\n")[2],
+  "进度：抖店登录已失效；请在项目固定有头浏览器完成登录，系统确认恢复后会自动续跑。",
+  "A live login waiter must describe automatic recovery instead of falsely reporting that the controller stopped."
 );
 
 assert.equal(

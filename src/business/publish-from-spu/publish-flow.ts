@@ -450,9 +450,12 @@ export async function runPublishFlow(
         freightTemplateName,
         uploadIssue,
         specIssue,
-        priceIssue
+        priceIssue,
+        currentTitle: metadata.title,
+        categoryFallbackTitles: metadata.categoryFallbackTitles
       }
     );
+    metadata.title = submitResult.effectiveTitle;
     screenshotFiles.push(...submitResult.screenshotFiles);
     stages.push(...submitResult.stages);
 

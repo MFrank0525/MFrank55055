@@ -88,7 +88,8 @@ import { shouldRetainStoppedControllerPublishCheckpoint } from "../dist/src/auto
 import {
   initializePublishAttemptState,
   markPublishAttemptStarted,
-  readPublishAttemptState
+  readPublishAttemptState,
+  resetPublishAttemptStateForControlledRetry
 } from "../dist/src/autolist/publish-attempt-state.js";
 import {
   shouldFailAutoListingControllerStatusForFeishuCacheInvalid,
@@ -816,6 +817,12 @@ assert.equal(
   readPublishAttemptState(publishAttemptRuntime),
   "attempted_or_unknown",
   "A recorded publish attempt must be monotonic and must never reset to safe before manifest verification"
+);
+resetPublishAttemptStateForControlledRetry(publishAttemptRuntime, "identity-bound stable negative verification");
+assert.equal(
+  readPublishAttemptState(publishAttemptRuntime),
+  "not_attempted",
+  "An explicit controlled recovery authorization must clear the old attempt boundary before the new run"
 );
 const doudianPrePaidPreflightNotReady =
   "Platform SPU query page was not ready after navigation: Platform SPU query controls are incomplete.";

@@ -38,6 +38,7 @@ export function formatAutoListingPublishProgressLabel(input: {
 
 export type AutoListingControllerPublishProgressExposureInput = {
   running: boolean;
+  waitingForDoudianLogin?: boolean;
   publishProgressAvailable: boolean;
   currentTaskStatus?: string;
   currentTaskRecordId?: string;
@@ -53,6 +54,7 @@ export function shouldExposePublishProgressInAutoListingControllerStatus(
   const currentRecordId = input.currentTaskRecordId?.trim();
   const publishRecordId = input.publishRecordId?.trim();
   if (currentRecordId && publishRecordId && currentRecordId !== publishRecordId) return false;
+  if (input.running && input.waitingForDoudianLogin) return true;
   if (!input.running || input.currentTaskStatus === "published") return true;
   if (!input.stateProgressTimestamp || !input.publishProgressTimestamp) return true;
   return Date.parse(input.publishProgressTimestamp) >= Date.parse(input.stateProgressTimestamp);

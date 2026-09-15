@@ -10,6 +10,7 @@ import { getFallbackUserDataDir, getUserDataDir } from "./session.js";
 const REMOTE_DEBUGGING_PORTS = [9333, 9444, 9555, 9666];
 const DEBUG_ENDPOINT_REQUEST_TIMEOUT_MS = 3000;
 const CDP_CONNECT_TIMEOUT_MS = 10000;
+const CDP_DISCONNECT_TIMEOUT_MS = 5000;
 let activeRemoteDebuggingPort = REMOTE_DEBUGGING_PORTS[0];
 const DOUYIN_SHOP_URL = "https://fxg.jinritemai.com/ffa/g/spu-record";
 let playwrightDialogRaceGuardInstalled = false;
@@ -437,7 +438,19 @@ export async function disconnectAutomationBrowserConnections(): Promise<void> {
   const browsers = [...connectedAutomationBrowsers];
   connectedAutomationBrowsers.clear();
   try {
-    await Promise.all(browsers.map((browser) => browser.close().catch(() => {})));
+    await Promise.all(browsers.map(async (browser) => {
+      let timeout: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          browser.close().catch(() => {}),
+          new Promise<void>((resolve) => {
+            timeout = setTimeout(resolve, CDP_DISCONNECT_TIMEOUT_MS);
+          })
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    }));
   } finally {
     if (browserProfileLeaseHeld) {
       releaseBrowserProfileLease({ leaseFile: browserProfileLeaseFile });

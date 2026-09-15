@@ -13,6 +13,7 @@ export interface PublishFromSpuMetadata {
   brand?: string;
   spu?: string;
   title?: string;
+  categoryFallbackTitles?: string[];
   shortTitle?: string;
   modelSpec?: string;
   productPriceText?: string;

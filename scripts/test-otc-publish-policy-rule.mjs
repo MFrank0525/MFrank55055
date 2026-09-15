@@ -94,6 +94,25 @@ assert.equal(
   "0.1g*24片",
   "OTC platform-SPU identity must not confuse the specification template with the product specification"
 );
+assert.equal(
+  buildPublishJobMetadata({
+    workbookFields: {
+      ...workbookFields,
+      title: "测试标题烟酰胺片圣迪0.1g*24片"
+    },
+    feishuProductRecord: {
+      ...baseRecord,
+      brand: "圣迪",
+      productCategory: "非处方药",
+      genericName: "烟酰胺片",
+      titleSuffixText: "烟酰胺片圣迪0.1g*24片",
+      specification: "买一送一"
+    },
+    targetIdentity
+  }).specification,
+  "0.1g*24片",
+  "The real OTC publish metadata must strip the exact brand embedded between generic name and dosage"
+);
 assert.throws(
   () =>
     buildPublishJobMetadata({

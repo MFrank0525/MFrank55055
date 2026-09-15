@@ -7,6 +7,7 @@ import {
   countMainImagePreviews,
   resolveExactMainImageFieldRoot
 } from "./graphic-section-preview-action.js";
+import { dismissCategoryAdviceOverlayWithoutMutation } from "./category-advice-overlay-action.js";
 
 export async function clearMainImagePrefillAndConfirmEmpty(page: Page): Promise<number> {
   if (!(await resolveExactMainImageFieldRoot(page))) {
@@ -26,8 +27,10 @@ export async function clearMainImagePrefillAndConfirmEmpty(page: Page): Promise<
 }
 
 export async function clearDetailPrefillAndConfirmEmpty(page: Page): Promise<number> {
+  await dismissCategoryAdviceOverlayWithoutMutation(page);
   const existingCount = await countDetailImagePreviews(page);
   if (existingCount > 0) {
+    await dismissCategoryAdviceOverlayWithoutMutation(page);
     await clearDetailImagePreviewsStrict(page, Math.max(12, existingCount + 3));
     await page.waitForTimeout(800);
     await dismissTransientOverlays(page);

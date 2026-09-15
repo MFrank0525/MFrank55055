@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "playwright";
 import { normalizeProductCategory } from "../../autolist/product-category.js";
+import { readPublishAttemptState } from "../../autolist/publish-attempt-state.js";
 import { launchPersistentBrowser } from "../../browser/launch.js";
 import { getSelectAllShortcut } from "../../utils/platform.js";
 import { logInfo, logWarn } from "../../utils/logger.js";
@@ -549,6 +550,7 @@ export async function runPublishFromSpuJob(
     });
   } catch (error) {
     const diagnosticError = error as QueryDiagnosticError;
+    const durablePublishAttemptState = readPublishAttemptState(runtimeDir);
     if (diagnosticError.screenshotFile) {
       screenshots.push(diagnosticError.screenshotFile);
     }
@@ -563,14 +565,19 @@ export async function runPublishFromSpuJob(
         resultFile,
         screenshots
       },
-      data: diagnosticError.candidateRows
-        ? {
+      data: {
+        ...(diagnosticError.candidateRows
+          ? {
             queryDiagnostics: {
               candidateRows: diagnosticError.candidateRows,
               candidateIds: diagnosticError.candidateIds || []
             }
           }
-        : undefined,
+          : {}),
+        browser: {
+          publishClickAttempted: durablePublishAttemptState === "attempted_or_unknown"
+        }
+      },
       error: {
         code: "TASK_FAILED",
         message: error instanceof Error ? error.message : String(error),

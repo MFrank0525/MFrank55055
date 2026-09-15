@@ -6,7 +6,11 @@ import {
   assertSquareMainImageProviderConfig,
   buildImageEditPromptFromWord,
   generateMainImageAssets,
+  formatVideosBase64ProviderFailureReason,
   observeVideosBase64AcceptedTask,
+  sanitizeImageGenerationProviderErrorText,
+  settleConcurrentWork,
+  writeImageGenerationTextLog,
   resolveLatestSubmittedPaidImageAuditTimestampMs,
   shouldAllowPaidImagePolicyCompatibilityIdentityTransition,
   summarizeVideosBase64PaidResumePlan
@@ -15,6 +19,7 @@ import {
   providerExplicitlyProvesNoPaidTaskAccepted,
   submitTransportFailureProvesNoPaidTaskAccepted,
   resolveImageGenerationHttpRetryPolicy,
+  resolvePaidImageSubmitHttpRetryPolicy,
   resolveOpenAiCompatibleImageMode,
   resolvePaidImageLedgerFailureDisposition,
   resolveMissingFixedImageIndexes,
@@ -49,7 +54,12 @@ import {
   hasProviderArtifactPersistenceRuleItem
 } from "./markdown-provider-contract.mjs";
 
-const source = ["src/autolist/main-image-provider-action.ts", "src/autolist/main-image-assets.ts"]
+const source = [
+  "src/autolist/main-image-provider-action.ts",
+  "src/autolist/main-image-assets.ts",
+  "src/autolist/image-provider-error-boundaries.ts",
+  "src/autolist/videos-base64-reference.ts"
+]
   .map((file) => fs.readFileSync(file, "utf8")).join("\n");
 const configSource = fs.readFileSync("src/autolist/config.ts", "utf8");
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
@@ -745,6 +755,40 @@ assert.match(source, /Promise\.allSettled\(work\)/);
 assert.match(source, /settleConcurrentWork\(\s*videosBase64ImageIndexes\.map/s);
 assert.match(source, /settleConcurrentWork\(\s*promptIndexes\.map/s);
 assert.match(source, /reasons: \$\{reasons\.join\("\s*\|\s*"\)\}/);
+
+const oversizedProviderFailure = JSON.stringify({
+  code: "fail_to_fetch_task",
+  message: JSON.stringify({
+    status: "failed",
+    error: {
+      code: "image_too_large",
+      message: "reference image exceeds 6 MB",
+      request_body_b64: "A".repeat(14 * 1024 * 1024)
+    }
+  })
+});
+const boundedProviderFailure = sanitizeImageGenerationProviderErrorText(oversizedProviderFailure, "provider failure");
+assert.match(boundedProviderFailure, /image_too_large/);
+assert.match(boundedProviderFailure, /reference image exceeds 6 MB/);
+assert.ok(boundedProviderFailure.length <= 2000, "provider failure text must stay bounded before it enters Error objects");
+assert.ok(
+  formatVideosBase64ProviderFailureReason(JSON.parse(oversizedProviderFailure)).length <= 1000,
+  "nested provider failure summaries must never retain echoed request bodies"
+);
+const boundedProviderLog = path.join(os.tmpdir(), `bounded-provider-log-${process.pid}.json`);
+writeImageGenerationTextLog(boundedProviderLog, oversizedProviderFailure);
+assert.ok(fs.statSync(boundedProviderLog).size < 64 * 1024, "provider response logs must not persist echoed request bodies");
+assert.doesNotMatch(fs.readFileSync(boundedProviderLog, "utf8"), /A{100}/);
+fs.rmSync(boundedProviderLog, { force: true });
+await assert.rejects(
+  settleConcurrentWork(
+    Array.from({ length: 20 }, (_, index) => Promise.reject(new Error(`slot ${index + 1}: ${"X".repeat(14 * 1024 * 1024)}`))),
+    "oversized provider failures"
+  ),
+  (error) => error instanceof AggregateError && error.message.length <= 32 * 1024
+);
+assert.match(source, /prepareVideosBase64ReferenceImage/);
+assert.match(source, /VIDEOS_BASE64_REFERENCE_MAX_BYTES/);
 assert.doesNotMatch(source, /mode === "videos-base64"/, "current-only provider code must not retain obsolete mode branching");
 assert.match(typesSource, /paidImageSubmissionLedgerDir\?: string/);
 assert.match(configSource, /paidImageSubmissionLedgerDir: path\.resolve/);
@@ -757,11 +801,11 @@ assert.doesNotMatch(source, /batchFingerprint: options\.feishuBatchFingerprint \
 assert.doesNotMatch(source, /recordId: options\.feishuRecordId \|\| options\.taskId/);
 assert.match(source, /providerExplicitlyProvesNoPaidTaskAccepted/);
 assert.match(source, /resolveVideosBase64SubmitTimeoutMs/);
-assert.match(source, /sendVideosBase64SubmitWithTransientRetries/);
+assert.match(source, /sendVideosBase64SubmitWithProvenNoAcceptanceRetries/);
 assert.match(
   source,
-  /submitGate\.run\(\(\) => sendVideosBase64SubmitWithTransientRetries\(absoluteImageIndex, requestBody\)\)/,
-  "videos-base64 paid submit requests must use HTTP transient retries before a slot can become ambiguous"
+  /submitGate\.run\(\(\) => sendVideosBase64SubmitWithProvenNoAcceptanceRetries\(absoluteImageIndex, requestBody\)\)/,
+  "videos-base64 paid submit requests may retry only through the explicit no-acceptance policy"
 );
 assert.match(source, /requestedImageIndexes/);
 assert.match(source, /resolveMissingFixedImageIndexes/);
@@ -769,6 +813,8 @@ assert.match(source, /requestedImageIndexes: missingLocalIndexes/);
 assert.match(source, /summarizeVideosBase64PaidResumePlan/);
 assert.match(source, /allowExistingSubmittedTaskImport/);
 assert.match(source, /allowExistingSubmittedTaskImport =[\s\S]*slotAction\.action !== "retry_failed_before_acceptance"[\s\S]*slotAction\.action !== "retry_failed_after_acceptance"/);
+assert.match(source, /persistedReplayable =[\s\S]*replayDisposition === "replayable"/);
+assert.match(source, /!persistedReplayable[\s\S]*isUnsafePaidImageReplayReason\(failedRetryReason\)/);
 assert.match(
   source,
   /isPolicyCompatibleRetryFailureReason\(reason: string\)[\s\S]*违规[\s\S]*policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*failedAfterAcceptanceReason[\s\S]*shouldKeepPaidImagePolicyCompatiblePrompt[\s\S]*keepPolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
@@ -914,6 +960,30 @@ assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(429, "rate limited"), false);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(502, "upstream error"), false);
+assert.deepEqual(
+  resolvePaidImageSubmitHttpRetryPolicy({
+    status: 524,
+    responseText: "<html><title>524: A timeout occurred</title></html>"
+  }),
+  {
+    maxRetries: 0,
+    delayMs: [],
+    reason: "submit_acceptance_ambiguous"
+  },
+  "a paid POST that receives a gateway timeout must stop after that response because upstream acceptance is unknown"
+);
+assert.deepEqual(
+  resolvePaidImageSubmitHttpRetryPolicy({
+    status: 503,
+    responseText: '{"code":"fail_to_fetch_task","message":"No available channel for model gpt-image-2"}'
+  }),
+  {
+    maxRetries: 8,
+    delayMs: [60000, 90000, 120000, 180000, 180000, 180000, 180000, 180000],
+    reason: "provider_gateway_unavailable"
+  },
+  "an explicit no-acceptance response may retain bounded paid-submit retry behavior"
+);
 assert.deepEqual(
   resolveImageGenerationHttpRetryPolicy({
     status: 400,

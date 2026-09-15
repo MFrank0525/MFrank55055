@@ -798,6 +798,48 @@ const staleQueue = expireSubmittedPaidImageQueue({
 assert.equal(staleQueue?.state, "failed_after_acceptance");
 assert.equal(resolvePaidImageSlotAction({ productDir, slot: 11 }).action, "retry_failed_after_acceptance");
 
+const normalizedReferenceLedger = initializePaidImageProductLedger({
+  ...identity,
+  batchFingerprint: "batch-normalized-reference",
+  recordId: "record-normalized-reference",
+  expectedSlotCount: 1
+});
+reservePaidImageSlot({
+  productDir: normalizedReferenceLedger.productDir,
+  slot: 1,
+  requestDigest: "request-12-original-reference",
+  promptDigest: "prompt-12",
+  owner: ownerA
+});
+recordPaidImageFailedBeforeAcceptance({
+  productDir: normalizedReferenceLedger.productDir,
+  slot: 1,
+  reason: "provider explicitly rejected oversized reference image"
+});
+assert.throws(
+  () => reservePaidImageSlot({
+    productDir: normalizedReferenceLedger.productDir,
+    slot: 1,
+    requestDigest: "request-12-normalized-reference",
+    promptDigest: "prompt-12-changed",
+    owner: ownerB,
+    allowFailedBeforeAcceptanceRequestDigestChange: true
+  }),
+  /slot identity conflict/i,
+  "reference preprocessing recovery must not authorize a prompt change"
+);
+const normalizedReferenceRetry = reservePaidImageSlot({
+  productDir: normalizedReferenceLedger.productDir,
+  slot: 1,
+  requestDigest: "request-12-normalized-reference",
+  promptDigest: "prompt-12",
+  owner: ownerB,
+  allowFailedBeforeAcceptanceRequestDigestChange: true
+});
+assert.equal(normalizedReferenceRetry.action, "submit");
+assert.equal(normalizedReferenceRetry.record.requestDigest, "request-12-normalized-reference");
+assert.equal(normalizedReferenceRetry.record.promptDigest, "prompt-12");
+
 reservePaidImageSlot({
   productDir,
   slot: 8,
@@ -921,10 +963,20 @@ recordPaidImageAmbiguous({ productDir, slot: 9, reason: "submit transport failed
 const noAcceptance = reconcileAmbiguousPaidImageNoAcceptance({
   productDir,
   slot: 9,
-  reason: "operator verified provider dashboard has 19 accepted tasks and 19 charges; slot 9 has no provider task"
+  reason: "provider log matched the terminal response; billed task belongs to another image, not ambiguous slot 9"
 });
 assert.equal(noAcceptance.state, "failed_before_acceptance");
+assert.equal(noAcceptance.replayDisposition, "replayable");
 assert.equal(resolvePaidImageSlotAction({ productDir, slot: 9 }).action, "retry_failed_before_acceptance");
+assert.equal(
+  reconcileAmbiguousPaidImageNoAcceptance({
+    productDir,
+    slot: 9,
+    reason: "second operator audit confirms no provider acceptance"
+  }).replayDisposition,
+  "replayable",
+  "no-acceptance reconciliation must be idempotently upgradable after a legacy text-only reconciliation"
+);
 const noAcceptanceRetry = reservePaidImageSlot({
   productDir,
   slot: 9,
@@ -935,7 +987,7 @@ const noAcceptanceRetry = reservePaidImageSlot({
 assert.equal(noAcceptanceRetry.action, "submit");
 assert.deepEqual(
   noAcceptanceRetry.record.audit.map((entry) => entry.state),
-  ["reserved", "ambiguous", "failed_before_acceptance", "reserved"]
+  ["reserved", "ambiguous", "failed_before_acceptance", "failed_before_acceptance", "reserved"]
 );
 
 reservePaidImageSlot({

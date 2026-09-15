@@ -14,7 +14,6 @@ import {
   type PaidImageProviderIdentityProofCandidate,
   type PaidImageProviderIdentityRotationInput
 } from "./paid-image-provider-identity-rules.js";
-
 export type PaidImageSlotState =
   | "reserved"
   | "submitted"
@@ -22,9 +21,7 @@ export type PaidImageSlotState =
   | "failed_before_acceptance"
   | "failed_after_acceptance"
   | "ambiguous";
-
-export type PaidImageReplayDisposition = "non_replayable";
-
+export type PaidImageReplayDisposition = "replayable" | "non_replayable";
 export interface PaidImageSlotAuditEntry {
   state: PaidImageSlotState;
   at: string;
@@ -32,13 +29,11 @@ export interface PaidImageSlotAuditEntry {
   reason?: string;
   replayDisposition?: PaidImageReplayDisposition;
 }
-
 export interface PaidImageSlotOwner {
   runId?: string;
   taskId?: string;
   pid?: number;
 }
-
 export interface PaidImageSlotRecord {
   version: 1;
   slot: number;
@@ -57,14 +52,12 @@ export interface PaidImageSlotRecord {
   replayDisposition?: PaidImageReplayDisposition;
   audit: PaidImageSlotAuditEntry[];
 }
-
 export interface PaidImageResultProvenance {
   kind: "operator_approved_existing_result";
   sourceSlot: number;
   sourceResultDigest: string;
   reason: string;
 }
-
 export interface PaidImageProductLedger {
   version: 1;
   batchFingerprint: string;
@@ -76,7 +69,6 @@ export interface PaidImageProductLedger {
   providerIdentityMigrations?: PaidImageProviderIdentityMigration[];
   productDir: string;
 }
-
 export interface PaidImageLedgerSummary {
   expectedSlotCount: number;
   missing: number;
@@ -87,7 +79,6 @@ export interface PaidImageLedgerSummary {
   failedAfterAcceptance: number;
   ambiguous: number;
 }
-
 export interface PaidImageLedgerArtifactIntegrityIssue {
   code: "completed_result_missing_or_invalid";
   slot: number;
@@ -126,7 +117,7 @@ export interface ReservePaidImageSlotInput {
   requestDigest: string;
   promptDigest: string;
   owner: PaidImageSlotOwner;
-  allowFailedAfterAcceptanceDigestChange?: boolean;
+  allowFailedAfterAcceptanceDigestChange?: boolean; allowFailedBeforeAcceptanceRequestDigestChange?: boolean;
 }
 
 export interface ResolvePaidImageSlotActionInput {
@@ -729,6 +720,7 @@ function validateAudit(value: unknown): value is PaidImageSlotAuditEntry[] {
         ((entry as PaidImageSlotAuditEntry).reason === undefined ||
           isValidLegacyPersistedText((entry as PaidImageSlotAuditEntry).reason)) &&
         ((entry as PaidImageSlotAuditEntry).replayDisposition === undefined ||
+          (entry as PaidImageSlotAuditEntry).replayDisposition === "replayable" ||
           (entry as PaidImageSlotAuditEntry).replayDisposition === "non_replayable") &&
         ((entry as PaidImageSlotAuditEntry).owner === undefined || isValidOwner((entry as PaidImageSlotAuditEntry).owner))
     )
@@ -783,7 +775,9 @@ function validateSlotRecord(value: unknown, expectedSlot: number): PaidImageSlot
         !/^[a-f0-9]{64}$/.test(record.resultProvenance.sourceResultDigest) ||
         !isValidLegacyPersistedText(record.resultProvenance.reason))) ||
     (record.reason !== undefined && !isValidLegacyPersistedText(record.reason)) ||
-    (record.replayDisposition !== undefined && record.replayDisposition !== "non_replayable") ||
+    (record.replayDisposition !== undefined &&
+      record.replayDisposition !== "replayable" &&
+      record.replayDisposition !== "non_replayable") ||
     (record.owner !== undefined && !isValidOwner(record.owner))
   ) {
     throw new Error(`invalid paid image slot record for slot ${expectedSlot}`);
@@ -988,9 +982,10 @@ export function reservePaidImageSlot(input: ReservePaidImageSlotInput): PaidImag
     if (!existing) {
       throw new Error(`paid image slot ${input.slot} disappeared after reservation conflict`);
     }
-    const allowDigestChange =
+    const allowFailedAfterAcceptanceDigestChange =
       input.allowFailedAfterAcceptanceDigestChange === true && existing.state === "failed_after_acceptance";
-    if (!allowDigestChange) {
+    const allowFailedBeforeAcceptanceRequestDigestChange = input.allowFailedBeforeAcceptanceRequestDigestChange === true && existing.state === "failed_before_acceptance" && existing.promptDigest === input.promptDigest;
+    if (!allowFailedAfterAcceptanceDigestChange && !allowFailedBeforeAcceptanceRequestDigestChange) {
       assertSlotIdentity(existing, input.requestDigest, input.promptDigest);
     }
     if (isAutoRetryableNoAcceptanceAmbiguousRecord(existing)) {
@@ -1108,14 +1103,19 @@ export function reconcileAmbiguousPaidImageNoAcceptance(
   validateSlotRange(input.productDir, input.slot);
   return withSlotLock(input.productDir, input.slot, () => {
     const record = readSlotRecordUnlocked(input.productDir, input.slot);
-    if (!record || record.state !== "ambiguous") {
+    if (
+      !record ||
+      (record.state !== "ambiguous" && record.state !== "failed_before_acceptance") ||
+      record.replayDisposition === "non_replayable"
+    ) {
       throw new Error(`invalid slot reconciliation for slot ${input.slot}: ${record?.state || "missing"} -> failed_before_acceptance`);
     }
     if (record.providerTaskId) {
       throw new Error(`ambiguous slot ${input.slot} has provider task id ${record.providerTaskId}; reconcile the task instead`);
     }
-    return transitionSlotUnlocked(input.productDir, input.slot, ["ambiguous"], "failed_before_acceptance", {
-      reason: cleanText(requireNonEmpty(input.reason, "reason"))
+    return transitionSlotUnlocked(input.productDir, input.slot, ["ambiguous", "failed_before_acceptance"], "failed_before_acceptance", {
+      reason: cleanText(requireNonEmpty(input.reason, "reason")),
+      replayDisposition: "replayable"
     });
   });
 }

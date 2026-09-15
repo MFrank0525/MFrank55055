@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Locator, Page } from "playwright";
+import type { Dialog, Locator, Page, Response } from "playwright";
 import { normalizeProductCategory } from "../../autolist/product-category.js";
 import { launchPersistentBrowser } from "../../browser/launch.js";
 import { getSelectAllShortcut } from "../../utils/platform.js";
@@ -16,7 +16,8 @@ import {
   normalizeMatchText,
   normalizeSpuMatchText,
   reuseOrOpenCreatePage,
-  savePageScreenshot
+  savePageScreenshot,
+  suspendSafeDialogHandler
 } from "./browser-session.js";
 import {
   clickRadioByLabel,
@@ -55,6 +56,7 @@ import {
 } from "./publish-section-navigation.js";
 import { classifyAssets, validateMainImageAspectRatio } from "./assets.js";
 import { prepareQualificationImagesForUpload } from "./qualification-image-normalizer.js";
+import { setBasicPublishFieldValue } from "./basic-info-page-action.js";
 import {
   FIXED_FREIGHT_TEMPLATE_KEYWORD,
   FIXED_SPEC_VALUES,
@@ -103,6 +105,8 @@ import {
   evaluatePlatformSpuQueryPageReadiness,
   evaluatePublishSubmission,
   evaluatePublishSubmissionAfterAction,
+  isKnownCategoryModificationPublishPrompt,
+  isKnownCategoryValidationPublishRetryState,
   resolvePublishFillCheckDialogAction,
   evaluateServiceFulfillmentCompletion,
   evaluateSpecTemplateCompletion,
@@ -705,6 +709,210 @@ async function dismissSafePreSubmitDialogs(page: Page): Promise<void> {
   }
 }
 
+async function dismissKnownCategoryModificationPromptAfterPublishClick(page: Page): Promise<boolean> {
+  const dialogSelector = "[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .semi-modal, .ant-modal, .auxo-modal";
+  const safeCloseSelector = [
+    "button[aria-label*='关闭']",
+    "button[title*='关闭']",
+    "[role='button'][aria-label*='关闭']",
+    "[role='button'][title*='关闭']",
+    "button[aria-label*='close' i]",
+    "button[title*='close' i]",
+    "[role='button'][aria-label*='close' i]",
+    "[role='button'][title*='close' i]",
+    "button[class*='modal-close' i]",
+    "[role='button'][class*='modal-close' i]"
+  ].join(", ");
+
+  // Doudian can render this interstitial several seconds after the inline
+  // category validation appears. Keep the wait bounded, but long enough to
+  // observe the delayed prompt before deciding it did not appear.
+  for (let poll = 0; poll < 30; poll += 1) {
+    if (page.isClosed()) return false;
+    const dialogs = page.locator(dialogSelector);
+    const matches: Locator[] = [];
+    for (let index = 0; index < await dialogs.count(); index += 1) {
+      const dialog = dialogs.nth(index);
+      if (!await dialog.isVisible().catch(() => false)) continue;
+      const controls = dialog.locator("button, [role='button']").filter({ visible: true });
+      const visibleActions = await controls.allInnerTexts().catch(() => [] as string[]);
+      const text = await dialog.innerText().catch(() => "");
+      if (isKnownCategoryModificationPublishPrompt({ text, visibleActions })) {
+        matches.push(dialog);
+      }
+    }
+    if (matches.length > 1) {
+      throw new Error(`Category-modification publish prompt was ambiguous: visible=${matches.length}`);
+    }
+    const prompt = matches[0];
+    if (!prompt) {
+      const fixedOverlayMarker = "data-codex-category-advice-overlay";
+      const fixedOverlayMatches = await page.evaluate((marker) => {
+        for (const stale of Array.from(document.querySelectorAll(`[${marker}]`))) stale.removeAttribute(marker);
+        const candidates = Array.from(document.querySelectorAll("body *"))
+          .map((element) => element as HTMLElement)
+          .filter((element) => {
+            const style = window.getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            const text = (element.innerText || element.textContent || "").replace(/\s+/g, " ").trim();
+            const zIndex = Number.parseInt(style.zIndex || "0", 10);
+            return style.position === "fixed"
+              && Number.isFinite(zIndex)
+              && zIndex >= 10
+              && rect.width > 120
+              && rect.height > 60
+              && rect.width < window.innerWidth
+              && rect.height < window.innerHeight
+              && text.includes("类目")
+              && /(修改|推荐|不合适|不匹配|错放)/.test(text);
+          })
+          .sort((left, right) => {
+            const leftRect = left.getBoundingClientRect();
+            const rightRect = right.getBoundingClientRect();
+            return leftRect.width * leftRect.height - rightRect.width * rightRect.height;
+          });
+        const smallest = candidates[0];
+        if (smallest) smallest.setAttribute(marker, "true");
+        return { count: candidates.length, text: (smallest?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 240) };
+      }, fixedOverlayMarker).catch(() => ({ count: 0, text: "" }));
+      if (fixedOverlayMatches.count > 0) {
+        const overlayRoot = page.locator(`[${fixedOverlayMarker}="true"]`).filter({ visible: true });
+        if ((await overlayRoot.count()) !== 1) {
+          throw new Error(`Fixed category-advice overlay was ambiguous: marked=${await overlayRoot.count()}`);
+        }
+        let closeControls = overlayRoot.locator(safeCloseSelector).filter({ visible: true });
+        if ((await closeControls.count()) === 0) {
+          closeControls = overlayRoot
+            .getByRole("button", { name: /^(取消|关闭|我知道了|知道了)$/ })
+            .filter({ visible: true });
+        }
+        const closeCount = await closeControls.count().catch(() => 0);
+        if (closeCount !== 1) {
+          throw new Error(`Fixed category-advice overlay must expose one unique dismiss control: count=${closeCount}; text=${fixedOverlayMatches.text}`);
+        }
+        await closeControls.first().click({ timeout: 3000 });
+        await overlayRoot.waitFor({ state: "hidden", timeout: 5000 });
+        logInfo(`fixed category-advice overlay dismissed without changing category: ${fixedOverlayMatches.text}`);
+        return true;
+      }
+      const exactModifyCategoryAnchors = page.getByText("修改类目", { exact: true }).filter({ visible: true });
+      const exactModifyCategoryAnchorCount = await exactModifyCategoryAnchors.count().catch(() => 0);
+      if (exactModifyCategoryAnchorCount > 1) {
+        throw new Error(`Category-modification prompt anchor was ambiguous: visible=${exactModifyCategoryAnchorCount}`);
+      }
+      if (exactModifyCategoryAnchorCount === 1) {
+        const overlayRoot = exactModifyCategoryAnchors.first().locator(
+          "xpath=ancestor::*[@role='dialog' or @aria-modal='true' or contains(@class,'modal') or contains(@class,'dialog') or contains(@class,'drawer') or contains(@class,'popover') or contains(@class,'prompt')][1]"
+        );
+        if ((await overlayRoot.count()) !== 1 || !await overlayRoot.isVisible().catch(() => false)) {
+          throw new Error("Exact 修改类目 prompt anchor was visible without one supported overlay container.");
+        }
+        const closeControls = overlayRoot.locator(safeCloseSelector).filter({ visible: true });
+        const closeCount = await closeControls.count().catch(() => 0);
+        if (closeCount !== 1) {
+          throw new Error(`Exact 修改类目 prompt must expose one unique close control: count=${closeCount}`);
+        }
+        await closeControls.first().click({ timeout: 3000 });
+        await overlayRoot.waitFor({ state: "hidden", timeout: 5000 });
+        logInfo("nonstandard category-modification overlay closed through its unique close control");
+        return true;
+      }
+      await page.waitForTimeout(400).catch(() => {});
+      continue;
+    }
+
+    const closeControls = prompt.locator(safeCloseSelector).filter({ visible: true });
+    const closeCount = await closeControls.count().catch(() => 0);
+    if (closeCount > 1) {
+      throw new Error(`Category-modification publish prompt exposed multiple close controls: count=${closeCount}`);
+    }
+    if (closeCount === 1) {
+      await closeControls.first().click({ timeout: 3000 });
+    } else {
+      await page.keyboard.press("Escape");
+    }
+    await prompt.waitFor({ state: "hidden", timeout: 5000 });
+    logInfo("category-modification publish prompt dismissed without changing category");
+    return true;
+  }
+  return false;
+}
+
+async function clickPublishAndDismissNativeCategoryPrompt(page: Page, button: Locator): Promise<boolean> {
+  let nativeCategoryPromptDismissed = false;
+  let unsupportedNativePrompt = "";
+  let pendingDialogAction: Promise<void> = Promise.resolve();
+  const handler = (dialog: Dialog): void => {
+    pendingDialogAction = (async () => {
+      const message = dialog.message().replace(/\s+/g, " ").trim();
+      if (isKnownCategoryModificationPublishPrompt({ text: message, visibleActions: [] })) {
+        await dialog.dismiss();
+        nativeCategoryPromptDismissed = true;
+        logInfo("native category-modification publish prompt dismissed without changing category");
+        return;
+      }
+      unsupportedNativePrompt = message || dialog.type();
+      await dialog.dismiss();
+    })();
+  };
+  const restoreSafeDialogHandler = suspendSafeDialogHandler(page);
+  const diagnosticTasks = new Set<Promise<void>>();
+  const responseHandler = (response: Response): void => {
+    const request = response.request();
+    if (
+      !["xhr", "fetch"].includes(request.resourceType())
+      || request.method() === "GET"
+      || !/(product|goods|publish|create|spu)/i.test(response.url())
+    ) return;
+    const task = (async () => {
+      const raw = await response.text().catch(() => "");
+      let summary = raw.replace(/\s+/g, " ").trim().slice(0, 240);
+      try {
+        const parsed = JSON.parse(raw) as Record<string, any>;
+        summary = JSON.stringify({
+          code: parsed.code ?? parsed.status_code ?? parsed.status,
+          message: parsed.message ?? parsed.msg ?? parsed.status_message ?? parsed.error_message
+        });
+      } catch {
+        // Keep the bounded plain-text summary.
+      }
+      const pathname = new URL(response.url()).pathname;
+      logInfo(`publish network response: ${request.method()} ${response.status()} ${pathname} ${summary}`);
+    })().finally(() => diagnosticTasks.delete(task));
+    diagnosticTasks.add(task);
+  };
+  page.on("dialog", handler);
+  page.on("response", responseHandler);
+  try {
+    await button.click({ timeout: 5000, noWaitAfter: true });
+    await page.waitForTimeout(2500).catch(() => {});
+    await pendingDialogAction;
+  } finally {
+    page.off("dialog", handler);
+    page.off("response", responseHandler);
+    await Promise.allSettled([...diagnosticTasks]);
+    restoreSafeDialogHandler();
+  }
+  if (unsupportedNativePrompt) {
+    throw new Error(`Unsupported native publish prompt was dismissed: ${unsupportedNativePrompt.slice(0, 240)}`);
+  }
+  return nativeCategoryPromptDismissed;
+}
+
+async function acknowledgeExactCategoryValidationHint(page: Page): Promise<void> {
+  const hint = page.getByText("类目填写错误", { exact: true }).filter({ visible: true });
+  const count = await hint.count().catch(() => 0);
+  if (count !== 1) {
+    throw new Error(`Category-validation hint must be uniquely clickable before retrying publish: count=${count}`);
+  }
+  await hint.click({ timeout: 3000, trial: true });
+  await hint.click({ timeout: 3000 });
+  await page.waitForTimeout(500).catch(() => {});
+  logInfo("exact 类目填写错误 hint clicked without changing category");
+}
+
+const CATEGORY_TITLE_FALLBACK_LIMIT = 3;
+
 async function readPublishPreSubmitReadiness(page: Page, publishButton: Locator): Promise<{ ready: boolean; issue: string }> {
   const visibleDialogs = await page.evaluate(() =>
     Array.from(
@@ -743,9 +951,16 @@ async function readPublishPreSubmitReadiness(page: Page, publishButton: Locator)
 export async function clickPublishProductOnPage(
   page: Page,
   runtimeDir: string,
-  fileName: string
-): Promise<PublishActionResult & { publishClicked: boolean; publishClickAttempted: boolean; publishIssue: string }> {
+  fileName: string,
+  options: { currentTitle?: string; categoryFallbackTitles?: string[] } = {}
+): Promise<PublishActionResult & {
+  publishClicked: boolean;
+  publishClickAttempted: boolean;
+  publishIssue: string;
+  effectiveTitle?: string;
+}> {
   let activePage = page;
+  let effectiveTitle = options.currentTitle;
   await activePage.bringToFront();
   await activePage.waitForTimeout(1200);
   await dismissTransientOverlays(activePage);
@@ -802,9 +1017,103 @@ export async function clickPublishProductOnPage(
           break;
         }
         markPublishAttemptStarted(runtimeDir);
-        await publishButton.click({ timeout: 5000, noWaitAfter: true });
+        const nativeCategoryPromptDismissed =
+          await clickPublishAndDismissNativeCategoryPrompt(activePage, publishButton);
         publishClickAttempted = true;
-        await activePage.waitForTimeout(1200).catch(() => {});
+        const explicitCategoryPromptDismissed = nativeCategoryPromptDismissed
+          || await dismissKnownCategoryModificationPromptAfterPublishClick(activePage);
+        if (!explicitCategoryPromptDismissed) {
+          await dismissTransientOverlays(activePage);
+        }
+        const categoryValidationRetryAllowed = await readPublishSubmissionSnapshot(activePage)
+          .then((snapshot) => isKnownCategoryValidationPublishRetryState(snapshot))
+          .catch(() => false);
+        const remainingVisibleDialogs = activePage
+          .locator("[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .semi-modal, .ant-modal, .auxo-modal")
+          .filter({ visible: true });
+        const categoryModificationPromptDismissed = categoryValidationRetryAllowed
+          && (await remainingVisibleDialogs.count().catch(() => 1)) === 0;
+        if (categoryModificationPromptDismissed) {
+          await acknowledgeExactCategoryValidationHint(activePage);
+          const publishButtonAfterCategoryPrompt = activePage
+            .getByRole("button", { name: "发布商品", exact: true })
+            .filter({ visible: true });
+          if ((await publishButtonAfterCategoryPrompt.count()) !== 1) {
+            throw new Error("发布商品 button was not unique after dismissing the 修改类目 prompt.");
+          }
+          await publishButtonAfterCategoryPrompt.click({ timeout: 5000, trial: true });
+          const nativeCategoryPromptAfterInlineRetryDismissed =
+            await clickPublishAndDismissNativeCategoryPrompt(activePage, publishButtonAfterCategoryPrompt);
+          logInfo("发布商品 clicked to continue the exact inline category-validation state");
+          const categoryPromptAfterInlineRetryDismissed = nativeCategoryPromptAfterInlineRetryDismissed
+            || await dismissKnownCategoryModificationPromptAfterPublishClick(activePage);
+          const postInlineCategoryValidationStillVisible = await readPublishSubmissionSnapshot(activePage)
+            .then((snapshot) => isKnownCategoryValidationPublishRetryState(snapshot))
+            .catch(() => false);
+          const postInlineVisibleDialogCount = await activePage
+            .locator("[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .semi-modal, .ant-modal, .auxo-modal")
+            .filter({ visible: true })
+            .count()
+            .catch(() => 1);
+          const shouldIssueFinalCategoryBypassPublishClick = categoryPromptAfterInlineRetryDismissed
+            || (postInlineCategoryValidationStillVisible && postInlineVisibleDialogCount === 0);
+          if (shouldIssueFinalCategoryBypassPublishClick) {
+            const finalPublishButtonAfterCategoryPrompt = activePage
+              .getByRole("button", { name: "发布商品", exact: true })
+              .filter({ visible: true });
+            if ((await finalPublishButtonAfterCategoryPrompt.count()) !== 1) {
+              throw new Error("发布商品 button was not unique after closing the post-validation 修改类目 prompt.");
+            }
+            await finalPublishButtonAfterCategoryPrompt.click({ timeout: 5000, trial: true });
+            await clickPublishAndDismissNativeCategoryPrompt(activePage, finalPublishButtonAfterCategoryPrompt);
+            logInfo(
+              categoryPromptAfterInlineRetryDismissed
+                ? "发布商品 clicked once after closing the post-validation category-modification prompt"
+                : "发布商品 clicked once after the category prompt cleared and exact inline validation remained"
+            );
+            await activePage.waitForTimeout(1200).catch(() => {});
+          }
+          let exactCategoryValidationStillVisible = await readPublishSubmissionSnapshot(activePage)
+            .then((snapshot) => isKnownCategoryValidationPublishRetryState(snapshot))
+            .catch(() => false);
+          if (exactCategoryValidationStillVisible) {
+            const categoryFallbackTitles = (options.categoryFallbackTitles || [])
+              .map((title) => title.trim())
+              .filter((title, index, all) => Boolean(title) && title !== effectiveTitle && all.indexOf(title) === index)
+              .slice(0, CATEGORY_TITLE_FALLBACK_LIMIT);
+            for (let titleAttempt = 0; titleAttempt < categoryFallbackTitles.length; titleAttempt += 1) {
+              const fallbackTitle = categoryFallbackTitles[titleAttempt];
+              if (!(await setBasicPublishFieldValue(activePage, "title", fallbackTitle))) {
+                throw new Error("needs_manual_intervention: regenerated title could not be written to the unique 商品标题 field.");
+              }
+              effectiveTitle = fallbackTitle;
+              await activePage.waitForTimeout(1200).catch(() => {});
+              logInfo(`category-validation fallback title ${titleAttempt + 1}/${CATEGORY_TITLE_FALLBACK_LIMIT} filled: ${fallbackTitle}`);
+              const fallbackPublishButton = activePage
+                .getByRole("button", { name: "发布商品", exact: true })
+                .filter({ visible: true });
+              if ((await fallbackPublishButton.count()) !== 1) {
+                throw new Error("needs_manual_intervention: 发布商品 button was not unique after regenerating the title.");
+              }
+              await fallbackPublishButton.click({ timeout: 5000, trial: true });
+              await clickPublishAndDismissNativeCategoryPrompt(activePage, fallbackPublishButton);
+              await dismissKnownCategoryModificationPromptAfterPublishClick(activePage);
+              await activePage.waitForTimeout(1200).catch(() => {});
+              exactCategoryValidationStillVisible = await readPublishSubmissionSnapshot(activePage)
+                .then((snapshot) => isKnownCategoryValidationPublishRetryState(snapshot))
+                .catch(() => false);
+              if (!exactCategoryValidationStillVisible) {
+                logInfo(`category-validation reminder cleared after regenerated title attempt ${titleAttempt + 1}`);
+                break;
+              }
+            }
+            if (exactCategoryValidationStillVisible) {
+              throw new Error(
+                `needs_manual_intervention: 类目提醒在重新生成标题并有界重试 ${CATEGORY_TITLE_FALLBACK_LIMIT} 次后仍未消失，请人工干预。`
+              );
+            }
+          }
+        }
         if (activePage.isClosed()) {
           activePage = await recoverUsablePageFromContext(activeContext, "/ffa/g").catch(() => activePage);
         }
@@ -867,6 +1176,7 @@ export async function clickPublishProductOnPage(
     screenshotFile,
     publishClicked,
     publishClickAttempted,
-    publishIssue
+    publishIssue,
+    effectiveTitle
   };
 }

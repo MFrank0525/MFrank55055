@@ -9,6 +9,127 @@ export interface PaidImageProviderTaskReconciliation {
   status: string;
 }
 
+export interface ProviderNoAcceptanceSlotEvidence {
+  slot: number;
+  updatedAt: string;
+  responseStatus: number;
+}
+
+export interface ProviderTokenLogEntry {
+  id?: unknown;
+  created_at?: unknown;
+  type?: unknown;
+  model?: unknown;
+  model_name?: unknown;
+  quota?: unknown;
+  content?: unknown;
+  upstream_request_id?: unknown;
+}
+
+export interface ProviderNoAcceptanceLogMatch {
+  slot: number;
+  logId: string;
+  logCreatedAt: number;
+  clockSkewMs: number;
+}
+
+const PROVIDER_NO_ACCEPTANCE_GATEWAY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+
+export function isProviderNoAcceptanceGatewayStatus(status: number): boolean {
+  return PROVIDER_NO_ACCEPTANCE_GATEWAY_STATUSES.has(status);
+}
+
+function exactZeroBilledGatewayNoAcceptanceStatus(
+  log: ProviderTokenLogEntry,
+  model: string
+): number | undefined {
+  const loggedModel = String(log.model_name ?? log.model ?? "").trim();
+  const upstreamRequestId = String(log.upstream_request_id ?? "").trim();
+  if (Number(log.type) !== 5 || loggedModel !== model || Number(log.quota) !== 0 || upstreamRequestId !== "") {
+    return undefined;
+  }
+  const match = /^status_code=(\d{3}), error code: (\d{3})$/.exec(String(log.content ?? "").trim());
+  if (!match || match[1] !== match[2]) {
+    return undefined;
+  }
+  const status = Number(match[1]);
+  return isProviderNoAcceptanceGatewayStatus(status) ? status : undefined;
+}
+
+export function matchProviderNoAcceptanceLogs(input: {
+  model: string;
+  maximumClockSkewMs: number;
+  slots: ProviderNoAcceptanceSlotEvidence[];
+  logs: ProviderTokenLogEntry[];
+}): ProviderNoAcceptanceLogMatch[] {
+  if (!input.model.trim()) {
+    throw new Error("provider model is required for no-acceptance log reconciliation");
+  }
+  if (!Number.isFinite(input.maximumClockSkewMs) || input.maximumClockSkewMs < 0) {
+    throw new Error("maximumClockSkewMs must be a non-negative finite number");
+  }
+
+  const candidatesBySlot = input.slots.map((slot) => {
+    const slotUpdatedAtMs = Date.parse(slot.updatedAt);
+    if (
+      !Number.isInteger(slot.slot) ||
+      slot.slot <= 0 ||
+      !Number.isFinite(slotUpdatedAtMs) ||
+      !isProviderNoAcceptanceGatewayStatus(slot.responseStatus)
+    ) {
+      throw new Error(`slot ${slot.slot} lacks valid HTTP gateway no-acceptance reconciliation evidence`);
+    }
+    const candidates = input.logs.flatMap((log) => {
+      if (exactZeroBilledGatewayNoAcceptanceStatus(log, input.model) !== slot.responseStatus) {
+        return [];
+      }
+      const createdAtSeconds = Number(log.created_at);
+      const logId = String(log.id ?? "").trim();
+      const clockSkewMs = Math.abs(createdAtSeconds * 1000 - slotUpdatedAtMs);
+      return logId && Number.isFinite(createdAtSeconds) && clockSkewMs <= input.maximumClockSkewMs
+        ? [{ slot: slot.slot, logId, logCreatedAt: createdAtSeconds, clockSkewMs }]
+        : [];
+    });
+    if (candidates.length === 0) {
+      throw new Error(
+        `slot ${slot.slot} requires a one-to-one set of unique zero-billed no-acceptance logs; found no candidate`
+      );
+    }
+    candidates.sort((left, right) => left.clockSkewMs - right.clockSkewMs || left.logId.localeCompare(right.logId, undefined, { numeric: true }));
+    return { slot: slot.slot, candidates };
+  });
+
+  const relevantLogIds = new Set(candidatesBySlot.flatMap((entry) => entry.candidates.map((candidate) => candidate.logId)));
+  if (relevantLogIds.size !== input.slots.length) {
+    throw new Error(
+      `provider logs do not form a one-to-one set of unique zero-billed no-acceptance logs: slots=${input.slots.length}, logs=${relevantLogIds.size}`
+    );
+  }
+
+  const ordered = [...candidatesBySlot].sort(
+    (left, right) => left.candidates.length - right.candidates.length || left.slot - right.slot
+  );
+  const assigned = new Map<number, ProviderNoAcceptanceLogMatch>();
+  const usedLogIds = new Set<string>();
+  const findMatching = (index: number): boolean => {
+    if (index >= ordered.length) return true;
+    const entry = ordered[index];
+    for (const candidate of entry.candidates) {
+      if (usedLogIds.has(candidate.logId)) continue;
+      usedLogIds.add(candidate.logId);
+      assigned.set(entry.slot, candidate);
+      if (findMatching(index + 1)) return true;
+      assigned.delete(entry.slot);
+      usedLogIds.delete(candidate.logId);
+    }
+    return false;
+  };
+  if (!findMatching(0)) {
+    throw new Error("provider logs do not form a one-to-one set of unique zero-billed no-acceptance logs");
+  }
+  return input.slots.map((slot) => assigned.get(slot.slot) as ProviderNoAcceptanceLogMatch);
+}
+
 export function validatePaidImageProviderTaskForReconciliation(
   input: PaidImageProviderTaskReconciliationInput
 ): PaidImageProviderTaskReconciliation {

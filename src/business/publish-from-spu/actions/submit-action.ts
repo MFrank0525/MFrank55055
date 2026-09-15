@@ -15,6 +15,8 @@ export async function runSubmitAction(
     uploadIssue: string;
     specIssue: string;
     priceIssue: string;
+    currentTitle: string;
+    categoryFallbackTitles?: string[];
   }
 ): Promise<
   PublishModuleSnapshot & {
@@ -27,6 +29,7 @@ export async function runSubmitAction(
     publishClicked: boolean;
     publishClickAttempted: boolean;
     publishIssue: string;
+    effectiveTitle: string;
     sections: string[];
     topActions: string[];
     errorHints: string[];
@@ -41,6 +44,7 @@ export async function runSubmitAction(
   let publishClicked = false;
   let publishClickAttempted = false;
   let publishIssue = "";
+  let effectiveTitle = input.currentTitle;
 
   if (input.categoryContext.mutationPolicy.submitValidation === "health_food_packaging_gate") {
     checkPassed = true;
@@ -83,13 +87,19 @@ export async function runSubmitAction(
   }
 
   if (!input.stopBeforePublish) {
-    const publishResult = await deps.clickPublishProductOnPage(input.page, input.runtimeDir, "publish-page-published.png");
+    const publishResult = await deps.clickPublishProductOnPage(
+      input.page,
+      input.runtimeDir,
+      "publish-page-published.png",
+      { currentTitle: input.currentTitle, categoryFallbackTitles: input.categoryFallbackTitles }
+    );
     if (publishResult.screenshotFile) {
       screenshotFiles.push(publishResult.screenshotFile);
     }
     publishClicked = publishResult.publishClicked;
     publishClickAttempted = publishResult.publishClickAttempted;
     publishIssue = publishResult.publishIssue;
+    effectiveTitle = publishResult.effectiveTitle || effectiveTitle;
     if (!publishClicked || publishIssue) {
       if (!publishClickAttempted) {
         stages.push({ step: "click_publish_product", status: "failed" });
@@ -138,6 +148,7 @@ export async function runSubmitAction(
     publishClicked,
     publishClickAttempted,
     publishIssue,
+    effectiveTitle,
     sections: inspectResult.sections,
     topActions: inspectResult.topActions,
     errorHints: inspectResult.errorHints

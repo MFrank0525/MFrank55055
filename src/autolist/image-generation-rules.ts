@@ -106,7 +106,8 @@ export interface ImageGenerationHttpRetryPolicy {
     | "provider_resource_overloaded"
     | "provider_gateway_unavailable"
     | "provider_upstream_failed"
-    | "provider_upstream_forbidden";
+    | "provider_upstream_forbidden"
+    | "submit_acceptance_ambiguous";
 }
 
 export interface ImageGenerationEndpointProbe {
@@ -197,6 +198,20 @@ export function resolveImageGenerationHttpRetryPolicy(input: ImageGenerationHttp
     maxRetries,
     delayMs: Array.from({ length: maxRetries }, (_, index) => 3000 * (index + 1)),
     reason: "http_transient"
+  };
+}
+
+export function resolvePaidImageSubmitHttpRetryPolicy(
+  input: ImageGenerationHttpRetryPolicyInput
+): ImageGenerationHttpRetryPolicy {
+  const policy = resolveImageGenerationHttpRetryPolicy(input);
+  if (policy.maxRetries === 0 || providerExplicitlyProvesNoPaidTaskAccepted(input.status, input.responseText)) {
+    return policy;
+  }
+  return {
+    maxRetries: 0,
+    delayMs: [],
+    reason: "submit_acceptance_ambiguous"
   };
 }
 

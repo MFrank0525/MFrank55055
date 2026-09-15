@@ -91,6 +91,38 @@ export function resolveExactPublishDialogActionLabel(expectedLabels: string[], v
   return expectedLabels.find((label) => visible.has(normalize(label))) || "";
 }
 
+export function isKnownCategoryModificationPublishPrompt(input: {
+  text: string;
+  visibleActions: string[];
+}): boolean {
+  const text = normalizeVisibleText(input.text);
+  const visibleActions = input.visibleActions.map(normalizeVisibleText);
+  const exactEarlyAdviceModal = text.includes("推荐修改类目为")
+    && text.includes("更换类目可能需补充部分信息")
+    && visibleActions.includes("去查看其他类目选项")
+    && visibleActions.includes("确认修改");
+  const categoryAdvice =
+    text.includes("修改类目")
+    || (text.includes("商品类目填写有误") && text.includes("建议修改为"));
+  return exactEarlyAdviceModal || categoryAdvice
+    && (
+      text.includes("发布")
+      || text.includes("推荐类目")
+      || text.includes("类目错放")
+      || text.includes("类目不匹配")
+      || text.includes("类目未开通")
+    );
+}
+
+export function isKnownCategoryValidationPublishRetryState(snapshot: PublishPageSnapshot): boolean {
+  if (!snapshot.url.includes("/ffa/g/create")) return false;
+  const text = normalizeVisibleText(snapshot.bodyText);
+  return text.includes("类目填写错误")
+    && text.includes("商品类目填写有误")
+    && text.includes("建议修改为")
+    && text.includes("发布商品");
+}
+
 export type ProductListPreflightMode = "known_sequence" | "unresolved_disorder";
 
 export function resolveProductListPreflightMode(input: {
@@ -694,7 +726,10 @@ export function classifyPublishFailure(message: string): string {
   if (
     text.includes("Doudianguideoverlay") ||
     text.includes("ecom-guide-single-content-wrapper") ||
-    text.includes("interceptspointerevents")
+    text.includes("interceptspointerevents") ||
+    text.includes("DetailimageprefillclearwasnotconfirmedbyDOMreadback") ||
+    text.includes("Earlycategoryadviceacknowledgedwiththeoriginalcategory;freshSPUpagerestartrequired") ||
+    text.includes("Originalcategoryoptionwasnotuniqueafteropeningcategorychoices")
   ) {
     return "transient_overlay_blocked";
   }
@@ -785,7 +820,8 @@ export function classifyPublishFailure(message: string): string {
     text.includes("pagecontextwaslost") ||
     text.includes("Executioncontextwasdestroyed") ||
     text.includes("mostlikelybecauseofanavigation") ||
-    text.includes("Targetclosed")
+    text.includes("Targetclosed") ||
+    text.includes("Targetpage,contextorbrowserhasbeenclosed")
   ) {
     return "page_context_lost";
   }
@@ -886,6 +922,7 @@ const VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES = new Set([
   "main_image_upload_not_ready",
   "platform_spu_result_not_ready",
   "shop_switch_entry_unavailable",
+  "page_context_lost",
   "browser_remote_debugging_unavailable"
 ]);
 

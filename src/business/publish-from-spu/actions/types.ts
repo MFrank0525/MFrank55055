@@ -206,12 +206,14 @@ export type SubmitActionDeps = {
   clickPublishProductOnPage: (
     page: Page,
     runtimeDir: string,
-    fileName: string
+    fileName: string,
+    options?: { currentTitle?: string; categoryFallbackTitles?: string[] }
   ) => Promise<
     PublishActionResult & {
       publishClicked: boolean;
       publishClickAttempted: boolean;
       publishIssue: string;
+      effectiveTitle?: string;
     }
   >;
   inspectPublishPageOnPage: (

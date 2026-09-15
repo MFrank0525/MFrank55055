@@ -141,6 +141,8 @@ import {
   evaluatePublishCreatePageReadiness,
   evaluatePublishPreSubmitReadiness,
   evaluatePublishSubmission,
+  isKnownCategoryModificationPublishPrompt,
+  isKnownCategoryValidationPublishRetryState,
   resolvePublishFillCheckDialogAction,
   resolveExactPublishDialogActionLabel,
   evaluateSpecTemplateCompletion,
@@ -167,6 +169,65 @@ const canonicalIdentity = {
   watermarkNo: 1
 };
 assert.equal(shouldRunPendingTargetProductListPreflight("known_sequence"), false);
+assert.equal(
+  isKnownCategoryModificationPublishPrompt({
+    text: "系统提示：商品类目填写有误，建议修改为其他类目后再发布",
+    visibleActions: []
+  }),
+  true,
+  "The exact post-click category-modification prompt must be recognized even when it exposes only a close icon"
+);
+assert.equal(
+  isKnownCategoryModificationPublishPrompt({
+    text: "商品类目",
+    visibleActions: ["修改类目"]
+  }),
+  false,
+  "A generic category surface must not be mistaken for the post-click interstitial"
+);
+assert.equal(
+  isKnownCategoryModificationPublishPrompt({
+    text: "推荐修改类目为：个人护理 > 身体护理 > 足霜 更换类目可能需补充部分信息，修改后请检查商品信息是否完整",
+    visibleActions: ["去查看其他类目选项", "确认修改"]
+  }),
+  true,
+  "The real early category-advice modal must be recognized even though it contains no publish wording"
+);
+assert.equal(
+  isKnownCategoryModificationPublishPrompt({
+    text: "普通发布提醒",
+    visibleActions: ["确定"]
+  }),
+  false,
+  "An unrelated publish reminder must not enter the category-warning exception"
+);
+assert.equal(
+  isKnownCategoryValidationPublishRetryState({
+    url: "https://fxg.jinritemai.com/ffa/g/create?fast_publish=6",
+    bodyText: "1个错误问题待处理 错误提示 商品类目 错误 类目填写错误 商品类目填写有误，建议修改为：个人护理 > 面部洗护 > 面霜（类目未开通） 发布商品",
+    visibleErrorAlerts: []
+  }),
+  true,
+  "The retained shop-12 inline category validation must authorize one same-page publish click after the prompt is dismissed"
+);
+assert.equal(
+  isKnownCategoryValidationPublishRetryState({
+    url: "https://fxg.jinritemai.com/ffa/g/create?fast_publish=6",
+    bodyText: "1个错误问题待处理 错误提示 商品类目 错误 类目填写错误 商品类目填写有误，建议修改为：医疗器械及保健用品 > 医用敷料 > 其他敷料 立即使用 若不合适，可查看 更多类目 发布商品",
+    visibleErrorAlerts: []
+  }),
+  true,
+  "An opened suggested category must use the same bounded title fallback without changing category"
+);
+assert.equal(
+  isKnownCategoryValidationPublishRetryState({
+    url: "https://fxg.jinritemai.com/ffa/g/create?fast_publish=6",
+    bodyText: "类目填写错误 发布商品",
+    visibleErrorAlerts: []
+  }),
+  false,
+  "A partial category error must remain fail-closed"
+);
 assert.equal(
   isSettledExactTitlePositiveEvidence({
     queryMatches: true,
@@ -480,6 +541,26 @@ assert.match(
   publishSource,
   /\["not_checked", "submit_accepted_unconfirmed", "needs_manual_review"\][\s\S]*publish batch stopped at an unsafe or unresolved submit boundary[\s\S]*break;/,
   "Any unresolved final-submit state must stop later shop targets immediately"
+);
+assert.match(
+  publishSource,
+  /shouldRetryPublishFailure\(decision\.errorClass, retryAttempt\)[\s\S]*decision\.finalVerifyStatus === "not_checked"[\s\S]*readPublishAttemptState\(targetRuntimeDir\) === "not_attempted"/,
+  "Browser/system recovery may retry only while the durable final-submit boundary is still not_attempted"
+);
+assert.match(
+  publishSource,
+  /consumeCategoryValidationRetry\(targetRuntimeDir, retryIdentity\);[\s\S]*resetPublishAttemptStateForControlledRetry\(\s*targetRuntimeDir/,
+  "An identity-approved category recovery must reset the stale prior submit boundary before pre-submit work so transient pre-submit failures remain retryable"
+);
+assert.match(
+  fs.readFileSync("src/autolist/recover-uncertain-publish.ts", "utf8"),
+  /recoverArchivedUncertaintyAfterKnownPreSubmitFailure[\s\S]*Platform SPU query page was not ready after navigation[\s\S]*result\.before-review\.json/,
+  "The one observed legacy pre-submit failure must recover identity and category evidence from its durable reviewed archive"
+);
+assert.match(
+  publishFromSpuSource,
+  /readPublishAttemptState\(runtimeDir\)[\s\S]*publishClickAttempted:\s*durablePublishAttemptState === "attempted_or_unknown"/,
+  "A thrown publish flow must preserve the durable submit boundary in result.json"
 );
 assert.match(
   publishFromSpuSource,
@@ -1174,8 +1255,71 @@ assert.match(
 );
 assert.match(
   publishFromSpuSource,
-  /publishButton\.click\(\{ timeout: 5000, noWaitAfter: true \}\);\s*publishClickAttempted = true;/,
+  /markPublishAttemptStarted\(runtimeDir\);[\s\S]*clickPublishAndDismissNativeCategoryPrompt\(activePage, publishButton\);\s*publishClickAttempted = true;/,
   "Final submit state must only become terminal after the click event is issued, without waiting for post-click navigation"
+);
+assert.match(
+  publishSubmitPageActionSource,
+  /dismissKnownCategoryModificationPromptAfterPublishClick[\s\S]*isKnownCategoryValidationPublishRetryState[\s\S]*categoryModificationPromptDismissed[\s\S]*clickPublishAndDismissNativeCategoryPrompt\(activePage, publishButtonAfterCategoryPrompt\)/,
+  "The exact inline category-validation state must advance through one bounded publish click"
+);
+assert.match(
+  publishSubmitPageActionSource,
+  /clickPublishAndDismissNativeCategoryPrompt\(activePage, publishButtonAfterCategoryPrompt\)[\s\S]*categoryPromptAfterInlineRetryDismissed[\s\S]*clickPublishAndDismissNativeCategoryPrompt\(activePage, finalPublishButtonAfterCategoryPrompt\)/,
+  "If the real 修改类目 prompt appears only after the inline-state click, it must be closed before one final publish click"
+);
+assert.match(
+  publishSubmitPageActionSource,
+  /postInlineCategoryValidationStillVisible[\s\S]*postInlineVisibleDialogCount === 0[\s\S]*shouldIssueFinalCategoryBypassPublishClick[\s\S]*clickPublishAndDismissNativeCategoryPrompt\(activePage, finalPublishButtonAfterCategoryPrompt\)/,
+  "If Doudian removes the prompt without exposing it to Playwright, exact unchanged inline evidence plus zero dialogs must still allow one final bounded publish click"
+);
+assert.match(
+  publishSubmitPageActionSource,
+  /for \(let poll = 0; poll < 30; poll \+= 1\)/,
+  "The category-modification prompt wait must cover delayed Doudian rendering while remaining bounded"
+);
+assert.match(publishSubmitPageActionSource, /page\.on\("dialog", handler\)/);
+assert.match(publishSubmitPageActionSource, /await dialog\.dismiss\(\)/);
+assert.match(
+  publishSubmitPageActionSource,
+  /suspendSafeDialogHandler\(page\)[\s\S]*page\.on\("dialog", handler\)[\s\S]*page\.off\("dialog", handler\)[\s\S]*restoreSafeDialogHandler\(\)/,
+  "Native browser category prompts must temporarily bypass the global auto-dismiss handler, then restore it after the click"
+);
+assert.match(
+  fs.readFileSync("src/business/publish-from-spu/browser-session.ts", "utf8"),
+  /safeDialogHandlers[\s\S]*page\.off\("dialog", handler\)[\s\S]*page\.on\("dialog", handler\)/,
+  "The shared dialog handler must expose a reversible suspension instead of accumulating anonymous listeners"
+);
+assert.doesNotMatch(
+  publishSubmitPageActionSource,
+  /getByRole\("button", \{ name: "修改类目"[\s\S]{0,200}\.click\(/,
+  "The publish action must never click the 修改类目 action"
+);
+assert.match(
+  publishSubmitPageActionSource,
+  /getByText\("修改类目", \{ exact: true \}\)[\s\S]*overlayRoot[\s\S]*closeControls\.first\(\)\.click/,
+  "A nonstandard Doudian category overlay must be anchored by exact 修改类目 text but closed only through its unique close control"
+);
+assert.match(
+  publishSubmitPageActionSource,
+  /style\.position === "fixed"[\s\S]*zIndex >= 10[\s\S]*text\.includes\("类目"\)[\s\S]*fixed category-advice overlay dismissed without changing category/,
+  "A high-z-index category-advice overlay without standard dialog semantics must be dismissed through its unique safe control"
+);
+assert.match(
+  publishSubmitPageActionSource,
+  /getByText\("类目填写错误", \{ exact: true \}\)[\s\S]*hint\.click\(\{ timeout: 3000 \}\)[\s\S]*acknowledgeExactCategoryValidationHint\(activePage\)[\s\S]*publishButtonAfterCategoryPrompt/,
+  "The unique sidebar category-error hint must be acknowledged before the bounded retry publish click"
+);
+assert.match(
+  publishSubmitPageActionSource,
+  /CATEGORY_TITLE_FALLBACK_LIMIT\s*=\s*3[\s\S]*categoryFallbackTitles[\s\S]*setBasicPublishFieldValue[\s\S]*needs_manual_intervention/,
+  "Category validation must regenerate at most three titles, then stop for manual intervention"
+);
+assert.match(publishSubmitPageActionSource, /publish network response:/);
+assert.match(
+  publishSubmitPageActionSource,
+  /page\.on\("response", responseHandler\)[\s\S]*page\.off\("response", responseHandler\)/,
+  "Each bounded publish click must record the status and sanitized message of matching mutation responses"
 );
 assert.doesNotMatch(
   publishFromSpuSource,
@@ -1766,7 +1910,7 @@ const publishSubmitActionSource = fs.readFileSync(
 const publishTrialIndex = publishSubmitActionSource.indexOf("publishButton.click({ timeout: 5000, trial: true })");
 const durableAttemptIndex = publishSubmitActionSource.indexOf("markPublishAttemptStarted(runtimeDir)", publishTrialIndex);
 const realPublishClickIndex = publishSubmitActionSource.indexOf(
-  "publishButton.click({ timeout: 5000, noWaitAfter: true })",
+  "clickPublishAndDismissNativeCategoryPrompt(activePage, publishButton)",
   durableAttemptIndex
 );
 assert.ok(publishTrialIndex >= 0 && durableAttemptIndex > publishTrialIndex && realPublishClickIndex > durableAttemptIndex);
@@ -1778,6 +1922,14 @@ const guideOverlayClass = classifyPublishFailure(
   "Sequential publish flow stopped: 价格库存模块未完成。locator.click: <div class=\"ecom-guide-single-content-wrapper\"> intercepts pointer events"
 );
 assert.equal(guideOverlayClass, "transient_overlay_blocked");
+assert.equal(
+  classifyPublishFailure("Early category advice acknowledged with the original category; fresh SPU page restart required."),
+  "transient_overlay_blocked"
+);
+assert.equal(
+  classifyPublishFailure("Original category option was not unique after opening category choices: count=0"),
+  "transient_overlay_blocked"
+);
 assert.equal(shouldRetryPublishFailure(guideOverlayClass, 0), true);
 assert.equal(
   shouldStopPublishBatchAfterFailure([{ stage: "published", errorClass: guideOverlayClass }]),

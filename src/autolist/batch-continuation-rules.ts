@@ -1448,7 +1448,12 @@ export function formatAutoListingControllerCompactStatusText(input: AutoListingC
         ? input.latestProgress
         : input.imageGenerationProgress || input.latestProgress;
   if (latestProgress) {
-    lines.push(`进度：${!preferPublishProgress && input.imageGenerationProgress ? compactAutoListingControllerImageProgress(latestProgress) : compactAutoListingControllerReason(latestProgress)}`);
+    const compactProgress = input.status === "doudian_login_wait"
+      ? "抖店登录已失效；请在项目固定有头浏览器完成登录，系统确认恢复后会自动续跑。"
+      : !preferPublishProgress && input.imageGenerationProgress
+        ? compactAutoListingControllerImageProgress(latestProgress)
+        : compactAutoListingControllerReason(latestProgress);
+    lines.push(`进度：${compactProgress}`);
   } else if (input.summary) {
     lines.push(`进度：${compactAutoListingControllerReason(input.summary)}`);
   }

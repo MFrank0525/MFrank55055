@@ -12,6 +12,11 @@ import { reconcilePositiveUncertainPublish } from "../dist/src/autolist/reconcil
 import { findLatestIncompletePublishManifestForResume } from "../dist/src/autolist/unsafe-publish-resume.js";
 import { auditPublishCoverage } from "../dist/src/autolist/audit-rules.js";
 import { consumeConfirmedRejectionRetry } from "../dist/src/autolist/confirmed-rejection-retry.js";
+import {
+  CATEGORY_VALIDATION_RETRY_REVISION,
+  consumeCategoryValidationRetry,
+  isCategoryValidationRetryConsumed
+} from "../dist/src/autolist/category-validation-retry.js";
 
 assert.equal(isKnownCategoryMisplacementWarning(
   "检测到您有3个商品类目错放，逾期未改会被平台下架，请尽快修改！建议使用推荐类目，若你认为平台判断有误，可发起申诉"
@@ -152,6 +157,47 @@ try {
       verify: async () => { throw new Error("verification must not run after retry consumption"); }
     }),
     /controlled retry was already consumed/
+  );
+  const categoryResult = JSON.parse(fs.readFileSync(approved.resultFile, "utf8"));
+  categoryResult.data.browser.checkHints = ["1个错误问题待处理", "类目填写错误"];
+  categoryResult.finishedAt = "2026-08-09T00:00:00.000Z";
+  fs.writeFileSync(approved.resultFile, JSON.stringify(categoryResult));
+  fs.writeFileSync(path.join(runtimeDir, "screenshots", "publish-page-published.png"), "category evidence");
+  const categoryApproved = await approveReviewedNegativeUncertainPublishRetry({
+    runtimeDir,
+    shopFolder,
+    now: () => Date.parse("2026-08-09T04:00:00.000Z"),
+    verify: async () => ({
+      found: false,
+      title: "精确标题",
+      shopFolder,
+      shopName: "店铺",
+      countText: "共0条",
+      matchedRows: [],
+      pageUrl: "https://example.invalid/list?tab=all",
+      screenshotFile: path.join(runtimeDir, "screenshots", "category-latest-not-found.png")
+    })
+  });
+  assert.equal(
+    JSON.parse(fs.readFileSync(categoryApproved.resultFile, "utf8")).manualRecovery.type,
+    "operator_reviewed_category_validation_negative_list_verification"
+  );
+  assert.equal(readPublishResultSummary(categoryApproved.resultFile).reviewedCategoryValidationRetryApproved, true);
+  const categoryRetryIdentity = { targetKey: "publish-target", title: "精确标题", shopFolder };
+  consumeCategoryValidationRetry(runtimeDir, categoryRetryIdentity);
+  assert.equal(isCategoryValidationRetryConsumed(runtimeDir, categoryRetryIdentity), true);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(runtimeDir, "category-validation-retry.json"), "utf8")).recoveryRevision,
+    CATEGORY_VALIDATION_RETRY_REVISION
+  );
+  await assert.rejects(
+    approveReviewedNegativeUncertainPublishRetry({
+      runtimeDir,
+      shopFolder,
+      now: () => Date.parse("2026-08-09T05:00:00.000Z"),
+      verify: async () => { throw new Error("verification must not run after category retry consumption"); }
+    }),
+    /Category-validation recovery retry was already consumed/
   );
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

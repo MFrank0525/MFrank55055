@@ -259,7 +259,7 @@ export async function assertBasicPrefillReadyOnPage(
   }
 }
 
-async function setBasicPublishFieldValue(
+export async function setBasicPublishFieldValue(
   page: Page,
   field: "title" | "shortTitle" | "modelSpec",
   value: string

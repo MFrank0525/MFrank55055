@@ -31,6 +31,11 @@ assert.match(
   /try\s*\{[\s\S]*ensurePlatformSpuQueryPageActive[\s\S]*finally\s*\{[\s\S]*disconnectAutomationBrowserConnections\(\)/,
   "Every read-only Doudian session probe must disconnect its CDP client and release the cross-process profile lease"
 );
+assert.match(
+  doudianSessionProbeSource,
+  /Promise\.race\(\[[\s\S]*page\.bringToFront\(\)[\s\S]*setTimeout/,
+  "A renderer-stalled bring-to-front request must not freeze the read-only login recovery loop"
+);
 
 assert.match(
   publishSource,

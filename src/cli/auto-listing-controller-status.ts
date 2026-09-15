@@ -690,7 +690,9 @@ export function existingStatus(
           ? latestPublishedUpdatedAt
           : undefined;
   const exposePublishProgress = shouldExposePublishProgressInAutoListingControllerStatus({
-    running, publishProgressAvailable: Boolean(publishProgress),
+    running,
+    waitingForDoudianLogin: activeWaitState?.status === "doudian_login_wait",
+    publishProgressAvailable: Boolean(publishProgress),
     currentTaskStatus: String(currentTask?.status || ""), currentTaskRecordId: String(currentTask?.recordId || ""),
     publishRecordId: String((publishProgress?.publishGroupProgress as Record<string, unknown> | undefined)?.recordId || ""),
     stateProgressTimestamp: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined,
