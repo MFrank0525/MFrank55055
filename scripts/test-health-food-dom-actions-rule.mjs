@@ -239,6 +239,16 @@ assert.match(
   /waitForSpecificationPartControls[\s\S]*requiredQuantityCount[\s\S]*requiredUnitCount[\s\S]*await waitForSpecificationPartControls\(1, 1, "initial"\)[\s\S]*fillQuantityOnPage\(0, parts\.firstQuantity\)[\s\S]*await waitForSpecificationPartControls\(2, 2, "second"\)/,
   "规格弹层必须等待首段控件真实挂载，再填写；展开第二段后必须重新等待两组控件"
 );
+assert.match(
+  source,
+  /fillQuantityOnPage[\s\S]*for \(let attempt = 0; attempt < 10; attempt \+= 1\)[\s\S]*querySelectorAll\(.input\.ecom-g-input\[placeholder=[^\]]*请输入[^\]]*\].[\s\S]*setAttribute\(markerName, "true"\)[\s\S]*page\.locator\(`\[\$\{inputMarker\}="true"\]`\)[\s\S]*fillAndCommitLocator/,
+  "数量框必须在同一轮 DOM 发现中写入身份标记，并仅用该标记对应的 Playwright Locator 填写"
+);
+assert.doesNotMatch(
+  source.slice(source.indexOf("const fillQuantityOnPage"), source.indexOf("const waitForSpecificationPartControls")),
+  /placeholder="请输入":visible/,
+  "数量框不得依赖会与 React 节点替换竞态的独立 :visible 子定位"
+);
 assert.doesNotMatch(
   source.slice(
     source.indexOf("export async function applyHealthFoodSpecificationOnPage"),

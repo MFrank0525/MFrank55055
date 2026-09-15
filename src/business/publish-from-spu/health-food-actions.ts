@@ -714,19 +714,57 @@ async function applyHealthFoodSpecificationEditorOnPage(
     })
   );
   const fillQuantityOnPage = async (index: number, value: string): Promise<void> => {
-    const popups = page.locator(".ecom-g-popover-content").filter({ hasText: "选择规则" });
-    for (let popupIndex = 0; popupIndex < await popups.count(); popupIndex += 1) {
-      const popup = popups.nth(popupIndex);
-      if (!(await popup.isVisible().catch(() => false))) continue;
-      const quantityInputs = popup.locator('input.ecom-g-input[placeholder="请输入"]:visible');
-      const input = quantityInputs.nth(index);
-      if (await input.count()) {
-        await fillAndCommitLocator(input, value, "Tab");
-        return;
+    const inputMarker = `${markerBase}-quantity-input-${index}`;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const found = await page.evaluate(({ markerName, inputIndex }) => {
+        const normalize = (text: string): string => text.replace(/\s+/g, "").trim();
+        const visible = (element: HTMLElement): boolean => {
+          let current: HTMLElement | null = element;
+          while (current && current !== document.body) {
+            const style = window.getComputedStyle(current);
+            const className = String(current.className || "");
+            if (
+              style.display === "none" ||
+              style.visibility === "hidden" ||
+              className.includes("ecom-g-popover-hidden") ||
+              className.includes("ecom-g-select-dropdown-hidden")
+            ) {
+              return false;
+            }
+            current = current.parentElement;
+          }
+          return Boolean(element.offsetParent);
+        };
+        document.querySelectorAll(`[${markerName}]`).forEach((node) => node.removeAttribute(markerName));
+        const popup = Array.from(document.querySelectorAll(".ecom-g-popover-content"))
+          .map((node) => node as HTMLElement)
+          .find((element) => visible(element) && normalize(element.innerText || "").includes("选择规则"));
+        const inputs = Array.from(popup?.querySelectorAll('input.ecom-g-input[placeholder="请输入"]') || [])
+          .map((node) => node as HTMLInputElement)
+          .filter((input) => visible(input) && !input.disabled && !input.readOnly);
+        const input = inputs[inputIndex];
+        if (!input) {
+          return false;
+        }
+        input.setAttribute(markerName, "true");
+        return true;
+      }, { markerName: inputMarker, inputIndex: index });
+      if (found) {
+        const input = page.locator(`[${inputMarker}="true"]`);
+        try {
+          if ((await input.count()) === 1 && await input.isVisible()) {
+            await fillAndCommitLocator(input, value, "Tab");
+            return;
+          }
+        } catch (error) {
+          lastError = error;
+        }
       }
+      await page.waitForTimeout(200);
     }
     throw new Error(
-      `Health-food specification split editor missing quantity input index=${index}; diagnostics=${JSON.stringify(await inspectEditorInputs())}`
+      `Health-food specification split editor could not stably fill quantity input index=${index}; lastError=${lastError instanceof Error ? lastError.message : "<none>"}; diagnostics=${JSON.stringify(await inspectEditorInputs())}`
     );
   };
   const waitForSpecificationPartControls = async (
