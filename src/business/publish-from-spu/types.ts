@@ -27,6 +27,8 @@ export interface PublishFromSpuMetadata {
   ingredients?: string;
   healthFunction?: string;
   specification?: string;
+  shelfLife?: number;
+  storageCondition?: string;
   canonicalIdentity?: PublishTargetIdentity;
 }
 

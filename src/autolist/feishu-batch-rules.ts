@@ -37,6 +37,8 @@ export function buildFeishuBatchIdentityFingerprint(records: FeishuProductRecord
     ingredients: record.ingredients || "",
     healthFunction: record.healthFunction || "",
     specification: record.specification || "",
+    shelfLife: record.shelfLife ?? null,
+    storageCondition: record.storageCondition || "",
     whiteBackgroundImages: (record.whiteBackgroundImages || []).map(attachmentIdentity),
     qualificationImages: (record.qualificationImages || []).map(attachmentIdentity)
   }));

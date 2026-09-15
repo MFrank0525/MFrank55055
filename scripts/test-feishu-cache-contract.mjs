@@ -43,6 +43,11 @@ assert.notEqual(
   }]),
   "Changing an attachment token must change the batch fingerprint even when name and size stay unchanged"
 );
+assert.notEqual(
+  buildFeishuBatchFingerprint([{ ...completeRecord, productCategory: "保健食品", shelfLife: 24, storageCondition: "常温" }]),
+  buildFeishuBatchFingerprint([{ ...completeRecord, productCategory: "保健食品", shelfLife: 36, storageCondition: "阴凉干燥处" }]),
+  "Changing Feishu 保质期 or 储藏条件 must invalidate resumable batch identity"
+);
 
 assert.throws(() => validateFeishuProductPayload({ records: [completeRecord] }), /schemaVersion/);
 assert.throws(

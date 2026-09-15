@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { buildPublishJobMetadata } from "../dist/src/autolist/publish.js";
 import { resolvePublishFromSpuMetadata } from "../dist/src/business/publish-from-spu.js";
+import { assertResolvedMetadata } from "../dist/src/business/publish-from-spu/metadata-resolution.js";
 import {
   evaluateHealthFoodPublishRules,
   resolveHealthFoodFunctionOptionCandidateGroups,
@@ -74,6 +75,8 @@ const currentRecord = {
   ingredients: "当前原料",
   healthFunction: "当前保健功能",
   specification: "0.5g×60粒",
+  shelfLife: 24,
+  storageCondition: "阴凉干燥处",
   qualificationImages: [
     {
       fileToken: "qualification-secret-token",
@@ -109,6 +112,25 @@ const metadata = buildPublishJobMetadata({
   targetIdentity
 });
 assert.equal(metadata.modelSpec, "", "Health-food metadata must not retain a workbook medical-device modelSpec value.");
+assert.doesNotThrow(() => assertResolvedMetadata({ ...metadata, ...{
+  brand: metadata.brand || "",
+  spu: metadata.spu || "",
+  title: metadata.title || "",
+  shortTitle: metadata.shortTitle || "",
+  modelSpec: metadata.modelSpec || "",
+  productPriceText: metadata.productPriceText || "",
+  specTemplate: metadata.specTemplate || ""
+}}, "publish_from_spu"));
+assert.throws(
+  () => assertResolvedMetadata({ ...metadata, shelfLife: undefined, brand: metadata.brand, spu: metadata.spu, title: metadata.title, shortTitle: metadata.shortTitle, modelSpec: "", productPriceText: metadata.productPriceText, specTemplate: metadata.specTemplate }, "publish_from_spu"),
+  /Missing required health-food metadata fields: shelfLife/,
+  "保健食品进入浏览器动作前必须阻断缺失的飞书保质期"
+);
+assert.throws(
+  () => assertResolvedMetadata({ ...metadata, storageCondition: "", brand: metadata.brand, spu: metadata.spu, title: metadata.title, shortTitle: metadata.shortTitle, modelSpec: "", productPriceText: metadata.productPriceText, specTemplate: metadata.specTemplate }, "publish_from_spu"),
+  /Missing required health-food metadata fields: storageCondition/,
+  "保健食品进入浏览器动作前必须阻断缺失的飞书储藏条件"
+);
 
 const resolvedMetadata = resolvePublishFromSpuMetadata({
   metadataOverride: metadata,
@@ -130,6 +152,8 @@ for (const field of [
   "ingredients",
   "healthFunction",
   "specification",
+  "shelfLife",
+  "storageCondition",
   "canonicalIdentity"
 ]) {
   assert.deepEqual(
@@ -157,7 +181,9 @@ assert.deepEqual(
     productStandardCode: metadata.productStandardCode,
     ingredients: metadata.ingredients,
     healthFunction: metadata.healthFunction,
-    specification: metadata.specification
+    specification: metadata.specification,
+    shelfLife: metadata.shelfLife,
+    storageCondition: metadata.storageCondition
   },
   {
     shortTitle: "当前短标题",
@@ -171,7 +197,9 @@ assert.deepEqual(
     productStandardCode: "Q/CURRENT 001",
     ingredients: "当前原料",
     healthFunction: "当前保健功能",
-    specification: "0.5g×60粒"
+    specification: "0.5g×60粒",
+    shelfLife: 24,
+    storageCondition: "阴凉干燥处"
   },
   "Health-food publish metadata must come from the exact current normalized FeishuProductRecord."
 );
@@ -251,8 +279,7 @@ assert.deepEqual(
   "compound health-food function values must keep parenthesized Doudian option text as the preferred exact-match candidate"
 );
 
-assert.equal(
-  evaluateHealthFoodPublishRules({
+const healthFoodPublishInput = {
     metadata: {
       brand: "延草纲目",
       spu: "龙翁诗牌杜仲保健茶",
@@ -267,12 +294,14 @@ assert.equal(
       productStandardCode: "Q/LWSC 0001S",
       ingredients: "杜仲叶",
       healthFunction: "调节血压，调节血脂(降低总胆固醇、降低甘油三酯)",
-      specification: "20袋*1盒"
+      specification: "20袋*1盒",
+      shelfLife: 24,
+      storageCondition: "阴凉干燥处"
     },
-    fixedFieldSelections: {
+    safetyFieldReadbacks: {
       foodSafetyQualification: "国产预包装食品",
-      shelfLife: "2",
-      storage: "常温"
+      shelfLife: "24",
+      storageCondition: "阴凉干燥处"
     },
     healthFunctionOptions: ["调节血压", "调节血脂(降低总胆固醇、降低甘油三酯)", "增强免疫力"],
     selectedHealthFunction: "调节血压 调节血脂(降低总胆固醇、降低甘油三酯)",
@@ -291,9 +320,27 @@ assert.equal(
       { price: 89.9, stock: 2000 },
       { price: 79.9, stock: 2000 }
     ]
-  }).action,
+  };
+assert.equal(
+  evaluateHealthFoodPublishRules(healthFoodPublishInput).action,
   "ready",
   "health-food rule evaluation must accept readback with every parsed Doudian health-function option selected"
+);
+assert.match(
+  evaluateHealthFoodPublishRules({
+    ...healthFoodPublishInput,
+    safetyFieldReadbacks: { ...healthFoodPublishInput.safetyFieldReadbacks, shelfLife: "2" }
+  }).issue,
+  /shelf life must exact match Feishu value/i,
+  "抖店保质期读回与飞书数字不一致时必须阻断"
+);
+assert.match(
+  evaluateHealthFoodPublishRules({
+    ...healthFoodPublishInput,
+    safetyFieldReadbacks: { ...healthFoodPublishInput.safetyFieldReadbacks, storageCondition: "常温" }
+  }).issue,
+  /storage condition must exact match Feishu value/i,
+  "抖店贮存条件读回与飞书储藏条件不一致时必须阻断"
 );
 
 console.log("health food publish metadata rule passed");

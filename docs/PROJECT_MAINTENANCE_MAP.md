@@ -66,6 +66,8 @@
 - 资质图：`src/autolist/qualifications.ts`
 - 店铺分发：`src/autolist/shop-distribution.ts`
 - 发布调用：`src/autolist/publish.ts`
+- 保健食品发布元数据契约：`src/business/publish-from-spu/health-food-metadata.ts`
+- 保健食品规则与页面动作：`src/business/publish-from-spu/health-food-rules.ts`、`src/business/publish-from-spu/health-food-actions.ts`
 - 清理：`src/autolist/cleanup.ts`
 
 总调度顺序只在 `src/autolist/orchestrator.ts` 调整。

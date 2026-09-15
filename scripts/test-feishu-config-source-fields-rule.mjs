@@ -36,6 +36,8 @@ fs.writeFileSync(
         ingredients: "配料表",
         healthFunction: "保健功能",
         specification: "规格",
+        shelfLife: "保质期",
+        storageCondition: "储藏条件",
         newlyAddedIrrelevantField: "新增无关表头"
       }
     },
@@ -61,6 +63,8 @@ assert.equal(config.fieldMap.productStandardCode, "产品标准代码");
 assert.equal(config.fieldMap.ingredients, "配料表");
 assert.equal(config.fieldMap.healthFunction, "保健功能");
 assert.equal(config.fieldMap.specification, "规格");
+assert.equal(config.fieldMap.shelfLife, "保质期");
+assert.equal(config.fieldMap.storageCondition, "储藏条件");
 assert.equal(config.fieldMap.newlyAddedIrrelevantField, undefined);
 assert.ok(config.requiredFields?.includes("deepseekPromptText"));
 assert.ok(config.requiredFields?.includes("mainImageInstructionText"));
@@ -78,7 +82,9 @@ for (const categoryOnlyField of [
   "productStandardCode",
   "ingredients",
   "healthFunction",
-  "specification"
+  "specification",
+  "shelfLife",
+  "storageCondition"
 ]) {
   assert.ok(
     !config.requiredFields?.includes(categoryOnlyField),

@@ -1,10 +1,9 @@
 import { resolveFeishuPriceInventoryRows } from "./price-inventory-rules.js";
 import type { PublishFromSpuMetadata } from "./types.js";
+import { findMissingHealthFoodMetadataFields } from "./health-food-metadata.js";
 
 export const HEALTH_FOOD_FIXED_FIELD_VALUES = {
-  foodSafetyQualification: "国产预包装食品",
-  shelfLife: "2",
-  storage: "常温"
+  foodSafetyQualification: "国产预包装食品"
 } as const;
 
 export const HEALTH_FOOD_EXCLUDED_FIELD_LABELS = ["营养成分表", "口味分类", "图文区域", "主图视频"] as const;
@@ -15,10 +14,10 @@ export interface HealthFoodRuleDecision {
   issue: string;
 }
 
-export interface HealthFoodFixedFieldSelections {
+export interface HealthFoodSafetyFieldReadbacks {
   foodSafetyQualification?: string;
   shelfLife?: string;
-  storage?: string;
+  storageCondition?: string;
 }
 
 export interface HealthFoodQualificationImageSlot {
@@ -39,7 +38,7 @@ export interface HealthFoodPriceInventoryRow {
 
 export interface HealthFoodPublishRuleInput {
   metadata: PublishFromSpuMetadata;
-  fixedFieldSelections: HealthFoodFixedFieldSelections;
+  safetyFieldReadbacks: HealthFoodSafetyFieldReadbacks;
   healthFunctionOptions: string[];
   selectedHealthFunction: string;
   visibleOptionalFieldLabels: string[];
@@ -49,18 +48,6 @@ export interface HealthFoodPublishRuleInput {
   specificationInputs: HealthFoodSpecificationInput[];
   priceInventoryRows: HealthFoodPriceInventoryRow[];
 }
-
-const REQUIRED_HEALTH_FOOD_METADATA_FIELDS = [
-  "productCategory",
-  "manufacturerName",
-  "manufacturerAddress",
-  "netContent",
-  "productStandardCode",
-  "ingredients",
-  "healthFunction",
-  "specification",
-  "productPriceText"
-] as const;
 
 function normalizeRuleText(value: string | undefined): string {
   return (value || "").replace(/\s+/g, "").trim();
@@ -113,17 +100,29 @@ function block(issue: string): HealthFoodRuleDecision {
   return { action: "block", issue };
 }
 
-function findMissingHealthFoodMetadataFields(metadata: PublishFromSpuMetadata): string[] {
-  return REQUIRED_HEALTH_FOOD_METADATA_FIELDS.filter((field) => !normalizeRuleText(String(metadata[field] ?? "")));
-}
-
-function findMismatchedFixedFields(input: HealthFoodFixedFieldSelections): string[] {
-  return Object.entries(HEALTH_FOOD_FIXED_FIELD_VALUES)
+function findMismatchedFixedFields(input: HealthFoodSafetyFieldReadbacks): string[] {
+  const fixedMismatches = Object.entries(HEALTH_FOOD_FIXED_FIELD_VALUES)
     .map(([key, expected]) => {
-      const actual = input[key as keyof HealthFoodFixedFieldSelections] || "";
+      const actual = input[key as keyof HealthFoodSafetyFieldReadbacks] || "";
       return actual === expected ? "" : `${key} expected=${expected} actual=${actual || "<empty>"}`;
     })
     .filter(Boolean);
+  return fixedMismatches;
+}
+
+function evaluateFeishuSafetyFields(input: HealthFoodPublishRuleInput): HealthFoodRuleDecision | undefined {
+  const expectedShelfLife = String(input.metadata.shelfLife);
+  if (input.safetyFieldReadbacks.shelfLife !== expectedShelfLife) {
+    return block(
+      `Health-food shelf life must exact match Feishu value: expected=${expectedShelfLife} actual=${input.safetyFieldReadbacks.shelfLife || "<empty>"}`
+    );
+  }
+  if (normalizeRuleText(input.safetyFieldReadbacks.storageCondition) !== normalizeRuleText(input.metadata.storageCondition)) {
+    return block(
+      `Health-food storage condition must exact match Feishu value: expected=${input.metadata.storageCondition || "<empty>"} actual=${input.safetyFieldReadbacks.storageCondition || "<empty>"}`
+    );
+  }
+  return undefined;
 }
 
 export function resolveHealthFoodSpecificationReplacement(input: {
@@ -234,7 +233,12 @@ function evaluatePriceInventoryRows(input: HealthFoodPublishRuleInput): HealthFo
 }
 
 export function evaluateHealthFoodPublishRules(input: HealthFoodPublishRuleInput): HealthFoodRuleDecision {
-  const missingMetadataFields = findMissingHealthFoodMetadataFields(input.metadata);
+  const missingMetadataFields = [
+    ...findMissingHealthFoodMetadataFields(input.metadata),
+    ...(["productCategory", "productPriceText"] as const).filter(
+      (field) => !normalizeRuleText(String(input.metadata[field] ?? ""))
+    )
+  ];
   if (missingMetadataFields.length) {
     return block(`Missing required health-food metadata fields: ${missingMetadataFields.join(", ")}`);
   }
@@ -242,12 +246,13 @@ export function evaluateHealthFoodPublishRules(input: HealthFoodPublishRuleInput
     return block(`Health-food product category must exact match 保健食品: ${input.metadata.productCategory || "<empty>"}`);
   }
 
-  const mismatchedFixedFields = findMismatchedFixedFields(input.fixedFieldSelections);
+  const mismatchedFixedFields = findMismatchedFixedFields(input.safetyFieldReadbacks);
   if (mismatchedFixedFields.length) {
     return block(`Health-food fixed field mismatch: ${mismatchedFixedFields[0]}`);
   }
 
   return (
+    evaluateFeishuSafetyFields(input) ||
     evaluateHealthFunctionExactMatch(input) ||
     evaluateExcludedOptionalFields(input) ||
     evaluateQualificationImageSlots(input) ||

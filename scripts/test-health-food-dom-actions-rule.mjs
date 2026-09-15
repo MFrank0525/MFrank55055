@@ -90,7 +90,7 @@ assert.doesNotMatch(
 );
 assert.match(
   source,
-  /selectHealthFoodExactOptionOnPage[\s\S]*readHealthFoodSelectedValue\(fieldRoot\)[\s\S]*normalizeDomText\(currentReadback\)\.includes\(normalizeDomText\(optionText\)\)[\s\S]*changed:\s*false[\s\S]*option\.click[\s\S]*waitForTimeout\(3000\)[\s\S]*readHealthFoodSelectedValue\(fieldRoot\)[\s\S]*changed:\s*true/,
+  /selectHealthFoodExactOptionOnPage[\s\S]*readHealthFoodSelectedValue\(fieldRoot\)[\s\S]*normalizeDomText\(currentReadback\)\s*===\s*normalizeDomText\(optionText\)[\s\S]*changed:\s*false[\s\S]*option\.click[\s\S]*waitForTimeout\(3000\)[\s\S]*readHealthFoodSelectedValue\(fieldRoot\)[\s\S]*changed:\s*true/,
   "select actions must skip exact existing values and verify changed values again after the 3-second stabilization wait"
 );
 
@@ -147,7 +147,18 @@ assert.match(
 );
 assert.match(
   source,
-  /assertHealthFoodSubModuleCompleted\("产地与包装",\s*originPackaging\)[\s\S]*assertHealthFoodSubModuleCompleted\("保质期",\s*shelfLife\)[\s\S]*assertHealthFoodSubModuleCompleted\("生产企业名称",\s*manufacturerName\)[\s\S]*assertHealthFoodSubModuleCompleted\("贮存条件",\s*storage\)[\s\S]*assertHealthFoodSubModuleCompleted\("生产企业地址",\s*manufacturerAddress\)[\s\S]*assertHealthFoodSubModuleCompleted\("净含量",\s*netContent\)[\s\S]*assertHealthFoodSubModuleCompleted\("产品标准代码",\s*productStandardCode\)[\s\S]*assertHealthFoodSubModuleCompleted\("配料表",\s*ingredients\)/,
+  /fillHealthFoodTextFieldOnPage\(page,\s*"保质期",\s*String\(metadata\.shelfLife\)[\s\S]*selectHealthFoodExactOptionOnPage\(page,\s*"贮存条件",\s*metadata\.storageCondition/,
+  "保质期和储藏条件必须来自当前飞书记录，禁止继续使用固定常量"
+);
+assert.doesNotMatch(source, /"保质期",\s*"2"|"贮存条件",\s*"常温"/, "health-food actions must not hard-code shelf life or storage");
+assert.match(
+  source,
+  /normalizeDomText\(currentReadback\)\s*===\s*normalizeDomText\(optionText\)[\s\S]*normalizeDomText\(readback\)\s*===\s*normalizeDomText\(optionText\)/,
+  "储藏条件下拉框必须精确回读匹配飞书内容，不能用包含关系误判"
+);
+assert.match(
+  source,
+  /assertHealthFoodSubModuleCompleted\("产地与包装",\s*originPackaging\)[\s\S]*assertHealthFoodSubModuleCompleted\("保质期",\s*shelfLife\)[\s\S]*assertHealthFoodSubModuleCompleted\("生产企业名称",\s*manufacturerName\)[\s\S]*assertHealthFoodSubModuleCompleted\("贮存条件",\s*storageCondition\)[\s\S]*assertHealthFoodSubModuleCompleted\("生产企业地址",\s*manufacturerAddress\)[\s\S]*assertHealthFoodSubModuleCompleted\("净含量",\s*netContent\)[\s\S]*assertHealthFoodSubModuleCompleted\("产品标准代码",\s*productStandardCode\)[\s\S]*assertHealthFoodSubModuleCompleted\("配料表",\s*ingredients\)/,
   "every food-safety sub-module must pass immediately before the next sub-module starts"
 );
 assert.doesNotMatch(

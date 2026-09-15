@@ -34,7 +34,9 @@
     "productStandardCode": "产品标准代码",
     "ingredients": "配料表",
     "healthFunction": "保健功能",
-    "specification": "规格"
+    "specification": "规格",
+    "shelfLife": "保质期",
+    "storageCondition": "储藏条件"
   },
   "requiredFields": [
     "userCognitionName",

@@ -26,7 +26,9 @@ const FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
   "productStandardCode",
   "ingredients",
   "healthFunction",
-  "specification"
+  "specification",
+  "shelfLife",
+  "storageCondition"
 ];
 
 const CATEGORY_ONLY_FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
@@ -36,7 +38,9 @@ const CATEGORY_ONLY_FIELD_MAP_KEYS: Array<keyof FeishuBitableFieldMap> = [
   "productStandardCode",
   "ingredients",
   "healthFunction",
-  "specification"
+  "specification",
+  "shelfLife",
+  "storageCondition"
 ];
 
 function readJsonFile(filePath: string): unknown {

@@ -259,7 +259,9 @@ const dynamicHealthFoodRecord = normalizeFeishuProductRecord(
       标准号: "Q/CURRENT 001",
       配料: "乳清蛋白",
       功效: "增强免疫力",
-      商品规格: "0.5g×60粒"
+      商品规格: "0.5g×60粒",
+      保质期: 24,
+      储藏条件: "阴凉干燥处"
     }
   },
   config
@@ -275,5 +277,20 @@ assert.equal(dynamicHealthFoodRecord.productStandardCode, "Q/CURRENT 001");
 assert.equal(dynamicHealthFoodRecord.ingredients, "乳清蛋白");
 assert.equal(dynamicHealthFoodRecord.healthFunction, "增强免疫力");
 assert.equal(dynamicHealthFoodRecord.specification, "0.5g×60粒");
+assert.equal(dynamicHealthFoodRecord.shelfLife, 24);
+assert.equal(dynamicHealthFoodRecord.storageCondition, "阴凉干燥处");
 assert.equal(dynamicHealthFoodRecord.specTemplate, "买二送一");
 assert.deepEqual(validateFeishuProductRecord(dynamicHealthFoodRecord), []);
+
+const invalidHealthFoodShelfLife = normalizeFeishuProductRecord(
+  {
+    ...dynamicHealthFoodRecord,
+    recordId: "rec-health-food-invalid-shelf-life",
+    fields: { ...dynamicHealthFoodRecord.rawFields, 保质期: "24个月" }
+  },
+  config
+);
+assert.ok(
+  validateFeishuProductRecord(invalidHealthFoodShelfLife).includes("shelfLife(must be a positive Feishu number)"),
+  "保健食品保质期必须保持飞书数字类型，不能把带单位文本静默写入抖店"
+);

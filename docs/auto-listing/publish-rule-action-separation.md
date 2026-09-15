@@ -19,6 +19,7 @@ The rule layer decides whether the observed state satisfies publish requirements
 - Shared action result structure: `src/business/publish-from-spu/publish-actions.ts`
 - Rule implementation: `src/business/publish-from-spu/publish-rules.ts`
 - Health-food rule implementation: `src/business/publish-from-spu/health-food-rules.ts`
+- Health-food metadata contract: `src/business/publish-from-spu/health-food-metadata.ts`
 - Rule constants that are configuration-like: `src/business/publish-from-spu/constants.ts`
 - Watermark-level run manifest: `src/autolist/publish-manifest.ts`
 
@@ -35,6 +36,8 @@ The rule layer decides whether the observed state satisfies publish requirements
 矩阵在模块加载时执行隔离断言：医疗器械注册证与保健食品包装标签不得同时启用；保健食品动作链不得只启用一部分。规格模板选择、规格值修改、SPU 字段读回和售后政策分别由独立策略表达；出现互斥冲突必须在浏览器动作开始前失败。
 
 保健食品浏览器动作由 `src/business/publish-from-spu/health-food-actions.ts` 提供，`runPublishFlow` 只负责编排这些动作的顺序、读取 readback 结果并在失败时停止。医疗器械注册证动作只允许由医疗器械策略启用；食品安全、保健食品类目属性、规格替换、外包装图和包装标签图动作只允许由保健食品策略启用。
+
+保健食品的 `保质期` 与 `储藏条件` 由 `health-food-metadata.ts` 统一校验，并从当前标准化飞书记录传入动作层。动作层把数字保质期原样写入“保质期”，把 `储藏条件` 作为“贮存条件”下拉框的精确选项文字，稳定回读完全一致后才能继续。规则层不得维护这两个字段的默认值；非保健食品策略不得消费它们。
 
 医疗器械注册证动作不是通用资质补全动作。规则层只允许在“医疗器械注册证”字段为空且飞书资质图存在时要求上传第一张资质图；动作层必须精确定位“医疗器械注册证”上传控件。若精确控件不可定位，必须失败并保留断点，不得回退到“医疗器械生产许可证”、“赠品资质”或“质检报告”等相邻控件。
 

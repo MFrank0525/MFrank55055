@@ -8,9 +8,10 @@ import type {
   ResolvedPublishFromSpuMetadata
 } from "./types.js";
 import { getPublishCategoryMutationPolicy } from "./publish-category-policy.js";
+import { assertHealthFoodMetadataReady } from "./health-food-metadata.js";
 
 export function assertResolvedMetadata(
-  metadata: {
+  metadata: PublishFromSpuMetadata & {
     brand: string;
     spu: string;
     title: string;
@@ -18,7 +19,6 @@ export function assertResolvedMetadata(
     modelSpec: string;
     productPriceText: string;
     specTemplate: string;
-    productCategory?: string;
   },
   mode: string
 ): void {
@@ -45,6 +45,9 @@ export function assertResolvedMetadata(
   }
   if (!metadata.specTemplate.trim()) {
     missingFields.push("specTemplate");
+  }
+  if (productCategory === "保健食品") {
+    assertHealthFoodMetadataReady(metadata);
   }
   if (missingFields.length > 0) {
     throw new Error(`Publish workbook metadata was incomplete for mode=${mode}: ${missingFields.join(", ")}`);

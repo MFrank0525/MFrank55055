@@ -44,7 +44,7 @@ export interface HealthFoodSafetyReadbackResult {
   action: "fill_health_food_safety";
   originPackaging: HealthFoodSelectReadbackResult;
   shelfLife: HealthFoodTextReadbackResult;
-  storage: HealthFoodSelectReadbackResult;
+  storageCondition: HealthFoodSelectReadbackResult;
   manufacturerName: HealthFoodTextReadbackResult;
   manufacturerAddress: HealthFoodTextReadbackResult;
   netContent: HealthFoodTextReadbackResult;
@@ -280,7 +280,7 @@ export async function selectHealthFoodExactOptionOnPage(
 ): Promise<HealthFoodSelectReadbackResult> {
   const fieldRoot = await findHealthFoodFieldRootByLabel(page, label);
   const currentReadback = await readHealthFoodSelectedValue(fieldRoot);
-  if (normalizeDomText(currentReadback).includes(normalizeDomText(optionText))) {
+  if (normalizeDomText(currentReadback) === normalizeDomText(optionText)) {
     return {
       action: "select_option",
       label,
@@ -309,7 +309,7 @@ export async function selectHealthFoodExactOptionOnPage(
     expectedOption: optionText,
     readbackValue: readback,
     changed: true,
-    ok: normalizeDomText(readback).includes(normalizeDomText(optionText))
+    ok: normalizeDomText(readback) === normalizeDomText(optionText)
   };
 }
 
@@ -564,14 +564,14 @@ export async function fillHealthFoodSafetyAttributesOnPage(
   ]);
   assertHealthFoodSubModuleCompleted("产地与包装", originPackaging);
   await waitForHealthFoodFieldLabelOnPage(page, "保质期");
-  const shelfLife = await fillHealthFoodTextFieldOnPage(page, "保质期", "2");
+  const shelfLife = await fillHealthFoodTextFieldOnPage(page, "保质期", String(metadata.shelfLife));
   assertHealthFoodSubModuleCompleted("保质期", shelfLife);
   await waitForHealthFoodFieldLabelOnPage(page, "生产企业名称");
   const manufacturerName = await fillHealthFoodTextFieldOnPage(page, "生产企业名称", metadata.manufacturerName || "");
   assertHealthFoodSubModuleCompleted("生产企业名称", manufacturerName);
   await waitForHealthFoodFieldLabelOnPage(page, "贮存条件");
-  const storage = await selectHealthFoodExactOptionOnPage(page, "贮存条件", "常温");
-  assertHealthFoodSubModuleCompleted("贮存条件", storage);
+  const storageCondition = await selectHealthFoodExactOptionOnPage(page, "贮存条件", metadata.storageCondition || "");
+  assertHealthFoodSubModuleCompleted("贮存条件", storageCondition);
   await waitForHealthFoodFieldLabelOnPage(page, "生产企业地址");
   const manufacturerAddress = await fillHealthFoodTextFieldOnPage(page, "生产企业地址", metadata.manufacturerAddress || "");
   assertHealthFoodSubModuleCompleted("生产企业地址", manufacturerAddress);
@@ -588,7 +588,7 @@ export async function fillHealthFoodSafetyAttributesOnPage(
     action: "fill_health_food_safety",
     originPackaging,
     shelfLife,
-    storage,
+    storageCondition,
     manufacturerName,
     manufacturerAddress,
     netContent,
@@ -597,7 +597,7 @@ export async function fillHealthFoodSafetyAttributesOnPage(
     ok:
       originPackaging.ok &&
       shelfLife.ok &&
-      storage.ok &&
+      storageCondition.ok &&
       manufacturerName.ok &&
       manufacturerAddress.ok &&
       netContent.ok &&

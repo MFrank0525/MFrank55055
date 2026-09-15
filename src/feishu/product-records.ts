@@ -29,7 +29,9 @@ const FEISHU_FIELD_ALIASES: Record<FeishuFieldKey, string[]> = {
   productStandardCode: ["产品标准代码", "产品标准号", "标准号", "执行标准", "产品执行标准"],
   ingredients: ["配料表", "配料", "原料", "主要原料"],
   healthFunction: ["保健功能", "功效", "功能", "蓝帽功能"],
-  specification: ["规格", "商品规格", "产品规格", "规格值"]
+  specification: ["规格", "商品规格", "产品规格", "规格值"],
+  shelfLife: ["保质期"],
+  storageCondition: ["储藏条件", "贮存条件", "存储条件"]
 };
 
 const COMMON_REQUIRED_FIELDS: FeishuFieldKey[] = [
@@ -62,7 +64,9 @@ const CATEGORY_REQUIRED_FIELDS: Record<ReturnType<typeof normalizeProductCategor
     "productStandardCode",
     "ingredients",
     "healthFunction",
-    "specification"
+    "specification",
+    "shelfLife",
+    "storageCondition"
   ]
 };
 
@@ -93,6 +97,18 @@ function extractText(value: unknown): string {
     }
   }
   return "";
+}
+
+function extractNumericCell(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  const text = extractText(value);
+  if (!text || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(text)) {
+    return undefined;
+  }
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function extractAttachments(value: unknown): FeishuBitableAttachment[] {
@@ -245,6 +261,8 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     ingredients: extractText(field("ingredients")),
     healthFunction: extractText(field("healthFunction")),
     specification: extractText(field("specification")),
+    shelfLife: extractNumericCell(field("shelfLife")),
+    storageCondition: extractText(field("storageCondition")),
     rawFields: fields
   };
 }
@@ -264,6 +282,12 @@ export function validateFeishuProductRecord(record: FeishuProductRecord): string
   }
   for (const key of getRequiredFeishuProductFields(category)) {
     const value = record[key as keyof FeishuProductRecord];
+    if (key === "shelfLife") {
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        missing.push("shelfLife(must be a positive Feishu number)");
+      }
+      continue;
+    }
     if (Array.isArray(value)) {
       if (value.length === 0) missing.push(key);
       continue;
@@ -300,7 +324,9 @@ function hasEmptyFeishuProductContent(record: FeishuProductRecord, includeCatego
     !record.productStandardCode &&
     !record.ingredients &&
     !record.healthFunction &&
-    !record.specification
+    !record.specification &&
+    record.shelfLife === undefined &&
+    !record.storageCondition
   );
 }
 

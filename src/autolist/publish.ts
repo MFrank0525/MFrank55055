@@ -110,6 +110,8 @@ export function buildPublishJobMetadata(input: {
     productStandardCode: feishuProductRecord.productStandardCode,
     ingredients: feishuProductRecord.ingredients,
     healthFunction: feishuProductRecord.healthFunction,
+    shelfLife: feishuProductRecord.shelfLife,
+    storageCondition: feishuProductRecord.storageCondition,
     specification: mutationPolicy.platformSpuSpecificationMatch === "require_exact"
       ? resolveOtcPlatformSpuExpectedSpecification({
           explicitSpecification: feishuProductRecord.specification,

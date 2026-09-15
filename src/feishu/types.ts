@@ -25,6 +25,8 @@ export interface FeishuBitableFieldMap {
   ingredients: string;
   healthFunction: string;
   specification: string;
+  shelfLife: string;
+  storageCondition: string;
 }
 
 export interface FeishuBitableConfig {
@@ -83,6 +85,8 @@ export interface FeishuProductRecord {
   ingredients: string;
   healthFunction: string;
   specification: string;
+  shelfLife?: number;
+  storageCondition: string;
   rawFields: Record<string, unknown>;
 }
 
