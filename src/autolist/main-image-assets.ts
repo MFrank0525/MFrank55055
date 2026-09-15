@@ -637,7 +637,7 @@ export async function generateMainImageAssets(options: {
       break;
     } catch (error) {
       roundFailure = error;
-      if (attempt > 0 || !fs.existsSync(productDir)) {
+      if (!fs.existsSync(productDir)) {
         break;
       }
       const summary = summarizePaidImageProductLedger(productDir);
@@ -657,6 +657,13 @@ export async function generateMainImageAssets(options: {
         options.onProgress?.(
           `Provider logs proved zero-billed no-acceptance for fixed slots ${formatSlotList(reconciledSlots)}; retrying only those slots.`
         );
+        if (attempt > 0) {
+          const original = error instanceof Error ? error.message : String(error);
+          roundFailure = new Error(
+            `${original}; provider_log_no_acceptance_reconciled; repeated gateway no-acceptance wave was reconciled safely; retry after 180000ms`
+          );
+          break;
+        }
       } catch (reconciliationError) {
         const original = error instanceof Error ? error.message : String(error);
         const reconciliationMessage =

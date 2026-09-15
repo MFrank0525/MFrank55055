@@ -69,6 +69,17 @@ const example = JSON.parse(fs.readFileSync("input/image-generation.config.videos
 const ruleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
 const stabilityChecklist = fs.readFileSync("docs/auto-listing/stability-checklist.md", "utf8");
 
+assert.doesNotMatch(
+  source,
+  /if \(attempt > 0 \|\| !fs\.existsSync\(productDir\)\) \{\s*break;/,
+  "The final bounded submit attempt must still reconcile complete no-acceptance logs before deferring"
+);
+assert.match(
+  source,
+  /reconcileStrictProviderLogNoAcceptance[\s\S]*attempt > 0[\s\S]*retry after 180000ms/,
+  "A second proven no-acceptance wave must leave replayable slots and defer through the supervisor instead of stopping on ambiguous state"
+);
+
 const canonicalProviderRuleItem =
   "- 主图唯一 provider family 是 OpenAI-compatible，模型固定为 gpt-image-2，模式固定为 videos-base64，接口精确为 /v1/videos，不存在其他 provider 或兼容入口。";
 const scatteredCanonicalKeywords = [
@@ -960,6 +971,13 @@ assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(429, "rate limited"), false);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(502, "upstream error"), false);
+assert.equal(
+  isUnsafePaidImageReplayReason(
+    "videos-base64 submit failed with HTTP 524; provider_log_no_acceptance_reconciled; retry after 180000ms"
+  ),
+  false,
+  "The internal strict provider-log reconciliation marker must authorize supervisor-delayed replay without being reclassified as ambiguous"
+);
 assert.deepEqual(
   resolvePaidImageSubmitHttpRetryPolicy({
     status: 524,

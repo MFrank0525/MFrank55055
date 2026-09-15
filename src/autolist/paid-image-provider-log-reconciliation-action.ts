@@ -3,7 +3,7 @@ import path from "node:path";
 import { readOpenAiCompatibleImageConfig } from "./main-image-provider-action.js";
 import {
   isProviderNoAcceptanceGatewayStatus,
-  matchProviderNoAcceptanceLogs,
+  matchProviderNoAcceptanceLogsWithRefresh,
   type ProviderTokenLogEntry
 } from "./paid-image-reconciliation.js";
 import {
@@ -17,6 +17,12 @@ import {
 // after the locally persisted response, so retain a bounded five-second
 // window while still requiring one unique one-to-one match.
 const PROVIDER_LOG_CLOCK_SKEW_MS = 5_000;
+// Token logs are eventually consistent independently of their created_at value.
+// A completed 7-slot incident still lacked its last entry on the first lookup.
+// Refresh only the read-only log endpoint for at most 30 seconds; never replay a
+// paid POST until the complete strict one-to-one proof exists.
+const PROVIDER_LOG_LOOKUP_ATTEMPTS = 7;
+const PROVIDER_LOG_LOOKUP_REFRESH_MS = 5_000;
 
 function providerTokenLogUrl(apiUrl: string): string {
   const url = new URL(apiUrl);
@@ -111,19 +117,24 @@ export async function reconcileStrictProviderLogNoAcceptance(input: {
     return [];
   }
 
-  const response = await fetch(providerTokenLogUrl(config.apiUrl), {
-    method: "GET",
-    headers: { Authorization: "Bearer " + config.apiKey }
-  });
-  if (!response.ok) {
-    throw new Error(`provider token log lookup failed with HTTP ${response.status}`);
-  }
-  const logs = extractProviderLogs(await response.json());
-  const matches = matchProviderNoAcceptanceLogs({
+  const matches = await matchProviderNoAcceptanceLogsWithRefresh({
     model: config.model,
     maximumClockSkewMs: PROVIDER_LOG_CLOCK_SKEW_MS,
+    maximumAttempts: PROVIDER_LOG_LOOKUP_ATTEMPTS,
     slots: ambiguous,
-    logs
+    loadLogs: async () => {
+      const response = await fetch(providerTokenLogUrl(config.apiUrl), {
+        method: "GET",
+        headers: { Authorization: "Bearer " + config.apiKey }
+      });
+      if (!response.ok) {
+        throw new Error(`provider token log lookup failed with HTTP ${response.status}`);
+      }
+      return extractProviderLogs(await response.json());
+    },
+    waitBeforeRetry: async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, PROVIDER_LOG_LOOKUP_REFRESH_MS));
+    }
   });
 
   for (const match of matches) {

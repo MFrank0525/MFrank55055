@@ -314,7 +314,9 @@ export function isUnsafePaidImageReplayReason(reason: string): boolean {
   if (normalizedReason.trim().toLowerCase() === "[redacted]") {
     return true;
   }
-  const providerProvedNoAcceptance = /fail to fetch task/i.test(normalizedReason);
+  const providerProvedNoAcceptance =
+    /fail to fetch task/i.test(normalizedReason) ||
+    /\bprovider log no acceptance reconciled\b/i.test(normalizedReason);
   const authorizationFailure =
     /HTTP\s*(?:401|403)\b|invalid api key|api key invalid|authentication failed|authentication error|unauthenticated|unauthorized|permission denied|access forbidden|upstream forbidden/i.test(
       normalizedReason

@@ -130,6 +130,39 @@ export function matchProviderNoAcceptanceLogs(input: {
   return input.slots.map((slot) => assigned.get(slot.slot) as ProviderNoAcceptanceLogMatch);
 }
 
+export async function matchProviderNoAcceptanceLogsWithRefresh(input: {
+  model: string;
+  maximumClockSkewMs: number;
+  maximumAttempts: number;
+  slots: ProviderNoAcceptanceSlotEvidence[];
+  loadLogs: () => Promise<ProviderTokenLogEntry[]>;
+  waitBeforeRetry: (completedAttempt: number) => Promise<void>;
+}): Promise<ProviderNoAcceptanceLogMatch[]> {
+  if (!Number.isInteger(input.maximumAttempts) || input.maximumAttempts <= 0) {
+    throw new Error("maximumAttempts must be a positive integer for provider log reconciliation");
+  }
+  let lastMatchError: unknown;
+  for (let attempt = 1; attempt <= input.maximumAttempts; attempt += 1) {
+    const logs = await input.loadLogs();
+    try {
+      return matchProviderNoAcceptanceLogs({
+        model: input.model,
+        maximumClockSkewMs: input.maximumClockSkewMs,
+        slots: input.slots,
+        logs
+      });
+    } catch (error) {
+      lastMatchError = error;
+      if (attempt < input.maximumAttempts) {
+        await input.waitBeforeRetry(attempt);
+      }
+    }
+  }
+  throw lastMatchError instanceof Error
+    ? lastMatchError
+    : new Error("provider logs did not produce a safe no-acceptance match after bounded refresh");
+}
+
 export function validatePaidImageProviderTaskForReconciliation(
   input: PaidImageProviderTaskReconciliationInput
 ): PaidImageProviderTaskReconciliation {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   matchProviderNoAcceptanceLogs,
+  matchProviderNoAcceptanceLogsWithRefresh,
   validatePaidImageProviderTaskForReconciliation
 } from "../dist/src/autolist/paid-image-reconciliation.js";
 
@@ -114,6 +115,52 @@ assert.deepEqual(
   }).map(({ slot, logId, clockSkewMs }) => ({ slot, logId, clockSkewMs })),
   [{ slot: 16, logId: "501", clockSkewMs: 403 }]
 );
+
+{
+  let loadCount = 0;
+  let waitCount = 0;
+  const refreshed = await matchProviderNoAcceptanceLogsWithRefresh({
+    model: "gpt-image-2",
+    maximumClockSkewMs: 5_000,
+    maximumAttempts: 3,
+    slots: [{ slot: 20, updatedAt: "2026-09-15T11:49:36.215Z", responseStatus: 524 }],
+    loadLogs: async () => {
+      loadCount += 1;
+      return loadCount === 1
+        ? []
+        : [{ id: 601, created_at: 1789472977, type: 5, model_name: "gpt-image-2", quota: 0, content: "status_code=524, error code: 524\n" }];
+    },
+    waitBeforeRetry: async () => {
+      waitCount += 1;
+    }
+  });
+  assert.deepEqual(refreshed.map(({ slot, logId }) => ({ slot, logId })), [{ slot: 20, logId: "601" }]);
+  assert.equal(loadCount, 2);
+  assert.equal(waitCount, 1);
+}
+
+{
+  let loadCount = 0;
+  let waitCount = 0;
+  await assert.rejects(
+    () => matchProviderNoAcceptanceLogsWithRefresh({
+      model: "gpt-image-2",
+      maximumClockSkewMs: 5_000,
+      maximumAttempts: 3,
+      slots: [{ slot: 20, updatedAt: "2026-09-15T11:49:36.215Z", responseStatus: 524 }],
+      loadLogs: async () => {
+        loadCount += 1;
+        return [];
+      },
+      waitBeforeRetry: async () => {
+        waitCount += 1;
+      }
+    }),
+    /found no candidate/i
+  );
+  assert.equal(loadCount, 3);
+  assert.equal(waitCount, 2);
+}
 
 for (const unsafeGatewayEvidence of [
   {
