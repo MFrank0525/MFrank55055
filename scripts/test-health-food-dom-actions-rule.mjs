@@ -234,6 +234,11 @@ assert.match(
   /applyHealthFoodSpecificationOnPage[\s\S]*findHealthFoodFieldRootByLabel\(page, "商品规格"\)[\s\S]*#skuValue-规格[\s\S]*placeholder=.填写并新增规格值.[\s\S]*editableValueInputs[\s\S]*populatedValueInputs[\s\S]*targetIndex/,
   "health-food specification action must target the populated template value input inside exact 规格 group"
 );
+assert.match(
+  source,
+  /waitForSpecificationPartControls[\s\S]*requiredQuantityCount[\s\S]*requiredUnitCount[\s\S]*await waitForSpecificationPartControls\(1, 1, "initial"\)[\s\S]*fillQuantityOnPage\(0, parts\.firstQuantity\)[\s\S]*await waitForSpecificationPartControls\(2, 2, "second"\)/,
+  "规格弹层必须等待首段控件真实挂载，再填写；展开第二段后必须重新等待两组控件"
+);
 assert.doesNotMatch(
   source.slice(
     source.indexOf("export async function applyHealthFoodSpecificationOnPage"),

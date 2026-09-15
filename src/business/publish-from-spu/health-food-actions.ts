@@ -695,6 +695,24 @@ async function applyHealthFoodSpecificationEditorOnPage(
   parts: HealthFoodSpecificationParts
 ): Promise<void> {
   const markerBase = `health-food-spec-editor-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const inspectEditorInputs = async (): Promise<unknown> => page.locator(".ecom-g-popover-content").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const popup = node as HTMLElement;
+      const style = window.getComputedStyle(popup);
+      return {
+        visible: Boolean(popup.offsetParent) && style.display !== "none" && style.visibility !== "hidden",
+        text: (popup.innerText || "").replace(/\s+/g, " ").trim().slice(0, 500),
+        inputs: Array.from(popup.querySelectorAll("input")).map((input) => ({
+          type: input.type,
+          className: input.className,
+          placeholder: input.placeholder,
+          value: input.value,
+          disabled: input.disabled,
+          readOnly: input.readOnly
+        }))
+      };
+    })
+  );
   const fillQuantityOnPage = async (index: number, value: string): Promise<void> => {
     const popups = page.locator(".ecom-g-popover-content").filter({ hasText: "选择规则" });
     for (let popupIndex = 0; popupIndex < await popups.count(); popupIndex += 1) {
@@ -707,10 +725,16 @@ async function applyHealthFoodSpecificationEditorOnPage(
         return;
       }
     }
-    throw new Error(`Health-food specification split editor missing quantity input index=${index}.`);
+    throw new Error(
+      `Health-food specification split editor missing quantity input index=${index}; diagnostics=${JSON.stringify(await inspectEditorInputs())}`
+    );
   };
-  const waitForSecondPartControls = async (): Promise<void> => {
-    await page.evaluate(async () => {
+  const waitForSpecificationPartControls = async (
+    requiredQuantityCount: number,
+    requiredUnitCount: number,
+    stage: "initial" | "second"
+  ): Promise<void> => {
+    await page.evaluate(async ({ requiredQuantityCount, requiredUnitCount, stage }) => {
       const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
       const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
       const visible = (element: HTMLElement): boolean => {
@@ -754,16 +778,19 @@ async function applyHealthFoodSpecificationEditorOnPage(
           .slice(1);
       for (let attempt = 0; attempt < 10; attempt += 1) {
         const popup = findPopup();
-        if (getQuantityInputs(popup).length >= 2 && getUnitSelects(popup).length >= 2) {
+        if (
+          getQuantityInputs(popup).length >= requiredQuantityCount &&
+          getUnitSelects(popup).length >= requiredUnitCount
+        ) {
           return;
         }
         await sleep(300);
       }
       const popup = findPopup();
       throw new Error(
-        `Health-food specification split editor did not expose second part controls: quantity=${getQuantityInputs(popup).length}; unit=${getUnitSelects(popup).length}`
+        `Health-food specification split editor did not expose ${stage} controls: required quantity=${requiredQuantityCount}, unit=${requiredUnitCount}; actual quantity=${getQuantityInputs(popup).length}, unit=${getUnitSelects(popup).length}`
       );
-    });
+    }, { requiredQuantityCount, requiredUnitCount, stage });
   };
   const chooseUnit = async (index: number, unitText: string): Promise<void> => {
     const selectMarker = `${markerBase}-unit-select-${index}`;
@@ -897,9 +924,10 @@ async function applyHealthFoodSpecificationEditorOnPage(
     }
   };
 
+  await waitForSpecificationPartControls(1, 1, "initial");
   await fillQuantityOnPage(0, parts.firstQuantity);
   await chooseUnit(0, parts.firstUnit);
-  await waitForSecondPartControls();
+  await waitForSpecificationPartControls(2, 2, "second");
   await fillQuantityOnPage(0, parts.firstQuantity);
   await fillQuantityOnPage(1, parts.secondQuantity);
   await chooseUnit(1, parts.secondUnit);
