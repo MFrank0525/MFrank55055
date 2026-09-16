@@ -3,7 +3,9 @@ import path from "node:path";
 import { readOpenAiCompatibleImageConfig } from "./main-image-provider-action.js";
 import {
   isProviderNoAcceptanceGatewayStatus,
+  matchProviderBilledAcceptanceAfterGateway,
   matchProviderNoAcceptanceLogsWithRefresh,
+  type ProviderNoAcceptanceLogMatch,
   type ProviderTokenLogEntry
 } from "./paid-image-reconciliation.js";
 import {
@@ -23,6 +25,11 @@ const PROVIDER_LOG_CLOCK_SKEW_MS = 5_000;
 // paid POST until the complete strict one-to-one proof exists.
 const PROVIDER_LOG_LOOKUP_ATTEMPTS = 7;
 const PROVIDER_LOG_LOOKUP_REFRESH_MS = 5_000;
+// A task accepted immediately before Cloudflare returns a gateway page can be
+// billed only after that response is persisted. Keep this diagnostic window
+// narrow: it never authorizes replay and only upgrades the operator message
+// from generic ambiguity to accepted-and-billed task-ID recovery.
+const PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS = 60_000;
 
 function providerTokenLogUrl(apiUrl: string): string {
   const url = new URL(apiUrl);
@@ -117,25 +124,54 @@ export async function reconcileStrictProviderLogNoAcceptance(input: {
     return [];
   }
 
-  const matches = await matchProviderNoAcceptanceLogsWithRefresh({
-    model: config.model,
-    maximumClockSkewMs: PROVIDER_LOG_CLOCK_SKEW_MS,
-    maximumAttempts: PROVIDER_LOG_LOOKUP_ATTEMPTS,
-    slots: ambiguous,
-    loadLogs: async () => {
-      const response = await fetch(providerTokenLogUrl(config.apiUrl), {
-        method: "GET",
-        headers: { Authorization: "Bearer " + config.apiKey }
-      });
-      if (!response.ok) {
-        throw new Error(`provider token log lookup failed with HTTP ${response.status}`);
+  let latestLogs: ProviderTokenLogEntry[] = [];
+  let matches: ProviderNoAcceptanceLogMatch[];
+  try {
+    matches = await matchProviderNoAcceptanceLogsWithRefresh({
+      model: config.model,
+      maximumClockSkewMs: PROVIDER_LOG_CLOCK_SKEW_MS,
+      maximumAttempts: PROVIDER_LOG_LOOKUP_ATTEMPTS,
+      slots: ambiguous,
+      loadLogs: async () => {
+        const response = await fetch(providerTokenLogUrl(config.apiUrl), {
+          method: "GET",
+          headers: { Authorization: "Bearer " + config.apiKey }
+        });
+        if (!response.ok) {
+          throw new Error(`provider token log lookup failed with HTTP ${response.status}`);
+        }
+        latestLogs = extractProviderLogs(await response.json());
+        return latestLogs;
+      },
+      waitBeforeRetry: async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, PROVIDER_LOG_LOOKUP_REFRESH_MS));
       }
-      return extractProviderLogs(await response.json());
-    },
-    waitBeforeRetry: async () => {
-      await new Promise<void>((resolve) => setTimeout(resolve, PROVIDER_LOG_LOOKUP_REFRESH_MS));
+    });
+  } catch (noAcceptanceError) {
+    try {
+      const billed = matchProviderBilledAcceptanceAfterGateway({
+        model: config.model,
+        maximumPostResponseLagMs: PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS,
+        slots: ambiguous,
+        logs: latestLogs
+      });
+      throw new Error(
+        `provider_log_billed_acceptance_without_task_id: ${billed.map((match) => [
+          `slot=${match.slot}`,
+          `log=${match.logId}`,
+          `created_at=${match.logCreatedAt}`,
+          `post_response_lag_ms=${Math.round(match.postResponseLagMs)}`,
+          `request_id=${match.requestId}`,
+          `upstream_request_id=${match.upstreamRequestId}`
+        ].join(",")).join("; ")}; recover the public task ID from the provider task log and use auto-listing:reconcile-paid-image-task; paid POST replay remains forbidden`
+      );
+    } catch (billedError) {
+      if (billedError instanceof Error && /provider_log_billed_acceptance_without_task_id/.test(billedError.message)) {
+        throw billedError;
+      }
+      throw noAcceptanceError;
     }
-  });
+  }
 
   for (const match of matches) {
     const evidence = ambiguous.find((item) => item.slot === match.slot);

@@ -23,7 +23,9 @@ export interface ProviderTokenLogEntry {
   model_name?: unknown;
   quota?: unknown;
   content?: unknown;
+  request_id?: unknown;
   upstream_request_id?: unknown;
+  other?: unknown;
 }
 
 export interface ProviderNoAcceptanceLogMatch {
@@ -33,7 +35,105 @@ export interface ProviderNoAcceptanceLogMatch {
   clockSkewMs: number;
 }
 
+export interface ProviderBilledAcceptanceLogMatch {
+  slot: number;
+  logId: string;
+  logCreatedAt: number;
+  postResponseLagMs: number;
+  requestId: string;
+  upstreamRequestId: string;
+}
+
 const PROVIDER_NO_ACCEPTANCE_GATEWAY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+
+function providerLogOther(log: ProviderTokenLogEntry): Record<string, unknown> {
+  if (log.other && typeof log.other === "object" && !Array.isArray(log.other)) {
+    return log.other as Record<string, unknown>;
+  }
+  if (typeof log.other !== "string") return {};
+  try {
+    const parsed = JSON.parse(log.other) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function exactBilledTaskAcceptance(log: ProviderTokenLogEntry, model: string): {
+  requestId: string;
+  upstreamRequestId: string;
+} | undefined {
+  const loggedModel = String(log.model_name ?? log.model ?? "").trim();
+  const requestId = String(log.request_id ?? "").trim();
+  const upstreamRequestId = String(log.upstream_request_id ?? "").trim();
+  const other = providerLogOther(log);
+  if (
+    Number(log.type) !== 2 ||
+    loggedModel !== model ||
+    !(Number(log.quota) > 0) ||
+    String(log.content ?? "").trim() !== "操作 textGenerate，按次计费" ||
+    !requestId ||
+    !upstreamRequestId ||
+    other.request_path !== "/v1/videos" ||
+    other.is_task !== true
+  ) {
+    return undefined;
+  }
+  return { requestId, upstreamRequestId };
+}
+
+export function matchProviderBilledAcceptanceAfterGateway(input: {
+  model: string;
+  maximumPostResponseLagMs: number;
+  slots: ProviderNoAcceptanceSlotEvidence[];
+  logs: ProviderTokenLogEntry[];
+}): ProviderBilledAcceptanceLogMatch[] {
+  if (!input.model.trim()) {
+    throw new Error("provider model is required for billed acceptance reconciliation");
+  }
+  if (!Number.isFinite(input.maximumPostResponseLagMs) || input.maximumPostResponseLagMs < 0) {
+    throw new Error("maximumPostResponseLagMs must be a non-negative finite number");
+  }
+  const candidatesBySlot = input.slots.map((slot) => {
+    const responseAtMs = Date.parse(slot.updatedAt);
+    if (
+      !Number.isInteger(slot.slot) ||
+      slot.slot <= 0 ||
+      !Number.isFinite(responseAtMs) ||
+      !isProviderNoAcceptanceGatewayStatus(slot.responseStatus)
+    ) {
+      throw new Error(`slot ${slot.slot} lacks valid HTTP gateway billed-acceptance evidence`);
+    }
+    const candidates = input.logs.flatMap((log) => {
+      const accepted = exactBilledTaskAcceptance(log, input.model);
+      const createdAtSeconds = Number(log.created_at);
+      const logId = String(log.id ?? "").trim();
+      const postResponseLagMs = createdAtSeconds * 1000 - responseAtMs;
+      return accepted && logId && Number.isFinite(createdAtSeconds) && postResponseLagMs >= 0 && postResponseLagMs <= input.maximumPostResponseLagMs
+        ? [{
+            slot: slot.slot,
+            logId,
+            logCreatedAt: createdAtSeconds,
+            postResponseLagMs,
+            requestId: accepted.requestId,
+            upstreamRequestId: accepted.upstreamRequestId
+          }]
+        : [];
+    });
+    if (candidates.length !== 1) {
+      throw new Error(
+        `slot ${slot.slot} requires one unique post-gateway billed acceptance log; found ${candidates.length}`
+      );
+    }
+    return candidates[0];
+  });
+  if (new Set(candidatesBySlot.map((candidate) => candidate.logId)).size !== input.slots.length) {
+    throw new Error("provider logs do not form a one-to-one set of unique post-gateway billed acceptance logs");
+  }
+  return candidatesBySlot;
+}
 
 export function isProviderNoAcceptanceGatewayStatus(status: number): boolean {
   return PROVIDER_NO_ACCEPTANCE_GATEWAY_STATUSES.has(status);

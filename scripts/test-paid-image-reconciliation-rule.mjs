@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
+  matchProviderBilledAcceptanceAfterGateway,
   matchProviderNoAcceptanceLogs,
   matchProviderNoAcceptanceLogsWithRefresh,
   validatePaidImageProviderTaskForReconciliation
@@ -183,6 +184,56 @@ for (const unsafeGatewayEvidence of [
   );
 }
 assert.match(providerLogActionSource, /PROVIDER_LOG_CLOCK_SKEW_MS\s*=\s*5_000/);
+assert.match(providerLogActionSource, /provider_log_billed_acceptance_without_task_id/);
+assert.match(providerLogActionSource, /PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS\s*=\s*60_000/);
+
+assert.deepEqual(
+  matchProviderBilledAcceptanceAfterGateway({
+    model: "gpt-image-2",
+    maximumPostResponseLagMs: 60_000,
+    slots: [{ slot: 11, updatedAt: "2026-09-16T13:11:19.549Z", responseStatus: 524 }],
+    logs: [{
+      id: 701,
+      created_at: 1789564298,
+      type: 2,
+      model_name: "gpt-image-2",
+      quota: 21250,
+      content: "操作 textGenerate，按次计费",
+      request_id: "request-701",
+      upstream_request_id: "upstream-701",
+      other: { request_path: "/v1/videos", is_task: true }
+    }]
+  }),
+  [{
+    slot: 11,
+    logId: "701",
+    logCreatedAt: 1789564298,
+    postResponseLagMs: 18451,
+    requestId: "request-701",
+    upstreamRequestId: "upstream-701"
+  }]
+);
+assert.throws(
+  () => matchProviderBilledAcceptanceAfterGateway({
+    model: "gpt-image-2",
+    maximumPostResponseLagMs: 60_000,
+    slots: [{ slot: 11, updatedAt: "2026-09-16T13:11:19.549Z", responseStatus: 524 }],
+    logs: [
+      { id: 702, created_at: 1789564298, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", upstream_request_id: "a", other: { request_path: "/v1/videos", is_task: true } },
+      { id: 703, created_at: 1789564299, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", upstream_request_id: "b", other: { request_path: "/v1/videos", is_task: true } }
+    ]
+  }),
+  /unique post-gateway billed acceptance/i
+);
+assert.throws(
+  () => matchProviderBilledAcceptanceAfterGateway({
+    model: "gpt-image-2",
+    maximumPostResponseLagMs: 60_000,
+    slots: [{ slot: 11, updatedAt: "2026-09-16T13:11:19.549Z", responseStatus: 524 }],
+    logs: [{ id: 704, created_at: 1789564298, type: 5, model_name: "gpt-image-2", quota: 0, content: "status_code=524, error code: 524" }]
+  }),
+  /unique post-gateway billed acceptance/i
+);
 
 assert.deepEqual(
   matchProviderNoAcceptanceLogs({

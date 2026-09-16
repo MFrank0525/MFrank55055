@@ -1276,6 +1276,10 @@ function compactAutoListingControllerReason(summary?: string): string {
   if (translated && translated !== text) {
     return translated;
   }
+  if (/provider_log_billed_acceptance_without_task_id/i.test(text)) {
+    const slot = /\bslot=(\d+)\b/i.exec(text)?.[1];
+    return `图片服务已确认${slot ? `第 ${slot} 个槽位` : "该槽位"}受理并扣费，但 Cloudflare 网关丢失了任务 ID；禁止重发，需从供应商任务日志找回公开 task ID 并通过正式对账命令恢复。`;
+  }
   const paidSafety = /paid submission safety block: paid image ledger has ambiguous=(\d+), reserved=(\d+)/i.exec(text);
   if (paidSafety) {
     const ambiguous = Number(paidSafety[1] || 0);
