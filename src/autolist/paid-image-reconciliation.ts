@@ -44,6 +44,20 @@ export interface ProviderBilledAcceptanceLogMatch {
   upstreamRequestId: string;
 }
 
+export interface ProviderKnownAcceptedSlotEvidence {
+  slot: number;
+  submittedAt: string;
+}
+
+export interface ProviderKnownAcceptedLogMatch {
+  slot: number;
+  logId: string;
+  logCreatedAt: number;
+  clockSkewMs: number;
+  requestId: string;
+  upstreamRequestId: string;
+}
+
 const PROVIDER_NO_ACCEPTANCE_GATEWAY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
 
 function providerLogOther(log: ProviderTokenLogEntry): Record<string, unknown> {
@@ -82,6 +96,81 @@ function exactBilledTaskAcceptance(log: ProviderTokenLogEntry, model: string): {
     return undefined;
   }
   return { requestId, upstreamRequestId };
+}
+
+export function excludeKnownAcceptedProviderLogs(input: {
+  model: string;
+  maximumClockSkewMs: number;
+  acceptedSlots: ProviderKnownAcceptedSlotEvidence[];
+  logs: ProviderTokenLogEntry[];
+}): { logs: ProviderTokenLogEntry[]; excluded: ProviderKnownAcceptedLogMatch[] } {
+  if (!input.model.trim()) {
+    throw new Error("provider model is required for known accepted log reconciliation");
+  }
+  if (!Number.isFinite(input.maximumClockSkewMs) || input.maximumClockSkewMs < 0) {
+    throw new Error("maximumClockSkewMs must be a non-negative finite number");
+  }
+  if (input.acceptedSlots.length === 0) {
+    return { logs: [...input.logs], excluded: [] };
+  }
+  const candidatesBySlot = input.acceptedSlots.map((slot) => {
+    const submittedAtMs = Date.parse(slot.submittedAt);
+    if (!Number.isInteger(slot.slot) || slot.slot <= 0 || !Number.isFinite(submittedAtMs)) {
+      throw new Error(`known accepted slot ${slot.slot} has invalid submittedAt evidence`);
+    }
+    const candidates = input.logs.flatMap((log) => {
+      const accepted = exactBilledTaskAcceptance(log, input.model);
+      const createdAtSeconds = Number(log.created_at);
+      const logId = String(log.id ?? "").trim();
+      const clockSkewMs = Math.abs(createdAtSeconds * 1000 - submittedAtMs);
+      return accepted && logId && Number.isFinite(createdAtSeconds) && clockSkewMs <= input.maximumClockSkewMs
+        ? [{
+            slot: slot.slot,
+            logId,
+            logCreatedAt: createdAtSeconds,
+            clockSkewMs,
+            requestId: accepted.requestId,
+            upstreamRequestId: accepted.upstreamRequestId
+          }]
+        : [];
+    });
+    if (candidates.length === 0) {
+      throw new Error(`known accepted slot ${slot.slot} has no matching billed provider log`);
+    }
+    candidates.sort((left, right) => left.clockSkewMs - right.clockSkewMs || left.logId.localeCompare(right.logId, undefined, { numeric: true }));
+    return { slot: slot.slot, candidates };
+  });
+  const relevantLogIds = new Set(candidatesBySlot.flatMap((entry) => entry.candidates.map((candidate) => candidate.logId)));
+  if (relevantLogIds.size !== input.acceptedSlots.length) {
+    throw new Error("provider logs do not form a one-to-one set for known accepted slots");
+  }
+  const ordered = [...candidatesBySlot].sort(
+    (left, right) => left.candidates.length - right.candidates.length || left.slot - right.slot
+  );
+  const assigned = new Map<number, ProviderKnownAcceptedLogMatch>();
+  const usedLogIds = new Set<string>();
+  const findMatching = (index: number): boolean => {
+    if (index >= ordered.length) return true;
+    const entry = ordered[index];
+    for (const candidate of entry.candidates) {
+      if (usedLogIds.has(candidate.logId)) continue;
+      usedLogIds.add(candidate.logId);
+      assigned.set(entry.slot, candidate);
+      if (findMatching(index + 1)) return true;
+      assigned.delete(entry.slot);
+      usedLogIds.delete(candidate.logId);
+    }
+    return false;
+  };
+  if (!findMatching(0)) {
+    throw new Error("provider logs do not form a one-to-one set for known accepted slots");
+  }
+  const excluded = input.acceptedSlots.map((slot) => assigned.get(slot.slot) as ProviderKnownAcceptedLogMatch);
+  const excludedLogIds = new Set(excluded.map((match) => match.logId));
+  return {
+    logs: input.logs.filter((log) => !excludedLogIds.has(String(log.id ?? "").trim())),
+    excluded
+  };
 }
 
 export function matchProviderBilledAcceptanceAfterGateway(input: {

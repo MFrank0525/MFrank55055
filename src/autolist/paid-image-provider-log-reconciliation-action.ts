@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readOpenAiCompatibleImageConfig } from "./main-image-provider-action.js";
 import {
+  excludeKnownAcceptedProviderLogs,
   isProviderNoAcceptanceGatewayStatus,
   matchProviderBilledAcceptanceAfterGateway,
   matchProviderNoAcceptanceLogsWithRefresh,
@@ -149,11 +150,26 @@ export async function reconcileStrictProviderLogNoAcceptance(input: {
     });
   } catch (noAcceptanceError) {
     try {
+      const acceptedSlots = Array.from({ length: expectedSlotCount }, (_, index) => index + 1).flatMap((slot) => {
+        const record = readPaidImageSlotRecord({ productDir: input.productDir, slot });
+        const submittedAt = record
+          ? [...record.audit].reverse().find((entry) => entry.state === "submitted")?.at
+          : undefined;
+        return record?.state === "completed" && record.providerTaskId && submittedAt
+          ? [{ slot, submittedAt }]
+          : [];
+      });
+      const filtered = excludeKnownAcceptedProviderLogs({
+        model: config.model,
+        maximumClockSkewMs: PROVIDER_LOG_CLOCK_SKEW_MS,
+        acceptedSlots,
+        logs: latestLogs
+      });
       const billed = matchProviderBilledAcceptanceAfterGateway({
         model: config.model,
         maximumPostResponseLagMs: PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS,
         slots: ambiguous,
-        logs: latestLogs
+        logs: filtered.logs
       });
       throw new Error(
         `provider_log_billed_acceptance_without_task_id: ${billed.map((match) => [

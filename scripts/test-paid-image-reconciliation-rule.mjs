@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
+  excludeKnownAcceptedProviderLogs,
   matchProviderBilledAcceptanceAfterGateway,
   matchProviderNoAcceptanceLogs,
   matchProviderNoAcceptanceLogsWithRefresh,
@@ -19,6 +20,54 @@ assert.deepEqual(
     payload: { id: "task_expected", status: "completed", progress: 100, created_at: 1781344029 }
   }),
   { taskId: "task_expected", status: "completed" }
+);
+
+{
+  const logs = [
+    { id: 901, created_at: 1789651826, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "completed-request-1", upstream_request_id: "completed-upstream-1", other: { request_path: "/v1/videos", is_task: true } },
+    { id: 902, created_at: 1789651837, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "completed-request-2", upstream_request_id: "completed-upstream-2", other: { request_path: "/v1/videos", is_task: true } },
+    { id: 903, created_at: 1789651989, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "missing-request-3", upstream_request_id: "missing-upstream-3", other: { request_path: "/v1/videos", is_task: true } },
+    { id: 904, created_at: 1789651993, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "missing-request-4", upstream_request_id: "missing-upstream-4", other: { request_path: "/v1/videos", is_task: true } }
+  ];
+  const filtered = excludeKnownAcceptedProviderLogs({
+    model: "gpt-image-2",
+    maximumClockSkewMs: 5_000,
+    acceptedSlots: [
+      { slot: 1, submittedAt: "2026-09-17T13:30:26.980Z" },
+      { slot: 2, submittedAt: "2026-09-17T13:30:37.162Z" }
+    ],
+    logs
+  });
+  assert.deepEqual(filtered.excluded.map(({ slot, logId }) => ({ slot, logId })), [
+    { slot: 1, logId: "901" },
+    { slot: 2, logId: "902" }
+  ]);
+  assert.deepEqual(filtered.logs.map((log) => String(log.id)), ["903", "904"]);
+  assert.deepEqual(
+    matchProviderBilledAcceptanceAfterGateway({
+      model: "gpt-image-2",
+      maximumPostResponseLagMs: 5 * 60_000,
+      slots: [
+        { slot: 3, updatedAt: "2026-09-17T13:32:33.596Z", responseStatus: 524 },
+        { slot: 4, updatedAt: "2026-09-17T13:32:44.357Z", responseStatus: 524 }
+      ],
+      logs: filtered.logs
+    }).map(({ slot, logId }) => ({ slot, logId })),
+    [{ slot: 3, logId: "903" }, { slot: 4, logId: "904" }]
+  );
+}
+
+assert.throws(
+  () => excludeKnownAcceptedProviderLogs({
+    model: "gpt-image-2",
+    maximumClockSkewMs: 5_000,
+    acceptedSlots: [{ slot: 1, submittedAt: "2026-09-17T13:30:26.980Z" }],
+    logs: [
+      { id: 911, created_at: 1789651826, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "a", upstream_request_id: "a-up", other: { request_path: "/v1/videos", is_task: true } },
+      { id: 912, created_at: 1789651827, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "b", upstream_request_id: "b-up", other: { request_path: "/v1/videos", is_task: true } }
+    ]
+  }),
+  /one-to-one.*known accepted/i
 );
 assert.throws(
   () =>
@@ -186,6 +235,7 @@ for (const unsafeGatewayEvidence of [
 assert.match(providerLogActionSource, /PROVIDER_LOG_CLOCK_SKEW_MS\s*=\s*5_000/);
 assert.match(providerLogActionSource, /provider_log_billed_acceptance_without_task_id/);
 assert.match(providerLogActionSource, /PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS\s*=\s*5\s*\*\s*60_000/);
+assert.match(providerLogActionSource, /excludeKnownAcceptedProviderLogs/);
 
 assert.deepEqual(
   matchProviderBilledAcceptanceAfterGateway({
@@ -287,6 +337,8 @@ assert.match(cliSource, /reconcileAmbiguousPaidImageNoAcceptance/);
 assert.match(cliSource, /reconcileAmbiguousPaidImageProviderFailure/);
 assert.match(cliSource, /validatePaidImageProviderTaskForReconciliation/);
 assert.match(cliSource, /readPaidImageSlotRecord/);
+assert.match(cliSource, /slotCreatedAt:\s*slotRecord\.updatedAt/);
+assert.doesNotMatch(cliSource, /slotCreatedAt:\s*slotRecord\.createdAt/);
 assert.match(cliSource, /Authorization: "Bearer " \+ config\.apiKey/);
 assert.match(cliSource, /--no-provider-task/);
 assert.match(cliSource, /--provider-failure/);

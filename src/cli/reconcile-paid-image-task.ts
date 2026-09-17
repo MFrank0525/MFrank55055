@@ -101,7 +101,9 @@ async function main(): Promise<void> {
   }
   const verified = validatePaidImageProviderTaskForReconciliation({
     requestedTaskId: taskId,
-    slotCreatedAt: slotRecord.createdAt,
+    // A slot can remain reserved while earlier serial submissions finish. Anchor
+    // provider-task creation to the persisted submit response, not reservation.
+    slotCreatedAt: slotRecord.updatedAt,
     payload
   });
   const record = reconcileAmbiguousPaidImageTask({
