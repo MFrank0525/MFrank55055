@@ -122,17 +122,40 @@ export function matchProviderBilledAcceptanceAfterGateway(input: {
           }]
         : [];
     });
-    if (candidates.length !== 1) {
+    if (candidates.length === 0) {
       throw new Error(
-        `slot ${slot.slot} requires one unique post-gateway billed acceptance log; found ${candidates.length}`
+        `slot ${slot.slot} requires a one-to-one set of unique post-gateway billed acceptance logs; found no candidate`
       );
     }
-    return candidates[0];
+    candidates.sort((left, right) => left.postResponseLagMs - right.postResponseLagMs || left.logId.localeCompare(right.logId, undefined, { numeric: true }));
+    return { slot: slot.slot, candidates };
   });
-  if (new Set(candidatesBySlot.map((candidate) => candidate.logId)).size !== input.slots.length) {
+  const relevantLogIds = new Set(candidatesBySlot.flatMap((entry) => entry.candidates.map((candidate) => candidate.logId)));
+  if (relevantLogIds.size !== input.slots.length) {
     throw new Error("provider logs do not form a one-to-one set of unique post-gateway billed acceptance logs");
   }
-  return candidatesBySlot;
+  const ordered = [...candidatesBySlot].sort(
+    (left, right) => left.candidates.length - right.candidates.length || left.slot - right.slot
+  );
+  const assigned = new Map<number, ProviderBilledAcceptanceLogMatch>();
+  const usedLogIds = new Set<string>();
+  const findMatching = (index: number): boolean => {
+    if (index >= ordered.length) return true;
+    const entry = ordered[index];
+    for (const candidate of entry.candidates) {
+      if (usedLogIds.has(candidate.logId)) continue;
+      usedLogIds.add(candidate.logId);
+      assigned.set(entry.slot, candidate);
+      if (findMatching(index + 1)) return true;
+      assigned.delete(entry.slot);
+      usedLogIds.delete(candidate.logId);
+    }
+    return false;
+  };
+  if (!findMatching(0)) {
+    throw new Error("provider logs do not form a one-to-one set of unique post-gateway billed acceptance logs");
+  }
+  return input.slots.map((slot) => assigned.get(slot.slot) as ProviderBilledAcceptanceLogMatch);
 }
 
 export function isProviderNoAcceptanceGatewayStatus(status: number): boolean {

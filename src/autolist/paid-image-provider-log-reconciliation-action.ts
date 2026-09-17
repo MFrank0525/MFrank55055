@@ -29,7 +29,7 @@ const PROVIDER_LOG_LOOKUP_REFRESH_MS = 5_000;
 // billed only after that response is persisted. Keep this diagnostic window
 // narrow: it never authorizes replay and only upgrades the operator message
 // from generic ambiguity to accepted-and-billed task-ID recovery.
-const PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS = 60_000;
+const PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS = 5 * 60_000;
 
 function providerTokenLogUrl(apiUrl: string): string {
   const url = new URL(apiUrl);

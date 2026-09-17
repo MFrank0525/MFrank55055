@@ -185,7 +185,7 @@ for (const unsafeGatewayEvidence of [
 }
 assert.match(providerLogActionSource, /PROVIDER_LOG_CLOCK_SKEW_MS\s*=\s*5_000/);
 assert.match(providerLogActionSource, /provider_log_billed_acceptance_without_task_id/);
-assert.match(providerLogActionSource, /PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS\s*=\s*60_000/);
+assert.match(providerLogActionSource, /PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS\s*=\s*5\s*\*\s*60_000/);
 
 assert.deepEqual(
   matchProviderBilledAcceptanceAfterGateway({
@@ -212,6 +212,21 @@ assert.deepEqual(
     requestId: "request-701",
     upstreamRequestId: "upstream-701"
   }]
+);
+assert.deepEqual(
+  matchProviderBilledAcceptanceAfterGateway({
+    model: "gpt-image-2",
+    maximumPostResponseLagMs: 5 * 60_000,
+    slots: [
+      { slot: 14, updatedAt: "2026-09-16T16:40:50.859Z", responseStatus: 524 },
+      { slot: 15, updatedAt: "2026-09-16T16:40:50.824Z", responseStatus: 524 }
+    ],
+    logs: [
+      { id: 801, created_at: 1789576934, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "request-801", upstream_request_id: "upstream-801", other: { request_path: "/v1/videos", is_task: true } },
+      { id: 802, created_at: 1789576934, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "request-802", upstream_request_id: "upstream-802", other: { request_path: "/v1/videos", is_task: true } }
+    ]
+  }).map(({ slot, logId }) => ({ slot, logId })),
+  [{ slot: 14, logId: "801" }, { slot: 15, logId: "802" }]
 );
 assert.throws(
   () => matchProviderBilledAcceptanceAfterGateway({
