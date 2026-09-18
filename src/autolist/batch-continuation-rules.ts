@@ -767,6 +767,9 @@ function translateAutoListingControllerOperatorMessage(message?: string): string
     [/^Publish flow is running\.?$/i, "发布流程运行中"],
     [/^Waiting for publish result\.?$/i, "等待发布结果"],
     [/^checking Doudian login preflight before paid image generation\.?$/i, "正在检查抖店登录状态"],
+    [/^Provider billing logs prove (\d+) gateway-lost submissions were accepted; entering authenticated read-only task recovery\.?$/i, "已确认扣费任务，正在只读恢复原任务号（不会重复提交）"],
+    [/^Provider task recovery requires login; keeping the headed login page open and waiting without replaying paid submissions\.?$/i, "生图任务恢复需要登录；登录页已保留，等待登录且不会重复提交"],
+    [/^Recovered billed provider task for fixed slot \d+; status=.+\.?$/i, "已找回扣费任务，正在继续原任务"],
     [/^Title workbooks already exist; resume must continue from publishing\.?$/i, "标题表已存在，将从发布阶段继续"],
     [/^Publishing product folder:\s*(.+)$/i, "正在发布商品"],
     [/^Publish failed:\s*(.+)$/i, "发布失败"]

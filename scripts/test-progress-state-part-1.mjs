@@ -1504,6 +1504,20 @@ assert.equal(
   false,
   "Hermes progress message must not expose English words to operators"
 );
+const hermesProviderLoginRecoveryPayload = resolveAutoListingControllerHermesStatusPayload({
+  status: "running",
+  realtimeProgress: {
+    source: "state",
+    message: "Provider task recovery requires login; keeping the headed login page open and waiting without replaying paid submissions.",
+    timestamp: "2026-09-18T01:28:15.116Z",
+    key: "provider-login-recovery"
+  },
+  feishuCurrentProduct: { current: 21, total: 21, userCognitionName: "SV口腔溃疡含漱液" }
+});
+assert.equal(
+  hermesProviderLoginRecoveryPayload.hermesProgress?.message,
+  "飞书当前第 21/21；生图任务恢复需要登录；登录页已保留，等待登录且不会重复提交"
+);
 const groupedHermesRealtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-14T06:00:00.000Z",
   activeRunId: "20260614-211821",

@@ -24,6 +24,7 @@ import {
   resolvePaidImageLedgerFailureDisposition,
   resolveMissingFixedImageIndexes,
   resolveVideosBase64SubmitConcurrency,
+  createPaidImageSubmitCircuit,
   resolveVideosBase64AcceptedTaskPollCeilingMs,
   resolveVideosBase64SubmitTimeoutMs,
   shouldKeepPaidImagePolicyCompatiblePrompt,
@@ -76,7 +77,7 @@ assert.doesNotMatch(
 );
 assert.match(
   source,
-  /reconcileStrictProviderLogNoAcceptance[\s\S]*attempt > 0[\s\S]*retry after 180000ms/,
+  /reconcileStrictProviderLogOutcome[\s\S]*attempt > 0[\s\S]*retry after 180000ms/,
   "A second proven no-acceptance wave must leave replayable slots and defer through the supervisor instead of stopping on ambiguous state"
 );
 
@@ -815,7 +816,7 @@ assert.match(source, /resolveVideosBase64SubmitTimeoutMs/);
 assert.match(source, /sendVideosBase64SubmitWithProvenNoAcceptanceRetries/);
 assert.match(
   source,
-  /submitGate\.run\(\(\) => sendVideosBase64SubmitWithProvenNoAcceptanceRetries\(absoluteImageIndex, requestBody\)\)/,
+  /submitGate\.run\(async \(\) => \{[\s\S]*sendVideosBase64SubmitWithProvenNoAcceptanceRetries\(absoluteImageIndex, requestBody\)[\s\S]*\}\)/,
   "videos-base64 paid submit requests may retry only through the explicit no-acceptance policy"
 );
 assert.match(source, /requestedImageIndexes/);
@@ -846,7 +847,7 @@ assert.match(source, /roundStartImageIndex \+ missingLocalIndexes\[itemIndex\] -
 assert.match(source, /sendRequest\(requestBody, "application\/json", videosBase64SubmitTimeoutMs\)/);
 assert.match(source, /createConcurrencyGate\(resolveVideosBase64SubmitConcurrency\(config\.submitConcurrency\)\)/);
 assert.match(source, /const videosBase64SubmitGate =[\s\S]*createConcurrencyGate\(\s*resolveVideosBase64SubmitConcurrency\(imageGenerationConfig\.submitConcurrency\)\s*\)/);
-assert.match(source, /videosBase64SubmitGate,\s*paidImageLedger:/);
+assert.match(source, /videosBase64SubmitGate,\s*videosBase64SubmitCircuit,\s*paidImageLedger:/);
 assert.match(source, /if \(!options\.feishuBatchFingerprint \|\| !options\.feishuRecordId \|\| !options\.paidImageSubmissionLedgerDir\)/);
 assert.doesNotMatch(
   source,
@@ -900,7 +901,8 @@ assert.match(ruleDoc, /异步提交当前商品任务.*统一收敛.*下载全�
 assert.match(ruleDoc, /禁止 supervisor 快速重启并重新提交/s);
 assert.match(ruleDoc, /固定文件槽位.*禁止按已有文件数量推算/s);
 assert.match(ruleDoc, /进入发布前.*固定 raw 槽位完整性/s);
-assert.match(ruleDoc, /提交准入并发.*默认.*2.*最高.*4/s);
+assert.match(ruleDoc, /付费 POST 接单阶段.*single-flight.*不串行等待图片生成/s);
+assert.match(ruleDoc, /服务端生成、状态轮询和结果下载继续并发/s);
 assert.match(ruleDoc, /已取得.*任务 ID.*状态查询.*结果下载.*传输层瞬断.*同一任务.*退避重试/s);
 assert.match(ruleDoc, /queued 0.*pending 0.*供应商队列心跳.*不代表项目业务进展/s);
 assert.match(ruleDoc, /watchdog.*不得.*队列心跳.*最后真实进展/s);
@@ -1037,6 +1039,18 @@ assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("fetch failed"), tru
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("image generation request exceeded hard deadline 1830000ms"), true);
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("ECONNRESET before response"), true);
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("videos-base64 task abc failed"), false);
+assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("paid_submit_circuit_open_before_post"), true);
+{
+  const circuit = createPaidImageSubmitCircuit();
+  assert.equal(circuit.isOpen(), false);
+  circuit.trip("HTTP 524");
+  assert.equal(circuit.isOpen(), true);
+  assert.equal(circuit.reason(), "HTTP 524");
+  circuit.trip("later failure");
+  assert.equal(circuit.reason(), "HTTP 524");
+  circuit.reset();
+  assert.equal(circuit.isOpen(), false);
+}
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 1800000), 180000);
 assert.equal(resolveVideosBase64SubmitTimeoutMs(180000, 60000), 180000);
 assert.equal(
@@ -1117,10 +1131,12 @@ for (const [mode, apiUrl] of [
     `invalid provider config must fail closed: ${mode} ${apiUrl}`
   );
 }
-assert.equal(resolveVideosBase64SubmitConcurrency(undefined), 2);
+assert.equal(resolveVideosBase64SubmitConcurrency(undefined), 1);
 assert.equal(resolveVideosBase64SubmitConcurrency(1), 1);
-assert.equal(resolveVideosBase64SubmitConcurrency(3), 3);
-assert.equal(resolveVideosBase64SubmitConcurrency(20), 4);
+assert.equal(resolveVideosBase64SubmitConcurrency(3), 1);
+assert.equal(resolveVideosBase64SubmitConcurrency(20), 1);
+assert.match(source, /paid_submit_circuit_open_before_post/);
+assert.match(source, /submitCircuit\.trip/);
 assert.equal(
   resolvePaidImageLedgerFailureDisposition({
     expectedSlotCount: 20,

@@ -50,11 +50,31 @@ export function resolveVideosBase64SubmitTimeoutMs(
   return Math.min(projectPollCeilingMs, Math.max(resolveImageDownloadTimeoutMs(requestTimeoutMs), maxPollMs || projectPollCeilingMs));
 }
 
-export function resolveVideosBase64SubmitConcurrency(configuredConcurrency: number | undefined): number {
-  if (!Number.isFinite(configuredConcurrency)) {
-    return 2;
-  }
-  return Math.min(4, Math.max(1, Math.floor(configuredConcurrency as number)));
+export function resolveVideosBase64SubmitConcurrency(_configuredConcurrency: number | undefined): number {
+  // Paid POST acceptance is deliberately single-flight. Polling and downloads remain concurrent,
+  // so this removes the duplicate-charge ambiguity window without serializing image generation.
+  return 1;
+}
+
+export interface PaidImageSubmitCircuit {
+  isOpen(): boolean;
+  reason(): string;
+  trip(reason: string): void;
+  reset(): void;
+}
+
+export function createPaidImageSubmitCircuit(): PaidImageSubmitCircuit {
+  let firstReason = "";
+  return {
+    isOpen: () => Boolean(firstReason),
+    reason: () => firstReason,
+    trip: (reason: string) => {
+      if (!firstReason) firstReason = String(reason || "paid submit acceptance became ambiguous");
+    },
+    reset: () => {
+      firstReason = "";
+    }
+  };
 }
 
 export interface PaidImageLedgerFailureSummary {
@@ -143,7 +163,7 @@ function submitFailureResponseProvesNoPaidTaskAccepted(message: string): boolean
 
 export function submitTransportFailureProvesNoPaidTaskAccepted(message: string): boolean {
   return (
-    /fetch failed|failed to fetch|network.*failed|ECONNRESET before response|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|request exceeded hard deadline|AbortError|aborted/i.test(
+    /paid_submit_circuit_open_before_post|fetch failed|failed to fetch|network.*failed|ECONNRESET before response|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|request exceeded hard deadline|AbortError|aborted/i.test(
       message
     ) || submitFailureResponseProvesNoPaidTaskAccepted(message)
   );

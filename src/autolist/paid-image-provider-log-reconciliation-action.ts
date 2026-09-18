@@ -9,6 +9,7 @@ import {
   type ProviderNoAcceptanceLogMatch,
   type ProviderTokenLogEntry
 } from "./paid-image-reconciliation.js";
+import { recoverBilledProviderTasks } from "./paid-image-task-recovery-action.js";
 import {
   readPaidImageSlotRecord,
   reconcileAmbiguousPaidImageNoAcceptance,
@@ -91,12 +92,18 @@ function parseRawCloudflareGatewayStatus(responseFile: string, slot: number): nu
   return Number(titleStatus);
 }
 
-export async function reconcileStrictProviderLogNoAcceptance(input: {
+export interface ProviderLogReconciliationOutcome {
+  kind: "none" | "no_acceptance" | "billed_task_recovered";
+  slots: number[];
+}
+
+export async function reconcileStrictProviderLogOutcome(input: {
   configFile: string;
   productDir: string;
   taskDir: string;
   expectedImagesPerRound: number;
-}): Promise<number[]> {
+  onProgress?: (message: string) => void;
+}): Promise<ProviderLogReconciliationOutcome> {
   const config = readOpenAiCompatibleImageConfig(input.configFile);
   const manifest = JSON.parse(fs.readFileSync(path.join(input.productDir, "product.json"), "utf8")) as {
     expectedSlotCount?: unknown;
@@ -122,7 +129,7 @@ export async function reconcileStrictProviderLogNoAcceptance(input: {
     return [{ slot, updatedAt: record.updatedAt, responseStatus, responseFile }];
   });
   if (ambiguous.length === 0) {
-    return [];
+    return { kind: "none", slots: [] };
   }
 
   let latestLogs: ProviderTokenLogEntry[] = [];
@@ -149,6 +156,7 @@ export async function reconcileStrictProviderLogNoAcceptance(input: {
       }
     });
   } catch (noAcceptanceError) {
+    let billed;
     try {
       const acceptedSlots = Array.from({ length: expectedSlotCount }, (_, index) => index + 1).flatMap((slot) => {
         const record = readPaidImageSlotRecord({ productDir: input.productDir, slot });
@@ -165,28 +173,26 @@ export async function reconcileStrictProviderLogNoAcceptance(input: {
         acceptedSlots,
         logs: latestLogs
       });
-      const billed = matchProviderBilledAcceptanceAfterGateway({
+      billed = matchProviderBilledAcceptanceAfterGateway({
         model: config.model,
         maximumPostResponseLagMs: PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS,
         slots: ambiguous,
         logs: filtered.logs
       });
-      throw new Error(
-        `provider_log_billed_acceptance_without_task_id: ${billed.map((match) => [
-          `slot=${match.slot}`,
-          `log=${match.logId}`,
-          `created_at=${match.logCreatedAt}`,
-          `post_response_lag_ms=${Math.round(match.postResponseLagMs)}`,
-          `request_id=${match.requestId}`,
-          `upstream_request_id=${match.upstreamRequestId}`
-        ].join(",")).join("; ")}; recover the public task ID from the provider task log and use auto-listing:reconcile-paid-image-task; paid POST replay remains forbidden`
-      );
     } catch (billedError) {
-      if (billedError instanceof Error && /provider_log_billed_acceptance_without_task_id/.test(billedError.message)) {
-        throw billedError;
-      }
       throw noAcceptanceError;
     }
+    input.onProgress?.(
+      `Provider billing logs prove ${billed.length} gateway-lost submissions were accepted; entering authenticated read-only task recovery.`
+    );
+    const recovered = await recoverBilledProviderTasks({
+      configFile: input.configFile,
+      productDir: input.productDir,
+      expectedSlotCount,
+      billed,
+      onProgress: input.onProgress
+    });
+    return { kind: "billed_task_recovered", slots: recovered };
   }
 
   for (const match of matches) {
@@ -209,5 +215,8 @@ export async function reconcileStrictProviderLogNoAcceptance(input: {
       ].join("; ")
     });
   }
-  return matches.map((match) => match.slot).sort((left, right) => left - right);
+  return {
+    kind: "no_acceptance",
+    slots: matches.map((match) => match.slot).sort((left, right) => left - right)
+  };
 }

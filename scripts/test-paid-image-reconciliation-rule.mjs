@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   excludeKnownAcceptedProviderLogs,
+  matchBilledProviderTasks,
   matchProviderBilledAcceptanceAfterGateway,
   matchProviderNoAcceptanceLogs,
   matchProviderNoAcceptanceLogsWithRefresh,
@@ -10,6 +11,7 @@ import {
 
 const cliSource = fs.readFileSync("src/cli/reconcile-paid-image-task.ts", "utf8");
 const providerLogActionSource = fs.readFileSync("src/autolist/paid-image-provider-log-reconciliation-action.ts", "utf8");
+const providerTaskRecoverySource = fs.readFileSync("src/autolist/paid-image-task-recovery-action.ts", "utf8");
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const ruleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
 
@@ -20,6 +22,61 @@ assert.deepEqual(
     payload: { id: "task_expected", status: "completed", progress: 100, created_at: 1781344029 }
   }),
   { taskId: "task_expected", status: "completed" }
+);
+
+assert.deepEqual(
+  matchBilledProviderTasks({
+    model: "gpt-image-2",
+    maximumClockSkewMs: 5_000,
+    billedSlots: [{ slot: 3, promptDigest: "round-2", logCreatedAt: 1789676738 }],
+    knownProviderTaskIds: [],
+    tasks: [{
+      task_id: "task_created_at_match_123",
+      submit_time: 1789676600,
+      created_at: 1789676738,
+      status: "SUCCESS"
+    }]
+  }).map(({ slot, taskId }) => ({ slot, taskId })),
+  [{ slot: 3, taskId: "task_created_at_match_123" }],
+  "authenticated task rows may omit private model fields and submit_time may precede billing by minutes"
+);
+
+assert.deepEqual(
+  matchBilledProviderTasks({
+    model: "gpt-image-2",
+    maximumClockSkewMs: 5_000,
+    billedSlots: [
+      { slot: 1, promptDigest: "round-1", logCreatedAt: 1789676592 },
+      { slot: 2, promptDigest: "round-1", logCreatedAt: 1789676593 }
+    ],
+    knownProviderTaskIds: ["task_known"],
+    tasks: [
+      { task_id: "task_known_123", submit_time: 1789676500, status: "SUCCESS", model: "gpt-image-2" },
+      { task_id: "task_slot_1_123", submit_time: 1789676592, status: "SUCCESS", model: "gpt-image-2" },
+      { task_id: "task_slot_2_123", submit_time: 1789676593, status: "SUCCESS", model: "gpt-image-2" }
+    ]
+  }).map(({ slot, taskId }) => ({ slot, taskId })),
+  [
+    { slot: 1, taskId: "task_slot_1_123" },
+    { slot: 2, taskId: "task_slot_2_123" }
+  ]
+);
+
+assert.throws(
+  () => matchBilledProviderTasks({
+    model: "gpt-image-2",
+    maximumClockSkewMs: 5_000,
+    billedSlots: [
+      { slot: 9, promptDigest: "round-3-a", logCreatedAt: 1789677114 },
+      { slot: 10, promptDigest: "round-3-b", logCreatedAt: 1789677114 }
+    ],
+    knownProviderTaskIds: [],
+    tasks: [
+      { task_id: "task_a_12345678", submit_time: 1789677114, status: "SUCCESS", model: "gpt-image-2" },
+      { task_id: "task_b_12345678", submit_time: 1789677114, status: "SUCCESS", model: "gpt-image-2" }
+    ]
+  }),
+  /same prompt digest/i
 );
 
 {
@@ -233,9 +290,13 @@ for (const unsafeGatewayEvidence of [
   );
 }
 assert.match(providerLogActionSource, /PROVIDER_LOG_CLOCK_SKEW_MS\s*=\s*5_000/);
-assert.match(providerLogActionSource, /provider_log_billed_acceptance_without_task_id/);
+assert.match(providerLogActionSource, /billed_task_recovered/);
 assert.match(providerLogActionSource, /PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS\s*=\s*5\s*\*\s*60_000/);
 assert.match(providerLogActionSource, /excludeKnownAcceptedProviderLogs/);
+assert.match(providerLogActionSource, /recoverBilledProviderTasks/);
+assert.match(providerTaskRecoverySource, /launchPersistentContext/);
+assert.match(providerTaskRecoverySource, /usage-logs\/task/);
+assert.match(providerTaskRecoverySource, /reconcileAmbiguousPaidImageTask/);
 
 assert.deepEqual(
   matchProviderBilledAcceptanceAfterGateway({

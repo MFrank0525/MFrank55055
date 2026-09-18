@@ -4,6 +4,7 @@ import { sanitizeFileName } from "../utils/path-names.js";
 import { readImageDimensions } from "../utils/image-dimensions.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import {
+  createPaidImageSubmitCircuit,
   resolveMissingFixedImageIndexes,
   resolvePaidImageLedgerFailureDisposition,
   resolveVideosBase64SubmitConcurrency
@@ -16,7 +17,7 @@ import {
   paidImageProductLedgerDir,
   summarizePaidImageProductLedger
 } from "./paid-image-submission-ledger.js";
-import { reconcileStrictProviderLogNoAcceptance } from "./paid-image-provider-log-reconciliation-action.js";
+import { reconcileStrictProviderLogOutcome } from "./paid-image-provider-log-reconciliation-action.js";
 import { resolveMainImageShopAssignments, shopCodeFromFolder } from "./product-category.js";
 import type { ImageGenerationProvider, MainImageArtifact, MainImageCountStrategy, MainImageGeneratedFile } from "./types.js";
 import { requireOpenAiCompatibleImageProvider } from "./image-generation-provider.js";
@@ -437,6 +438,7 @@ export async function generateMainImageAssets(options: {
   const videosBase64SubmitGate = createConcurrencyGate(
     resolveVideosBase64SubmitConcurrency(imageGenerationConfig.submitConcurrency)
   );
+  const videosBase64SubmitCircuit = createPaidImageSubmitCircuit();
   if (!options.feishuBatchFingerprint || !options.feishuRecordId || !options.paidImageSubmissionLedgerDir) {
     throw new Error(
       "videos-base64 paid submission requires project-owned feishuBatchFingerprint, feishuRecordId, and paidImageSubmissionLedgerDir."
@@ -540,6 +542,7 @@ export async function generateMainImageAssets(options: {
       expectedImageCount: remainingImageCount,
       requestedImageIndexes: missingLocalIndexes,
       videosBase64SubmitGate,
+      videosBase64SubmitCircuit,
       paidImageLedger: {
         rootDir: options.paidImageSubmissionLedgerDir as string,
         batchFingerprint: options.feishuBatchFingerprint as string,
@@ -645,19 +648,22 @@ export async function generateMainImageAssets(options: {
         break;
       }
       try {
-        const reconciledSlots = await reconcileStrictProviderLogNoAcceptance({
+        const reconciliation = await reconcileStrictProviderLogOutcome({
           configFile: options.imageGenerationConfigFile,
           productDir,
           taskDir,
-          expectedImagesPerRound: options.mainImageExpectedCount
+          expectedImagesPerRound: options.mainImageExpectedCount,
+          onProgress: options.onProgress
         });
-        if (reconciledSlots.length === 0) {
+        if (reconciliation.slots.length === 0) {
           break;
         }
-        options.onProgress?.(
-          `Provider logs proved zero-billed no-acceptance for fixed slots ${formatSlotList(reconciledSlots)}; retrying only those slots.`
+        videosBase64SubmitCircuit.reset();
+        options.onProgress?.(reconciliation.kind === "no_acceptance"
+          ? `Provider logs proved zero-billed no-acceptance for fixed slots ${formatSlotList(reconciliation.slots)}; retrying only those slots.`
+          : `Recovered accepted provider tasks for fixed slots ${formatSlotList(reconciliation.slots)}; polling the original tasks without paid replay.`
         );
-        if (attempt > 0) {
+        if (attempt > 0 && reconciliation.kind === "no_acceptance") {
           const original = error instanceof Error ? error.message : String(error);
           roundFailure = new Error(
             `${original}; provider_log_no_acceptance_reconciled; repeated gateway no-acceptance wave was reconciled safely; retry after 180000ms`

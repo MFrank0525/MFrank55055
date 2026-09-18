@@ -5,6 +5,7 @@ import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
 import {
   resolveImageDownloadTimeoutMs,
+  createPaidImageSubmitCircuit,
   resolveImageGenerationRequestDeadlineMs,
   resolveOpenAiCompatibleImageMode,
   resolveVideosBase64SubmitConcurrency,
@@ -20,7 +21,8 @@ import {
   shouldKeepPaidImagePolicyCompatiblePrompt,
   resolvePaidImageFixedSlotRecovery,
   shouldFallbackToAuthenticatedTaskContent,
-  shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted
+  shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted,
+  type PaidImageSubmitCircuit
 } from "./image-generation-rules.js";
 import { readManualTextBlock } from "./operation-manual.js";
 import {
@@ -657,6 +659,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
   expectedImageCount: number;
   requestedImageIndexes?: number[];
   videosBase64SubmitGate?: ConcurrencyGate;
+  videosBase64SubmitCircuit?: PaidImageSubmitCircuit;
   paidImageLedger?: {
     rootDir: string;
     batchFingerprint: string;
@@ -681,6 +684,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
   const videosBase64SubmitTimeoutMs = resolveVideosBase64SubmitTimeoutMs(config.submitTimeoutMs || timeoutMs, config.maxPollMs);
   const submitGate =
     options.videosBase64SubmitGate || createConcurrencyGate(resolveVideosBase64SubmitConcurrency(config.submitConcurrency));
+  const submitCircuit = options.videosBase64SubmitCircuit || createPaidImageSubmitCircuit();
   const transportRetryPolicy = resolveImageGenerationTransportRetryPolicy(config.maxTransientRetries);
   const preparedReferenceImagePath = await prepareVideosBase64ReferenceImage({
     sourceImagePath: options.sourceImagePath,
@@ -1176,7 +1180,32 @@ export async function generateWithOpenAiCompatibleProvider(options: {
       let response: Response;
       let text = "";
       try {
-        const result = await submitGate.run(() => sendVideosBase64SubmitWithProvenNoAcceptanceRetries(absoluteImageIndex, requestBody));
+        const result = await submitGate.run(async () => {
+          if (submitCircuit.isOpen()) {
+            throw new Error(`paid_submit_circuit_open_before_post: ${submitCircuit.reason()}`);
+          }
+          try {
+            const submitted = await sendVideosBase64SubmitWithProvenNoAcceptanceRetries(absoluteImageIndex, requestBody);
+            let hasTaskId = false;
+            if (submitted.response.ok) {
+              try {
+                hasTaskId = Boolean(extractVideosBase64TaskId(JSON.parse(submitted.text)));
+              } catch {
+                hasTaskId = false;
+              }
+            }
+            if (!submitted.response.ok || (submitted.response.ok && !hasTaskId)) {
+              submitCircuit.trip(`HTTP ${submitted.response.status} did not return a proven task id`);
+            }
+            return submitted;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!/paid_submit_circuit_open_before_post/.test(message)) {
+              submitCircuit.trip(message);
+            }
+            throw error;
+          }
+        });
         response = result.response;
         text = result.text;
       } catch (error) {

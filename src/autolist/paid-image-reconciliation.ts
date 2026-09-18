@@ -58,7 +58,126 @@ export interface ProviderKnownAcceptedLogMatch {
   upstreamRequestId: string;
 }
 
+export interface ProviderTaskListEntry {
+  id?: unknown;
+  task_id?: unknown;
+  taskId?: unknown;
+  status?: unknown;
+  state?: unknown;
+  model?: unknown;
+  model_name?: unknown;
+  submit_time?: unknown;
+  created_at?: unknown;
+}
+
+export interface ProviderBilledSlotTaskEvidence {
+  slot: number;
+  promptDigest: string;
+  logCreatedAt: number;
+}
+
+export interface ProviderBilledTaskMatch {
+  slot: number;
+  taskId: string;
+  taskCreatedAt: number;
+  clockSkewMs: number;
+  status: string;
+}
+
 const PROVIDER_NO_ACCEPTANCE_GATEWAY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+
+function providerTaskId(task: ProviderTaskListEntry): string {
+  return [task.task_id, task.taskId, task.id]
+    .map((value) => String(value ?? "").trim())
+    .find((value) => /^task_[A-Za-z0-9_-]{8,200}$/.test(value)) || "";
+}
+
+function normalizeProviderTimestampSeconds(raw: unknown): number {
+  if (typeof raw === "string" && !/^\d+(?:\.\d+)?$/.test(raw.trim())) {
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed / 1000 : Number.NaN;
+  }
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) && numeric > 10_000_000_000 ? numeric / 1000 : numeric;
+}
+
+function providerTaskTimestampCandidates(task: ProviderTaskListEntry): number[] {
+  return [task.created_at, task.submit_time]
+    .map(normalizeProviderTimestampSeconds)
+    .filter((value, index, values) => Number.isFinite(value) && values.indexOf(value) === index);
+}
+
+export function matchBilledProviderTasks(input: {
+  model: string;
+  maximumClockSkewMs: number;
+  billedSlots: ProviderBilledSlotTaskEvidence[];
+  knownProviderTaskIds: string[];
+  tasks: ProviderTaskListEntry[];
+}): ProviderBilledTaskMatch[] {
+  if (!input.model.trim()) throw new Error("provider model is required for billed task recovery");
+  if (!Number.isFinite(input.maximumClockSkewMs) || input.maximumClockSkewMs < 0) {
+    throw new Error("maximumClockSkewMs must be a non-negative finite number");
+  }
+  const known = new Set(input.knownProviderTaskIds.filter(Boolean));
+  const candidatesBySlot = input.billedSlots.map((slot) => {
+    if (!Number.isInteger(slot.slot) || slot.slot <= 0 || !slot.promptDigest || !Number.isFinite(slot.logCreatedAt)) {
+      throw new Error(`billed slot ${slot.slot} has invalid task recovery evidence`);
+    }
+    const candidates = input.tasks.flatMap((task) => {
+      const taskId = providerTaskId(task);
+      const taskTimestamps = providerTaskTimestampCandidates(task);
+      const model = String(task.model ?? task.model_name ?? "").trim();
+      const status = String(task.status ?? task.state ?? "").trim();
+      const taskCreatedAt = taskTimestamps.reduce((closest, candidate) =>
+        Math.abs(candidate - slot.logCreatedAt) < Math.abs(closest - slot.logCreatedAt) ? candidate : closest,
+      Number.POSITIVE_INFINITY);
+      const clockSkewMs = Math.abs(taskCreatedAt * 1000 - slot.logCreatedAt * 1000);
+      return taskId && !known.has(taskId) && (!model || model === input.model) && Number.isFinite(taskCreatedAt) &&
+          !/^(?:fail|failed|failure|cancelled|canceled)$/i.test(status) && clockSkewMs <= input.maximumClockSkewMs
+        ? [{ slot: slot.slot, taskId, taskCreatedAt, clockSkewMs, status }]
+        : [];
+    });
+    if (candidates.length === 0) {
+      throw new Error(`billed slot ${slot.slot} has no matching provider task`);
+    }
+    candidates.sort((left, right) => left.clockSkewMs - right.clockSkewMs || left.taskId.localeCompare(right.taskId));
+    return { ...slot, candidates };
+  });
+  for (let leftIndex = 0; leftIndex < candidatesBySlot.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < candidatesBySlot.length; rightIndex += 1) {
+      const left = candidatesBySlot[leftIndex];
+      const right = candidatesBySlot[rightIndex];
+      const rightIds = new Set(right.candidates.map((candidate) => candidate.taskId));
+      if (left.candidates.some((candidate) => rightIds.has(candidate.taskId)) && left.promptDigest !== right.promptDigest) {
+        throw new Error("provider tasks with overlapping timestamps may only be assigned to slots with the same prompt digest");
+      }
+    }
+  }
+  const relevantTaskIds = new Set(candidatesBySlot.flatMap((entry) => entry.candidates.map((candidate) => candidate.taskId)));
+  if (relevantTaskIds.size !== input.billedSlots.length) {
+    throw new Error("provider tasks do not form a one-to-one set for billed task recovery");
+  }
+  const ordered = [...candidatesBySlot].sort(
+    (left, right) => left.candidates.length - right.candidates.length || left.slot - right.slot
+  );
+  const assigned = new Map<number, ProviderBilledTaskMatch>();
+  const used = new Set<string>();
+  const findMatching = (index: number): boolean => {
+    if (index >= ordered.length) return true;
+    const entry = ordered[index];
+    for (const candidate of entry.candidates) {
+      if (used.has(candidate.taskId)) continue;
+      used.add(candidate.taskId);
+      assigned.set(entry.slot, candidate);
+      if (findMatching(index + 1)) return true;
+      assigned.delete(entry.slot);
+      used.delete(candidate.taskId);
+    }
+    return false;
+  };
+  if (!findMatching(0)) throw new Error("provider tasks do not form a one-to-one set for billed task recovery");
+  return input.billedSlots.map((slot) => assigned.get(slot.slot) as ProviderBilledTaskMatch);
+}
 
 function providerLogOther(log: ProviderTokenLogEntry): Record<string, unknown> {
   if (log.other && typeof log.other === "object" && !Array.isArray(log.other)) {
