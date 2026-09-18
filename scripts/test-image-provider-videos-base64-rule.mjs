@@ -457,6 +457,23 @@ const repeatedProviderTimeoutAudit = [
 const twoProviderTimeoutAudit = repeatedProviderTimeoutAudit.slice(0, 2);
 assert.deepEqual(
   resolvePaidImageFixedSlotRecovery({
+    failureReason: 'provider task failed: {"code":"upstream_error","message":"非常抱歉，该提示可能违反了我们的内容政策。如果你认为此判断有误，请重试或修改提示语。"}',
+    audit: [
+      {
+        state: "failed_after_acceptance",
+        at: "2026-09-18T11:16:19.911Z",
+        reason: 'provider task failed: {"code":"upstream_error","message":"非常抱歉，该提示可能违反了我们的内容政策。如果你认为此判断有误，请重试或修改提示语。"}'
+      }
+    ],
+    recordedPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-09-18T11:16:20.000Z")
+  }),
+  { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: true, deferMs: 0 },
+  "A provider task rejected by the Chinese content-policy wording must retry only that slot with the compatible prompt"
+);
+assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
     failureReason: 'provider task failed: {"code":"task_timeout","message":"任务失败，超时5分钟"}',
     audit: [
       {
@@ -822,19 +839,44 @@ assert.match(
 assert.match(source, /requestedImageIndexes/);
 assert.match(source, /resolveMissingFixedImageIndexes/);
 assert.match(source, /requestedImageIndexes: missingLocalIndexes/);
+assert.ok(
+  source.indexOf("const paidReplayPreflightSummary") >= 0 &&
+    source.indexOf("const paidReplayPreflightSummary") < source.indexOf("settleConcurrentWork(\n        promptIndexes.map"),
+  "an existing ambiguous paid slot must be reconciled before any concurrent prompt round can submit another paid request"
+);
 assert.match(source, /summarizeVideosBase64PaidResumePlan/);
 assert.match(source, /allowExistingSubmittedTaskImport/);
 assert.match(source, /allowExistingSubmittedTaskImport =[\s\S]*slotAction\.action !== "retry_failed_before_acceptance"[\s\S]*slotAction\.action !== "retry_failed_after_acceptance"/);
 assert.match(source, /persistedReplayable =[\s\S]*replayDisposition === "replayable"/);
-assert.match(source, /!persistedReplayable[\s\S]*isUnsafePaidImageReplayReason\(failedRetryReason\)/);
 assert.match(
   source,
-  /isPolicyCompatibleRetryFailureReason\(reason: string\)[\s\S]*违规[\s\S]*policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*failedAfterAcceptanceReason[\s\S]*shouldKeepPaidImagePolicyCompatiblePrompt[\s\S]*keepPolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
+  /definitiveFailedBeforeAcceptance\s*=[\s\S]*slotAction\.action === "retry_failed_before_acceptance"[\s\S]*submitTransportFailureProvesNoPaidTaskAccepted\(failedRetryReason\)[\s\S]*!definitiveFailedBeforeAcceptance[\s\S]*isUnsafePaidImageReplayReason\(failedRetryReason\)/,
+  "a project-owned before-POST circuit marker must remain replayable even when its diagnostic text mentions the triggering 524"
+);
+assert.match(
+  source,
+  /persistedNonReplayable && !definitiveFailedBeforeAcceptance/,
+  "legacy non_replayable metadata must not override project-owned proof that no POST occurred"
+);
+assert.match(
+  source,
+  /recordFailure === recordPaidImageFailedBeforeAcceptance[\s\S]*submitTransportFailureProvesNoPaidTaskAccepted\(message\)[\s\S]*"replayable"/,
+  "new before-POST circuit failures must be persisted as replayable instead of contradictory non_replayable records"
+);
+assert.match(source, /!persistedReplayable[\s\S]*isUnsafePaidImageReplayReason\(failedRetryReason\)/);
+assert.match(
+  imageGenerationRulesSource,
+  /isPaidImagePolicyCompatibilityReason\(reason: string\)[\s\S]*内容政策[\s\S]*resolvePaidImageFixedSlotRecovery[\s\S]*isPaidImagePolicyCompatibilityReason\(failureReason\)[\s\S]*retry_fixed_slot_now/,
+  "Chinese content-policy task failures must authorize only the fixed-slot compatible retry"
+);
+assert.match(
+  source,
+  /policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*failedAfterAcceptanceReason[\s\S]*shouldKeepPaidImagePolicyCompatiblePrompt[\s\S]*keepPolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
   "videos-base64 failed-after-acceptance fixed-slot retries must switch only that slot to the policy-compatible prompt"
 );
 assert.match(
   source,
-  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*isPolicyCompatibleRetryFailureReason\(failedAfterAcceptanceReason\)[\s\S]*shouldAllowPaidImagePolicyCompatibilityIdentityTransition/,
+  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*isPaidImagePolicyCompatibilityReason\(failedAfterAcceptanceReason\)[\s\S]*shouldAllowPaidImagePolicyCompatibilityIdentityTransition/,
   "Only an explicit content-policy failure may authorize the one-time fixed-slot digest switch"
 );
 assert.doesNotMatch(

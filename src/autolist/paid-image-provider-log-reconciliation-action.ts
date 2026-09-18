@@ -5,7 +5,8 @@ import {
   excludeKnownAcceptedProviderLogs,
   isProviderNoAcceptanceGatewayStatus,
   matchProviderBilledAcceptanceAfterGateway,
-  matchProviderNoAcceptanceLogsWithRefresh,
+  matchProviderNoAcceptanceLogs,
+  type ProviderBilledAcceptanceLogMatch,
   type ProviderNoAcceptanceLogMatch,
   type ProviderTokenLogEntry
 } from "./paid-image-reconciliation.js";
@@ -23,9 +24,9 @@ import {
 const PROVIDER_LOG_CLOCK_SKEW_MS = 5_000;
 // Token logs are eventually consistent independently of their created_at value.
 // A completed 7-slot incident still lacked its last entry on the first lookup.
-// Refresh only the read-only log endpoint for at most 30 seconds; never replay a
+// Refresh only the read-only log endpoint for at most three minutes; never replay a
 // paid POST until the complete strict one-to-one proof exists.
-const PROVIDER_LOG_LOOKUP_ATTEMPTS = 7;
+const PROVIDER_LOG_LOOKUP_ATTEMPTS = 37;
 const PROVIDER_LOG_LOOKUP_REFRESH_MS = 5_000;
 // A task accepted immediately before Cloudflare returns a gateway page can be
 // billed only after that response is persisted. Keep this diagnostic window
@@ -132,41 +133,39 @@ export async function reconcileStrictProviderLogOutcome(input: {
     return { kind: "none", slots: [] };
   }
 
-  let latestLogs: ProviderTokenLogEntry[] = [];
-  let matches: ProviderNoAcceptanceLogMatch[];
-  try {
-    matches = await matchProviderNoAcceptanceLogsWithRefresh({
-      model: config.model,
-      maximumClockSkewMs: PROVIDER_LOG_CLOCK_SKEW_MS,
-      maximumAttempts: PROVIDER_LOG_LOOKUP_ATTEMPTS,
-      slots: ambiguous,
-      loadLogs: async () => {
-        const response = await fetch(providerTokenLogUrl(config.apiUrl), {
-          method: "GET",
-          headers: { Authorization: "Bearer " + config.apiKey }
-        });
-        if (!response.ok) {
-          throw new Error(`provider token log lookup failed with HTTP ${response.status}`);
-        }
-        latestLogs = extractProviderLogs(await response.json());
-        return latestLogs;
-      },
-      waitBeforeRetry: async () => {
-        await new Promise<void>((resolve) => setTimeout(resolve, PROVIDER_LOG_LOOKUP_REFRESH_MS));
-      }
+  const acceptedSlots = Array.from({ length: expectedSlotCount }, (_, index) => index + 1).flatMap((slot) => {
+    const record = readPaidImageSlotRecord({ productDir: input.productDir, slot });
+    const submittedAt = record
+      ? [...record.audit].reverse().find((entry) => entry.state === "submitted")?.at
+      : undefined;
+    return record?.providerTaskId && submittedAt
+      ? [{ slot, submittedAt }]
+      : [];
+  });
+  let matches: ProviderNoAcceptanceLogMatch[] | undefined;
+  let billed: ProviderBilledAcceptanceLogMatch[] | undefined;
+  let lastNoAcceptanceError: unknown;
+  for (let lookupAttempt = 1; lookupAttempt <= PROVIDER_LOG_LOOKUP_ATTEMPTS; lookupAttempt += 1) {
+    const response = await fetch(providerTokenLogUrl(config.apiUrl), {
+      method: "GET",
+      headers: { Authorization: "Bearer " + config.apiKey }
     });
-  } catch (noAcceptanceError) {
-    let billed;
+    if (!response.ok) {
+      throw new Error(`provider token log lookup failed with HTTP ${response.status}`);
+    }
+    const latestLogs = extractProviderLogs(await response.json());
     try {
-      const acceptedSlots = Array.from({ length: expectedSlotCount }, (_, index) => index + 1).flatMap((slot) => {
-        const record = readPaidImageSlotRecord({ productDir: input.productDir, slot });
-        const submittedAt = record
-          ? [...record.audit].reverse().find((entry) => entry.state === "submitted")?.at
-          : undefined;
-        return record?.state === "completed" && record.providerTaskId && submittedAt
-          ? [{ slot, submittedAt }]
-          : [];
+      matches = matchProviderNoAcceptanceLogs({
+        model: config.model,
+        maximumClockSkewMs: PROVIDER_LOG_CLOCK_SKEW_MS,
+        slots: ambiguous,
+        logs: latestLogs
       });
+      break;
+    } catch (error) {
+      lastNoAcceptanceError = error;
+    }
+    try {
       const filtered = excludeKnownAcceptedProviderLogs({
         model: config.model,
         maximumClockSkewMs: PROVIDER_LOG_CLOCK_SKEW_MS,
@@ -179,9 +178,15 @@ export async function reconcileStrictProviderLogOutcome(input: {
         slots: ambiguous,
         logs: filtered.logs
       });
-    } catch (billedError) {
-      throw noAcceptanceError;
+      break;
+    } catch {
+      // Neither strict zero-billed nor strict billed evidence is complete yet.
     }
+    if (lookupAttempt < PROVIDER_LOG_LOOKUP_ATTEMPTS) {
+      await new Promise<void>((resolve) => setTimeout(resolve, PROVIDER_LOG_LOOKUP_REFRESH_MS));
+    }
+  }
+  if (billed) {
     input.onProgress?.(
       `Provider billing logs prove ${billed.length} gateway-lost submissions were accepted; entering authenticated read-only task recovery.`
     );
@@ -193,6 +198,11 @@ export async function reconcileStrictProviderLogOutcome(input: {
       onProgress: input.onProgress
     });
     return { kind: "billed_task_recovered", slots: recovered };
+  }
+  if (!matches) {
+    throw lastNoAcceptanceError instanceof Error
+      ? lastNoAcceptanceError
+      : new Error("provider logs did not produce a safe acceptance outcome after bounded refresh");
   }
 
   for (const match of matches) {

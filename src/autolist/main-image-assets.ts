@@ -628,6 +628,33 @@ export async function generateMainImageAssets(options: {
     options.feishuBatchFingerprint,
     options.feishuRecordId
   );
+  const paidReplayPreflightSummary = fs.existsSync(productDir)
+    ? summarizePaidImageProductLedger(productDir)
+    : undefined;
+  if (paidReplayPreflightSummary && paidReplayPreflightSummary.ambiguous > 0) {
+    try {
+      const reconciliation = await reconcileStrictProviderLogOutcome({
+        configFile: options.imageGenerationConfigFile,
+        productDir,
+        taskDir,
+        expectedImagesPerRound: options.mainImageExpectedCount,
+        onProgress: options.onProgress
+      });
+      if (reconciliation.slots.length === 0) {
+        throw new Error("existing ambiguous paid slots produced no reconciliation outcome");
+      }
+      videosBase64SubmitCircuit.reset();
+      options.onProgress?.(reconciliation.kind === "no_acceptance"
+        ? `Preflight proved zero-billed no-acceptance for fixed slots ${formatSlotList(reconciliation.slots)}; only those slots may submit again.`
+        : `Preflight recovered accepted provider tasks for fixed slots ${formatSlotList(reconciliation.slots)}; polling the original tasks without paid replay.`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw normalizeImageGenerationError(
+        `paid submission safety block: existing ambiguous slots must reconcile before any new paid POST; ${message}`
+      );
+    }
+  }
   let roundFailure: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {

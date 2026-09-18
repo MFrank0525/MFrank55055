@@ -293,7 +293,25 @@ assert.match(providerLogActionSource, /PROVIDER_LOG_CLOCK_SKEW_MS\s*=\s*5_000/);
 assert.match(providerLogActionSource, /billed_task_recovered/);
 assert.match(providerLogActionSource, /PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS\s*=\s*5\s*\*\s*60_000/);
 assert.match(providerLogActionSource, /excludeKnownAcceptedProviderLogs/);
+assert.match(
+  providerLogActionSource,
+  /return record\?\.providerTaskId && submittedAt\s*\? \[\{ slot, submittedAt \}\]/,
+  "every known submitted task ID, including failed_after_acceptance, must be excluded before mapping an unknown billed slot"
+);
+assert.doesNotMatch(
+  providerLogActionSource,
+  /record\?\.state === "completed" && record\.providerTaskId && submittedAt/,
+  "billing exclusion must not be restricted to completed slots"
+);
 assert.match(providerLogActionSource, /recoverBilledProviderTasks/);
+{
+  const lookupLoop = providerLogActionSource.slice(providerLogActionSource.indexOf("for (let lookupAttempt"));
+  assert.ok(
+    lookupLoop.indexOf("matchProviderBilledAcceptanceAfterGateway") >= 0 &&
+      lookupLoop.indexOf("matchProviderBilledAcceptanceAfterGateway") < lookupLoop.indexOf("setTimeout"),
+    "each read-only refresh must test billed acceptance before waiting for another zero-billed retry"
+  );
+}
 assert.match(providerTaskRecoverySource, /launchPersistentContext/);
 assert.match(providerTaskRecoverySource, /usage-logs\/task/);
 assert.match(providerTaskRecoverySource, /reconcileAmbiguousPaidImageTask/);

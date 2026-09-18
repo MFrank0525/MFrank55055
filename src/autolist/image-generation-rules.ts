@@ -276,6 +276,12 @@ export function shouldKeepPaidImagePolicyCompatiblePrompt(input: {
   );
 }
 
+export function isPaidImagePolicyCompatibilityReason(reason: string): boolean {
+  return /content[_ -]?policy|policy[_ -]?violation|safety|unsafe|moderation|violat|违规|安全策略|内容策略|内容政策|提示可能违反/i.test(
+    reason
+  );
+}
+
 export function isAcceptedPaidImageTaskTimeoutReason(reason: string): boolean {
   const hasTimeout =
     /task_timeout|timeout|timed out|did not finish within|queued\/pending beyond|accepted provider task (?:expired|missing)|status endpoint returned HTTP 404|task[_ -]?not[_ -]?found|任务(?:已)?过期|任务不存在|超时/i.test(
@@ -530,6 +536,13 @@ export function resolvePaidImageFixedSlotRecovery(input: {
     return {
       action: "retry_fixed_slot_now",
       usePolicyCompatiblePrompt: false,
+      deferMs: 0
+    };
+  }
+  if (isPaidImagePolicyCompatibilityReason(failureReason) && !unsafeReplay) {
+    return {
+      action: "retry_fixed_slot_now",
+      usePolicyCompatiblePrompt: true,
       deferMs: 0
     };
   }

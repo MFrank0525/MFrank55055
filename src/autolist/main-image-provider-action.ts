@@ -19,6 +19,7 @@ import {
   submitTransportFailureProvesNoPaidTaskAccepted,
   shouldRetryImageGenerationWithPolicyPrompt,
   shouldKeepPaidImagePolicyCompatiblePrompt,
+  isPaidImagePolicyCompatibilityReason,
   resolvePaidImageFixedSlotRecovery,
   shouldFallbackToAuthenticatedTaskContent,
   shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted,
@@ -410,10 +411,6 @@ export function buildPolicyCompatibleImageEditPrompt(promptText: string, _imageI
     .replaceAll("{{副标题}}", genericName)
     .replaceAll("{{中性信息点}}", visualBadges)
     .replaceAll("{{差异化要求}}", "");
-}
-
-export function isPolicyCompatibleRetryFailureReason(reason: string): boolean {
-  return /content[_ -]?policy|policy[_ -]?violation|safety|unsafe|moderation|violat|违规|安全策略|内容策略/i.test(reason);
 }
 
 export function resolveShopFolders(shopRootDir: string): Array<{ shopFolder: string; watermarkText: string }> {
@@ -1034,14 +1031,15 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action !== "missing" &&
           "record" in slotAction &&
           slotAction.record?.replayDisposition === "replayable";
-        const definitiveNoAcceptanceWithLossyReason =
+        const definitiveFailedBeforeAcceptance =
           slotAction.action === "retry_failed_before_acceptance" &&
-          failedRetryReason.trim().toLowerCase() === "[redacted]";
+          (failedRetryReason.trim().toLowerCase() === "[redacted]" ||
+            submitTransportFailureProvesNoPaidTaskAccepted(failedRetryReason));
         if (
           slotAction.action !== "missing" &&
-          (persistedNonReplayable ||
+          ((persistedNonReplayable && !definitiveFailedBeforeAcceptance) ||
             (!persistedReplayable &&
-              !definitiveNoAcceptanceWithLossyReason &&
+              !definitiveFailedBeforeAcceptance &&
               isUnsafePaidImageReplayReason(failedRetryReason)))
         ) {
           const safeFailedRetryReason = sanitizeImageGenerationProviderErrorText(
@@ -1083,7 +1081,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
             }));
         const allowFailedAfterAcceptanceDigestChange =
           slotAction.action === "retry_failed_after_acceptance" &&
-          isPolicyCompatibleRetryFailureReason(failedAfterAcceptanceReason) &&
+          isPaidImagePolicyCompatibilityReason(failedAfterAcceptanceReason) &&
           shouldAllowPaidImagePolicyCompatibilityIdentityTransition({
             recordedRequestDigest: slotAction.record?.requestDigest || "",
             recordedPromptDigest: slotAction.record?.promptDigest || "",
@@ -1218,7 +1216,13 @@ export async function generateWithOpenAiCompatibleProvider(options: {
             productDir: videosBase64Ledger.productDir,
             slot: ledgerSlot,
             reason: message,
-            replayDisposition: isUnsafePaidImageReplayReason(message) ? "non_replayable" : undefined
+            replayDisposition:
+              recordFailure === recordPaidImageFailedBeforeAcceptance &&
+              submitTransportFailureProvesNoPaidTaskAccepted(message)
+                ? "replayable"
+                : isUnsafePaidImageReplayReason(message)
+                  ? "non_replayable"
+                  : undefined
           });
         }
         throw error;
