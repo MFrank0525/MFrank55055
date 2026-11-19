@@ -69,6 +69,7 @@ import {
   resolveAutoListingControllerPublishGroupProgress,
   resolveAutoListingControllerPaidImageRecordId,
   shouldSuppressTerminalFailureBehindNewerProgress,
+  selectLatestUnresolvedPublishAttemptEntry,
   compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
 import { shouldTreatControllerSupervisorAsInert } from "../dist/src/autolist/maintenance-rules.js";
@@ -102,6 +103,7 @@ import { selectCleanupTargets, selectStaleRunHistoryTargets } from "../dist/src/
 import { cleanupStaleRunHistory } from "../dist/src/autolist/cleanup.js";
 import {
   evaluateImageGenerationEndpointProbe,
+  formatImageGenerationTransportError,
   resolveImageDownloadTimeoutMs,
   resolveImageGenerationRequestDeadlineMs,
   resolveVideosBase64SubmitTimeoutMs,
@@ -220,6 +222,36 @@ assert.equal(
 assert.equal(shouldConsumeSupervisorRecoveryAttempt(providerUnavailableMessage), false);
 assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 0 }), 3 * 60 * 1000);
 assert.equal(resolveSupervisorRecoveryDelayMs({ failureMessage: providerUnavailableMessage, externalServiceWaitAttempts: 3 }), 3 * 60 * 1000);
+const videosBase64CapacityShortageMessage =
+  'failed at main_images_generated: videos-base64 prompt rounds failed; reasons: provider task failed: {"code":"video_generation_failed","message":"服务资源暂时不足，请稍后重试","error":{"code":"video_generation_failed","message":"服务资源暂时不足，请稍后重试"}}';
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(videosBase64CapacityShortageMessage),
+  true,
+  "Accepted video_generation_failed capacity shortages must enter external-service wait"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(videosBase64CapacityShortageMessage),
+  false,
+  "Provider capacity shortages must not burn the ordinary supervisor recovery budget"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: videosBase64CapacityShortageMessage,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "Provider capacity shortages must remain recoverable after the ordinary retry budget is exhausted"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: videosBase64CapacityShortageMessage,
+    externalServiceWaitAttempts: 0
+  }),
+  3 * 60 * 1000
+);
 assert.equal(
   isRetryableExternalServiceAvailabilityFailure(
     "failed at main_images_generated: Image generation request timed out. The provider did not respond in time. Raw error: This operation was aborted"
@@ -257,6 +289,36 @@ assert.equal(
   }),
   false,
   "project supervisor must stop on reserved or ambiguous paid submission slots instead of restarting"
+);
+const reconciledCloudflare524Aggregate =
+  "failed at main_images_generated: videos-base64 prompt rounds failed; reasons: Image generation request timed out. Raw error: videos-base64 submit failed with HTTP 524: A timeout occurred; paid_submit_circuit_open_before_post: HTTP 524 did not return a proven task id; paid_image_ledger_safe_external_wait: ambiguous=0, reserved=0, submitted=1, failed_before_acceptance=17, completed=2";
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(reconciledCloudflare524Aggregate),
+  true,
+  "a reconciled ledger must override stale nested task-id uncertainty from an earlier 524 response"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: reconciledCloudflare524Aggregate,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "a 524 wave with no remaining ambiguous or reserved ledger slots must stay project-owned"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(reconciledCloudflare524Aggregate),
+  false,
+  "a safely reconciled 524 wave must use the external-service wait budget"
+);
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(
+    "failed at main_images_generated: videos-base64 submit failed with HTTP 524 and did not return a proven task id"
+  ),
+  false,
+  "a raw unresolved 524 submission must remain blocked without an authoritative safe-ledger marker"
 );
 assert.equal(
   shouldConsumeSupervisorRecoveryAttempt(videosBase64PollTimeoutMessage),
@@ -588,8 +650,8 @@ const activePaidLedgerWait = {
   ambiguous: 0
 };
 const compactActivePaidLedgerWait = formatAutoListingControllerCompactStatusText({
-  status: "external_service_wait",
-  summary: "等待生图服务恢复后自动继续查询已接受任务。",
+  status: "running",
+  summary: "生图仍在运行：主图 17/20；3 个已受理任务正在供应商队列中。",
   imageGenerationProgress: "Prompt 5/5: Image 4: videos-base64 task task_active status pending 0.",
   mainImageCompleted: activePaidLedgerWait.completed,
   mainImageExpected: activePaidLedgerWait.expectedSlotCount,
@@ -597,7 +659,7 @@ const compactActivePaidLedgerWait = formatAutoListingControllerCompactStatusText
   feishuTotal: 1
 });
 assert.match(compactActivePaidLedgerWait, /主图 17\/20/);
-assert.match(compactActivePaidLedgerWait, /等待生图服务/);
+assert.match(compactActivePaidLedgerWait, /运行中/);
 assert.doesNotMatch(compactActivePaidLedgerWait, /主图 20\/20/);
 const cloudflare502Html = '<!DOCTYPE html><html><head><title>dyysy.life | 502: Bad gateway</title></head><body><h1>Bad gateway</h1><span>Host</span><span>Error</span></body></html>';
 const paidImageSafetyBlockWithHtml =
@@ -784,6 +846,86 @@ assert.equal(
   true,
   "A watchdog kill with durable proof that the publish button was never attempted must resume the exact manifest-backed target"
 );
+const movingPlatformTabFailure =
+  "failed at published: Publish failed for shop-07: locator.click: Timeout 5000ms exceeded; waiting for getByRole('tab', { name: '平台标品' }); waiting for element to be visible, enabled and stable";
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: movingPlatformTabFailure,
+    activeStep: "published",
+    activeMessage: "Publish failed before submit",
+    publishAttemptState: "not_attempted",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "A normal child failure with durable not-attempted proof must remain on exact publish resume"
+);
+assert.equal(
+  resolveSupervisorRecoveryChildMode(movingPlatformTabFailure, "not_attempted"),
+  "resume",
+  "A pre-submit dynamic UI timeout must not restart paid/title stages"
+);
+assert.equal(
+  resolveSupervisorRecoveryChildMode(movingPlatformTabFailure, "attempted_or_unknown"),
+  "full",
+  "An uncertain submit boundary must not be reclassified as safe from timeout text alone"
+);
+const brandCandidateCommitFailure =
+  "failed at published: Publish failed for shop-07: Brand candidate selection did not commit. expected=延草纲目; expectedIdentity=1202109308; clickedIdentity=<empty>; readbacks=<empty> | <empty>";
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: brandCandidateCommitFailure,
+    activeStep: "published",
+    activeMessage: brandCandidateCommitFailure,
+    publishAttemptState: "not_attempted",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "A failed brand-dropdown commit before submit must remain supervisor-driven"
+);
+assert.equal(resolveSupervisorRecoveryChildMode(brandCandidateCommitFailure), "resume");
+const duplicateQueryButtonFailure =
+  "failed at published: Publish failed for shop-07: Visible query button was not unique or clickable.";
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: duplicateQueryButtonFailure,
+    activeStep: "published",
+    activeMessage: duplicateQueryButtonFailure,
+    publishAttemptState: "not_attempted",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true
+);
+assert.equal(resolveSupervisorRecoveryChildMode(duplicateQueryButtonFailure), "resume");
+const detailPrefillClearFailure =
+  "failed at published: Publish failed for shop-07: Detail image prefill clear was not confirmed by DOM readback. remaining=1";
+assert.equal(
+  shouldRecoverFullFlowAfterChildFailure({
+    childMode: "resume",
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: detailPrefillClearFailure,
+    activeStep: "published",
+    activeMessage: detailPrefillClearFailure,
+    publishAttemptState: "not_attempted",
+    recoveryAttempts: 0,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "A failed SPU-prefilled detail clear is a safe pre-submit resume failure"
+);
+assert.equal(resolveSupervisorRecoveryChildMode(detailPrefillClearFailure), "resume");
 const shopMenuLoadingFailure =
   "failed at published: Publish failed for shop-03: Shop switch failed: could not find 切换组织/店铺 for 延草纲目个护保健专营店";
 assert.equal(
@@ -807,6 +949,15 @@ assert.equal(
   "A classified pre-submit shop-menu failure must stay supervisor-driven instead of stopping the batch"
 );
 const publishAttemptRuntime = fs.mkdtempSync(path.join(os.tmpdir(), "publish-attempt-state-"));
+assert.deepEqual(
+  selectLatestUnresolvedPublishAttemptEntry([
+    { status: "published", runtimeKey: "published", updatedAt: "2026-09-18T10:00:00.000Z" },
+    { status: "pending", runtimeKey: "older-pending", updatedAt: "2026-09-18T10:01:00.000Z" },
+    { status: "failed", runtimeKey: "latest-failed", updatedAt: "2026-09-18T10:02:00.000Z" }
+  ])?.runtimeKey,
+  "latest-failed",
+  "The supervisor must retain durable submit-boundary evidence after the manifest entry transitions from pending to failed"
+);
 assert.equal(readPublishAttemptState(publishAttemptRuntime), "attempted_or_unknown");
 initializePublishAttemptState(publishAttemptRuntime);
 assert.equal(readPublishAttemptState(publishAttemptRuntime), "not_attempted");
@@ -931,6 +1082,13 @@ assert.deepEqual(
     timestamp: "2026-05-27T10:43:37.000Z",
     source: "latest_publish_artifact"
   }
+);
+assert.equal(
+  formatImageGenerationTransportError(Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("getaddrinfo ENOTFOUND zexapi.com"), { code: "ENOTFOUND" })
+  })),
+  "TypeError: fetch failed; cause=ENOTFOUND; detail=getaddrinfo ENOTFOUND zexapi.com",
+  "provider transport errors must retain the DNS/socket cause needed to distinguish proxy outages"
 );
 assert.equal(
   shouldResumeInterruptedTaskInPlace({
@@ -1107,7 +1265,9 @@ assert.equal(
         brand: "延草纲目",
         spu: "鄂械注准20232144654",
         sellingPointText: "测试卖点",
-        deepseekPromptText: "测试提示词",
+        mainImageHeadlineCandidateText: "测试主标题",
+        mainImageSubtitleCandidateText: "测试副标题",
+        mainImageSellingPointCandidateText: "卖点一\n卖点二\n卖点三",
         mainImageInstructionText: "测试主图指令",
         positivePromptText: "测试正向提示词",
         negativePromptText: "测试反向提示词",
@@ -1227,7 +1387,9 @@ assert.equal(
         brand: "延草纲目",
         spu: "鄂械注准20232144654",
         sellingPointText: "测试卖点",
-        deepseekPromptText: "测试提示词",
+        mainImageHeadlineCandidateText: "测试主标题",
+        mainImageSubtitleCandidateText: "测试副标题",
+        mainImageSellingPointCandidateText: "卖点一\n卖点二\n卖点三",
         mainImageInstructionText: "测试主图指令",
         positivePromptText: "测试正向提示词",
         negativePromptText: "测试反向提示词",
@@ -1414,6 +1576,16 @@ assert.equal(
     forceRerunCurrentBatch: true
   }),
   "rerun_current_batch"
+);
+assert.equal(
+  resolveAutoListingControllerStartAfterFeishuRefresh({
+    currentBatchComplete: false,
+    refreshedBatchChanged: false,
+    refreshedBatchComplete: false,
+    forceRerunCurrentBatch: true
+  }),
+  "rerun_current_batch",
+  "explicit fresh rerun must also reset an incomplete unchanged Feishu batch"
 );
 assert.equal(
   shouldSuppressHistoricalResultInAutoListingControllerStatus({

@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { ImageGenerationProvider } from "../autolist/image-generation-provider.js";
 import type { ControllerJobStatus } from "../autolist/maintenance-rules.js";
+import type { FeishuSourceCorrection } from "../autolist/feishu-source-correction-rules.js";
 
 export interface RunnerJob {
   pid: number;
@@ -51,6 +52,7 @@ export interface AutoListingJobFile {
     resumeProductFolderNames?: string[];
     feishuBatchFingerprint?: string;
     businessRuleFingerprint?: string;
+    sourceCorrection?: FeishuSourceCorrection;
     feishuProductDataFile?: string;
     processedImageManifest?: string;
     paidImageSubmissionLedgerDir?: string;
@@ -78,6 +80,7 @@ export interface AutoListingTaskFile {
     genericName?: string;
     spu?: string;
     productCategory?: string;
+    specTemplate?: string;
   };
   generatedProductFolders?: string[];
   mainImageArtifact?: { generatedFiles?: Array<{ productFolder?: string }> };
@@ -166,6 +169,7 @@ export interface LocalFeishuConfig {
 export const rootDir = process.cwd();
 export const controlDir = path.resolve(rootDir, "data/auto-listing/control");
 export const jobFile = path.join(controlDir, "auto-listing-controller-job.json");
+export const batchTransitionFile = path.join(controlDir, "auto-listing-batch-transition.json");
 export const childControlFile = path.join(controlDir, "auto-listing-child.json");
 export const externalServiceWaitFile = path.join(controlDir, "auto-listing-wait.json");
 export const pauseFile = path.join(controlDir, "pause.requested");

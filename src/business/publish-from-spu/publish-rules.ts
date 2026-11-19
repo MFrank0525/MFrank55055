@@ -319,6 +319,56 @@ export function normalizeVisibleText(value: string): string {
   return value.replace(/\s+/g, "").trim();
 }
 
+export function isExplicitShortTitleLengthRejection(value: string): boolean {
+  const text = normalizeVisibleText(value);
+  return text.includes("导购短标题")
+    && text.includes("至多输入12个汉字")
+    && text.includes("24字符");
+}
+
+export function extractRejectedTitlePhrases(value: string): string[] {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const phrases: string[] = [];
+  const patterns = [
+    /商品标题描述\s*“([^”]+)”\s*不符合平台要求/g,
+    /商品标题描述\s*「([^」]+)」\s*不符合平台要求/g,
+    /商品标题描述\s*『([^』]+)』\s*不符合平台要求/g,
+    /商品标题描述\s*[\"']([^\"']+)[\"']\s*不符合平台要求/g,
+    /标题中不允许出现连续重复片段\s*“([^”]+)”\s*[，,]?\s*建议修改后提交/g,
+    /标题中不允许出现连续重复片段\s*「([^」]+)」\s*[，,]?\s*建议修改后提交/g,
+    /标题中不允许出现连续重复片段\s*『([^』]+)』\s*[，,]?\s*建议修改后提交/g,
+    /标题中不允许出现连续重复片段\s*[\"']([^\"']+)[\"']\s*[，,]?\s*建议修改后提交/g
+  ];
+  for (const pattern of patterns) for (const match of normalized.matchAll(pattern)) {
+    const phrase = (match[1] || "")
+      .replace(/\s+/g, "")
+      .replace(/^[\[\]【】()（）\"'“”「」『』]+|[\[\]【】()（）\"'“”「」『』]+$/g, "")
+      .trim();
+    if (phrase && !phrases.includes(phrase)) phrases.push(phrase);
+  }
+  return phrases;
+}
+
+export function selectTitlePolicyFallbackTitles(input: {
+  currentTitle?: string;
+  candidateTitles?: string[];
+  rejectionIssue: string;
+  limit?: number;
+}): string[] {
+  const rejectedPhrases = extractRejectedTitlePhrases(input.rejectionIssue);
+  const limit = Math.max(0, Math.min(3, Math.trunc(input.limit ?? 3)));
+  if (!rejectedPhrases.length || !limit) return [];
+  return (input.candidateTitles || [])
+    .map((title) => title.trim())
+    .filter((title, index, all) =>
+      Boolean(title)
+      && title !== (input.currentTitle || "").trim()
+      && all.indexOf(title) === index
+      && rejectedPhrases.every((phrase) => !title.includes(phrase))
+    )
+    .slice(0, limit);
+}
+
 export function isStablePlatformBrandSelection(expectedBrand: string, readbacks: string[]): boolean {
   const expected = normalizeVisibleText(expectedBrand).toLowerCase();
   return expected.length > 0
@@ -576,6 +626,27 @@ export function evaluatePublishSubmission(snapshot: PublishPageSnapshot): Publis
     };
   }
 
+  const submissionText = [snapshot.bodyText, ...(snapshot.visibleErrorAlerts || [])].join("\n");
+  if (isExplicitShortTitleLengthRejection(submissionText)) {
+    return {
+      submitted: false,
+      issue: "平台明确拒绝发布：导购短标题至多输入12个汉字（24字符）",
+      freshCreatePage: false
+    };
+  }
+
+  const rejectedTitlePhrases = extractRejectedTitlePhrases([
+    snapshot.bodyText,
+    ...(snapshot.visibleErrorAlerts || [])
+  ].join("\n"));
+  if (rejectedTitlePhrases.length) {
+    return {
+      submitted: false,
+      issue: `平台明确拒绝发布：商品标题描述“${rejectedTitlePhrases.join("、")}”不符合平台要求，请重新填写`,
+      freshCreatePage: false
+    };
+  }
+
   const freshCreatePage = isFreshPublishCreatePage(snapshot);
   const issue = (snapshot.visibleErrorAlerts || [])
     .map((alert) => alert.replace(/\s+/g, " ").trim())
@@ -609,6 +680,18 @@ export function isPreSubmitMainImageUploadFailure(message: string): boolean {
 export function classifyPublishFailure(message: string): string {
   const text = normalizeVisibleText(message);
   if (!text) return "";
+  if (text.includes("Feishucontrolledspec-template/pricecardinalitymismatch")) {
+    return "spec_template_price_cardinality_mismatch";
+  }
+  if (
+    (text.includes("商品标题描述") && text.includes("不符合平台要求"))
+    || extractRejectedTitlePhrases(message).length > 0
+  ) {
+    return "title_policy_rejected";
+  }
+  if (isExplicitShortTitleLengthRejection(message)) {
+    return "short_title_length_rejected";
+  }
   if (text.includes("规格值不能重复")) {
     return "spec_value_duplicate_rejected";
   }
@@ -724,11 +807,22 @@ export function classifyPublishFailure(message: string): string {
     return "platform_page_not_ready";
   }
   if (
+    text.includes("Same-pagecategoryformrebuildexhausted")
+  ) {
+    return "category_advice_same_page_rebuild_exhausted";
+  }
+  if (
+    text.includes("Categoryadvicerecoveredtotheoriginalcategory") &&
+    text.includes("currentformfieldsmustberebuilt")
+  ) {
+    return "category_advice_form_rebuild_required";
+  }
+  if (
     text.includes("Doudianguideoverlay") ||
     text.includes("ecom-guide-single-content-wrapper") ||
     text.includes("interceptspointerevents") ||
     text.includes("DetailimageprefillclearwasnotconfirmedbyDOMreadback") ||
-    text.includes("Earlycategoryadviceacknowledgedwiththeoriginalcategory;freshSPUpagerestartrequired") ||
+    text.includes("Earlycategoryadviceacknowledgedwiththeoriginalcategory;rebuildthecurrentcreatepagefieldswithoutanewSPUquery") ||
     text.includes("Originalcategoryoptionwasnotuniqueafteropeningcategorychoices")
   ) {
     return "transient_overlay_blocked";
@@ -820,6 +914,9 @@ export function classifyPublishFailure(message: string): string {
     text.includes("pagecontextwaslost") ||
     text.includes("Executioncontextwasdestroyed") ||
     text.includes("mostlikelybecauseofanavigation") ||
+    text.includes("Cannotreadpropertiesofnull(reading'innerText')") ||
+    text.includes('Cannotreadpropertiesofnull(reading"innerText")') ||
+    text.includes("documentbodyistemporarilyunavailableduringnavigation") ||
     text.includes("Targetclosed") ||
     text.includes("Targetpage,contextorbrowserhasbeenclosed")
   ) {
@@ -869,6 +966,7 @@ export function classifyPublishFailure(message: string): string {
 }
 
 export function shouldRetryPublishFailure(errorClass: string, retryAttempt: number, maxRetryAttempts = 2): boolean {
+  if (errorClass === "spec_template_surface_missing") return false;
   const effectiveMaxRetryAttempts =
     errorClass === "platform_page_not_ready"
       ? Math.max(maxRetryAttempts, 4)
@@ -893,6 +991,7 @@ export function shouldRetryPublishFailure(errorClass: string, retryAttempt: numb
     "service_section_not_ready",
     "basic_info_field_not_ready",
     "health_food_category_attributes_not_ready",
+    "category_advice_form_rebuild_required",
     "publish_check_not_ready",
     "transient_overlay_blocked",
     "price_inventory_not_ready",
@@ -912,11 +1011,14 @@ const VERIFIED_PRE_SUBMIT_RECOVERY_FAILURE_CLASSES = new Set([
   "basic_info_field_not_ready",
   "health_food_food_safety_not_ready",
   "health_food_category_attributes_not_ready",
+  "category_advice_same_page_rebuild_exhausted",
+  "category_advice_form_rebuild_required",
   "health_food_specification_not_ready",
   "health_food_packaging_label_not_ready",
   "publish_check_not_ready",
   "transient_overlay_blocked",
   "price_inventory_not_ready",
+  "spec_template_price_cardinality_mismatch",
   "spec_template_not_ready",
   "spec_template_surface_missing",
   "main_image_upload_not_ready",
@@ -945,10 +1047,13 @@ export function shouldStopPublishBatchAfterFailure(
 ): boolean {
   const singleFailureStopClasses = new Set([
     "price_inventory_not_ready",
+    "spec_template_price_cardinality_mismatch",
     "detail_qualification_not_ready",
     "health_food_field_missing",
     "health_food_food_safety_not_ready",
     "health_food_category_attributes_not_ready",
+    "category_advice_same_page_rebuild_exhausted",
+    "category_advice_form_rebuild_required",
     "health_food_specification_not_ready",
     "health_food_packaging_label_not_ready",
     "doudian_login_required",

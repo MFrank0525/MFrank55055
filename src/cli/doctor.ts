@@ -10,7 +10,6 @@ import {
 } from "../autolist/image-generation-provider.js";
 import { validateFeishuProductPayload } from "../feishu/cache-contract.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
-import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { getPythonCommand, sanitizePythonRuntimeEnv } from "../utils/platform.js";
 
 interface CheckResult {
@@ -32,7 +31,6 @@ interface DoctorOptions {
 interface AutoListingJobSummary {
   input?: {
     simulateOnly?: boolean;
-    deepseekConversationUrl?: string;
     imageGenerationProvider?: unknown;
     imageGenerationConfigFile?: string;
     pauseSignalFile?: string;
@@ -202,6 +200,7 @@ function baseChecks(): CheckResult[] {
   checkNotGitTracked("secret file guard: image generation config", "input/image-generation.config.json"),
   checkNotGitTracked("secret file guard: browser storage", "data/browser-profile"),
   checkNotGitTracked("secret file guard: fallback browser storage", "data/browser-profile-fallback"),
+  checkNotGitTracked("secret file guard: DeepSeek browser storage", "data/auto-listing/deepseek-browser-profile"),
   checkNotGitTracked("secret file guard: cookie artifacts", "cookies.json"),
   checkNotGitTracked("runtime data guard", "data"),
   checkNotGitTracked("output guard", "output")
@@ -262,9 +261,6 @@ function checkAutoListingJobFile(jobFile: string): CheckResult {
   try {
     const job = JSON.parse(fs.readFileSync(resolved, "utf8")) as AutoListingJobSummary;
     const input = job.input || {};
-    if (input.deepseekConversationUrl) {
-      assertNoGptPlusWebUrl(input.deepseekConversationUrl, `${jobFile} deepseekConversationUrl`);
-    }
     resolveImageGenerationProvider(
       input.imageGenerationProvider,
       input.simulateOnly !== false,

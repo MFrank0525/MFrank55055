@@ -69,7 +69,11 @@ import {
   SPEC_TEMPLATE_KEYWORD_DEFAULT,
   SPEC_TEMPLATE_KEYWORD_JIUGUANG
 } from "./constants.js";
-import { resolveFeishuPriceInventoryRows, type PriceInventoryRowValue } from "./price-inventory-rules.js";
+import {
+  evaluateControlledSpecTemplatePriceCardinality,
+  resolveFeishuPriceInventoryRows,
+  type PriceInventoryRowValue
+} from "./price-inventory-rules.js";
 import { applyPriceInventoryOnPage, countVisiblePriceInventoryRows } from "./price-inventory-action.js";
 import { readPublishRuleSummary } from "./publish-rule-text.js";
 import { getPublishCategoryMutationPolicy } from "./publish-category-policy.js";
@@ -133,6 +137,12 @@ import {
 import { ensureMedicalDeviceCertificateFromFirstQualification } from "./graphic-file-input-action.js";
 import { graphicUploadGroupsComplete, resetGraphicModuleOnPage, uploadProductImagesOnPage } from "./graphic-upload-page-action.js";
 import { clickPublishProductOnPage, runPublishCheckOnPage } from "./publish-submit-page-action.js";
+import {
+  CategoryAdviceRecoveredError,
+  configureCategoryAdviceRecoveryForPage,
+  isCategoryAdviceFormRebuildRequiredError,
+  resolveCategoryAdviceOverlaySafely
+} from "./category-advice-overlay-action.js";
 
 export async function runPublishFlow(
   runtimeDir: string,
@@ -143,7 +153,8 @@ export async function runPublishFlow(
   stopBeforePublish = false,
   graphicResetAttempt = 0,
   createPageResetAttempt = 0,
-  progress?: { onProgress?: (message: string) => void }
+  progress?: { onProgress?: (message: string) => void },
+  samePageCategoryRebuildAttempt = 0
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -187,6 +198,7 @@ export async function runPublishFlow(
   let filledPriceRows = 0;
   let priceIssue = "";
   let freightTemplateName = "";
+  let finalSubmitStarted = false;
 
   let createPageUrl = publishPageUrl || "";
   let matchedRowText = "";
@@ -198,6 +210,13 @@ export async function runPublishFlow(
       : { title: metadata.title, shortTitle: metadata.shortTitle, modelSpec: undefined, spu: metadata.spu };
   const basicInfoGuardUnexpectedFieldChanges = mutationPolicy.guardUnexpectedBasicFieldChanges;
   const priceInventoryRows = resolveFeishuPriceInventoryRows(metadata.productPriceText || "");
+  const sourceCardinality = evaluateControlledSpecTemplatePriceCardinality({
+    specTemplate: metadata.specTemplate || "",
+    priceCount: priceInventoryRows.length
+  });
+  if (!sourceCardinality.passed) {
+    throw new Error(sourceCardinality.issue);
+  }
 
   const context = await launchPersistentBrowser();
   try {
@@ -260,8 +279,15 @@ export async function runPublishFlow(
     let page = shopSpuResult.page;
     createPageUrl = shopSpuResult.createPageUrl;
     matchedRowText = shopSpuResult.matchedRowText;
+    const configureCurrentCategoryAdviceRecovery = (): void =>
+      configureCategoryAdviceRecoveryForPage(page, {
+        productCategory,
+        spu: metadata.spu,
+        title: metadata.title
+      });
+    configureCurrentCategoryAdviceRecovery();
 
-    const basicResult = await runBasicInfoAction(
+    const runCurrentBasicInfoAction = () => runBasicInfoAction(
       {
         queryPlatformSpu,
         reuseOrOpenCreatePage: (targetContext, targetCreatePageUrl, currentPage) =>
@@ -290,7 +316,9 @@ export async function runPublishFlow(
         emitProgress: emitPublishFlowProgress
       }
     );
+    let basicResult = await runCurrentBasicInfoAction();
     page = basicResult.page;
+    configureCurrentCategoryAdviceRecovery();
     createPageUrl = basicResult.createPageUrl;
     if (basicResult.matchedRowText) {
       matchedRowText = basicResult.matchedRowText;
@@ -300,32 +328,60 @@ export async function runPublishFlow(
     filledFields.length = 0;
     filledFields.push(...basicResult.filledFields);
     configuredFields.push(...basicResult.configuredFields);
-
     let priceInventoryCompleted = false;
     await assertPublishMutationBoundaryReady(page, runtimeDir, "before_graphic_info");
     for (let specAttempt = 0; specAttempt < 2; specAttempt += 1) {
       if (specAttempt === 0) {
         logInfo(`publish module started: ${"graphic_info"} (${path.basename(shopFolder)})`);
       }
-      const graphicResult = await runGraphicInfoAction(
-        {
-          waitForPublishCreatePageReady,
-          assertBasicPublishCompletionOnPage,
-          uploadProductImagesOnPage,
-          graphicUploadGroupsComplete,
-          resetGraphicModuleOnPage
-        },
+      const graphicDeps = {
+        waitForPublishCreatePageReady,
+        assertBasicPublishCompletionOnPage,
+        uploadProductImagesOnPage,
+        graphicUploadGroupsComplete,
+        resetGraphicModuleOnPage
+      };
+      const runCurrentGraphicAction = (preserveExistingMainImages = false) => runGraphicInfoAction(
+        graphicDeps,
         {
           page,
           runtimeDir,
           createPageUrl,
           basicMetadata,
           assets,
-          graphicResetAttempt,
+          graphicResetAttempt: preserveExistingMainImages ? 1 : graphicResetAttempt,
           specAttempt,
+          preserveExistingMainImages,
           logWarn
         }
       );
+      let graphicResult: Awaited<ReturnType<typeof runGraphicInfoAction>>;
+      try {
+        await resolveCategoryAdviceOverlaySafely(page);
+        graphicResult = await runCurrentGraphicAction();
+      } catch (error) {
+        if (!isCategoryAdviceFormRebuildRequiredError(error)) {
+          throw error;
+        }
+        logInfo(
+          error instanceof CategoryAdviceRecoveredError
+            ? `rebuilding category-dependent fields after restoring the original category: ${error.originalCategory}`
+            : `rebuilding category-dependent fields after restoring the medical-device SPU: ${error.expectedSpu}`
+        );
+        basicResult = await runCurrentBasicInfoAction();
+        page = basicResult.page;
+        configureCurrentCategoryAdviceRecovery();
+        createPageUrl = basicResult.createPageUrl;
+        if (basicResult.matchedRowText) {
+          matchedRowText = basicResult.matchedRowText;
+        }
+        screenshotFiles.push(...basicResult.screenshotFiles);
+        stages.push(...basicResult.stages);
+        filledFields.length = 0;
+        filledFields.push(...basicResult.filledFields);
+        configuredFields.push(...basicResult.configuredFields);
+        graphicResult = await runCurrentGraphicAction();
+      }
       screenshotFiles.push(...graphicResult.screenshotFiles);
       stages.push(...graphicResult.stages);
       uploadedGroups = graphicResult.uploadedGroups;
@@ -369,6 +425,7 @@ export async function runPublishFlow(
         }
       );
       page = specPriceResult.page;
+      configureCurrentCategoryAdviceRecovery();
       createPageUrl = specPriceResult.createPageUrl;
       if (specPriceResult.matchedRowText) {
         matchedRowText = specPriceResult.matchedRowText;
@@ -402,25 +459,35 @@ export async function runPublishFlow(
     stages.push({ step: "apply_price_inventory", status: "completed" });
 
     await assertPublishMutationBoundaryReady(page, runtimeDir, "before_service_fulfillment");
+    const recoverLateCategoryAdvice = async (): Promise<boolean> =>
+      resolveCategoryAdviceOverlaySafely(page);
+    await recoverLateCategoryAdvice();
     logInfo(`publish module started: ${"service_fulfillment"} (${path.basename(shopFolder)})`);
-    const serviceResult = await runServiceAction(
-      {
-        assertBasicPublishCompletionOnPage,
-        fillBasicPublishPageOnPage,
-        applyFixedPublishSettingsOnPage,
-        evaluateServiceFulfillmentCompletion,
-        uploadHealthFoodPackagingLabelOnPage,
-        ensureMedicalDeviceCertificateFromFirstQualification
-      },
-      {
-        page,
-        runtimeDir,
-        metadata,
-        categoryContext,
-        assets,
-        filledFields
-      }
-    );
+    const runCurrentServiceAction = () => runServiceAction(
+        {
+          assertBasicPublishCompletionOnPage,
+          fillBasicPublishPageOnPage,
+          applyFixedPublishSettingsOnPage,
+          evaluateServiceFulfillmentCompletion,
+          uploadHealthFoodPackagingLabelOnPage,
+          ensureMedicalDeviceCertificateFromFirstQualification
+        },
+        {
+          page,
+          runtimeDir,
+          metadata,
+          categoryContext,
+          assets,
+          filledFields
+        }
+      );
+    let serviceResult: Awaited<ReturnType<typeof runServiceAction>>;
+    try {
+      serviceResult = await runCurrentServiceAction();
+    } catch (error) {
+      if (!(await recoverLateCategoryAdvice())) throw error;
+      serviceResult = await runCurrentServiceAction();
+    }
     screenshotFiles.push(...serviceResult.screenshotFiles);
     stages.push(...serviceResult.stages);
     configuredFields.push(...serviceResult.configuredFields);
@@ -430,6 +497,7 @@ export async function runPublishFlow(
       logInfo(`publish module started: final_submit (${path.basename(shopFolder)})`);
     }
     await assertPublishMutationBoundaryReady(page, runtimeDir, "before_final_submit");
+    finalSubmitStarted = !stopBeforePublish;
     const submitResult = await runSubmitAction(
       {
         runPublishCheckOnPage,
@@ -486,6 +554,47 @@ export async function runPublishFlow(
       errorHints: submitResult.errorHints,
       stages
     };
+  } catch (error) {
+    if (isCategoryAdviceFormRebuildRequiredError(error) && !finalSubmitStarted) {
+      if (!createPageUrl || samePageCategoryRebuildAttempt >= 2) {
+        const recoveryTarget = error instanceof CategoryAdviceRecoveredError ? error.originalCategory : error.expectedSpu;
+        throw new Error(
+          `Same-page category form rebuild exhausted after category-advice recovery. ` +
+          `target=${recoveryTarget}; attempts=${samePageCategoryRebuildAttempt}; ` +
+          `createPageUrl=${createPageUrl || "<empty>"}`,
+          { cause: error }
+        );
+      }
+      const nextAttempt = samePageCategoryRebuildAttempt + 1;
+      const recoveryTarget = error instanceof CategoryAdviceRecoveredError ? error.originalCategory : error.expectedSpu;
+      logInfo(
+        `rebuilding the full form on the same create page after category-advice recovery: ` +
+        `${recoveryTarget}; attempt=${nextAttempt}/2; createPageUrl=${createPageUrl}`
+      );
+      await context.browser()?.close().catch(() => {});
+      const retryResult = await runPublishFlow(
+        runtimeDir,
+        metadata,
+        assets,
+        shopFolder,
+        createPageUrl,
+        stopBeforePublish,
+        graphicResetAttempt,
+        createPageResetAttempt,
+        progress,
+        nextAttempt
+      );
+      return {
+        ...retryResult,
+        screenshotFiles: [...screenshotFiles, ...retryResult.screenshotFiles],
+        stages: [
+          ...stages,
+          { step: "rebuild_same_create_page_after_category_advice", status: "completed" },
+          ...retryResult.stages
+        ]
+      };
+    }
+    throw error;
   } finally {
     await context.browser()?.close().catch(() => {});
   }
@@ -560,6 +669,11 @@ export async function runGraphicFlow(
     let page = shopSpuResult.page;
     createPageUrl = shopSpuResult.createPageUrl;
     matchedRowText = shopSpuResult.matchedRowText;
+    configureCategoryAdviceRecoveryForPage(page, {
+      productCategory,
+      spu: actionMetadata.spu,
+      title: actionMetadata.title
+    });
 
     const basicResult = await runBasicInfoAction(
       {
@@ -592,6 +706,11 @@ export async function runGraphicFlow(
       }
     );
     page = basicResult.page;
+    configureCategoryAdviceRecoveryForPage(page, {
+      productCategory,
+      spu: actionMetadata.spu,
+      title: actionMetadata.title
+    });
     createPageUrl = basicResult.createPageUrl;
     if (basicResult.matchedRowText) {
       matchedRowText = basicResult.matchedRowText;

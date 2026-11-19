@@ -27,7 +27,7 @@ async function evaluateAfterNavigationSettles<T>(
       return await operation();
     } catch (error) {
       lastError = error;
-      if (!isNavigationContextDestroyedError(error) || attempt === attempts - 1) {
+      if (!isTransientNavigationReadError(error) || attempt === attempts - 1) {
         throw error;
       }
       await page.waitForLoadState("domcontentloaded").catch(() => {});
@@ -35,6 +35,12 @@ async function evaluateAfterNavigationSettles<T>(
     }
   }
   throw lastError;
+}
+
+function isTransientNavigationReadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return isNavigationContextDestroyedError(error)
+    || /document body is temporarily unavailable/i.test(message);
 }
 
 async function detectCurrentShopName(page: Page): Promise<string> {
@@ -140,6 +146,9 @@ async function readCurrentShopNameFromMenu(page: Page): Promise<string> {
 
 async function isDoudianLoginRequired(page: Page): Promise<boolean> {
   return evaluateAfterNavigationSettles(page, () => page.evaluate(() => {
+    if (!document.body) {
+      throw new Error("Doudian document body is temporarily unavailable during navigation.");
+    }
     return document.body.innerText || "";
   })).then((text) => isDoudianLoginPageText(text));
 }

@@ -73,6 +73,7 @@ function withDefaults(input: AutoListingJobInput): Required<AutoListingJobInput>
     }),
     feishuBatchFingerprint: input.feishuBatchFingerprint || "",
     businessRuleFingerprint: input.businessRuleFingerprint || "",
+    sourceCorrection: input.sourceCorrection!,
     simulateOnly,
     clearTestOutputsBeforeRun: input.clearTestOutputsBeforeRun ?? false,
     startStep,

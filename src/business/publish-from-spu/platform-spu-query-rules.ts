@@ -60,6 +60,17 @@ export function resolveExactPlatformBrandCandidateSequence(
   return sequence;
 }
 
+export function prioritizeVerifiedPlatformBrandIdentity(
+  identities: string[],
+  verifiedIdentity?: string
+): string[] {
+  const preferred = (verifiedIdentity || "").trim();
+  if (!preferred || !identities.includes(preferred)) {
+    return [...identities];
+  }
+  return [preferred, ...identities.filter((identity) => identity !== preferred)];
+}
+
 export function resolvePlatformBrandCandidateMissTransition(input: {
   candidateIndex: number;
   candidateCount: number;

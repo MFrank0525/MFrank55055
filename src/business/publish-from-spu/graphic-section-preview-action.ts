@@ -8,6 +8,7 @@ import { logInfo, logWarn } from "../../utils/logger.js";
 import {
   PublishCreatePageReopenRequiredError,
   attachSafeDialogHandler,
+  clickLocatorWithTransientUiRecovery,
   closeCreatePagesExcept,
   closeExtraPages,
   gotoWithTolerance,
@@ -112,6 +113,7 @@ import {
 } from "./publish-rules.js";
 import type { PublishRuleCheck, ServiceFulfillmentState } from "./publish-rules.js";
 import { makePublishActionResult } from "./publish-actions.js";
+import { resolveCategoryAdviceOverlaySafely } from "./category-advice-overlay-action.js";
 
 
 
@@ -230,15 +232,18 @@ async function clickLastMainImagePreviewDeleteControl(page: Page): Promise<boole
   }
 
   const preview = previews.last();
-  await preview.scrollIntoViewIfNeeded();
+  await preview.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest" })).catch(() => {});
   await preview.hover({ timeout: 3000 });
-  const deleteControl = preview
-    .locator("use[href='#icon-shanchu']")
-    .locator("xpath=ancestor::div[contains(@class,'actionAfter')][1]");
-  if ((await deleteControl.count()) !== 1) {
+  const deleteIcon = preview.locator("use[href='#icon-shanchu']");
+  if ((await deleteIcon.count()) !== 1) {
     return false;
   }
-  await deleteControl.click({ timeout: 3000 });
+  const deleteControl = deleteIcon.locator("xpath=ancestor::div[contains(@class,'actionAfter')][1]");
+  await deleteControl.hover({ timeout: 3000 }).catch(() => {});
+  // The current Doudian control delegates by the originating SVG target.
+  // Clicking its actionAfter wrapper returns successfully but is a no-op, so
+  // preserve the unique icon identity and let the event bubble from <use>.
+  await clickLocatorWithTransientUiRecovery(deleteIcon, 3000);
   return true;
 }
 
@@ -261,30 +266,26 @@ async function clickLastDetailImagePreviewDeleteControl(page: Page): Promise<boo
   const sortableItems = fieldRoot.locator("[role='button'][aria-roledescription='sortable']");
   const preview = (await sortableItems.count()) > 0 ? sortableItems.last() : fieldRoot;
   if (preview !== fieldRoot) {
-    await preview.scrollIntoViewIfNeeded();
-    await preview.hover({ timeout: 3000 });
+    await preview.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest" })).catch(() => {});
+    await preview.hover({ timeout: 3000 }).catch(() => {});
   }
 
   const deleteControls = preview.locator(detailDeleteControlSelector);
-  const visibleDeleteControls: Locator[] = [];
-  for (let index = 0; index < await deleteControls.count(); index += 1) {
-    const candidate = deleteControls.nth(index);
-    if (await candidate.isVisible().catch(() => false)) {
-      visibleDeleteControls.push(candidate);
-    }
-  }
-  if (visibleDeleteControls.length !== 1) {
+  if ((await deleteControls.count()) !== 1) {
     return false;
   }
 
-  const deleteControl = visibleDeleteControls[0]!;
+  // Doudian keeps this exact control hidden until its sortable preview is
+  // hovered. Filtering by isVisible() before the click therefore drops the
+  // only valid delete control and leaves the SPU-prefilled 1/50 image forever.
+  const deleteControl = deleteControls.first();
   const sortableItem = deleteControl.locator(
     "xpath=ancestor::*[@role='button' and @aria-roledescription='sortable'][1]"
   );
   if ((await sortableItem.count()) === 1) {
-    await sortableItem.hover({ timeout: 3000 });
+    await sortableItem.hover({ timeout: 3000 }).catch(() => {});
   }
-  await deleteControl.click({ timeout: 3000 });
+  await clickLocatorWithTransientUiRecovery(deleteControl, 3000);
   return true;
 }
 
@@ -594,6 +595,57 @@ export async function countMainImagePreviews(page: Page): Promise<number> {
   }).catch(() => 0);
 }
 
+async function waitForMainImagePreviewCountDecrease(
+  page: Page,
+  beforeCount: number,
+  timeoutMs = 10000
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let currentCount = beforeCount;
+  while (Date.now() < deadline) {
+    currentCount = await countMainImagePreviews(page).catch(() => currentCount);
+    if (currentCount < beforeCount) {
+      return currentCount;
+    }
+    await page.waitForTimeout(500);
+    await dismissTransientOverlays(page);
+  }
+  return currentCount;
+}
+
+export async function clearMainImagePreviewsStrict(page: Page, maxAttempts = 10): Promise<number> {
+  let removedCount = 0;
+  await scrollGraphicSectionIntoView(page, "主图").catch(() => false);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const beforeCount = await countMainImagePreviews(page).catch(() => 0);
+    if (!beforeCount) {
+      break;
+    }
+
+    const clicked = await clickLastGraphicSectionPreviewDeleteByDom(page, "主图").catch(() => false);
+    if (!clicked) {
+      break;
+    }
+    await page.waitForTimeout(500);
+    await resolveCategoryAdviceOverlaySafely(page);
+    await clickConfirmIfVisibleStrict(page);
+    await dismissTransientOverlays(page);
+
+    // Use the same field-root-scoped counter for the precondition and the
+    // readback. The old generic geometry counter could report zero while the
+    // exact 主图 field still contained previews, skipping deletion entirely.
+    const afterCount = await waitForMainImagePreviewCountDecrease(page, beforeCount);
+    if (afterCount < beforeCount) {
+      removedCount += beforeCount - afterCount;
+      continue;
+    }
+    break;
+  }
+
+  return removedCount;
+}
+
 export async function readDetailIndicatorCount(page: Page): Promise<number | null> {
   return page
     .evaluate(() => {
@@ -743,7 +795,7 @@ export async function getGraphicSectionPreviewRectsStrict(
 export async function clickConfirmIfVisibleStrict(page: Page): Promise<void> {
   const confirmButton = page.getByRole("button", { name: "\u786e\u5b9a" }).first();
   if (await confirmButton.count()) {
-    await confirmButton.click({ timeout: 2000 }).catch(() => {});
+    await clickLocatorWithTransientUiRecovery(confirmButton, 2000).catch(() => {});
     await page.waitForTimeout(600);
   }
 }
@@ -822,11 +874,9 @@ export async function clickFillFromMainForDetailSection(page: Page): Promise<boo
   const textButton = page.getByText("\u4ece\u4e3b\u56fe\u586b\u5165", { exact: true }).first();
   let clicked = false;
   if (await button.count()) {
-    await button.scrollIntoViewIfNeeded().catch(() => {});
-    clicked = await button.click({ timeout: 3000 }).then(() => true).catch(() => false);
+    clicked = await clickLocatorWithTransientUiRecovery(button, 3000).then(() => true).catch(() => false);
   } else if (await textButton.count()) {
-    await textButton.scrollIntoViewIfNeeded().catch(() => {});
-    clicked = await textButton.click({ timeout: 3000 }).then(() => true).catch(() => false);
+    clicked = await clickLocatorWithTransientUiRecovery(textButton, 3000).then(() => true).catch(() => false);
   } else {
     clicked = await page.evaluate(() => {
       const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
@@ -917,6 +967,7 @@ export async function clearDetailImagePreviewsStrict(page: Page, maxAttempts = 1
       break;
     }
     await page.waitForTimeout(900);
+    await resolveCategoryAdviceOverlaySafely(page);
     await clickConfirmIfVisibleStrict(page);
     await dismissTransientOverlays(page);
 

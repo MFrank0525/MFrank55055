@@ -7,14 +7,16 @@ import {
   isAutoListingControllerProgressArtifactRelativePath,
   isRetryableExternalServiceAvailabilityFailure,
   resolveSupervisorRecoveryChildMode,
+  selectLatestUnresolvedPublishAttemptEntry,
   resolveSupervisorRecoveryDelayMs,
+  resolveExternalServiceProbePollMs,
+  shouldProbeImageGenerationEndpointBeforeSupervisorRetry,
   shouldConsumeSupervisorRecoveryAttempt,
   shouldTerminateChildAfterTerminalResult,
   shouldContinueFullFlowAfterChildExit,
   shouldBlockFullFlowAfterSuccessfulChild,
   shouldContinueFeishuAfterBatchRefresh,
   shouldRecoverFullFlowAfterChildFailure,
-  shouldRefreshFeishuAssetsBeforeFullFlow,
   resolveAutoListingSupervisorBatchOwnership,
   type FullFlowContinuationReason
 } from "../autolist/batch-continuation-rules.js";
@@ -24,7 +26,10 @@ import {
   resolvePaidImageChildWatchdogDecision,
   shouldRefreshProgressSeenAtForPaidImageWait
 } from "../autolist/paid-image-wait-rules.js";
-import { shouldRefreshFeishuAssetsToCandidateCache } from "../autolist/feishu-refresh-rules.js";
+import {
+  shouldRefreshFeishuAssetsToCandidateCache,
+  shouldSupervisorSkipFeishuAssetsRefresh
+} from "../autolist/feishu-refresh-rules.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { findSharedFeishuWhiteBackgroundLocalFile, loadFeishuProductRecords } from "../autolist/feishu-products.js";
@@ -33,7 +38,11 @@ import { cleanupStaleRunHistory } from "../autolist/cleanup.js";
 import { removePaidImageBatchLedger } from "../autolist/paid-image-submission-ledger.js";
 import { readPublishAttemptState, type PublishAttemptState } from "../autolist/publish-attempt-state.js";
 import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-manifest.js";
-import { resolveControllerJobBatchTransition } from "../autolist/controller-job-ownership-rules.js";
+import { evaluateImageGenerationEndpointProbe, formatImageGenerationTransportError } from "../autolist/image-generation-rules.js";
+import {
+  resolveControllerJobBatchTransition,
+  type ControllerBatchTransitionEvidence
+} from "../autolist/controller-job-ownership-rules.js";
 import type { RunnerJob } from "./auto-listing-controller-contract.js";
 
 type InitialMode = "resume" | "full";
@@ -44,6 +53,7 @@ interface AutoListingJobFile {
     feishuProductDataFile?: string;
     processedImageManifest?: string;
     paidImageSubmissionLedgerDir?: string;
+    imageGenerationConfigFile?: string;
   };
 }
 
@@ -68,6 +78,7 @@ const resumeJobFile = path.resolve(rootDir, "input/auto-listing/auto-listing.job
 const feishuConfigFile = path.resolve(rootDir, "input/feishu-bitable.config.json");
 const childControlFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-child.json");
 const controllerJobFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-controller-job.json");
+const batchTransitionFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-batch-transition.json");
 const externalServiceWaitFile = path.resolve(rootDir, "data/auto-listing/control/auto-listing-wait.json");
 const pauseSignalFile = path.resolve(rootDir, "data/auto-listing/control/pause.requested");
 const childStallExitCode = 124;
@@ -95,14 +106,45 @@ function latestPendingPublishAttemptState(): PublishAttemptState {
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
   for (const item of manifests) {
     const manifest = readJsonFile<{ entries?: Array<{ status?: string; runtimeKey?: string; updatedAt?: string }> }>(item.file);
-    const pending = (manifest?.entries || [])
-      .filter((entry) => entry.status === "pending" && entry.runtimeKey)
-      .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
+    const pending = selectLatestUnresolvedPublishAttemptEntry(manifest?.entries || []);
     if (pending?.runtimeKey) {
       return readPublishAttemptState(path.join(item.runtimeDir, "publish", pending.runtimeKey));
     }
   }
   return "attempted_or_unknown";
+}
+
+function resolveDoudianLoginRecoveryShopFolder(batchFingerprint: string): string | undefined {
+  const runsDir = path.resolve(rootDir, "data/auto-listing/runs");
+  if (!batchFingerprint || !fs.existsSync(runsDir)) {
+    return undefined;
+  }
+  const manifests = fs
+    .readdirSync(runsDir)
+    .map((runId) => ({
+      file: path.join(runsDir, runId, "publish-manifest.json")
+    }))
+    .filter((item) => fs.existsSync(item.file))
+    .map((item) => ({ ...item, mtimeMs: fs.statSync(item.file).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const item of manifests) {
+    const manifest = readJsonFile<{
+      entries?: Array<{
+        status?: string;
+        runtimeKey?: string;
+        batchFingerprint?: string;
+        shopFolder?: string;
+        updatedAt?: string;
+      }>;
+    }>(item.file);
+    const pending = selectLatestUnresolvedPublishAttemptEntry(
+      (manifest?.entries || []).filter((entry) => entry.batchFingerprint === batchFingerprint)
+    );
+    if (pending?.shopFolder) {
+      return path.resolve(pending.shopFolder);
+    }
+  }
+  return undefined;
 }
 
 function hasUnresolvedPublishBoundary(batchFingerprint: string): boolean {
@@ -369,8 +411,66 @@ function writeExternalServiceWait(reason: string, retryDelayMs: number, attempt:
   writeWaitState("external_service_wait", reason, retryDelayMs, attempt);
 }
 
+function readImageGenerationApiUrl(): string | undefined {
+  const job = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+  const configFile = path.resolve(
+    rootDir,
+    job?.input?.imageGenerationConfigFile || "input/image-generation.config.json"
+  );
+  const config = readJsonFile<{ apiUrl?: string }>(configFile);
+  return typeof config?.apiUrl === "string" && config.apiUrl.trim() ? config.apiUrl.trim() : undefined;
+}
+
+async function probeImageGenerationEndpoint(apiUrl: string): Promise<{ reachable: boolean; detail: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(apiUrl, { method: "HEAD", signal: controller.signal });
+    const evaluation = evaluateImageGenerationEndpointProbe({ status: response.status, statusText: response.statusText });
+    return { reachable: evaluation.passed, detail: evaluation.passed ? `HTTP ${response.status}` : evaluation.issue };
+  } catch (error) {
+    return {
+      reachable: false,
+      detail: formatImageGenerationTransportError(error)
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitForExternalServiceRecovery(
+  failureMessage: string,
+  maximumWaitMs: number,
+  attempt: number
+): Promise<void> {
+  const apiUrl = readImageGenerationApiUrl();
+  if (!apiUrl || !shouldProbeImageGenerationEndpointBeforeSupervisorRetry(failureMessage)) {
+    writeExternalServiceWait(failureMessage, maximumWaitMs, attempt);
+    await sleep(maximumWaitMs);
+    return;
+  }
+  const deadline = Date.now() + maximumWaitMs;
+  const pollMs = resolveExternalServiceProbePollMs();
+  while (true) {
+    const remainingMs = Math.max(0, deadline - Date.now());
+    writeExternalServiceWait(failureMessage, Math.min(pollMs, remainingMs || pollMs), attempt);
+    const probe = await probeImageGenerationEndpoint(apiUrl);
+    if (probe.reachable) {
+      console.log(`External image endpoint recovered (${probe.detail}); resuming the locked batch immediately.`);
+      return;
+    }
+    const remainingAfterProbeMs = Math.max(0, deadline - Date.now());
+    if (remainingAfterProbeMs <= 0) {
+      console.log(`External image endpoint did not recover before the bounded wait elapsed. Last probe: ${probe.detail}`);
+      return;
+    }
+    await sleep(Math.min(pollMs, remainingAfterProbeMs));
+  }
+}
+
 async function waitForDoudianLoginRecovery(reason: string, ownedBatchFingerprint: string): Promise<boolean> {
   const retryDelayMs = resolveDoudianLoginRecoveryPollMs();
+  const shopFolder = resolveDoudianLoginRecoveryShopFolder(ownedBatchFingerprint);
   let attempt = 0;
   while (true) {
     const currentBatchFingerprint = readBatchProgress().fingerprint;
@@ -390,11 +490,15 @@ async function waitForDoudianLoginRecovery(reason: string, ownedBatchFingerprint
     }
     attempt += 1;
     writeWaitState("doudian_login_wait", reason, retryDelayMs, attempt);
+    const loginProbeHeartbeat = setInterval(() => {
+      writeWaitState("doudian_login_wait", reason, retryDelayMs, attempt);
+    }, Math.min(10_000, retryDelayMs));
     try {
       await assertDoudianPublishSessionReady({
         runtimeDir: path.resolve(rootDir, "data/auto-listing/control/doudian-login-recovery"),
         label: "doudian-login-recovery",
-        timeoutMs: 15_000
+        timeoutMs: 15_000,
+        shopFolder
       });
       clearExternalServiceWait();
       console.log("Doudian login recovered in the fixed headed browser; resuming the exact manifest-backed checkpoint.");
@@ -402,8 +506,10 @@ async function waitForDoudianLoginRecovery(reason: string, ownedBatchFingerprint
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       writeWaitState("doudian_login_wait", isDoudianLoginRequiredFailure(message) ? reason : message, retryDelayMs, attempt);
-      await sleep(retryDelayMs);
+    } finally {
+      clearInterval(loginProbeHeartbeat);
     }
+    await sleep(retryDelayMs);
   }
 }
 
@@ -649,10 +755,8 @@ function prepareResumeJob(): boolean {
 
 function runFullFlow(reason: FullFlowContinuationReason): Promise<number | null> {
   const args = ["dist/src/cli/flow-mac-feishu.js", "--real"];
-  if (!shouldRefreshFeishuAssetsBeforeFullFlow({
-    continuationReason: reason,
-    localAssetCacheUnsafe: currentFeishuAssetCacheUnsafe()
-  })) {
+  const localAssetCacheUnsafe = currentFeishuAssetCacheUnsafe();
+  if (shouldSupervisorSkipFeishuAssetsRefresh(reason, localAssetCacheUnsafe)) {
     args.push("--skip-feishu-assets-refresh");
   }
   if (reason === "same_batch_pending") {
@@ -668,7 +772,9 @@ async function main(): Promise<void> {
   clearExternalServiceWait();
   let nextMode: InitialMode | "" = parseInitialMode(process.argv.slice(2));
   let ownedBatchFingerprint = parseOwnedBatchFingerprint(process.argv.slice(2)) || readBatchProgress().fingerprint;
-  let fullFlowReason: FullFlowContinuationReason = "initial_full";
+  let fullFlowReason: FullFlowContinuationReason = process.argv.includes("--continue-current-batch")
+    ? "same_batch_pending"
+    : "initial_full";
   let childRecoveryAttempts = 0;
   let externalServiceWaitAttempts = 0;
   while (nextMode) {
@@ -731,8 +837,7 @@ async function main(): Promise<void> {
       exitCode === childStallExitCode
         ? `child made no progress before watchdog timeout during ${failureProgress.activeStep || "unknown"}: ${failureProgress.activeMessage || ""}`.trim()
         : latestFailureMessage();
-    const publishAttemptState: PublishAttemptState =
-      exitCode === childStallExitCode ? latestPendingPublishAttemptState() : "attempted_or_unknown";
+    const publishAttemptState: PublishAttemptState = latestPendingPublishAttemptState();
     if (isDoudianLoginRequiredFailure(failureMessage)) {
       const resumePrepared = prepareResumeJob();
       const failedBeforePaidWork = childMode === "full" && /preflight/i.test(`${failureProgress.activeStep || ""} ${failureProgress.activeMessage || ""}`);
@@ -779,7 +884,7 @@ async function main(): Promise<void> {
       const recoveryMode: InitialMode =
         publishAttemptState === "not_attempted" && /no progress|watchdog/i.test(failureMessage)
           ? "resume"
-          : resolveSupervisorRecoveryChildMode(failureMessage);
+          : resolveSupervisorRecoveryChildMode(failureMessage, publishAttemptState);
       if (recoveryMode === "resume" && !prepareResumeJob()) {
         console.error("Safe resume transition was detected, but the project controller could not rebuild a resume job.");
         process.exitCode = 1;
@@ -791,9 +896,10 @@ async function main(): Promise<void> {
           : `Retryable child failure while current Feishu batch still has pending products; recovery ${childRecoveryAttempts}/${maxChildRecoveryAttempts}. Reason: ${failureMessage || "unknown"}`
       );
       if (!consumeRecoveryAttempt) {
-        writeExternalServiceWait(failureMessage, recoveryDelayMs, externalServiceWaitAttempts);
+        await waitForExternalServiceRecovery(failureMessage, recoveryDelayMs, externalServiceWaitAttempts);
+      } else {
+        await sleep(recoveryDelayMs);
       }
-      await sleep(recoveryDelayMs);
       clearExternalServiceWait();
       nextMode = recoveryMode;
       fullFlowReason = "same_batch_pending";
@@ -808,10 +914,25 @@ async function main(): Promise<void> {
         process.exitCode = 0;
         return;
       }
-      if (path.resolve(refresh.outFile) !== feishuProductDataFile) {
-        fs.copyFileSync(refresh.outFile, feishuProductDataFile);
+      const refreshedCandidate = loadFeishuProductRecords(refresh.outFile);
+      const refreshedCandidateFingerprint = buildFeishuBatchFingerprint(refreshedCandidate);
+      const transitionEvidence: ControllerBatchTransitionEvidence = {
+        supervisorPid: process.pid,
+        fromBatchFingerprint: currentBatch.fingerprint,
+        toBatchFingerprint: refreshedCandidateFingerprint,
+        startedAt: new Date().toISOString()
+      };
+      atomicWriteJson(batchTransitionFile, transitionEvidence);
+      let refreshedBatch: ReturnType<typeof readBatchProgress>;
+      try {
+        if (path.resolve(refresh.outFile) !== feishuProductDataFile) {
+          fs.copyFileSync(refresh.outFile, feishuProductDataFile);
+        }
+        refreshedBatch = readBatchProgress();
+        synchronizeControllerJobOwnership(refreshedBatch.fingerprint, "full");
+      } finally {
+        fs.rmSync(batchTransitionFile, { force: true });
       }
-      const refreshedBatch = readBatchProgress();
       if (shouldContinueFeishuAfterBatchRefresh({
         exitCode,
         currentBatchComplete: currentBatch.batchComplete,

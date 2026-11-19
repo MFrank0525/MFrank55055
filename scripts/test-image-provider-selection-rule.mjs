@@ -244,7 +244,7 @@ try {
   ].map((file) => fs.readFileSync(file, "utf8")).join("\n");
   assert.match(
     controllerSource,
-    /const selected = selectCommand\(forceFullFlow\);[\s\S]*assertAutoListingControllerImageGenerationContract\([\s\S]*const child = spawn\(/,
+    /const selected = selectCommand\(forceFullFlow, intent\);[\s\S]*assertAutoListingControllerImageGenerationContract\([\s\S]*const child = spawn\(/,
     "controller must validate the selected job provider and config before background spawn"
   );
 

@@ -39,7 +39,11 @@ export interface ShopAccessAuditReport {
 }
 
 function normalizeShopName(value: string): string {
-  return value.replace(/^\d+/, "").replace(/\s+/g, "").trim();
+  return value
+    .replace(/^\d+/, "")
+    .replace(/\s+/g, "")
+    .replace(/(?:主账号|子账号)?(?:旗舰店|专营店|专卖店|店铺)?正常营业$/, "")
+    .trim();
 }
 
 export function shopAccessNamesMatch(actualShopName: string, expectedShopName: string): boolean {

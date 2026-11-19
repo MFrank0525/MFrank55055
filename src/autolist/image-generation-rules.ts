@@ -144,6 +144,19 @@ export interface ImageGenerationEndpointProbeEvaluation {
   startAction: "continue" | "block";
 }
 
+export function formatImageGenerationTransportError(error: unknown): string {
+  const detail = error && typeof error === "object"
+    ? error as { name?: string; message?: string; cause?: { code?: string; message?: string } }
+    : { name: "Error", message: String(error) };
+  const name = String(detail.name || "Error").trim() || "Error";
+  const message = String(detail.message || "unknown transport error").trim() || "unknown transport error";
+  const causeCode = String(detail.cause?.code || "").trim();
+  const causeMessage = String(detail.cause?.message || "").trim().slice(0, 500);
+  return `${name}: ${message}` +
+    (causeCode ? `; cause=${causeCode}` : "") +
+    (causeMessage && causeMessage !== message ? `; detail=${causeMessage}` : "");
+}
+
 export function providerExplicitlyProvesNoPaidTaskAccepted(status: number, responseText: string): boolean {
   return (
     [400, 401, 403, 404, 405, 422].includes(status) ||
@@ -154,10 +167,41 @@ export function providerExplicitlyProvesNoPaidTaskAccepted(status: number, respo
   );
 }
 
-function submitFailureResponseProvesNoPaidTaskAccepted(message: string): boolean {
+export function isDirectStructuredModelUnavailableNoAcceptanceResponse(message: string): boolean {
+  const jsonStart = message.indexOf("{");
+  if (jsonStart < 0) {
+    return false;
+  }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(message.slice(jsonStart).trim());
+  } catch {
+    return false;
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  const root = payload as Record<string, unknown>;
+  if (Object.keys(root).some((key) => key !== "error")) {
+    return false;
+  }
+  const error = root.error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) {
+    return false;
+  }
+  const detail = error as Record<string, unknown>;
   return (
-    /fail_to_fetch_task/i.test(message) &&
-    /model_not_found|No available channel|no available channel|没有可用.*通道|无可用.*通道/i.test(message)
+    String(detail.code || "").trim().toLowerCase() === "model_not_found" &&
+    /No available channel|no available channel|没有可用.*通道|无可用.*通道/i.test(String(detail.message || ""))
+  );
+}
+
+function submitFailureResponseProvesNoPaidTaskAccepted(message: string): boolean {
+  const unavailableModel =
+    /model_not_found|No available channel|no available channel|没有可用.*通道|无可用.*通道/i.test(message);
+  return (
+    (/fail_to_fetch_task/i.test(message) && unavailableModel) ||
+    isDirectStructuredModelUnavailableNoAcceptanceResponse(message)
   );
 }
 
@@ -277,7 +321,7 @@ export function shouldKeepPaidImagePolicyCompatiblePrompt(input: {
 }
 
 export function isPaidImagePolicyCompatibilityReason(reason: string): boolean {
-  return /content[_ -]?policy|policy[_ -]?violation|safety|unsafe|moderation|violat|违规|安全策略|内容策略|内容政策|提示可能违反/i.test(
+  return /content[_ -]?policy|policy[_ -]?violation|safety|unsafe|moderation|violat|违规|安全策略|防护准则|内容安全|安全审核|内容策略|内容政策|未通过.{0,8}审核|提示(?:词|语|或参考媒体|或图片)?.{0,12}可能违反/i.test(
     reason
   );
 }
@@ -484,9 +528,12 @@ export function isAcceptedPaidImageTaskServiceAvailabilityReason(reason: string)
     /"code"\s*:\s*"upstream_error"/i.test(reason) &&
     (/"message"\s*:\s*"Internet Error[，,]?请耐心等待[！!]?"/i.test(reason) ||
       /"message"\s*:\s*"exit"/i.test(reason));
+  const explicitCapacityShortage =
+    /"code"\s*:\s*"video_generation_failed"/i.test(reason) &&
+    /"message"\s*:\s*"服务资源暂时不足，请稍后重试"/i.test(reason);
   return (
     acceptedTaskContext &&
-    (explicitServiceFailure || explicitUpstreamAvailabilityFailure) &&
+    (explicitServiceFailure || explicitUpstreamAvailabilityFailure || explicitCapacityShortage) &&
     !isUnsafePaidImageReplayReason(reason)
   );
 }
@@ -520,6 +567,7 @@ export function resolvePaidImageFixedSlotRecovery(input: {
   audit: Array<{ state?: string; at?: string; reason?: string }>;
   recordedPromptDigest: string;
   policyCompatiblePromptDigest: string;
+  feishuPromptRevisionVerified?: boolean;
   nowMs: number;
 }): {
   action: "retry_fixed_slot_now" | "defer_to_supervisor" | "bubble";
@@ -540,9 +588,14 @@ export function resolvePaidImageFixedSlotRecovery(input: {
     };
   }
   if (isPaidImagePolicyCompatibilityReason(failureReason) && !unsafeReplay) {
+    const promptChangedByVerifiedFeishuRevision =
+      input.feishuPromptRevisionVerified === true &&
+      Boolean(input.recordedPromptDigest) &&
+      Boolean(input.policyCompatiblePromptDigest) &&
+      input.recordedPromptDigest !== input.policyCompatiblePromptDigest;
     return {
-      action: "retry_fixed_slot_now",
-      usePolicyCompatiblePrompt: true,
+      action: promptChangedByVerifiedFeishuRevision ? "retry_fixed_slot_now" : "bubble",
+      usePolicyCompatiblePrompt: false,
       deferMs: 0
     };
   }

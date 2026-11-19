@@ -5,7 +5,10 @@ import {
   isAutoListingControllerRunningProcessConfirmed,
   isAutoListingControllerSupervisorProcessCommand
 } from "../autolist/batch-continuation-rules.js";
-import { shouldTreatControllerSupervisorAsInert } from "../autolist/maintenance-rules.js";
+import {
+  isControllerWaitStateHeartbeatFresh,
+  shouldTreatControllerSupervisorAsInert
+} from "../autolist/maintenance-rules.js";
 
 export interface ControllerRunnerJob {
   pid: number;
@@ -23,6 +26,7 @@ export interface ControllerRunnerOwnershipState {
 type ControllerWaitState = {
   supervisorPid?: number;
   status?: "external_service_wait" | "doudian_login_wait";
+  retryAt?: string;
 };
 
 function readJsonFile<T>(file: string | undefined): T | undefined {
@@ -79,9 +83,15 @@ export function inspectControllerRunnerOwnership(input: {
   const child = readJsonFile<{ pid?: number }>(input.childControlFile);
   const controllerChildActive = Boolean(child?.pid && isPidRunning(child.pid));
   const waitState = readJsonFile<ControllerWaitState>(input.waitStateFile);
+  const waitStateFresh = isControllerWaitStateHeartbeatFresh({
+    nowMs: Date.now(),
+    waitStateMtimeMs: fileMtimeMs(input.waitStateFile),
+    retryAt: waitState?.retryAt
+  });
   const controllerOwnsWaitState = Boolean(
     waitState?.supervisorPid === input.job.pid &&
-    (waitState.status === "external_service_wait" || waitState.status === "doudian_login_wait")
+    (waitState.status === "external_service_wait" || waitState.status === "doudian_login_wait") &&
+    waitStateFresh
   );
   return { processConfirmed, controllerOwnsWaitState, controllerChildActive };
 }
@@ -108,9 +118,20 @@ export function isControllerRunnerJobRunning(input: {
   const childCommand = child?.pid && isPidRunning(child.pid) ? readProcessCommand(child.pid) : undefined;
   const childProcessRecorded = Boolean(childCommand && isAutoListingControllerChildProcessCommand(childCommand));
   const waitState = readJsonFile<ControllerWaitState>(input.waitStateFile);
+  const waitStateFresh = isControllerWaitStateHeartbeatFresh({
+    nowMs: Date.now(),
+    waitStateMtimeMs: fileMtimeMs(input.waitStateFile),
+    retryAt: waitState?.retryAt
+  });
   const waitStateRecorded = Boolean(
     waitState?.supervisorPid === input.job.pid &&
-    (waitState.status === "external_service_wait" || waitState.status === "doudian_login_wait")
+    (waitState.status === "external_service_wait" || waitState.status === "doudian_login_wait") &&
+    waitStateFresh
+  );
+  const staleWaitStateRecorded = Boolean(
+    waitState?.supervisorPid === input.job.pid &&
+    (waitState.status === "external_service_wait" || waitState.status === "doudian_login_wait") &&
+    !waitStateFresh
   );
   const latestResult = readJsonFile<{ ok?: boolean; status?: string }>(input.latestResultFile);
   const terminalResultMtimeMs = fileMtimeMs(input.latestResultFile);
@@ -127,6 +148,7 @@ export function isControllerRunnerJobRunning(input: {
     processConfirmed,
     childProcessRecorded,
     waitStateRecorded,
+    staleWaitStateRecorded,
     terminalResultFound,
     terminalResultAgeMs: terminalResultMtimeMs ? Date.now() - terminalResultMtimeMs : 0,
     controllerLogAdvancedAfterTerminalResult: Boolean(

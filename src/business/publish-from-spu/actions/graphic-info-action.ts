@@ -12,6 +12,7 @@ export async function runGraphicInfoAction(
     assets: ProductAssets;
     graphicResetAttempt: number;
     specAttempt: number;
+    preserveExistingMainImages?: boolean;
     logWarn: (message: string) => void;
     failurePrefix?: string;
   }
@@ -28,7 +29,13 @@ export async function runGraphicInfoAction(
   await deps.waitForPublishCreatePageReady(input.page, input.runtimeDir, input.createPageUrl, `publish-before-images-${input.specAttempt + 1}`);
   await deps.assertBasicPublishCompletionOnPage(input.page, input.runtimeDir, input.basicMetadata, "before_graphic_module");
 
-  let imageResult = await deps.uploadProductImagesOnPage(input.page, input.runtimeDir, input.assets, "publish-page-images-uploaded.png");
+  let imageResult = await deps.uploadProductImagesOnPage(
+    input.page,
+    input.runtimeDir,
+    input.assets,
+    "publish-page-images-uploaded.png",
+    { preserveExistingMainImages: input.preserveExistingMainImages }
+  );
   screenshotFiles.push(imageResult.screenshotFile);
   let uploadedGroups = imageResult.uploadedGroups;
   let uploadIssue = imageResult.uploadIssue;
@@ -47,7 +54,8 @@ export async function runGraphicInfoAction(
         input.page,
         input.runtimeDir,
         input.assets,
-        "publish-page-images-uploaded-after-reset.png"
+        "publish-page-images-uploaded-after-reset.png",
+        { preserveExistingMainImages: false }
       );
       screenshotFiles.push(imageResult.screenshotFile);
       uploadedGroups = imageResult.uploadedGroups;

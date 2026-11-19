@@ -9,6 +9,11 @@ import type {
 } from "./types.js";
 import { getPublishCategoryMutationPolicy } from "./publish-category-policy.js";
 import { assertHealthFoodMetadataReady } from "./health-food-metadata.js";
+import {
+  countShortTitleCharacters,
+  DOUDIAN_SHORT_TITLE_MAX_CHARACTERS,
+  normalizeShortTitleForDoudian
+} from "../../autolist/title-rules.js";
 
 export function assertResolvedMetadata(
   metadata: PublishFromSpuMetadata & {
@@ -37,6 +42,11 @@ export function assertResolvedMetadata(
   if (!metadata.shortTitle.trim()) {
     missingFields.push("shortTitle");
   }
+  if (countShortTitleCharacters(metadata.shortTitle) > DOUDIAN_SHORT_TITLE_MAX_CHARACTERS) {
+    throw new Error(
+      `Publish shortTitle exceeds Doudian ${DOUDIAN_SHORT_TITLE_MAX_CHARACTERS}-character limit: ${metadata.shortTitle}`
+    );
+  }
   if (mutationPolicy.categoryAttributes === "fill_model_spec" && !metadata.modelSpec.trim()) {
     missingFields.push("modelSpec");
   }
@@ -54,10 +64,6 @@ export function assertResolvedMetadata(
   }
 }
 
-function normalizePublishShortTitle(value: string): string {
-  return value.replace(/\s+/g, "").trim();
-}
-
 export function resolvePublishFromSpuMetadata(input: {
   metadataOverride?: PublishFromSpuMetadata;
   workbook: ProductSheetSummary;
@@ -71,7 +77,9 @@ export function resolvePublishFromSpuMetadata(input: {
     brand: metadataOverride.brand || input.workbook.brand || "",
     spu: metadataOverride.spu || input.workbook.spu || "",
     title: metadataOverride.title || input.workbook.title || "",
-    shortTitle: normalizePublishShortTitle(metadataOverride.shortTitle || input.workbook.shortTitle || ""),
+    shortTitle: normalizeShortTitleForDoudian(
+      metadataOverride.shortTitle || input.workbook.shortTitle || ""
+    ).title,
     modelSpec:
       mutationPolicy.categoryAttributes === "fill_model_spec"
         ? metadataOverride.modelSpec || input.workbook.modelSpec || "盒装"

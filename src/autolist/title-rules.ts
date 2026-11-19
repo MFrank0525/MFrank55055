@@ -1,4 +1,5 @@
 export const DOUDIAN_TITLE_MAX_CHARACTERS = 120;
+export const DOUDIAN_SHORT_TITLE_MAX_CHARACTERS = 24;
 
 export type TitleNormalizationResult = {
   title: string;
@@ -7,8 +8,44 @@ export type TitleNormalizationResult = {
   maxLength: number;
 };
 
+export type ShortTitleNormalizationResult = TitleNormalizationResult & {
+  strategy: "unchanged" | "drop_ascii_prefix";
+};
+
 export function countTitleCharacters(title: string): number {
   return Array.from(title).reduce((total, character) => total + (/^[\x00-\x7F]$/.test(character) ? 1 : 2), 0);
+}
+
+export function countShortTitleCharacters(title: string): number {
+  return Array.from(title).reduce(
+    (total, character) => total + (/\p{Script=Han}/u.test(character) ? 2 : 1),
+    0
+  );
+}
+
+export function normalizeShortTitleForDoudian(
+  value: string,
+  maxLength = DOUDIAN_SHORT_TITLE_MAX_CHARACTERS
+): ShortTitleNormalizationResult {
+  const title = value.replace(/\s+/g, "").trim();
+  const originalLength = countShortTitleCharacters(title);
+  if (originalLength <= maxLength) {
+    return { title, changed: title !== value, originalLength, maxLength, strategy: "unchanged" };
+  }
+  const asciiPrefix = /^([A-Za-z0-9]{2,8})(?=\p{Script=Han})/u.exec(title)?.[1] || "";
+  const withoutPrefix = asciiPrefix ? title.slice(asciiPrefix.length) : "";
+  if (withoutPrefix && countShortTitleCharacters(withoutPrefix) <= maxLength) {
+    return {
+      title: withoutPrefix,
+      changed: true,
+      originalLength,
+      maxLength,
+      strategy: "drop_ascii_prefix"
+    };
+  }
+  throw new Error(
+    `Feishu shortTitle exceeds ${maxLength} Doudian characters and cannot be normalized without truncating source terms: ${title}`
+  );
 }
 
 export function normalizeFeishuTitleFixedSuffix(value: string): string {

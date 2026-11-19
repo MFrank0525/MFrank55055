@@ -45,6 +45,7 @@ assert.match(
 for (const file of [
   "src/cli/doctor.ts",
   "src/autolist/local-watermark.ts",
+  "src/autolist/main-image-frame-action.ts",
   "src/autolist/main-image-square-action.ts",
   "src/business/publish-from-spu/qualification-image-normalizer.ts"
 ]) {

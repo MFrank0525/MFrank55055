@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { BrowserContext, Page } from "playwright";
 import { disconnectAutomationBrowserConnections, launchPersistentBrowser } from "../../browser/launch.js";
 import { logInfo, logWarn } from "../../utils/logger.js";
@@ -11,6 +13,8 @@ import {
 } from "./publish-rules.js";
 import {
   type PlatformBrandCandidateAttemptState,
+  normalizePlatformSpuSpecification,
+  prioritizeVerifiedPlatformBrandIdentity,
   resolveExactPlatformBrandCandidateSequence,
   resolvePlatformBrandCandidateMissTransition,
   selectPlatformSpuPublishCandidate
@@ -19,6 +23,7 @@ import {
   attachSafeDialogHandler,
   closeCreatePagesExcept,
   closeExtraPages,
+  clickLocatorWithTransientUiRecovery,
   fillAndCommitLocator,
   gotoWithTolerance,
   normalizeMatchText,
@@ -30,6 +35,65 @@ const maxPlatformSpuQueryRetries = 4;
 const maxPlatformBrandCandidateResultRefreshes = 3;
 const platformSpuPublishActionAttribute = "data-auto-listing-platform-spu-publish-action";
 const platformSpuCreatePageNavigationTimeoutMs = 25000;
+const platformBrandPreferenceFileName = "platform-spu-brand-preferences.json";
+
+type PlatformBrandPreferenceStore = {
+  version: 1;
+  preferences: Record<string, { identity: string; verifiedAt: string }>;
+};
+
+function platformBrandPreferenceKey(request: PlatformSpuQueryRequest): string {
+  return [
+    normalizeMatchText(request.brand),
+    normalizeSpuMatchText(request.spu),
+    request.specificationMatch,
+    normalizePlatformSpuSpecification(request.expectedSpecification || "")
+  ].join("\u001f");
+}
+
+function platformBrandPreferenceFile(runtimeDir: string): string {
+  const resolved = path.resolve(runtimeDir);
+  const parent = path.dirname(resolved);
+  const runRoot = path.basename(parent) === "publish" ? path.dirname(parent) : resolved;
+  return path.join(runRoot, platformBrandPreferenceFileName);
+}
+
+function readPlatformBrandPreferenceStore(runtimeDir: string): PlatformBrandPreferenceStore {
+  const file = platformBrandPreferenceFile(runtimeDir);
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<PlatformBrandPreferenceStore>;
+    if (parsed.version === 1 && parsed.preferences && typeof parsed.preferences === "object") {
+      return { version: 1, preferences: parsed.preferences };
+    }
+  } catch {
+    // A missing or malformed optimization hint never changes the fail-closed query path.
+  }
+  return { version: 1, preferences: {} };
+}
+
+export function readVerifiedPlatformBrandIdentity(
+  runtimeDir: string,
+  request: PlatformSpuQueryRequest
+): string {
+  return readPlatformBrandPreferenceStore(runtimeDir).preferences[platformBrandPreferenceKey(request)]?.identity?.trim() || "";
+}
+
+export function rememberVerifiedPlatformBrandIdentity(
+  runtimeDir: string,
+  request: PlatformSpuQueryRequest,
+  identity: string,
+  verifiedAt = new Date().toISOString()
+): void {
+  const verifiedIdentity = identity.trim();
+  if (!verifiedIdentity) return;
+  const file = platformBrandPreferenceFile(runtimeDir);
+  const store = readPlatformBrandPreferenceStore(runtimeDir);
+  store.preferences[platformBrandPreferenceKey(request)] = { identity: verifiedIdentity, verifiedAt };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tempFile = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tempFile, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  fs.renameSync(tempFile, file);
+}
 
 async function prepareNextPlatformBrandCandidateAttempt(input: {
   page: Page;
@@ -251,7 +315,7 @@ async function clickPlatformBrandDropdownOption(
   if (await option.count() !== 1) {
     return "";
   }
-  await option.click({ timeout: 5000 });
+  await clickLocatorWithTransientUiRecovery(option, 5000);
   return optionIdentity;
 }
 
@@ -520,7 +584,7 @@ async function readPlatformSpuQueryPageSnapshot(page: Page): Promise<{
   loading: boolean;
 }> {
   return page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
+    const bodyText = document.body?.innerText || "";
     const visibleInputs = Array.from(document.querySelectorAll("input, textarea"))
       .map((el) => el as HTMLInputElement | HTMLTextAreaElement)
       .filter((input) => {
@@ -622,8 +686,7 @@ async function selectAuthenticatedDoudianShop(page: Page): Promise<string> {
     for (let index = 0; index < count; index += 1) {
       const match = matches.nth(index);
       if (!(await match.isVisible().catch(() => false))) continue;
-      await match.scrollIntoViewIfNeeded();
-      await match.click({ timeout: 5000 });
+      await clickLocatorWithTransientUiRecovery(match, 5000);
       await page.waitForTimeout(2500);
       return shopName;
     }
@@ -645,7 +708,7 @@ async function ensurePlatformSpuTabActive(page: Page, runtimeDir: string): Promi
     if (selected === "true") {
       return;
     }
-    await platformTab.click({ timeout: 5000 });
+    await clickLocatorWithTransientUiRecovery(platformTab, 5000);
     await page.waitForTimeout(1000 + attempt * 500);
   }
 
@@ -721,9 +784,13 @@ export async function assertDoudianPublishSessionReady(options: {
   runtimeDir: string;
   timeoutMs?: number;
   label?: string;
+  shopFolder?: string;
 }): Promise<void> {
-  const context = await launchPersistentBrowser();
-  try {
+  const readinessTimeoutMs = options.timeoutMs || 30000;
+  const hardTimeoutMs = Math.max(45000, readinessTimeoutMs + 30000);
+  let hardTimeout: ReturnType<typeof setTimeout> | undefined;
+  const runProbe = async (): Promise<void> => {
+    const context = await launchPersistentBrowser();
     const page =
       context.pages().find((item) => !item.isClosed() && item.url().includes("/ffa/g/spu-record")) ||
       context.pages().find((item) => !item.isClosed() && !item.url().includes("/ffa/g/create")) ||
@@ -738,9 +805,30 @@ export async function assertDoudianPublishSessionReady(options: {
       page,
       options.runtimeDir,
       options.label || "doudian-publish-session-preflight",
-      options.timeoutMs || 30000
+      readinessTimeoutMs
     );
+    if (options.shopFolder) {
+      await ensureShopContext(page, options.runtimeDir, options.shopFolder);
+      await ensurePlatformSpuQueryPageActive(
+        page,
+        options.runtimeDir,
+        `${options.label || "doudian-publish-session-preflight"}-after-shop-switch`,
+        readinessTimeoutMs
+      );
+    }
+  };
+  try {
+    await Promise.race([
+      runProbe(),
+      new Promise<never>((_resolve, reject) => {
+        hardTimeout = setTimeout(
+          () => reject(new Error(`Doudian publish session probe timed out after ${hardTimeoutMs}ms.`)),
+          hardTimeoutMs
+        );
+      })
+    ]);
   } finally {
+    if (hardTimeout) clearTimeout(hardTimeout);
     await disconnectAutomationBrowserConnections();
   }
 }
@@ -819,16 +907,15 @@ export async function readPlatformSpuQueryCandidates(
   }) as Promise<QueryMatchCandidate[]>;
 }
 
-async function clickPlatformSpuQueryButton(page: Page, runtimeDir: string): Promise<void> {
-  const queryButton = page.getByRole("button", { name: "\u67E5\u8BE2", exact: true });
-  const queryClicked = await queryButton.count() === 1
-    ? await queryButton.click({ timeout: 5000 }).then(() => true).catch(() => false)
-    : false;
-  if (!queryClicked) {
-    const error = new Error("Visible query button was not unique or clickable.") as QueryDiagnosticError;
+export async function clickPlatformSpuQueryButton(page: Page, runtimeDir: string): Promise<void> {
+  const queryButton = page.locator("button:visible").filter({ hasText: /^\s*\u67E5\u8BE2\s*$/ });
+  const visibleCount = await queryButton.count();
+  if (visibleCount !== 1) {
+    const error = new Error(`Visible query button was not unique or clickable. actual=${visibleCount}`) as QueryDiagnosticError;
     error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-query-button-missing.png");
     throw error;
   }
+  await clickLocatorWithTransientUiRecovery(queryButton, 5000);
   await page.waitForTimeout(2500);
 }
 
@@ -912,7 +999,10 @@ export async function queryPlatformSpu(
       brandCandidateState?.identities[brandCandidateState.index]
     );
     const candidateState = brandCandidateState || {
-      identities: discoveredBrandIdentities,
+      identities: prioritizeVerifiedPlatformBrandIdentity(
+        discoveredBrandIdentities,
+        readVerifiedPlatformBrandIdentity(runtimeDir, request)
+      ),
       index: 0,
       resultRefreshCount: 0
     };
@@ -1029,7 +1119,8 @@ export async function queryPlatformSpu(
         selectedBrandIdentity,
         brand,
         spu,
-        missKind: "no_rows"
+        missKind: "no_rows",
+        expectedSpecification: request.expectedSpecification
       });
       if (nextAttempt) {
         return queryPlatformSpu(runtimeDir, request, shopFolder, retryNo, nextAttempt);
@@ -1106,7 +1197,7 @@ export async function queryPlatformSpu(
       error.screenshotFile = await savePageScreenshot(page, runtimeDir, "platform-spu-publish-action-not-unique.png");
       throw error;
     }
-    await publishAction.click({ timeout: 10000 });
+    await clickLocatorWithTransientUiRecovery(publishAction, 10000);
 
     const observedCreatePage = await createPagePromise;
     let activeQueryPage = page;
@@ -1139,6 +1230,8 @@ export async function queryPlatformSpu(
     }
 
     const screenshotFile = await savePageScreenshot(targetPage, runtimeDir, "platform-spu-query-result.png");
+    rememberVerifiedPlatformBrandIdentity(runtimeDir, request, selectedBrandIdentity);
+    logInfo(`verified platform brand identity cached for this run: brand=${brand}; spu=${spu}; optionIdentity=${selectedBrandIdentity}`);
     const resultPage = activeQueryPage.isClosed() ? targetPage : activeQueryPage;
 
     return {

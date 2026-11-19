@@ -54,6 +54,8 @@ import {
   isRetryableExternalServiceAvailabilityFailure,
   shouldConsumeSupervisorRecoveryAttempt,
   resolveSupervisorRecoveryDelayMs,
+  resolveExternalServiceProbePollMs,
+  shouldProbeImageGenerationEndpointBeforeSupervisorRetry,
   resolveSupervisorRecoveryChildMode,
   formatAutoListingControllerCompactStatusText,
   resolveAutoListingControllerHermesStatusPayload,
@@ -67,9 +69,26 @@ import {
   resolveAutoListingSupervisorBatchOwnership,
   resolveAutoListingControllerPublishGroupProgress,
   resolveAutoListingControllerPaidImageRecordId,
+  normalizeAutoListingControllerDisplayProductName,
   shouldSuppressTerminalFailureBehindNewerProgress,
   compactAutoListingTerminalFailureMessage
 } from "../dist/src/autolist/batch-continuation-rules.js";
+
+assert.equal(
+  normalizeAutoListingControllerDisplayProductName("申诉--葡萄籽维生素E软胶囊"),
+  "葡萄籽维生素E软胶囊",
+  "workflow-only appeal markers must not leak into operator-facing product status"
+);
+assert.equal(
+  normalizeAutoListingControllerDisplayProductName("反馈--测试商品"),
+  "测试商品",
+  "workflow-only feedback markers must not look like a platform action"
+);
+assert.equal(
+  normalizeAutoListingControllerDisplayProductName("喜维他牌褪黑素片"),
+  "喜维他牌褪黑素片",
+  "ordinary product names must remain exact"
+);
 
 assert.equal(resolveAutoListingControllerBatchOwnership({
   controllerRunning: true,
@@ -100,7 +119,10 @@ assert.equal(resolveAutoListingSupervisorBatchOwnership({
   ownedBatchFingerprint: "batch-current",
   currentBatchFingerprint: "batch-current"
 }), "continue_owned_batch");
-import { shouldTreatControllerSupervisorAsInert } from "../dist/src/autolist/maintenance-rules.js";
+import {
+  isControllerWaitStateHeartbeatFresh,
+  shouldTreatControllerSupervisorAsInert
+} from "../dist/src/autolist/maintenance-rules.js";
 import {
   isDoudianLoginRequiredFailure,
   resolveDoudianLoginRecoveryPollMs
@@ -112,7 +134,10 @@ import {
   resolvePaidImageWaitStatus,
   shouldRefreshProgressSeenAtForPaidImageWait
 } from "../dist/src/autolist/paid-image-wait-rules.js";
-import { shouldRefreshFeishuAssetsToCandidateCache } from "../dist/src/autolist/feishu-refresh-rules.js";
+import {
+  shouldRefreshFeishuAssetsToCandidateCache,
+  shouldSupervisorSkipFeishuAssetsRefresh
+} from "../dist/src/autolist/feishu-refresh-rules.js";
 import { shouldRetainStoppedControllerPublishCheckpoint } from "../dist/src/autolist/status-progress-rules.js";
 import {
   initializePublishAttemptState,
@@ -512,6 +537,26 @@ assert.equal(
   "An in-progress batch refresh may still update the main cache"
 );
 assert.equal(
+  shouldSupervisorSkipFeishuAssetsRefresh("same_batch_pending"),
+  true,
+  "Continue must preserve the locked pending batch without refreshing mutable Feishu fields"
+);
+assert.equal(
+  shouldSupervisorSkipFeishuAssetsRefresh("initial_full"),
+  false,
+  "A manual continuation must let the child compare the online batch before deciding whether mutable fields are stale"
+);
+assert.equal(
+  shouldSupervisorSkipFeishuAssetsRefresh("new_batch_after_refresh"),
+  true,
+  "A newly promoted batch was already refreshed and should not be fetched twice"
+);
+assert.equal(
+  shouldSupervisorSkipFeishuAssetsRefresh("new_batch_after_refresh", true),
+  false,
+  "An unsafe local attachment cache must still reach the child's identity-guarded refresh"
+);
+assert.equal(
   shouldRefreshFeishuAssetsBeforeFullFlow({
     continuationReason: "same_batch_pending"
   }),
@@ -656,6 +701,11 @@ assert.equal(
     runnerJobRunning: true
   }),
   false
+);
+assert.ok(
+  hermesRunnerSource.indexOf("shouldClearPauseSignalOnAutoListingControllerStart")
+    < hermesRunnerSource.indexOf("if (current && runnerJobRunning) {\n    const status = existingStatus"),
+  "Continue must clear a pending pause signal before returning already-running status"
 );
 assert.equal(
   selectAutoListingControllerActiveRunIdFromLogLines([
@@ -841,6 +891,46 @@ assert.equal(
   false,
   "A supervisor with a recorded child must not be recycled by the terminal-result heuristic"
 );
+assert.equal(
+  shouldTreatControllerSupervisorAsInert({
+    processConfirmed: true,
+    childProcessRecorded: false,
+    waitStateRecorded: false,
+    staleWaitStateRecorded: true,
+    terminalResultFound: false,
+    terminalResultAgeMs: 0,
+    controllerLogAdvancedAfterTerminalResult: false
+  }),
+  true,
+  "A supervisor with a stale owned wait heartbeat is inert even when no terminal result can be selected"
+);
+assert.equal(
+  isControllerWaitStateHeartbeatFresh({
+    nowMs: Date.parse("2026-10-05T09:00:00.000Z"),
+    waitStateMtimeMs: Date.parse("2026-10-02T21:38:39.000Z"),
+    retryAt: "2026-10-02T21:39:09.000Z"
+  }),
+  false,
+  "A Doudian-login wait that stopped updating after its retry deadline must not keep a dead supervisor alive forever"
+);
+assert.equal(
+  isControllerWaitStateHeartbeatFresh({
+    nowMs: Date.parse("2026-10-02T21:38:50.000Z"),
+    waitStateMtimeMs: Date.parse("2026-10-02T21:38:39.000Z"),
+    retryAt: "2026-10-02T21:39:09.000Z"
+  }),
+  true,
+  "A current login wait remains active before its retry deadline"
+);
+assert.equal(
+  isControllerWaitStateHeartbeatFresh({
+    nowMs: Date.parse("2026-10-02T22:00:00.000Z"),
+    waitStateMtimeMs: Date.parse("2026-10-02T21:38:39.000Z"),
+    retryAt: "2026-10-02T23:00:00.000Z"
+  }),
+  true,
+  "A long external-service wait remains active while its declared retry time is still in the future"
+);
 assert.match(
   hermesRunnerSource,
   /cleanupInertControllerSupervisor\([\s\S]*cleanupRecordedAutoListingControllerChild\(\)/,
@@ -850,6 +940,11 @@ assert.match(
   controllerProcessLivenessSource,
   /isAutoListingControllerSupervisorProcessCommand[\s\S]*process\.kill\(-job\.pid,\s*"SIGTERM"\)/,
   "Inert supervisor cleanup must verify the exact project supervisor command before terminating its process group"
+);
+assert.match(
+  controllerProcessLivenessSource,
+  /isControllerWaitStateHeartbeatFresh\([\s\S]*waitStateMtimeMs[\s\S]*waitStateRecorded/,
+  "Controller liveness must reject a wait file whose heartbeat stopped after its declared retry deadline"
 );
 assert.match(
   hermesRunnerSource,
@@ -865,6 +960,30 @@ assert.match(
   hermesSupervisorSource,
   /waitForDoudianLoginRecovery[\s\S]*resolveAutoListingSupervisorBatchOwnership[\s\S]*stop_superseded_batch[\s\S]*assertDoudianPublishSessionReady/,
   "Login recovery must revalidate locked batch ownership before probing the browser or resuming work"
+);
+assert.match(
+  hermesSupervisorSource,
+  /function runFullFlow[\s\S]*shouldSupervisorSkipFeishuAssetsRefresh\(reason, localAssetCacheUnsafe\)[\s\S]*--skip-feishu-assets-refresh/,
+  "Supervisor may skip a Feishu refresh only through the reason-aware rule"
+);
+assert.match(
+  hermesRunnerSource,
+  /intent === "continue_current_batch" \? \["--continue-current-batch"\] : \[\]/,
+  "continue must preserve no-refresh intent when recovery falls back to a full-flow child"
+);
+assert.match(
+  hermesSupervisorSource,
+  /process\.argv\.includes\("--continue-current-batch"\)[\s\S]*"same_batch_pending"/,
+  "the supervisor must map continue fallback to same-batch pending so Feishu refresh stays disabled"
+);
+const supervisorRunFullFlowSource = hermesSupervisorSource.slice(
+  hermesSupervisorSource.indexOf("function runFullFlow"),
+  hermesSupervisorSource.indexOf("async function main")
+);
+assert.doesNotMatch(
+  supervisorRunFullFlowSource,
+  /shouldRefreshFeishuAssetsBeforeFullFlow/,
+  "Supervisor must not make the refresh decision before the child has online batch identity and completion evidence"
 );
 const inertCleanupSource = controllerProcessLivenessSource.slice(
   controllerProcessLivenessSource.indexOf("export async function cleanupInertControllerSupervisor")
@@ -1412,7 +1531,7 @@ const compactMissingSpecSurfaceStatus = formatAutoListingControllerCompactStatus
 });
 assert.match(
   compactMissingSpecSurfaceStatus,
-  /缺少规格模板栏；续跑会关闭异常发布页，返回标品管理重新输入品牌和 SPU 后重建当前目标/,
+  /缺少规格模板栏；已保留断点，请人工修改后继续上架/,
   "Hermes must report the SPU-query recovery path instead of a false price/inventory failure"
 );
 const compactGuideOverlayStatus = formatAutoListingControllerCompactStatusText({
@@ -1788,6 +1907,35 @@ assert.equal(
   3 * 60 * 1000,
   "Main-image transport failures must use the fixed three-minute external-service wait"
 );
+const safeNoAcceptanceTransportFailure =
+  "failed at main_images_generated: videos-base64 paid image slots failed after all concurrent work settled; failed indexes: 1; reasons: fetch failed; paid_image_ledger_safe_external_wait: ambiguous=0, reserved=0, submitted=0, failed_before_acceptance=20, completed=0";
+assert.equal(
+  shouldProbeImageGenerationEndpointBeforeSupervisorRetry(safeNoAcceptanceTransportFailure),
+  true,
+  "a zero-acceptance transport outage must poll endpoint reachability instead of blindly sleeping for three minutes"
+);
+assert.equal(resolveExternalServiceProbePollMs(), 10_000);
+assert.match(
+  hermesSupervisorSource,
+  /await waitForExternalServiceRecovery\(failureMessage, recoveryDelayMs, externalServiceWaitAttempts\)/,
+  "the live supervisor must use endpoint-aware recovery for safe no-acceptance provider outages"
+);
+assert.match(
+  hermesSupervisorSource,
+  /fetch\(apiUrl, \{ method: "HEAD", signal: controller\.signal \}\)/,
+  "the recovery probe must remain read-only and bounded"
+);
+for (const unsafeOrUnrelated of [
+  "failed at main_images_generated: paid_image_ledger_safe_external_wait: ambiguous=1, reserved=0, submitted=0, failed_before_acceptance=19, completed=0",
+  "failed at main_images_generated: videos-base64 task task-1 status queued 0",
+  "failed at main_images_generated: provider_log_lookup_unavailable: fetch failed"
+]) {
+  assert.equal(
+    shouldProbeImageGenerationEndpointBeforeSupervisorRetry(unsafeOrUnrelated),
+    false,
+    "endpoint recovery polling must never relaunch accepted, ambiguous, or reconciliation-only work"
+  );
+}
 assert.equal(
   shouldResumeFeishuBatchAfterRetryableChildFailure({
     exitCode: 1,
@@ -1798,6 +1946,103 @@ assert.equal(
   }),
   true,
   "Main-image provider transport failures must remain recoverable after the normal recovery budget is exhausted"
+);
+const providerLogUnavailableSafetyBlock =
+  "failed at main_images_generated: paid submission safety block: paid image ledger has ambiguous=1, reserved=0; automatic provider-log reconciliation declined: provider_log_lookup_unavailable: fetch failed";
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(providerLogUnavailableSafetyBlock),
+  true,
+  "a read-only provider-log outage must remain an external-service wait even while paid replay stays blocked"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: providerLogUnavailableSafetyBlock,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "the supervisor must retry only the reconciliation preflight after provider-log availability returns"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(providerLogUnavailableSafetyBlock),
+  false,
+  "read-only reconciliation availability must not consume the ordinary recovery budget"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: providerLogUnavailableSafetyBlock,
+    externalServiceWaitAttempts: 3
+  }),
+  3 * 60 * 1000,
+  "provider-log availability recovery must use the canonical three-minute external-service wait"
+);
+const providerTaskLoginRequired =
+  "failed at main_images_generated: provider_task_login_required: provider refresh session is unavailable or expired";
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(providerTaskLoginRequired),
+  true,
+  "provider task-list login recovery must keep the locked batch waiting without consuming paid replay permission"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(providerTaskLoginRequired),
+  false,
+  "provider task-list login recovery must not exhaust the ordinary supervisor recovery budget"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({ failureMessage: providerTaskLoginRequired, externalServiceWaitAttempts: 1 }),
+  3 * 60 * 1000,
+  "provider task-list login recovery must retry only after the canonical external-service wait"
+);
+const providerTaskLoginSafetyBlock =
+  "failed at main_images_generated: paid submission safety block: existing ambiguous slots must reconcile before any new paid POST; provider_task_login_required: provider refresh session is unavailable or expired";
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: providerTaskLoginSafetyBlock,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "the paid safety wrapper must not turn provider task-list login recovery into a terminal batch failure"
+);
+const providerLogOutcomePendingSafetyBlock =
+  "failed at main_images_generated: paid submission safety block: paid image ledger has ambiguous=1, reserved=0; automatic provider-log reconciliation declined: provider_log_outcome_pending: slot 9 requires a one-to-one set of unique zero-billed no-acceptance logs; found no candidate";
+assert.equal(
+  isRetryableExternalServiceAvailabilityFailure(providerLogOutcomePendingSafetyBlock),
+  true,
+  "a successfully queried but not-yet-conclusive provider log must remain an external-service wait"
+);
+assert.equal(
+  shouldResumeFeishuBatchAfterRetryableChildFailure({
+    exitCode: 1,
+    batchComplete: false,
+    retryableFailureMessage: providerLogOutcomePendingSafetyBlock,
+    recoveryAttempts: 12,
+    maxRecoveryAttempts: 12
+  }),
+  true,
+  "an unresolved provider-log outcome must retry reconciliation without replaying the ambiguous paid slot"
+);
+assert.equal(
+  shouldConsumeSupervisorRecoveryAttempt(providerLogOutcomePendingSafetyBlock),
+  false,
+  "provider-log eventual consistency must not consume the ordinary recovery budget"
+);
+assert.equal(
+  resolveSupervisorRecoveryDelayMs({
+    failureMessage: providerLogOutcomePendingSafetyBlock,
+    externalServiceWaitAttempts: 4
+  }),
+  3 * 60 * 1000,
+  "an inconclusive provider-log outcome must use the canonical external-service backoff"
+);
+assert.equal(
+  resolveSupervisorRecoveryChildMode(providerLogOutcomePendingSafetyBlock),
+  "resume",
+  "provider evidence polling must resume the exact main-image checkpoint without refreshing the locked Feishu batch"
 );
 assert.equal(
   resolveAutoListingControllerRuntimeStatus({
@@ -1819,8 +2064,8 @@ const paidLedgerDerivedWaitStatus = resolvePaidImageWaitStatus({
 });
 assert.equal(
   paidLedgerDerivedWaitStatus,
-  "external_service_wait",
-  "A running main-image task with accepted paid ledger slots must derive external-service wait status"
+  "running",
+  "Accepted provider tasks that are actively polled must remain running instead of looking stalled"
 );
 const compactPaidLedgerDerivedWait = formatAutoListingControllerCompactStatusText({
   status: paidLedgerDerivedWaitStatus,
@@ -1832,7 +2077,7 @@ const compactPaidLedgerDerivedWait = formatAutoListingControllerCompactStatusTex
   feishuTotal: 1
 });
 assert.match(compactPaidLedgerDerivedWait, /主图 17\/20/);
-assert.match(compactPaidLedgerDerivedWait, /等待生图服务/);
+assert.match(compactPaidLedgerDerivedWait, /运行中/);
 assert.equal(
   formatPaidImageAcceptedTaskWaitSummary({
     completed: 19,
@@ -1854,7 +2099,7 @@ const sharedDirectPaidWaitStatus = resolvePaidImageWaitStatus({
   paidImageSubmitted: 3,
   publishProgressActive: false
 });
-assert.equal(sharedDirectPaidWaitStatus, "external_service_wait");
+assert.equal(sharedDirectPaidWaitStatus, "running");
 assert.equal(
   (hermesRunnerSource.match(/resolvePaidImageWaitStatus\(/g) || []).length,
   2,
@@ -1870,7 +2115,7 @@ const compactSharedDirectPaidWait = formatAutoListingControllerCompactStatusText
   feishuTotal: 1
 });
 assert.match(compactSharedDirectPaidWait, /主图 17\/20/);
-assert.match(compactSharedDirectPaidWait, /等待生图服务/);
+assert.match(compactSharedDirectPaidWait, /运行中/);
 assert.equal(
   resolvePaidImageWaitStatus({
     baseStatus: "running",
@@ -2400,8 +2645,8 @@ assert.match(
 );
 assert.equal(
   resolveSupervisorRecoveryChildMode("failed at main_images_generated: fetch failed"),
-  "full",
-  "Ordinary retryable failures must keep the existing full-flow recovery behavior"
+  "resume",
+  "Main-image recovery must reuse the exact prompt/runtime identity instead of regenerating nondeterministic DeepSeek prompts"
 );
 assert.equal(
   resolveSupervisorRecoveryChildMode(

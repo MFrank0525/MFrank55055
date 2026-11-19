@@ -5,15 +5,11 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { isUnsafePaidImageReplayReason, submitTransportFailureProvesNoPaidTaskAccepted } from "./image-generation-rules.js";
 import { inspectDecodedImageFile, isFullyDecodableImageFile } from "../utils/image-integrity.js";
-import {
-  isPaidImageProviderIdentityMigrationHistoryValid,
-  isPaidImageCompletedResultValid,
-  selectPaidImageProviderIdentityProofCandidate,
-  validatePaidImageExistingResultRecoveryPlanRule,
-  type PaidImageProviderIdentityMigration,
-  type PaidImageProviderIdentityProofCandidate,
-  type PaidImageProviderIdentityRotationInput
-} from "./paid-image-provider-identity-rules.js";
+import { isPaidImageGatewayEvidence, persistPaidImageGatewayEvidence, type PaidImageGatewayEvidence } from "./paid-image-gateway-evidence.js";
+import { isPaidImageProviderIdentityMigrationHistoryValid, isPaidImageCompletedResultValid,
+  selectPaidImageProviderIdentityProofCandidate, validatePaidImageExistingResultRecoveryPlanRule,
+  type PaidImageProviderIdentityMigration, type PaidImageProviderIdentityProofCandidate,
+  type PaidImageProviderIdentityRotationInput } from "./paid-image-provider-identity-rules.js";
 export type PaidImageSlotState =
   | "reserved"
   | "submitted"
@@ -50,6 +46,7 @@ export interface PaidImageSlotRecord {
   resultProvenance?: PaidImageResultProvenance;
   reason?: string;
   replayDisposition?: PaidImageReplayDisposition;
+  gatewayEvidence?: PaidImageGatewayEvidence;
   audit: PaidImageSlotAuditEntry[];
 }
 export interface PaidImageResultProvenance {
@@ -84,24 +81,20 @@ export interface PaidImageLedgerArtifactIntegrityIssue {
   slot: number;
   message: string;
 }
-
 export interface PaidImageLedgerAuditInspection {
   summary: PaidImageLedgerSummary;
   errors: PaidImageLedgerArtifactIntegrityIssue[];
 }
-
 export interface PaidImageLedgerExpectedIdentity {
   batchFingerprint: string;
   recordId: string;
 }
-
 export type PaidImageSlotAction =
   | { action: "submit"; record: PaidImageSlotRecord }
   | { action: "poll"; record: PaidImageSlotRecord; providerTaskId: string }
   | { action: "reuse"; record: PaidImageSlotRecord; resultFile: string }
   | { action: "blocked_reserved" | "blocked_ambiguous"; record: PaidImageSlotRecord }
   | { action: "missing" | "retry_failed_before_acceptance" | "retry_failed_after_acceptance"; record?: PaidImageSlotRecord };
-
 export interface InitializePaidImageProductLedgerInput {
   rootDir: string;
   batchFingerprint: string;
@@ -110,7 +103,6 @@ export interface InitializePaidImageProductLedgerInput {
   providerIdentity: string;
   sourceImageDigest: string;
 }
-
 export interface ReservePaidImageSlotInput {
   productDir: string;
   slot: number;
@@ -119,19 +111,16 @@ export interface ReservePaidImageSlotInput {
   owner: PaidImageSlotOwner;
   allowFailedAfterAcceptanceDigestChange?: boolean; allowFailedBeforeAcceptanceRequestDigestChange?: boolean;
 }
-
 export interface ResolvePaidImageSlotActionInput {
   productDir: string;
   slot: number;
 }
-
 export interface RecordPaidImageSubmittedInput {
   productDir: string;
   slot: number;
   providerTaskId: string;
   providerResponse?: unknown;
 }
-
 export interface ReconcileAmbiguousPaidImageTaskInput {
   productDir: string;
   slot: number;
@@ -139,34 +128,29 @@ export interface ReconcileAmbiguousPaidImageTaskInput {
   reason: string;
   providerResponse?: unknown;
 }
-
 export interface ReconcileAmbiguousPaidImageNoAcceptanceInput {
   productDir: string;
   slot: number;
   reason: string;
 }
-
 export interface ReconcileAmbiguousPaidImageProviderFailureInput {
   productDir: string;
   slot: number;
   providerTaskId: string;
   reason: string;
 }
-
 export interface RecordPaidImageCompletedInput {
   productDir: string;
   slot: number;
   sourceFile: string;
   providerTaskId?: string;
 }
-
 export interface RecordPaidImageRecoveredFromExistingResultInput {
   productDir: string;
   targetSlot: number;
   sourceSlot: number;
   reason: string;
 }
-
 export function validatePaidImageExistingResultRecoveryPlan(input: {
   productDir: string;
   mappings: Array<{ targetSlot: number; sourceSlot: number }>;
@@ -179,28 +163,26 @@ export function validatePaidImageExistingResultRecoveryPlan(input: {
     sha256File
   });
 }
-
 export interface RecordPaidImageAmbiguousInput {
   productDir: string;
   slot: number;
   reason: string;
   providerResponse?: unknown;
   replayDisposition?: PaidImageReplayDisposition;
+  responseEvidenceFile?: string;
+  responseStatus?: number;
 }
-
 export interface RecordPaidImageFailedBeforeAcceptanceInput {
   productDir: string;
   slot: number;
   reason: string;
   replayDisposition?: PaidImageReplayDisposition;
 }
-
 export interface ApprovePaidImageRechargeRetryInput {
   productDir: string;
   slot: number;
   reason: string;
 }
-
 export interface RecordPaidImageFailedAfterAcceptanceInput {
   productDir: string;
   slot: number;
@@ -209,14 +191,12 @@ export interface RecordPaidImageFailedAfterAcceptanceInput {
   providerResponse?: unknown;
   replayDisposition?: PaidImageReplayDisposition;
 }
-
 export interface ExpireSubmittedPaidImageQueueInput {
   productDir: string;
   slot: number;
   minSubmittedAgeMs: number;
   reason: string;
 }
-
 const states = new Set<PaidImageSlotState>([
   "reserved",
   "submitted",
@@ -225,22 +205,18 @@ const states = new Set<PaidImageSlotState>([
   "failed_after_acceptance",
   "ambiguous"
 ]);
-
 export function sha256Text(text: string): string {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
-
 export function sha256File(file: string): string {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
-
 function requireNonEmpty(value: string, name: string): string {
   if (!value || !value.trim()) {
     throw new Error(`${name} must be non-empty`);
   }
   return value;
 }
-
 function sanitizePathSegment(value: string, name: string): string {
   const original = requireNonEmpty(value, name);
   const readable = original
@@ -251,7 +227,6 @@ function sanitizePathSegment(value: string, name: string): string {
     .slice(0, 80) || "identity";
   return `${readable}-${sha256Text(original).slice(0, 12)}`;
 }
-
 export function paidImageProductLedgerDir(rootDir: string, batchFingerprint: string, recordId: string): string {
   requireNonEmpty(rootDir, "rootDir");
   return path.join(
@@ -259,12 +234,10 @@ export function paidImageProductLedgerDir(rootDir: string, batchFingerprint: str
     sanitizePathSegment(recordId, "recordId")
   );
 }
-
 export function paidImageBatchLedgerDir(rootDir: string, batchFingerprint: string): string {
   requireNonEmpty(rootDir, "rootDir");
   return path.join(path.resolve(rootDir), sanitizePathSegment(batchFingerprint, "batchFingerprint"));
 }
-
 export function removePaidImageProductLedger(rootDir: string, batchFingerprint: string, recordId: string): boolean {
   const productDir = paidImageProductLedgerDir(rootDir, batchFingerprint, recordId);
   if (!fs.existsSync(productDir)) {
@@ -277,7 +250,6 @@ export function removePaidImageProductLedger(rootDir: string, batchFingerprint: 
   }
   return true;
 }
-
 export function removePaidImageBatchLedger(rootDir: string, batchFingerprint: string): boolean {
   const batchDir = paidImageBatchLedgerDir(rootDir, batchFingerprint);
   if (!fs.existsSync(batchDir)) {
@@ -286,19 +258,15 @@ export function removePaidImageBatchLedger(rootDir: string, batchFingerprint: st
   fs.rmSync(batchDir, { recursive: true, force: true });
   return true;
 }
-
 function productFile(productDir: string): string {
   return path.join(productDir, "product.json");
 }
-
 function slotFile(productDir: string, slot: number): string {
   return path.join(productDir, "slots", `${String(slot).padStart(2, "0")}.json`);
 }
-
 function wait(milliseconds: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
-
 interface LedgerLockMetadata {
   pid: number;
   acquiredAt: string;
@@ -306,19 +274,15 @@ interface LedgerLockMetadata {
   processIdentity?: string;
   processIdentitySource?: ProcessIdentitySource;
 }
-
 type ProcessIdentitySource = "ps-lstart-command-sha256" | "local-process-start-sha256" | "local-fallback";
-
 interface ProcessIdentity {
   identity: string;
   source: ProcessIdentitySource;
 }
-
 const staleLockTimeoutMs = 60_000;
 const currentProcessFallbackIdentity = sha256Text(
   `${process.pid}|${Math.round(Date.now() - process.uptime() * 1000)}|${process.execPath}`
 );
-
 function queryProcessIdentity(pid: number): ProcessIdentity | undefined {
   if (pid === process.pid) {
     return currentPaidImageLedgerProcessIdentity();
@@ -765,6 +729,7 @@ function validateSlotRecord(value: unknown, expectedSlot: number): PaidImageSlot
     record.audit.at(-1)?.state !== record.state ||
     (record.providerTaskId !== undefined && !isSafeProviderTaskId(record.providerTaskId)) ||
     (record.providerResponseSummary !== undefined && !isPlainScalarRecord(record.providerResponseSummary)) ||
+    (record.gatewayEvidence !== undefined && !isPaidImageGatewayEvidence(record.gatewayEvidence)) ||
     (record.resultFile !== undefined && (typeof record.resultFile !== "string" || !path.isAbsolute(record.resultFile))) ||
     (record.resultDigest !== undefined &&
       (typeof record.resultDigest !== "string" || !/^[a-f0-9]{64}$/.test(record.resultDigest))) ||
@@ -1271,10 +1236,36 @@ export function recordPaidImageRecoveredFromExistingResult(
 }
 
 export function recordPaidImageAmbiguous(input: RecordPaidImageAmbiguousInput): PaidImageSlotRecord {
+  const gatewayEvidence = input.responseEvidenceFile && input.responseStatus
+    ? persistPaidImageGatewayEvidence({
+        productDir: input.productDir, slot: input.slot,
+        sourceFile: input.responseEvidenceFile, httpStatus: input.responseStatus
+      })
+    : undefined;
   return transitionSlot(input.productDir, input.slot, ["reserved", "submitted"], "ambiguous", {
     reason: cleanText(requireNonEmpty(input.reason, "reason")),
     providerResponseSummary: providerResponseSummary(input.providerResponse),
-    ...(input.replayDisposition ? { replayDisposition: input.replayDisposition } : {})
+    ...(input.replayDisposition ? { replayDisposition: input.replayDisposition } : {}),
+    ...(gatewayEvidence ? { gatewayEvidence } : {})
+  });
+}
+
+export function attachPaidImageGatewayEvidence(input: {
+  productDir: string; slot: number; responseEvidenceFile: string; responseStatus: number;
+}): PaidImageSlotRecord {
+  validateSlotRange(input.productDir, input.slot);
+  return withSlotLock(input.productDir, input.slot, () => {
+    const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (!record || record.state !== "ambiguous" || record.gatewayEvidence) {
+      throw new Error(`slot ${input.slot} cannot attach legacy gateway evidence in state ${record?.state || "missing"}`);
+    }
+    const gatewayEvidence = persistPaidImageGatewayEvidence({
+      productDir: input.productDir, slot: input.slot,
+      sourceFile: input.responseEvidenceFile, httpStatus: input.responseStatus
+    });
+    const next = { ...record, gatewayEvidence };
+    atomicWriteJson(slotFile(input.productDir, input.slot), next);
+    return validateSlotRecord(next, input.slot);
   });
 }
 
@@ -1285,6 +1276,11 @@ export function recordPaidImageFailedBeforeAcceptance(input: RecordPaidImageFail
   });
 }
 
+export function isPaidImageRechargeQuotaRejection(reason: string): boolean {
+  return /HTTP\s*403/i.test(reason)
+    && /insufficient_user_quota|用户额度不足|pre_consume_token_quota_failed/i.test(reason);
+}
+
 export function approvePaidImageRechargeRetry(
   input: ApprovePaidImageRechargeRetryInput
 ): PaidImageSlotRecord {
@@ -1292,8 +1288,7 @@ export function approvePaidImageRechargeRetry(
   return withSlotLock(input.productDir, input.slot, () => {
     const record = readSlotRecordUnlocked(input.productDir, input.slot);
     const originalReason = record?.reason || "";
-    const explicitQuotaRejection = /HTTP\s*403/i.test(originalReason)
-      && /insufficient_user_quota|用户额度不足/i.test(originalReason);
+    const explicitQuotaRejection = isPaidImageRechargeQuotaRejection(originalReason);
     if (
       !record
       || record.state !== "failed_before_acceptance"
@@ -1359,7 +1354,14 @@ export function recordPaidImageFailedAfterAcceptance(input: RecordPaidImageFaile
     });
   });
 }
-
+export function invalidateCompletedPaidImageSlot(input: { productDir: string; slot: number; expectedPromptDigest: string; expectedResultDigest: string; reason: string }): PaidImageSlotRecord {
+  validateSlotRange(input.productDir, input.slot);
+  return withSlotLock(input.productDir, input.slot, () => {
+    const record = readSlotRecordUnlocked(input.productDir, input.slot);
+    if (!record || record.state !== "completed" || record.promptDigest !== input.expectedPromptDigest || record.resultDigest !== input.expectedResultDigest) throw new Error(`completed paid-image slot ${input.slot} failed closed invalidation checks`);
+    return transitionSlotUnlocked(input.productDir, input.slot, ["completed"], "failed_after_acceptance", { reason: cleanText(requireNonEmpty(input.reason, "reason")), resultFile: undefined, resultDigest: undefined, resultProvenance: undefined });
+  });
+}
 export function expireSubmittedPaidImageQueue(input: ExpireSubmittedPaidImageQueueInput): PaidImageSlotRecord | undefined {
   if (!Number.isFinite(input.minSubmittedAgeMs) || input.minSubmittedAgeMs < 0) {
     throw new Error("minSubmittedAgeMs must be a non-negative finite number");
@@ -1492,7 +1494,6 @@ export function summarizePaidImageProductLedger(
   }
   return inspected.summary;
 }
-
 export function inspectPaidImageProductLedgerForAudit(productDir: string): PaidImageLedgerAuditInspection {
   return summarizePaidImageProductLedger(productDir, "audit");
 }

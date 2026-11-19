@@ -40,6 +40,22 @@ function buildPassingReport() {
 const passing = buildPassingReport();
 assert.deepEqual(validateShopAccessAuditReport(passing), { ok: true, errors: [] });
 
+const currentHeaderMetadata = structuredClone(passing);
+currentHeaderMetadata.entries[0].actualShopName = `${shops[0].watermarkText}专营店正常营业`;
+assert.deepEqual(
+  validateShopAccessAuditReport(currentHeaderMetadata),
+  { ok: true, errors: [] },
+  "known Doudian account-type and operating-status metadata may trail the exact current shop name"
+);
+
+const misleadingPrefix = structuredClone(passing);
+misleadingPrefix.entries[0].actualShopName = `错误店铺${shops[0].watermarkText}专营店正常营业`;
+assert.equal(
+  validateShopAccessAuditReport(misleadingPrefix).ok,
+  false,
+  "trailing metadata tolerance must not turn substring containment into shop identity"
+);
+
 const missing = structuredClone(passing);
 missing.entries.pop();
 assert.equal(validateShopAccessAuditReport(missing).ok, false);
@@ -163,6 +179,11 @@ assert.match(
   shopSwitchSource,
   /evaluateAfterNavigationSettles[\s\S]*isNavigationContextDestroyedError[\s\S]*waitForLoadState\("domcontentloaded"\)/,
   "shop identity reads must retry after a switch-triggered navigation destroys the current execution context"
+);
+assert.match(
+  shopSwitchSource,
+  /isTransientNavigationReadError[\s\S]*document body is temporarily unavailable/,
+  "shop identity reads must retry while a navigation has not mounted document.body yet"
 );
 assert.match(
   shopSwitchSource,

@@ -6,7 +6,9 @@ import { approveReviewedNegativeUncertainPublishRetry } from "../dist/src/autoli
 import { readPublishResultSummary } from "../dist/src/autolist/publish.js";
 import {
   isKnownCategoryMisplacementWarning,
-  selectCategoryMisplacementWarningCloseControl
+  selectQualityScoreWarningAcknowledgement,
+  selectCategoryMisplacementWarningCloseControl,
+  shouldFailClosedForUnknownProductListOverlay
 } from "../dist/src/business/publish-from-spu/product-list-verification-action.js";
 import { reconcilePositiveUncertainPublish } from "../dist/src/autolist/reconcile-positive-uncertain-publish.js";
 import { findLatestIncompletePublishManifestForResume } from "../dist/src/autolist/unsafe-publish-resume.js";
@@ -29,11 +31,46 @@ assert.equal(selectCategoryMisplacementWarningCloseControl([
 assert.equal(selectCategoryMisplacementWarningCloseControl([
   { visible: true, text: "使用推荐类目", ariaLabel: "", className: "primary" }
 ]), undefined);
+assert.equal(selectQualityScoreWarningAcknowledgement([
+  { visible: true, text: "知道了", hasQualityScoreWarningAncestor: true }
+]), 0);
+assert.equal(selectQualityScoreWarningAcknowledgement([
+  { visible: true, text: "知道了", hasQualityScoreWarningAncestor: false },
+  { visible: true, text: "知道了", hasQualityScoreWarningAncestor: true }
+]), 1);
+assert.throws(() => selectQualityScoreWarningAcknowledgement([
+  { visible: true, text: "知道了", hasQualityScoreWarningAncestor: true },
+  { visible: true, text: "知道了", hasQualityScoreWarningAncestor: true }
+]), /one unique acknowledgement/);
+assert.equal(
+  shouldFailClosedForUnknownProductListOverlay({ maskObserved: true, visibleDialogCount: 0 }),
+  false,
+  "a transient orphan mask without a visible dialog must not falsely block exact-title verification"
+);
+assert.equal(
+  shouldFailClosedForUnknownProductListOverlay({ maskObserved: true, visibleDialogCount: 1 }),
+  true,
+  "an unknown visible dialog behind a mask must remain fail-closed"
+);
 const verificationSource = fs.readFileSync("src/business/publish-from-spu/product-list-verification-action.ts", "utf8");
+const publishBrowserSources = fs.readdirSync("src/business/publish-from-spu")
+  .filter((file) => file.endsWith(".ts"))
+  .map((file) => fs.readFileSync(path.join("src/business/publish-from-spu", file), "utf8"))
+  .join("\n");
+assert.doesNotMatch(
+  publishBrowserSources,
+  /getBy(?:Text|Role)\([^\n]*(?:反馈|发起申诉|使用推荐类目)[^\n]*\)[^\n]*\.click/,
+  "publish automation must never click platform feedback, appeal, or recommended-category actions"
+);
 assert.match(
   verificationSource,
   /const controls = warning\.locator\("button,\[role='button'\]"\)/,
   "category warning dismissal must enumerate interactive controls, not nested close-icon descendants"
+);
+assert.doesNotMatch(
+  verificationSource,
+  /qualityScoreDialogs\s*\.getByRole\("button", \{ name: "知道了", exact: true \}\)/,
+  "quality-score dismissal must not count one button once per nested matching dialog wrapper"
 );
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "listing-uncertain-recovery-"));

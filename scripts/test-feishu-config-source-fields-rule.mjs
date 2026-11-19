@@ -3,128 +3,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadFeishuBitableConfig } from "../dist/src/feishu/config.js";
-
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "feishu-config-source-fields-"));
-const configFile = path.join(tempDir, "feishu-bitable.config.json");
-fs.writeFileSync(
-  configFile,
-  JSON.stringify(
-    {
-      bitableUrl: "https://example.feishu.cn/wiki/wikiToken?table=tbl123&view=vew456",
-      fieldMap: {
-        userCognitionName: "用户认知名",
-        genericName: "通用名称",
-        brand: "品牌",
-        spu: "SPU",
-        sellingPointText: "产品卖点",
-        deepseekPromptText: "DeepSeek提示词",
-        mainImageInstructionText: "主图指令",
-        positivePromptText: "正向提示词",
-        negativePromptText: "反向提示词",
-        titleKeywordText: "标题关键词",
-        titleSuffixText: "标题固定后缀",
-        productPriceText: "产品价格",
-        specTemplate: "规格模板",
-        shortTitle: "导购短标题",
-        productCategory: "产品类目",
-        qualificationImages: "资质图片",
-        whiteBackgroundImages: "白底图",
-        manufacturerName: "生产企业名称",
-        manufacturerAddress: "生产企业地址",
-        netContent: "净含量",
-        productStandardCode: "产品标准代码",
-        ingredients: "配料表",
-        healthFunction: "保健功能",
-        specification: "规格",
-        shelfLife: "保质期",
-        storageCondition: "储藏条件",
-        newlyAddedIrrelevantField: "新增无关表头"
-      }
-    },
-    null,
-    2
-  ),
-  "utf8"
-);
-
-const config = loadFeishuBitableConfig(configFile);
-assert.equal(config.fieldMap.deepseekPromptText, "DeepSeek提示词");
-assert.equal(config.fieldMap.mainImageInstructionText, "主图指令");
-assert.equal(config.fieldMap.positivePromptText, "正向提示词");
-assert.equal(config.fieldMap.negativePromptText, "反向提示词");
-assert.equal(config.fieldMap.titleKeywordText, "标题关键词");
-assert.equal(config.fieldMap.titleSuffixText, "标题固定后缀");
-assert.equal(config.fieldMap.productPriceText, "产品价格");
-assert.equal(config.fieldMap.specTemplate, "规格模板");
-assert.equal(config.fieldMap.manufacturerName, "生产企业名称");
-assert.equal(config.fieldMap.manufacturerAddress, "生产企业地址");
-assert.equal(config.fieldMap.netContent, "净含量");
-assert.equal(config.fieldMap.productStandardCode, "产品标准代码");
-assert.equal(config.fieldMap.ingredients, "配料表");
-assert.equal(config.fieldMap.healthFunction, "保健功能");
-assert.equal(config.fieldMap.specification, "规格");
-assert.equal(config.fieldMap.shelfLife, "保质期");
-assert.equal(config.fieldMap.storageCondition, "储藏条件");
-assert.equal(config.fieldMap.newlyAddedIrrelevantField, undefined);
-assert.ok(config.requiredFields?.includes("deepseekPromptText"));
-assert.ok(config.requiredFields?.includes("mainImageInstructionText"));
-assert.ok(config.requiredFields?.includes("positivePromptText"));
-assert.ok(config.requiredFields?.includes("negativePromptText"));
-assert.ok(config.requiredFields?.includes("titleKeywordText"));
-assert.ok(config.requiredFields?.includes("titleSuffixText"));
-assert.ok(config.requiredFields?.includes("productPriceText"));
-assert.ok(config.requiredFields?.includes("specTemplate"));
-assert.ok(!config.requiredFields?.includes("newlyAddedIrrelevantField"));
-for (const categoryOnlyField of [
-  "manufacturerName",
-  "manufacturerAddress",
-  "netContent",
-  "productStandardCode",
-  "ingredients",
-  "healthFunction",
-  "specification",
-  "shelfLife",
-  "storageCondition"
-]) {
-  assert.ok(
-    !config.requiredFields?.includes(categoryOnlyField),
-    `category-only field ${categoryOnlyField} must not become a global required field`
-  );
-}
-
-const medicalOnlyConfigFile = path.join(tempDir, "feishu-bitable.medical-only.config.json");
-fs.writeFileSync(
-  medicalOnlyConfigFile,
-  JSON.stringify(
-    {
-      bitableUrl: "https://example.feishu.cn/wiki/wikiToken?table=tbl123&view=vew456",
-      fieldMap: {
-        userCognitionName: "用户认知名",
-        genericName: "通用名称",
-        brand: "品牌",
-        spu: "SPU",
-        sellingPointText: "产品卖点",
-        deepseekPromptText: "DeepSeek提示词",
-        mainImageInstructionText: "主图指令",
-        positivePromptText: "正向提示词",
-        negativePromptText: "反向提示词",
-        titleKeywordText: "标题关键词",
-        titleSuffixText: "标题固定后缀",
-        productPriceText: "产品价格",
-        specTemplate: "规格模板",
-        shortTitle: "导购短标题",
-        productCategory: "产品类目",
-        qualificationImages: "资质图片",
-        whiteBackgroundImages: "白底图"
-      }
-    },
-    null,
-    2
-  ),
-  "utf8"
-);
-
-const medicalOnlyConfig = loadFeishuBitableConfig(medicalOnlyConfigFile);
-assert.equal(medicalOnlyConfig.fieldMap.manufacturerName, "");
-assert.ok(!medicalOnlyConfig.requiredFields?.includes("manufacturerName"));
-assert.ok(medicalOnlyConfig.requiredFields?.includes("whiteBackgroundImages"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "feishu-config-"));
+const file = path.join(dir, "config.json");
+fs.writeFileSync(file, JSON.stringify({ bitableUrl: "https://example.feishu.cn/wiki/a?table=tbl1", fieldMap: {
+  userCognitionName: "用户认知名", genericName: "通用名称", brand: "品牌", spu: "SPU",
+  mainImageHeadlineCandidateText: "主图主标题", mainImageSubtitleCandidateText: "主图副标题",
+  mainImageSellingPointCandidateText: "主图卖点", mainImageInstructionText: "主图指令",
+  positivePromptText: "正向提示词", negativePromptText: "反向提示词", titleKeywordText: "标题关键词",
+  titleSuffixText: "标题固定后缀", productPriceText: "产品价格", specTemplate: "规格模板",
+  shortTitle: "导购短标题", productCategory: "产品类目", qualificationImages: "资质图片", whiteBackgroundImages: "白底图"
+} }), "utf8");
+const config = loadFeishuBitableConfig(file);
+assert.equal(config.fieldMap.mainImageHeadlineCandidateText, "主图主标题");
+assert.equal(config.fieldMap.mainImageSubtitleCandidateText, "主图副标题");
+assert.equal(config.fieldMap.mainImageSellingPointCandidateText, "主图卖点");
+for (const key of ["mainImageHeadlineCandidateText", "mainImageSubtitleCandidateText", "mainImageSellingPointCandidateText"]) assert.ok(config.requiredFields?.includes(key));

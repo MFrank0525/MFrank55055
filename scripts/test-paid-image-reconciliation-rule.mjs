@@ -2,18 +2,135 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   excludeKnownAcceptedProviderLogs,
+  isProviderAmbiguousAvailabilityResponse,
   matchBilledProviderTasks,
+  matchProviderTaskListAcceptanceGap,
+  matchProviderTaskListTerminalFailureGap,
+  matchProviderTaskListNoAcceptanceGap,
   matchProviderBilledAcceptanceAfterGateway,
   matchProviderNoAcceptanceLogs,
   matchProviderNoAcceptanceLogsWithRefresh,
+  validatePaidImageFailedProviderTaskForReconciliation,
   validatePaidImageProviderTaskForReconciliation
 } from "../dist/src/autolist/paid-image-reconciliation.js";
+import { parseProviderTokenLogPayload } from "../dist/src/autolist/paid-image-provider-log-reconciliation-action.js";
+import { isProviderTaskLoginRequiredError } from "../dist/src/autolist/paid-image-task-recovery-action.js";
 
 const cliSource = fs.readFileSync("src/cli/reconcile-paid-image-task.ts", "utf8");
 const providerLogActionSource = fs.readFileSync("src/autolist/paid-image-provider-log-reconciliation-action.ts", "utf8");
 const providerTaskRecoverySource = fs.readFileSync("src/autolist/paid-image-task-recovery-action.ts", "utf8");
+const mainImageAssetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
+const mainImageProviderSource = fs.readFileSync("src/autolist/main-image-provider-action.ts", "utf8");
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const ruleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
+
+assert.deepEqual(
+  parseProviderTokenLogPayload('{"data":{"items":[{"id":1}]}}'),
+  [{ id: 1 }]
+);
+assert.throws(
+  () => parseProviderTokenLogPayload("<html><head><title>gateway timeout</title></head></html>"),
+  /temporarily unavailable.*non-JSON/i
+);
+
+const structuredSystemUnavailable = JSON.stringify({
+  code: "fail_to_fetch_task",
+  message: JSON.stringify({
+    code: "fail_to_fetch_task",
+    message: JSON.stringify({
+      code: "fail_to_fetch_task",
+      message: JSON.stringify({
+        error: {
+          code: "system_unavailable",
+          message: "系统状态服务暂时异常，请稍后重试",
+          retryable: true,
+          category: "system",
+          details: { retryable: true, request_id: "client_request_muldnn2x_8acbd13d04f74098" },
+          request_id: "client_request_muldnn2x_8acbd13d04f74098"
+        }
+      }),
+      data: null
+    }),
+    data: null
+  }),
+  data: null
+});
+assert.equal(
+  isProviderAmbiguousAvailabilityResponse({ status: 503, responseText: structuredSystemUnavailable }),
+  true,
+  "a structured retryable system-unavailable response must reach read-only billing/task reconciliation"
+);
+assert.equal(
+  isProviderAmbiguousAvailabilityResponse({
+    status: 503,
+    responseText: structuredSystemUnavailable.replaceAll("true", "false")
+  }),
+  false,
+  "a non-retryable or malformed nested provider error must remain outside automatic reconciliation"
+);
+assert.equal(
+  isProviderAmbiguousAvailabilityResponse({ status: 400, responseText: structuredSystemUnavailable }),
+  false,
+  "client errors must not be promoted into ambiguous paid reconciliation"
+);
+const structuredDoRequestFailed = JSON.stringify({
+  code: "fail_to_fetch_task",
+  message: JSON.stringify({
+    code: "fail_to_fetch_task",
+    message: JSON.stringify({
+      code: "do_request_failed",
+      message: "do request failed: upstream error: do request failed",
+      data: null
+    }),
+    data: null
+  }),
+  data: null
+});
+assert.equal(
+  isProviderAmbiguousAvailabilityResponse({ status: 500, responseText: structuredDoRequestFailed }),
+  true,
+  "the exact nested upstream-request failure must enter read-only reconciliation instead of terminating the batch"
+);
+for (const unsafe of [
+  structuredDoRequestFailed.replace("do_request_failed", "unknown_error"),
+  structuredDoRequestFailed.replace("do request failed: upstream error: do request failed", "internal error"),
+  structuredDoRequestFailed.replace('"data":null', '"data":{}')
+]) {
+  assert.equal(isProviderAmbiguousAvailabilityResponse({ status: 500, responseText: unsafe }), false);
+}
+
+assert.match(providerLogActionSource, /successfulLookupCount\s*===\s*0[\s\S]*provider_log_lookup_unavailable/);
+assert.match(
+  providerLogActionSource,
+  /successfulLookupCount[\s\S]*provider_log_outcome_pending/,
+  "successful but inconclusive provider-log reads must defer to supervisor backoff instead of terminally stopping the batch"
+);
+assert.match(providerLogActionSource, /Provider token-log lookup is temporarily unavailable; read-only retry/);
+assert.match(providerLogActionSource, /response\.status\s*===\s*429\s*\|\|\s*response\.status\s*>=\s*500/);
+assert.doesNotMatch(providerLogActionSource, /extractProviderLogs\(await response\.json\(\)\)/);
+assert.match(providerLogActionSource, /record\.gatewayEvidence/);
+assert.match(providerLogActionSource, /record\.owner/);
+assert.match(providerTaskRecoverySource, /recoverOrphanedPaidImageReservations/);
+assert.match(providerTaskRecoverySource, /processIsProvablyDead/);
+assert.match(providerTaskRecoverySource, /matchProviderTaskListNoAcceptanceGap/);
+assert.match(providerTaskRecoverySource, /recordPaidImageFailedBeforeAcceptance/);
+assert.match(mainImageAssetsSource, /paidReplayPreflightSummary\.reserved\s*>\s*0/);
+assert.match(mainImageAssetsSource, /recoverOrphanedPaidImageReservations/);
+assert.match(providerLogActionSource, /attachPaidImageGatewayEvidence/);
+assert.match(
+  providerLogActionSource,
+  /isDirectStructuredModelUnavailableNoAcceptanceResponse[\s\S]*direct structured model-unavailable no-acceptance proof/,
+  "ambiguous preflight must migrate exact direct model_not_found evidence before provider-log lookup"
+);
+assert.doesNotMatch(providerLogActionSource, /responseFileForSlot\(input\.taskDir/);
+assert.match(mainImageProviderSource, /responseEvidenceFile:\s*responseFile/);
+assert.match(mainImageProviderSource, /responseStatus:\s*response\.status/);
+assert.match(providerLogActionSource, /PROVIDER_KNOWN_ACCEPTANCE_CLOCK_SKEW_MS\s*=\s*10_000/);
+assert.match(providerLogActionSource, /record\?\.audit[\s\S]*entry\.state\s*===\s*"submitted"/);
+assert.match(providerLogActionSource,
+  /matchProviderNoAcceptanceLogs\(\{[\s\S]*?maximumClockSkewMs:\s*PROVIDER_LOG_CLOCK_SKEW_MS/);
+assert.match(providerLogActionSource,
+  /excludeKnownAcceptedProviderLogs\(\{[\s\S]*?maximumClockSkewMs:\s*PROVIDER_KNOWN_ACCEPTANCE_CLOCK_SKEW_MS/);
 
 assert.deepEqual(
   validatePaidImageProviderTaskForReconciliation({
@@ -22,6 +139,27 @@ assert.deepEqual(
     payload: { id: "task_expected", status: "completed", progress: 100, created_at: 1781344029 }
   }),
   { taskId: "task_expected", status: "completed" }
+);
+
+assert.deepEqual(
+  excludeKnownAcceptedProviderLogs({
+    model: "gpt-image-2",
+    maximumClockSkewMs: 10_000,
+    acceptedSlots: [
+      { slot: 8, submittedAt: "2026-09-20T16:39:16.564Z" },
+      { slot: 9, submittedAt: "2026-09-20T16:39:17.770Z" },
+      { slot: 10, submittedAt: "2026-09-20T16:39:18.870Z" },
+      { slot: 11, submittedAt: "2026-09-20T16:39:20.020Z" }
+    ],
+    logs: [
+      { id: 15, created_at: 1789922360, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "r15", upstream_request_id: "u15", other: { request_path: "/v1/videos", is_task: true } },
+      { id: 16, created_at: 1789922358, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "r16", upstream_request_id: "u16", other: { request_path: "/v1/videos", is_task: true } },
+      { id: 17, created_at: 1789922357, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "r17", upstream_request_id: "u17", other: { request_path: "/v1/videos", is_task: true } },
+      { id: 18, created_at: 1789922356, type: 2, model_name: "gpt-image-2", quota: 21250, content: "操作 textGenerate，按次计费", request_id: "r18", upstream_request_id: "u18", other: { request_path: "/v1/videos", is_task: true } }
+    ]
+  }).logs,
+  [],
+  "all submitted attempts, including repeated slots whose current task id was cleared, must be excluded one-to-one"
 );
 
 assert.deepEqual(
@@ -39,6 +177,121 @@ assert.deepEqual(
   }).map(({ slot, taskId }) => ({ slot, taskId })),
   [{ slot: 3, taskId: "task_created_at_match_123" }],
   "authenticated task rows may omit private model fields and submit_time may precede billing by minutes"
+);
+
+const taskGapIncident = {
+  model: "gpt-image-2",
+  ambiguousSlot: 9,
+  queryPage: 1,
+  queryPageSize: 100,
+  queryTotal: 9,
+  windowStart: 1790180914,
+  windowEnd: 1790181410,
+  knownProviderTaskIds: [
+    "task_known_1_12345678", "task_known_2_12345678", "task_known_3_12345678", "task_known_4_12345678",
+    "task_known_5_12345678", "task_known_6_12345678", "task_known_7_12345678", "task_known_8_12345678"
+  ],
+  tasks: [
+    ...Array.from({ length: 8 }, (_, index) => ({
+      task_id: `task_known_${index + 1}_12345678`,
+      created_at: 1790180963 + index * 3,
+      status: "SUCCESS"
+    })),
+    { task_id: "task_gap_accepted_12345678", created_at: 1790181153, status: "SUCCESS" }
+  ]
+};
+assert.deepEqual(
+  matchProviderTaskListAcceptanceGap(taskGapIncident),
+  {
+    slot: 9,
+    taskId: "task_gap_accepted_12345678",
+    taskCreatedAt: 1790181153,
+    status: "SUCCESS",
+    clockSkewMs: 0
+  },
+  "one authenticated, unpaginated task gap after every known single-flight task must recover the sole ambiguous slot"
+);
+const terminalTaskGapIncident = {
+  ...taskGapIncident,
+  tasks: [
+    ...taskGapIncident.tasks.slice(0, 8),
+    { task_id: "task_gap_failed_12345678", created_at: 1790181153, status: "FAILURE" }
+  ]
+};
+assert.deepEqual(
+  matchProviderTaskListTerminalFailureGap(terminalTaskGapIncident),
+  {
+    slot: 9,
+    taskId: "task_gap_failed_12345678",
+    taskCreatedAt: 1790181153,
+    status: "FAILURE",
+    clockSkewMs: 0
+  },
+  "one authenticated terminal task gap must close ambiguity as accepted-then-failed instead of waiting forever"
+);
+assert.deepEqual(
+  validatePaidImageFailedProviderTaskForReconciliation({
+    requestedTaskId: "task_gap_failed_12345678",
+    slotCreatedAt: new Date(1790181153 * 1000).toISOString(),
+    payload: { id: "task_gap_failed_12345678", status: "FAILURE", created_at: 1790181153 }
+  }),
+  { taskId: "task_gap_failed_12345678", status: "failure" }
+);
+assert.deepEqual(
+  matchProviderTaskListNoAcceptanceGap({
+    ...taskGapIncident,
+    queryTotal: 8,
+    tasks: taskGapIncident.tasks.slice(0, 8)
+  }),
+  { slot: 9 },
+  "a complete authenticated task window containing every known task and no unknown task proves no acceptance"
+);
+assert.deepEqual(
+  matchProviderTaskListNoAcceptanceGap({
+    ...taskGapIncident,
+    queryTotal: 0,
+    knownProviderTaskIds: [],
+    tasks: []
+  }),
+  { slot: 9 },
+  "a complete authenticated empty task window proves no acceptance even when the incident has no accepted anchor task"
+);
+assert.throws(
+  () => matchProviderTaskListNoAcceptanceGap({
+    ...taskGapIncident,
+    queryTotal: 1,
+    knownProviderTaskIds: [],
+    tasks: [{ task_id: "task_unanchored_12345678", created_at: 1790181153, status: "SUCCESS" }]
+  }),
+  /exactly zero unknown provider tasks/i,
+  "an unanchored non-empty task window must remain ambiguous"
+);
+assert.throws(
+  () => matchProviderTaskListNoAcceptanceGap(taskGapIncident),
+  /exactly zero unknown provider tasks/i,
+  "any unknown provider task must prevent task-list no-acceptance reconciliation"
+);
+assert.throws(
+  () => matchProviderTaskListAcceptanceGap({
+    ...taskGapIncident,
+    tasks: [...taskGapIncident.tasks, { task_id: "task_unrelated_12345678", created_at: 1790181160, status: "SUCCESS" }],
+    queryTotal: 10
+  }),
+  /exactly one unknown provider task/i,
+  "concurrent unknown provider work must keep the slot ambiguous"
+);
+assert.throws(
+  () => matchProviderTaskListAcceptanceGap({ ...taskGapIncident, queryTotal: 10 }),
+  /complete first page/i,
+  "task-list pagination metadata must agree with the returned complete set"
+);
+assert.throws(
+  () => matchProviderTaskListAcceptanceGap({
+    ...taskGapIncident,
+    knownProviderTaskIds: taskGapIncident.knownProviderTaskIds.slice(1)
+  }),
+  /known provider task set|exactly one unknown provider task/i,
+  "every task already owned by the fixed-slot ledger must be accounted for exactly"
 );
 
 assert.deepEqual(
@@ -103,6 +356,7 @@ assert.throws(
   assert.deepEqual(
     matchProviderBilledAcceptanceAfterGateway({
       model: "gpt-image-2",
+      maximumPreResponseSkewMs: 5_000,
       maximumPostResponseLagMs: 5 * 60_000,
       slots: [
         { slot: 3, updatedAt: "2026-09-17T13:32:33.596Z", responseStatus: 524 },
@@ -125,6 +379,20 @@ assert.throws(
     ]
   }),
   /one-to-one.*known accepted/i
+);
+
+assert.deepEqual(
+  matchProviderBilledAcceptanceAfterGateway({
+    model: "gpt-image-2",
+    maximumPreResponseSkewMs: 5_000,
+    maximumPostResponseLagMs: 5 * 60_000,
+    slots: [{ slot: 9, updatedAt: "2026-09-20T16:57:11.738Z", responseStatus: 524 }],
+    logs: [{ id: 1, created_at: 1789923431, type: 2, model_name: "gpt-image-2", quota: 21250,
+      content: "操作 textGenerate，按次计费", request_id: "gateway-request", upstream_request_id: "gateway-upstream",
+      other: { request_path: "/v1/videos", is_task: true } }]
+  }).map(({ slot, postResponseLagMs }) => ({ slot, postResponseLagMs })),
+  [{ slot: 9, postResponseLagMs: -738 }],
+  "whole-second provider billing may precede the locally persisted gateway response inside the strict skew window"
 );
 assert.throws(
   () =>
@@ -275,8 +543,8 @@ for (const unsafeGatewayEvidence of [
     logContent: "status_code=524, error code: 524\n"
   },
   {
-    slotStatus: 500,
-    logContent: "status_code=500, error code: 500\n"
+    slotStatus: 501,
+    logContent: "status_code=501, error code: 501\n"
   }
 ]) {
   assert.throws(
@@ -289,14 +557,23 @@ for (const unsafeGatewayEvidence of [
     /HTTP|unique zero-billed no-acceptance log/i
   );
 }
+assert.deepEqual(
+  matchProviderNoAcceptanceLogs({
+    model: "gpt-image-2",
+    maximumClockSkewMs: 5_000,
+    slots: [{ slot: 2, updatedAt: "2026-09-30T02:41:55.319Z", responseStatus: 500 }],
+    logs: [{ id: 503, created_at: 1790736115, type: 5, model_name: "gpt-image-2", quota: 0, content: "status_code=500, error code: 500" }]
+  }).map(({ slot, logId }) => ({ slot, logId })),
+  [{ slot: 2, logId: "503" }]
+);
 assert.match(providerLogActionSource, /PROVIDER_LOG_CLOCK_SKEW_MS\s*=\s*5_000/);
 assert.match(providerLogActionSource, /billed_task_recovered/);
 assert.match(providerLogActionSource, /PROVIDER_BILLED_ACCEPTANCE_POST_RESPONSE_LAG_MS\s*=\s*5\s*\*\s*60_000/);
 assert.match(providerLogActionSource, /excludeKnownAcceptedProviderLogs/);
 assert.match(
   providerLogActionSource,
-  /return record\?\.providerTaskId && submittedAt\s*\? \[\{ slot, submittedAt \}\]/,
-  "every known submitted task ID, including failed_after_acceptance, must be excluded before mapping an unknown billed slot"
+  /record\?\.audit[\s\S]*filter\(\(entry\) => entry\.state === "submitted"\)/,
+  "every historical submitted attempt, including superseded failures, must be excluded before mapping an unknown billed slot"
 );
 assert.doesNotMatch(
   providerLogActionSource,
@@ -312,9 +589,23 @@ assert.match(providerLogActionSource, /recoverBilledProviderTasks/);
     "each read-only refresh must test billed acceptance before waiting for another zero-billed retry"
   );
 }
-assert.match(providerTaskRecoverySource, /launchPersistentContext/);
+assert.match(providerTaskRecoverySource, /launchPersistentBrowser/);
+assert.doesNotMatch(providerTaskRecoverySource, /launchPersistentContext|PROVIDER_TASK_PROFILE_DIR/);
 assert.match(providerTaskRecoverySource, /usage-logs\/task/);
+assert.match(providerTaskRecoverySource, /\/api\/user\/auth\/refresh/);
+assert.match(providerTaskRecoverySource, /credentials:\s*"include"/);
+assert.match(providerTaskRecoverySource, /Authorization:\s*`Bearer \$\{accessToken\}`/);
+assert.match(providerTaskRecoverySource, /provider_task_login_required/);
+assert.equal(isProviderTaskLoginRequiredError(new Error("provider_task_login_required: expired")), true);
+assert.equal(isProviderTaskLoginRequiredError(new Error("provider task list timed out")), false);
+assert.match(providerTaskRecoverySource, /keepPageOpenForLogin\s*=\s*isProviderTaskLoginRequiredError\(error\)/);
+assert.match(providerTaskRecoverySource, /if \(!keepPageOpenForLogin\) await page\.close/);
 assert.match(providerTaskRecoverySource, /reconcileAmbiguousPaidImageTask/);
+assert.match(providerTaskRecoverySource, /matchProviderTaskListTerminalFailureGap/);
+assert.match(providerTaskRecoverySource, /recordPaidImageFailedAfterAcceptance/);
+assert.match(providerTaskRecoverySource, /matchProviderTaskListAcceptanceGap/);
+assert.match(providerLogActionSource, /recoverProviderTaskListAcceptanceGap/);
+assert.match(providerLogActionSource, /isProviderTaskLoginRequiredError\(taskGapError\)[\s\S]*throw taskGapError/);
 
 assert.deepEqual(
   matchProviderBilledAcceptanceAfterGateway({

@@ -76,7 +76,7 @@ def tiled_positions(width: int, height: int, text_width: int, text_height: int) 
         row += 1
 
 
-def apply_watermark(input_file: Path, output_file: Path, watermark_text: str) -> None:
+def apply_watermark(input_file: Path, output_file: Path, watermark_text: str, frame_file: Path | None = None) -> None:
     image = Image.open(input_file).convert("RGBA")
     width, height = image.size
     font_size = max(18, min(width, height) // 18)
@@ -98,6 +98,11 @@ def apply_watermark(input_file: Path, output_file: Path, watermark_text: str) ->
 
     rotated = text_layer.rotate(18, resample=Image.Resampling.BICUBIC, expand=False)
     merged = Image.alpha_composite(image, rotated)
+    if frame_file is not None:
+        frame = Image.open(frame_file).convert("RGBA")
+        if merged.size != frame.size:
+            merged = merged.resize(frame.size, Image.Resampling.LANCZOS)
+        merged = Image.alpha_composite(merged, frame)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     merged.convert("RGB").save(output_file, quality=96)
 
@@ -107,6 +112,7 @@ def main() -> int:
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--text", required=True)
+    parser.add_argument("--frame")
     args = parser.parse_args()
 
     input_file = Path(args.input).expanduser().resolve()
@@ -116,7 +122,11 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": f"Input image not found: {input_file}"}, ensure_ascii=False))
         return 1
 
-    apply_watermark(input_file, output_file, args.text)
+    frame_file = Path(args.frame).expanduser().resolve() if args.frame else None
+    if frame_file is not None and not frame_file.exists():
+        print(json.dumps({"ok": False, "error": f"Frame file not found: {frame_file}"}, ensure_ascii=False))
+        return 1
+    apply_watermark(input_file, output_file, args.text, frame_file)
     print(json.dumps({"ok": True, "output": str(output_file)}, ensure_ascii=False))
     return 0
 

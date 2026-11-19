@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { Locator } from "playwright";
 import { getWorkspacePage, launchPersistentBrowser } from "../../browser/launch.js";
-import { logInfo } from "../../utils/logger.js";
+import { logInfo, logWarn } from "../../utils/logger.js";
 import { savePageScreenshot } from "./browser-session.js";
 import { ensureShopContext } from "./shop-switch-action.js";
 
@@ -27,6 +27,33 @@ export interface ProductListDialogControl {
   text: string;
   ariaLabel: string;
   className: string;
+}
+
+export function shouldFailClosedForUnknownProductListOverlay(input: {
+  maskObserved: boolean;
+  visibleDialogCount: number;
+}): boolean {
+  return input.maskObserved && input.visibleDialogCount > 0;
+}
+
+export interface QualityScoreWarningAcknowledgementCandidate {
+  visible: boolean;
+  text: string;
+  hasQualityScoreWarningAncestor: boolean;
+}
+
+export function selectQualityScoreWarningAcknowledgement(
+  candidates: QualityScoreWarningAcknowledgementCandidate[]
+): number | undefined {
+  const matches = candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ candidate }) => candidate.visible)
+    .filter(({ candidate }) => normalizeText(candidate.text) === "知道了")
+    .filter(({ candidate }) => candidate.hasQualityScoreWarningAncestor);
+  if (matches.length > 1) {
+    throw new Error(`Quality-score warning must expose one unique acknowledgement button, found ${matches.length}.`);
+  }
+  return matches[0]?.index;
 }
 
 export function isKnownCategoryMisplacementWarning(text: string): boolean {
@@ -115,6 +142,36 @@ async function clickAllTab(page: Awaited<ReturnType<typeof getWorkspacePage>>): 
   throw lastError instanceof Error ? lastError : new Error("Doudian product status 全部 tab click failed.");
 }
 
+async function resolveQualityScoreWarningAcknowledgement(
+  page: Awaited<ReturnType<typeof getWorkspacePage>>
+): Promise<Locator | undefined> {
+  // Start from distinct button elements. Starting from every matching dialog wrapper
+  // counts the same descendant once per nested modal container in Doudian's current DOM.
+  const buttons = page.getByRole("button", { name: "知道了", exact: true });
+  const candidates: QualityScoreWarningAcknowledgementCandidate[] = [];
+  for (let index = 0; index < await buttons.count(); index += 1) {
+    const button = buttons.nth(index);
+    candidates.push({
+      visible: await button.isVisible().catch(() => false),
+      text: (await button.innerText().catch(() => "")).trim(),
+      hasQualityScoreWarningAncestor: await button.evaluate((element) => {
+        const selector = "[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .auxo-modal-wrap";
+        let ancestor = element.parentElement;
+        while (ancestor) {
+          if (ancestor.matches(selector)
+            && ((ancestor as HTMLElement).innerText || "").replace(/\s+/g, "").includes("商品质量分优化预警")) {
+            return true;
+          }
+          ancestor = ancestor.parentElement;
+        }
+        return false;
+      }).catch(() => false)
+    });
+  }
+  const selectedIndex = selectQualityScoreWarningAcknowledgement(candidates);
+  return selectedIndex === undefined ? undefined : buttons.nth(selectedIndex);
+}
+
 async function dismissProductListBlockingOverlays(
   page: Awaited<ReturnType<typeof getWorkspacePage>>
 ): Promise<void> {
@@ -126,17 +183,15 @@ async function dismissProductListBlockingOverlays(
       .filter({ visible: true })
       .filter({ hasText: /商品质量分优化预警/ });
     if ((await qualityScoreDialogs.count().catch(() => 0)) > 0) {
-      const acknowledgeButton = qualityScoreDialogs
-        .getByRole("button", { name: "知道了", exact: true })
-        .filter({ visible: true });
-      if ((await acknowledgeButton.count()) !== 1) {
-        throw new Error("Product list is blocked by 商品质量分优化预警 dialog, but its safe 知道了 button is not unique.");
+      const acknowledgeButton = await resolveQualityScoreWarningAcknowledgement(page);
+      if (!acknowledgeButton) {
+        throw new Error("Product list is blocked by 商品质量分优化预警 dialog, but it has no unique safe 知道了 button.");
       }
       await acknowledgeButton.click({ timeout: 8000 });
-      for (let readback = 0; readback < 20 && (await qualityScoreDialogs.count().catch(() => 0)) > 0; readback += 1) {
+      for (let readback = 0; readback < 20 && await resolveQualityScoreWarningAcknowledgement(page); readback += 1) {
         await page.waitForTimeout(200);
       }
-      if ((await qualityScoreDialogs.count().catch(() => 0)) > 0) {
+      if (await resolveQualityScoreWarningAcknowledgement(page)) {
         throw new Error("Product list 商品质量分优化预警 dialog remained visible after clicking 知道了.");
       }
       await page.waitForTimeout(350);
@@ -202,16 +257,27 @@ async function dismissProductListBlockingOverlays(
     sawBlockingMask = true;
     await page.waitForTimeout(400);
   }
-  const visibleDialogText = await page
+  const visibleDialogs = page
     .locator("[role='dialog'], [aria-modal='true'], .ecom-g-modal-wrap, .auxo-modal-wrap")
-    .filter({ visible: true })
+    .filter({ visible: true });
+  const visibleDialogCount = await visibleDialogs.count().catch(() => 0);
+  const visibleDialogText = await visibleDialogs
     .evaluateAll((dialogs) => dialogs
       .map((dialog) => ((dialog as HTMLElement).innerText || "").replace(/\s+/g, " ").trim().slice(0, 160))
       .filter(Boolean)
       .slice(0, 3))
     .catch(() => [] as string[]);
+  if (!shouldFailClosedForUnknownProductListOverlay({ maskObserved: sawBlockingMask, visibleDialogCount })) {
+    // Doudian occasionally leaves a mask mounted after its dialog has already been
+    // detached. Playwright still considers that full-page node visible even when the
+    // page is visually and interactively usable. Do not turn an orphan mask into a
+    // false business blocker; the following locator actions retain their own strict
+    // actionability checks and will still fail if the mask really intercepts input.
+    logWarn("Ignoring orphan product-list modal mask after its dialog disappeared; continuing with actionability checks.");
+    return;
+  }
   throw new Error(
-    `Product list remains blocked by an unrecognized modal overlay; maskObserved=${sawBlockingMask}; dialogs=${visibleDialogText.join(" | ") || "none"}.`
+    `Product list remains blocked by an unrecognized modal overlay; maskObserved=${sawBlockingMask}; dialogCount=${visibleDialogCount}; dialogs=${visibleDialogText.join(" | ") || "no-text"}.`
   );
 }
 

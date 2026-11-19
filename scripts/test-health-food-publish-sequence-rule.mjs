@@ -19,6 +19,7 @@ const graphicActionSource = fs.readFileSync("src/business/publish-from-spu/actio
 const specPriceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/spec-price-action.ts", "utf8");
 const serviceActionSource = fs.readFileSync("src/business/publish-from-spu/actions/service-action.ts", "utf8");
 const submitActionSource = fs.readFileSync("src/business/publish-from-spu/actions/submit-action.ts", "utf8");
+const healthFoodActionSource = fs.readFileSync("src/business/publish-from-spu/health-food-actions.ts", "utf8");
 const publishActionSource = [
   publishSource,
   basicActionSource,
@@ -60,6 +61,17 @@ function assertBefore(source, before, after, label) {
 }
 
 const runPublishFlowSource = sliceFunction("runPublishFlow");
+
+assert.match(
+  healthFoodActionSource,
+  /populatedValueInputs\.length === 1 \? populatedValueInputs\[0\] : null[\s\S]*discovery\.populatedValueInputs !== 1/,
+  "health-food specification editing must require the unique populated value supplied by the selected template"
+);
+assert.doesNotMatch(
+  healthFoodActionSource,
+  /ensureHealthFoodSpecificationCombinationRuleOnPage|expectedRule = "单品"/,
+  "health-food specification editing must not synthesize a replacement specification when the controlled template is absent"
+);
 
 assert.match(
   publishSource,
@@ -125,11 +137,16 @@ assertOrdered(
     'publish module started: food_safety',
     "fillHealthFoodSafetyAttributesOnPage(page, input.metadata)",
     "if (!foodSafetyResult.ok)",
-    "uploadHealthFoodOuterPackagingOnPage(page, input.assets.detailImages)",
+    "uploadHealthFoodOuterPackagingOnPage(",
     'publish module started: category_attributes',
     "fillHealthFoodCategoryAttributesOnPage(page, input.metadata)"
   ],
   "health-food basic extension sequence"
+);
+assert.match(
+  basicActionSource,
+  /uploadHealthFoodOuterPackagingOnPage\([\s\S]*page,[\s\S]*input\.assets\.detailImages,[\s\S]*input\.runtimeDir/,
+  "health-food outer packaging must receive the per-publish runtime directory for non-destructive 1:1 staging"
 );
 assert.doesNotMatch(
   runPublishFlowSource,

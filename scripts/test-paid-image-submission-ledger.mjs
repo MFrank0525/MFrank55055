@@ -22,6 +22,7 @@ import {
   reconcileAmbiguousPaidImageNoAcceptance,
   reconcileAmbiguousPaidImageTask,
   recordPaidImageSubmitted,
+  readPaidImageSlotRecord,
   reservePaidImageSlot,
   resolvePaidImageSlotAction,
   sha256File,
@@ -29,6 +30,7 @@ import {
   summarizePaidImageProductLedger,
   validatePaidImageExistingResultRecoveryPlan
 } from "../dist/src/autolist/paid-image-submission-ledger.js";
+import { resolvePaidImageGatewayEvidenceFile } from "../dist/src/autolist/paid-image-gateway-evidence.js";
 
 const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "paid-image-ledger-"));
 const identity = {
@@ -73,6 +75,26 @@ assert.throws(
   () => approvePaidImageRechargeRetry({ productDir: rechargeLedger.productDir, slot: 15, reason: "duplicate" }),
   /not recharge-recoverable/i
 );
+reservePaidImageSlot({
+  productDir: rechargeLedger.productDir,
+  slot: 16,
+  requestDigest: "token-quota-recharge-request",
+  promptDigest: "token-quota-recharge-prompt",
+  owner: ownerA
+});
+recordPaidImageFailedBeforeAcceptance({
+  productDir: rechargeLedger.productDir,
+  slot: 16,
+  reason: 'HTTP 403: {"code":"pre_consume_token_quota_failed","message":"token 20260612 is not enough, remaining quota: $0.012500, need: $0.042500"}',
+  replayDisposition: "non_replayable"
+});
+const tokenQuotaRechargeApproved = approvePaidImageRechargeRetry({
+  productDir: rechargeLedger.productDir,
+  slot: 16,
+  reason: "operator removed the exhausted API key quota ceiling"
+});
+assert.equal(tokenQuotaRechargeApproved.replayDisposition, undefined);
+assert.equal(resolvePaidImageSlotAction({ productDir: rechargeLedger.productDir, slot: 16 }).action, "retry_failed_before_acceptance");
 const rechargeCliSource = fs.readFileSync("src/cli/approve-paid-image-recharge-retry.ts", "utf8");
 const rechargePackage = JSON.parse(fs.readFileSync("package.json", "utf8"));
 assert.match(rechargeCliSource, /controller\.status === "running"/);
@@ -633,6 +655,27 @@ assert.equal(resolvePaidImageSlotAction({ productDir, slot: 2 }).providerTaskId,
 assert.deepEqual(reconciledAmbiguous.audit.map((entry) => entry.state), ["reserved", "ambiguous", "submitted"]);
 assert.match(reconciledAmbiguous.audit.at(-1).reason, /operator matched/);
 
+const evidenceProduct = initializePaidImageProductLedger({
+  ...identity, batchFingerprint: "batch-gateway-evidence", recordId: "record-gateway-evidence"
+});
+reservePaidImageSlot({
+  productDir: evidenceProduct.productDir, slot: 1,
+  requestDigest: "gateway-request", promptDigest: "gateway-prompt", owner: ownerA
+});
+const transientGatewayFile = path.join(rootDir, "transient-524.response");
+fs.writeFileSync(transientGatewayFile, '<title>origin | 524: timeout</title><div id="cf-error-details">cloudflare.com error code 524</div>');
+const evidenceRecord = recordPaidImageAmbiguous({
+  productDir: evidenceProduct.productDir, slot: 1, reason: "HTTP 524 gateway timeout",
+  responseEvidenceFile: transientGatewayFile, responseStatus: 524, replayDisposition: "non_replayable"
+});
+assert.ok(evidenceRecord.gatewayEvidence, "ambiguous paid responses must bind canonical evidence to the slot ledger");
+const canonicalGatewayFile = resolvePaidImageGatewayEvidenceFile(evidenceProduct.productDir, evidenceRecord.gatewayEvidence);
+assert.notEqual(canonicalGatewayFile, transientGatewayFile);
+fs.unlinkSync(transientGatewayFile);
+assert.equal(fs.existsSync(canonicalGatewayFile), true, "canonical evidence must survive runtime response cleanup");
+assert.equal(readPaidImageSlotRecord({ productDir: evidenceProduct.productDir, slot: 1 }).gatewayEvidence.sha256,
+  sha256File(canonicalGatewayFile));
+
 const autoRetryProduct = initializePaidImageProductLedger({
   ...identity,
   batchFingerprint: "batch-auto-no-acceptance",
@@ -684,6 +727,24 @@ assert.equal(
   resolvePaidImageSlotAction({ productDir: autoRetryProduct.productDir, slot: 2 }).action,
   "retry_failed_before_acceptance",
   "model channel fail_to_fetch_task responses without task ids must auto-reconcile to no-acceptance"
+);
+reservePaidImageSlot({
+  productDir: autoRetryProduct.productDir,
+  slot: 3,
+  requestDigest: "request-8",
+  promptDigest: "prompt-8",
+  owner: ownerA
+});
+recordPaidImageAmbiguous({
+  productDir: autoRetryProduct.productDir,
+  slot: 3,
+  reason:
+    'HTTP 503: {"error":{"code":"model_not_found","message":"No available channel for model gpt-image-2 under group default (distributor) (request id: request-11)","type":"new_api_error"}}'
+});
+assert.equal(
+  resolvePaidImageSlotAction({ productDir: autoRetryProduct.productDir, slot: 3 }).action,
+  "retry_failed_before_acceptance",
+  "direct structured model_not_found responses without task ids must auto-reconcile to no-acceptance"
 );
 
 const ambiguousSubmittedReservation = reservePaidImageSlot({

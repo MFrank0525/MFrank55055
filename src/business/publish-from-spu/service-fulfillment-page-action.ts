@@ -9,6 +9,7 @@ import { logInfo, logWarn } from "../../utils/logger.js";
 import {
   PublishCreatePageReopenRequiredError,
   attachSafeDialogHandler,
+  clickLocatorWithTransientUiRecovery,
   closeCreatePagesExcept,
   closeExtraPages,
   gotoWithTolerance,
@@ -220,7 +221,7 @@ async function clickRadioOptionNearFieldLabelCandidate(
   }
 
   try {
-    await page.locator(`[${radioOptionMarker}="true"]`).first().click({ timeout: 3000 });
+    await clickLocatorWithTransientUiRecovery(page.locator(`[${radioOptionMarker}="true"]`).first(), 3000);
     return true;
   } finally {
     await page.evaluate((markerName) => {
@@ -309,7 +310,7 @@ async function clickAlternativeRadioOptionNearFieldLabelCandidate(
     return "failed";
   }
   try {
-    await page.locator(`[${radioOptionMarker}="true"]`).first().click({ timeout: 3000 });
+    await clickLocatorWithTransientUiRecovery(page.locator(`[${radioOptionMarker}="true"]`).first(), 3000);
     return "clicked";
   } catch {
     return "failed";

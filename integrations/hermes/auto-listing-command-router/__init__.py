@@ -28,6 +28,7 @@ _CONTROL_ROUTES = {
 }
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
 _LOGGER = logging.getLogger(__name__)
+_CONTROL_REPLY_TIMEOUT_SECONDS = 10.0
 
 _ORIGIN_PATH = Path(
     "/Users/mfrank/MFrank55055/data/auto-listing/control/hermes-watchdog-origin.json"
@@ -80,20 +81,38 @@ async def _send_control_reply(gateway, event, content: str) -> None:
     )
 
 
+async def _send_control_reply_bounded(gateway, event, content: str) -> bool:
+    try:
+        await asyncio.wait_for(
+            _send_control_reply(gateway, event, content),
+            timeout=_CONTROL_REPLY_TIMEOUT_SECONDS,
+        )
+        return True
+    except Exception as exc:
+        _LOGGER.warning(
+            "Auto-listing control reply failed or timed out; business control continues: %s",
+            exc,
+        )
+        return False
+
+
 async def _handle_auto_listing_control(gateway, event, action: str) -> None:
     try:
+        controller_task = asyncio.create_task(
+            gateway._handle_autolist_command(action, event)
+        )
         if action in {"start", "continue"}:
             acknowledgement = (
                 "自动上架启动请求已接收，控制器正在后台处理。"
                 if action == "start"
                 else "自动上架继续请求已接收，控制器正在后台处理。"
             )
-            await _send_control_reply(gateway, event, acknowledgement)
-        result = await gateway._handle_autolist_command(action, event)
+            await _send_control_reply_bounded(gateway, event, acknowledgement)
+        result = await controller_task
         if action in {"status", "pause"}:
-            await _send_control_reply(gateway, event, result)
+            await _send_control_reply_bounded(gateway, event, result)
         elif "失败" in result and "超时" not in result:
-            await _send_control_reply(gateway, event, result)
+            await _send_control_reply_bounded(gateway, event, result)
         _LOGGER.info(
             "Auto-listing control completed outside agent dispatch: action=%s result=%r",
             action,
@@ -102,7 +121,11 @@ async def _handle_auto_listing_control(gateway, event, action: str) -> None:
     except Exception as exc:
         _LOGGER.exception("Auto-listing control failed outside agent dispatch: action=%s", action)
         try:
-            await _send_control_reply(gateway, event, f"自动上架控制命令执行失败：{exc}")
+            await _send_control_reply_bounded(
+                gateway,
+                event,
+                f"自动上架控制命令执行失败：{exc}",
+            )
         except Exception:
             _LOGGER.exception("Failed to deliver auto-listing control failure")
 
@@ -111,6 +134,8 @@ def _discard_background_task(task: asyncio.Task) -> None:
     _BACKGROUND_TASKS.discard(task)
     try:
         task.result()
+    except asyncio.CancelledError:
+        return
     except Exception:
         _LOGGER.exception("Unhandled auto-listing control task failure")
 

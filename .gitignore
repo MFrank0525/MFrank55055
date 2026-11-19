@@ -28,6 +28,7 @@ input/feishu-bitable.config.json
 input/image-generation.config.json
 data/browser-profile/
 data/browser-profile-fallback/
+data/auto-listing/deepseek-browser-profile/
 input/auto-listing/feishu-images/*
 !input/auto-listing/feishu-images/.gitkeep
 input/auto-listing/titles/*
@@ -43,6 +44,7 @@ input/auto-listing/*.generated.json
 
 # Browser/test artifacts
 .worktrees/
+.playwright-cli/
 playwright-report/
 test-results/
 screenshots/

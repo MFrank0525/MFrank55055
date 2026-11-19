@@ -17,7 +17,7 @@ function readPublishPageSummary(page: Page): Promise<{
   errorHints: string[];
 }> {
   return page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
+    const bodyText = document.body?.innerText || "";
     const knownSections = [
       "\u57FA\u7840\u4FE1\u606F",
       "\u56FE\u6587\u4FE1\u606F",

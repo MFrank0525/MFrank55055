@@ -14,6 +14,21 @@ export function isPaidImageSubmissionSafetyBlock(message: string): boolean {
   return /paid image ledger blocked slot|blocked_(?:reserved|ambiguous)|paid submission safety block/i.test(message);
 }
 
+export function isProviderLogReconciliationAvailabilityFailure(message: string): boolean {
+  return /provider_log_(?:lookup_unavailable|outcome_pending)|provider_task_login_required/i.test(message);
+}
+
+export function isReconciledPaidImageLedgerExternalWait(message: string): boolean {
+  const ledgerProvesNoUnresolvedSubmission =
+    /paid_image_ledger_safe_external_wait:\s*ambiguous=0,\s*reserved=0\b/i.test(message);
+  const externalAvailabilityFailure =
+    /HTTP\s*(429|502|503|504|520|521|522|523|524)\b/i.test(message) ||
+    /temporarily unavailable|gateway unavailable|service unavailable|resource[_ -]?overloaded|server overloaded|timed out|timeout|aborted/i.test(
+      message
+    );
+  return ledgerProvesNoUnresolvedSubmission && externalAvailabilityFailure;
+}
+
 export function isRetryableVideosBase64NoAcceptanceTransportFailure(message: string): boolean {
   return /main_images_generated|videos-base64/i.test(message) &&
     /videos-base64 paid image slots failed/i.test(message) &&
@@ -35,6 +50,15 @@ function isRetryableVideosBase64AcceptedQueueWait(message: string): boolean {
 }
 
 export function isRetryableExternalServiceAvailabilityFailure(message: string): boolean {
+  if (isProviderLogReconciliationAvailabilityFailure(message)) {
+    return true;
+  }
+  // A raw gateway response can still contain an old "missing task id" phrase after
+  // authenticated provider-log reconciliation has resolved every uncertain POST.
+  // In that case the durable ledger, not the stale nested error text, is authoritative.
+  if (isReconciledPaidImageLedgerExternalWait(message)) {
+    return true;
+  }
   if (
     isPaidImageSubmissionSafetyBlock(message) ||
     isUnsafePaidImageReplayReason(message) ||
@@ -57,12 +81,25 @@ export function shouldConsumeSupervisorRecoveryAttempt(failureMessage: string): 
   return !isRetryableExternalServiceAvailabilityFailure(failureMessage);
 }
 
+export function shouldProbeImageGenerationEndpointBeforeSupervisorRetry(message: string): boolean {
+  return isPaidMainImageTransportFailure(message) &&
+    /videos-base64 paid image slots failed/i.test(message) &&
+    /paid_image_ledger_safe_external_wait:\s*ambiguous=0,\s*reserved=0,\s*submitted=0,\s*failed_before_acceptance=\d+/i.test(message);
+}
+
+export function resolveExternalServiceProbePollMs(): number {
+  return 10_000;
+}
+
 export function resolveSupervisorRecoveryDelayMs(input: {
   failureMessage: string;
   externalServiceWaitAttempts: number;
 }): number {
   if (!isRetryableExternalServiceAvailabilityFailure(input.failureMessage)) {
     return 10000;
+  }
+  if (isProviderLogReconciliationAvailabilityFailure(input.failureMessage)) {
+    return imageServiceWaitCeilingMs;
   }
   const retryMatch = /paid image provider (?:timeout |service )?circuit open[\s\S]*?retry after\s+(\d+)ms/i.exec(
     input.failureMessage

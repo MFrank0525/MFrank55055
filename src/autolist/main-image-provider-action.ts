@@ -1,5 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
+import fs from "node:fs"; import path from "node:path";
 import { sanitizeFileName } from "../utils/path-names.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
 import { readSimpleWordDocument } from "./docx-lite.js";
@@ -13,19 +12,18 @@ import {
   resolveVideosBase64AcceptedTaskPollCeilingMs,
   resolvePaidImageSubmitHttpRetryPolicy,
   resolveImageGenerationTransportRetryPolicy,
+  formatImageGenerationTransportError,
   providerExplicitlyProvesNoPaidTaskAccepted,
   isUnsafePaidImageReplayPayload,
   isUnsafePaidImageReplayReason,
   submitTransportFailureProvesNoPaidTaskAccepted,
   shouldRetryImageGenerationWithPolicyPrompt,
-  shouldKeepPaidImagePolicyCompatiblePrompt,
   isPaidImagePolicyCompatibilityReason,
   resolvePaidImageFixedSlotRecovery,
   shouldFallbackToAuthenticatedTaskContent,
   shouldReplaceAcceptedPaidImageAfterResultDeliveryExhausted,
   type PaidImageSubmitCircuit
 } from "./image-generation-rules.js";
-import { readManualTextBlock } from "./operation-manual.js";
 import {
   initializePaidImageProductLedger,
   paidImageProductLedgerDir,
@@ -53,7 +51,6 @@ import {
   writeImageGenerationTextLog
 } from "./image-provider-error-boundaries.js";
 import { prepareVideosBase64ReferenceImage } from "./videos-base64-reference.js";
-
 export {
   redactImageGenerationLogText,
   redactImageGenerationLogValue,
@@ -63,7 +60,6 @@ export {
   writeImageGenerationTextLog
 } from "./image-provider-error-boundaries.js";
 export { prepareVideosBase64ReferenceImage, VIDEOS_BASE64_REFERENCE_MAX_BYTES } from "./videos-base64-reference.js";
-
 export interface OpenAiCompatibleImageConfig {
   provider: "openai-compatible";
   apiUrl: string;
@@ -394,25 +390,6 @@ export function extractTitleLine(promptText: string, label: string): string {
   return match?.[1]?.trim() || "";
 }
 
-export function buildPolicyCompatibleImageEditPrompt(promptText: string, _imageIndex: number): string {
-  const userCognitionName = extractTitleLine(promptText, "主标题") || "产品海报";
-  const genericName = extractTitleLine(promptText, "副标题") || "产品";
-  const visualBadges = [
-    "官方正品",
-    "正品保障",
-    "20g/支",
-    "外包装展示",
-    "使用步骤图示",
-    "适用部位图示"
-  ].join("，");
-
-  return readManualTextBlock("main_images_generated", "内容策略兼容降级提示词模板")
-    .replaceAll("{{主标题}}", userCognitionName)
-    .replaceAll("{{副标题}}", genericName)
-    .replaceAll("{{中性信息点}}", visualBadges)
-    .replaceAll("{{差异化要求}}", "");
-}
-
 export function resolveShopFolders(shopRootDir: string): Array<{ shopFolder: string; watermarkText: string }> {
   const existingFolders = fs
     .readdirSync(shopRootDir, { withFileTypes: true })
@@ -669,6 +646,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
       pid?: number;
     };
   };
+  feishuPromptRevisionVerified?: boolean;
   onProgress?: (message: string) => void;
 }): Promise<Array<{ file: string; submitId: string }>> {
   fs.mkdirSync(options.downloadDir, { recursive: true });
@@ -685,7 +663,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
   const transportRetryPolicy = resolveImageGenerationTransportRetryPolicy(config.maxTransientRetries);
   const preparedReferenceImagePath = await prepareVideosBase64ReferenceImage({
     sourceImagePath: options.sourceImagePath,
-    outputDir: options.downloadDir
+    outputDir: path.join(options.downloadDir, "references", "01")
   });
   const sendRequest = async (
     requestBody: BodyInit,
@@ -718,7 +696,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
       });
       return await Promise.race([request, deadline]);
     } catch (error) {
-      throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
+      throw normalizeImageGenerationError(formatImageGenerationTransportError(error));
     } finally {
       clearTimeout(timer);
       if (deadlineTimer) {
@@ -759,7 +737,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
         signal: controller.signal
       });
     } catch (error) {
-      throw normalizeImageGenerationError(error instanceof Error ? error.message : String(error));
+      throw normalizeImageGenerationError(formatImageGenerationTransportError(error));
     } finally {
       clearTimeout(timer);
     }
@@ -993,8 +971,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
     let promptDigest = sha256Text(promptText);
     const originalRequestDigest = requestDigest;
     const originalPromptDigest = promptDigest;
-    const policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt(promptText, absoluteImageIndex);
-    const policyCompatiblePromptDigest = sha256Text(policyCompatiblePromptText);
+    const policyCompatiblePromptDigest = originalPromptDigest;
     const rebuildVideosBase64Request = (): void => {
       requestBody = JSON.stringify(buildVideosBase64JsonBody(promptText));
       requestDigest = sha256Text(requestBody);
@@ -1054,13 +1031,22 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
             ? (slotAction.record?.reason || "")
             : "";
+        const policyFallbackCorrectionAuthorized =
+          slotAction.action === "retry_failed_after_acceptance" &&
+          /operator-authorized correction of obsolete neutral policy fallback/i.test(failedAfterAcceptanceReason) &&
+          Boolean(slotAction.record?.audit.some((entry) =>
+            entry.state === "failed_after_acceptance" && isPaidImagePolicyCompatibilityReason(entry.reason || "")
+          ));
         const fixedSlotRecovery =
           slotAction.action === "retry_failed_after_acceptance" && "record" in slotAction
             ? resolvePaidImageFixedSlotRecovery({
-                failureReason: failedAfterAcceptanceReason,
+                failureReason: policyFallbackCorrectionAuthorized
+                  ? `content_policy correction: ${failedAfterAcceptanceReason}`
+                  : failedAfterAcceptanceReason,
                 audit: slotAction.record?.audit || [],
                 recordedPromptDigest: slotAction.record?.promptDigest || "",
                 policyCompatiblePromptDigest,
+                feishuPromptRevisionVerified: options.feishuPromptRevisionVerified,
                 nowMs: Date.now()
               })
             : { action: "bubble" as const, usePolicyCompatiblePrompt: false, deferMs: 0 };
@@ -1069,40 +1055,19 @@ export async function generateWithOpenAiCompatibleProvider(options: {
             `paid image provider circuit open for slot ${ledgerSlot}; retry after ${fixedSlotRecovery.deferMs}ms.`
           );
         }
-        const keepPolicyCompatiblePrompt =
-          slotAction.action !== "missing" &&
-          "record" in slotAction &&
-          ((slotAction.action === "retry_failed_after_acceptance" && fixedSlotRecovery.usePolicyCompatiblePrompt) ||
-            shouldKeepPaidImagePolicyCompatiblePrompt({
-              failureReason: failedRetryReason,
-              recordedPromptDigest: slotAction.record?.promptDigest || "",
-              originalPromptDigest,
-              policyCompatiblePromptDigest
-            }));
-        const allowFailedAfterAcceptanceDigestChange =
-          slotAction.action === "retry_failed_after_acceptance" &&
-          isPaidImagePolicyCompatibilityReason(failedAfterAcceptanceReason) &&
-          shouldAllowPaidImagePolicyCompatibilityIdentityTransition({
-            recordedRequestDigest: slotAction.record?.requestDigest || "",
-            recordedPromptDigest: slotAction.record?.promptDigest || "",
-            originalRequestDigest,
-            originalPromptDigest
-          }) &&
-          slotAction.record?.promptDigest !== policyCompatiblePromptDigest;
         if (
-          keepPolicyCompatiblePrompt
+          fixedSlotRecovery.action === "bubble" &&
+          isPaidImagePolicyCompatibilityReason(failedAfterAcceptanceReason)
         ) {
-          promptText = policyCompatiblePromptText;
-          rebuildVideosBase64Request();
-          writeImageGenerationJsonLog(
-            path.join(options.downloadDir, "request-" + paddedImageIndex + "-policy-retry.json"),
-            {
-              endpoint: config.apiUrl,
-              mode,
-              ...JSON.parse(requestBody)
-            }
+          throw normalizeImageGenerationError(
+            `feishu_source_reselection_required: fixed slot ${ledgerSlot} was rejected by provider content policy; preserve the fixed prompt structure and regenerate DeepSeek prompts from a new Feishu candidate selection.`
           );
         }
+        const allowFailedAfterAcceptanceDigestChange =
+          slotAction.action === "retry_failed_after_acceptance" &&
+          (isPaidImagePolicyCompatibilityReason(failedAfterAcceptanceReason) || policyFallbackCorrectionAuthorized) &&
+          options.feishuPromptRevisionVerified === true &&
+          slotAction.record?.promptDigest !== promptDigest;
         allowExistingSubmittedTaskImport =
           slotAction.action !== "retry_failed_before_acceptance" && slotAction.action !== "retry_failed_after_acceptance";
         slotAction = reservePaidImageSlot({
@@ -1238,7 +1203,10 @@ export async function generateWithOpenAiCompatibleProvider(options: {
             productDir: videosBase64Ledger.productDir,
             slot: ledgerSlot,
             reason: rejectionReason,
-            replayDisposition: isUnsafePaidImageReplayReason(rejectionReason) ? "non_replayable" : undefined
+            replayDisposition: isUnsafePaidImageReplayReason(rejectionReason) ? "non_replayable" : undefined,
+            ...(recordRejection === recordPaidImageAmbiguous
+              ? { responseEvidenceFile: responseFile, responseStatus: response.status }
+              : {})
           });
         }
         const safeResponseText = sanitizeImageGenerationProviderErrorText(text, response.statusText);
@@ -1251,7 +1219,9 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           recordPaidImageAmbiguous({
             productDir: videosBase64Ledger.productDir,
             slot: ledgerSlot,
-            reason: "submit response was not JSON"
+            reason: "submit response was not JSON",
+            responseEvidenceFile: responseFile,
+            responseStatus: response.status
           });
         }
         const safeSubmitText = sanitizeImageGenerationProviderErrorText(text, "empty response");
@@ -1427,14 +1397,13 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           throw error;
         }
         const originalPromptText = buildPromptForImageIndex(absoluteImageIndex);
-        const policyCompatiblePromptDigest = sha256Text(
-          buildPolicyCompatibleImageEditPrompt(originalPromptText, absoluteImageIndex)
-        );
+        const policyCompatiblePromptDigest = sha256Text(originalPromptText);
         const recovery = resolvePaidImageFixedSlotRecovery({
           failureReason: slotAction.record.reason || "",
           audit: slotAction.record.audit || [],
           recordedPromptDigest: slotAction.record.promptDigest || "",
           policyCompatiblePromptDigest,
+          feishuPromptRevisionVerified: options.feishuPromptRevisionVerified,
           nowMs: Date.now()
         });
         if (recovery.action === "defer_to_supervisor") {

@@ -1,7 +1,11 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { Locator, Page } from "playwright";
+import { ensureSquareMainImageFile } from "../../autolist/main-image-square-action.js";
+import { inspectDecodedImageFile } from "../../utils/image-integrity.js";
 import { resolveHealthFoodFunctionOptionCandidateGroups } from "./health-food-rules.js";
 import type { PublishFromSpuMetadata } from "./types.js";
-import { fillAndCommitLocator } from "./browser-session.js";
+import { clickLocatorWithTransientUiRecovery, fillAndCommitLocator } from "./browser-session.js";
 
 export interface HealthFoodTextReadbackResult {
   action: "fill_text";
@@ -172,6 +176,22 @@ export async function findHealthFoodFieldRootByLabel(page: Page, label: string):
   return page.locator(`[${marker}="true"]`).first();
 }
 
+async function findHealthFoodFileFieldRootByLabel(page: Page, label: string): Promise<Locator> {
+  const exactLabels = page.getByText(label, { exact: true });
+  const labelCount = await exactLabels.count().catch(() => 0);
+  for (let index = 0; index < labelCount; index += 1) {
+    const labelNode = exactLabels.nth(index);
+    if (!(await labelNode.isVisible().catch(() => false))) {
+      continue;
+    }
+    const liveRoot = labelNode.locator("xpath=ancestor::*[.//input[@type='file']][1]");
+    if ((await liveRoot.count().catch(() => 0)) === 1) {
+      return liveRoot;
+    }
+  }
+  throw new Error(`Health-food file field root not found for exact visible label: ${label}`);
+}
+
 export async function waitForHealthFoodFieldLabelOnPage(page: Page, label: string): Promise<void> {
   const normalizedLabel = normalizeDomLabelText(label);
   await page.waitForFunction(
@@ -199,8 +219,29 @@ export async function fillHealthFoodTextFieldOnPage(
   label: string,
   value: string
 ): Promise<HealthFoodTextReadbackResult> {
-  const fieldRoot = await findHealthFoodFieldRootByLabel(page, label);
-  const input = fieldRoot.locator("textarea, input[type='text'], input[type='search'], input:not([type])").first();
+  let input: Locator | null = null;
+  for (let attempt = 0; attempt < 20 && !input; attempt += 1) {
+    const fieldRoot = await findHealthFoodFieldRootByLabel(page, label);
+    const candidates = fieldRoot.locator("textarea, input[type='text'], input[type='search'], input:not([type])");
+    const count = await candidates.count().catch(() => 0);
+    for (let index = 0; index < count; index += 1) {
+      const candidate = candidates.nth(index);
+      if (
+        await candidate.isVisible().catch(() => false) &&
+        await candidate.isEnabled().catch(() => false) &&
+        await candidate.isEditable().catch(() => false)
+      ) {
+        input = candidate;
+        break;
+      }
+    }
+    if (!input) {
+      await page.waitForTimeout(500);
+    }
+  }
+  if (!input) {
+    throw new Error(`Health-food text input did not become editable after dependency refresh: ${label}`);
+  }
   await input.scrollIntoViewIfNeeded().catch(() => {});
   const currentReadback = await input.inputValue({ timeout: 3000 }).catch(() => readLocatorText(input));
   if (normalizeDomText(currentReadback) === normalizeDomText(value)) {
@@ -276,11 +317,12 @@ async function readHealthFoodSelectedValue(fieldRoot: Locator): Promise<string> 
 export async function selectHealthFoodExactOptionOnPage(
   page: Page,
   label: string,
-  optionText: string
+  optionText: string,
+  forceSelection = false
 ): Promise<HealthFoodSelectReadbackResult> {
   const fieldRoot = await findHealthFoodFieldRootByLabel(page, label);
   const currentReadback = await readHealthFoodSelectedValue(fieldRoot);
-  if (normalizeDomText(currentReadback) === normalizeDomText(optionText)) {
+  if (!forceSelection && normalizeDomText(currentReadback) === normalizeDomText(optionText)) {
     return {
       action: "select_option",
       label,
@@ -293,14 +335,13 @@ export async function selectHealthFoodExactOptionOnPage(
   const trigger =
     (await firstVisible(fieldRoot.locator("[role='combobox'], .semi-select, .ant-select, [class*='select'], [class*='Select']"))) ||
     fieldRoot.locator("input[type='search'], input[type='text'], input:not([type])").first();
-  await trigger.scrollIntoViewIfNeeded().catch(() => {});
-  await trigger.click({ timeout: 5000 });
+  await clickLocatorWithTransientUiRecovery(trigger, 5000);
   const editable = fieldRoot.locator("input[type='search'], input[type='text'], input:not([type])").first();
   if (await editable.isVisible().catch(() => false)) {
     await editable.fill(optionText, { timeout: 2000 }).catch(() => {});
   }
   const option = await exactVisibleOption(page, optionText);
-  await option.click({ timeout: 5000 });
+  await clickLocatorWithTransientUiRecovery(option, 5000);
   await page.waitForTimeout(3000);
   const readback = await readHealthFoodSelectedValue(fieldRoot);
   return {
@@ -316,12 +357,13 @@ export async function selectHealthFoodExactOptionOnPage(
 async function selectHealthFoodOptionCandidateOnPage(
   page: Page,
   label: string,
-  optionTexts: string[]
+  optionTexts: string[],
+  forceSelection = false
 ): Promise<HealthFoodSelectReadbackResult> {
   let lastError: unknown;
   for (const optionText of optionTexts) {
     try {
-      return await selectHealthFoodExactOptionOnPage(page, label, optionText);
+      return await selectHealthFoodExactOptionOnPage(page, label, optionText, forceSelection);
     } catch (error) {
       lastError = error;
     }
@@ -399,17 +441,21 @@ export async function checkHealthFunctionOptionOnPage(
     let selectedCandidate = false;
     for (const expectedOption of expectedOptions) {
       const trigger = fieldRoot.locator(".ecom-g-select-selector").first();
-      await trigger.scrollIntoViewIfNeeded().catch(() => {});
-      await trigger.click({ timeout: 5000 }).catch(async () => {
-        await trigger.click({ timeout: 5000, force: true });
-      });
+      await clickLocatorWithTransientUiRecovery(trigger, 5000);
       const search = fieldRoot.locator("input[role='combobox']").first();
       const searchTexts = resolveHealthFoodFunctionSearchTexts(expectedOption);
       let exactTitle: Locator | null = null;
-      for (const searchText of searchTexts) {
-        await search.fill(searchText, { timeout: 5000 });
+      const searchIsEditable = await search.isEditable().catch(() => false);
+      const searches = searchIsEditable ? searchTexts : [""];
+      for (const searchText of searches) {
+        if (searchIsEditable) {
+          await search.fill(searchText, { timeout: 5000 });
+        }
         for (let searchAttempt = 0; searchAttempt < 20; searchAttempt += 1) {
-          const titles = page.locator(".ecom-g-select-tree-title").filter({ hasText: searchText });
+          // Some Doudian tree-select variants expose a readonly combobox. In
+          // that mode clicking the selector already renders the full option
+          // tree, so scan it directly instead of attempting an impossible fill.
+          const titles = page.locator(".ecom-g-select-tree-title").filter({ hasText: expectedOption });
           const titleCount = await titles.count().catch(() => 0);
           for (let index = 0; index < titleCount; index += 1) {
             const title = titles.nth(index);
@@ -435,8 +481,7 @@ export async function checkHealthFunctionOptionOnPage(
       }
       const row = exactTitle.locator("xpath=ancestor::div[contains(@class,'ecom-g-select-tree-treenode')][1]");
       const checkbox = row.locator(".ecom-g-select-tree-checkbox").first();
-      await checkbox.scrollIntoViewIfNeeded().catch(() => {});
-      await checkbox.click({ timeout: 5000 });
+      await clickLocatorWithTransientUiRecovery(checkbox, 5000);
       await page.waitForTimeout(3000);
       selectedCandidate = true;
       break;
@@ -467,14 +512,32 @@ export async function uploadHealthFoodFileInFieldOnPage(
   files: string | string[]
 ): Promise<HealthFoodFileUploadReadbackResult> {
   const selectedFiles = Array.isArray(files) ? files : [files];
-  const fieldRoot = await findHealthFoodFieldRootByLabel(page, label);
-  const input = fieldRoot.locator("input[type='file']").first();
-  await input.setInputFiles(selectedFiles, { timeout: 10000 });
-
-  let acceptedCount = 0;
-  let previewCount = 0;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const readback = await fieldRoot.evaluate((root) => {
+  const setFreshInputFiles = async (selected: string | string[]): Promise<void> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      // Keep this as a semantic locator chain. Playwright re-resolves it at the
+      // setInputFiles action boundary if React replaces the uploader subtree.
+      // A temporary attribute marker can disappear between discovery and use.
+      const freshFieldRoot = await findHealthFoodFileFieldRootByLabel(page, label);
+      const freshInput = freshFieldRoot.locator("input[type='file']").first();
+      try {
+        await freshInput.setInputFiles(selected, { timeout: 10000 });
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0 && /Timeout|detached|not attached|resolved to hidden/i.test(error instanceof Error ? error.message : String(error))) {
+          await waitForHealthFoodFieldLabelOnPage(page, label);
+          await page.waitForTimeout(500);
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  };
+  const readFreshUploadEvidence = async (): Promise<{ uploadedCount: number; fileInputCount: number; previewCount: number }> => {
+    const freshFieldRoot = await findHealthFoodFileFieldRootByLabel(page, label);
+    return freshFieldRoot.evaluate((root) => {
       const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
       const fieldText = normalize((root as HTMLElement).innerText || root.textContent || "");
       const uploadedCount = Math.max(
@@ -497,6 +560,26 @@ export async function uploadHealthFoodFileInFieldOnPage(
         }).length;
       return { uploadedCount, fileInputCount, previewCount: imageEvidenceCount };
     });
+  };
+  let uploadedIndividually = false;
+  try {
+    await setFreshInputFiles(selectedFiles);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (selectedFiles.length <= 1 || !/Non-multiple file input can only accept single file/i.test(message)) {
+      throw error;
+    }
+    uploadedIndividually = true;
+    for (const file of selectedFiles) {
+      await setFreshInputFiles(file);
+      await page.waitForTimeout(500);
+    }
+  }
+
+  let acceptedCount = 0;
+  let previewCount = 0;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const readback = await readFreshUploadEvidence();
     acceptedCount = Math.max(readback.uploadedCount, readback.fileInputCount, readback.previewCount);
     previewCount = readback.previewCount;
     if (acceptedCount >= selectedFiles.length) {
@@ -505,35 +588,13 @@ export async function uploadHealthFoodFileInFieldOnPage(
     await page.waitForTimeout(1000);
   }
 
-  if (acceptedCount < selectedFiles.length && selectedFiles.length > 1) {
+  if (acceptedCount < selectedFiles.length && selectedFiles.length > 1 && !uploadedIndividually) {
     for (const file of selectedFiles) {
-      await input.setInputFiles(file, { timeout: 10000 });
+      await setFreshInputFiles(file);
       await page.waitForTimeout(500);
     }
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const readback = await fieldRoot.evaluate((root) => {
-        const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
-        const fieldText = normalize((root as HTMLElement).innerText || root.textContent || "");
-        const uploadedCount = Math.max(
-          ...Array.from(fieldText.matchAll(/(\d+)\/(?:20|\d+)|已上传(\d+)|上传成功/g)).map((match) =>
-            Number(match[1] || match[2] || 0)
-          ),
-          0
-        );
-        const fileInputCount = Array.from(root.querySelectorAll("input[type='file']"))
-          .map((node) => node as HTMLInputElement)
-          .reduce((sum, inputNode) => sum + (inputNode.files?.length || 0), 0);
-        const imageEvidenceCount = Array.from(
-          root.querySelectorAll("img, video, [class*='preview'], [class*='Preview'], [class*='upload-list'], [class*='UploadList'], [class*='file-list'], [class*='FileList']")
-        )
-          .map((node) => node as HTMLElement)
-          .filter((node) => {
-            const style = window.getComputedStyle(node);
-            const text = normalize(node.textContent || "");
-            return style.display !== "none" && style.visibility !== "hidden" && (node.tagName === "IMG" || node.tagName === "VIDEO" || text.includes("上传成功") || text.includes("预览") || text.includes("删除"));
-          }).length;
-        return { uploadedCount, fileInputCount, previewCount: imageEvidenceCount };
-      });
+      const readback = await readFreshUploadEvidence();
       acceptedCount = Math.max(readback.uploadedCount, readback.fileInputCount, readback.previewCount);
       previewCount = readback.previewCount;
       if (acceptedCount >= selectedFiles.length) {
@@ -561,7 +622,7 @@ export async function fillHealthFoodSafetyAttributesOnPage(
   const originPackaging = await selectHealthFoodOptionCandidateOnPage(page, "产地与包装", [
     "国产-预包装食品",
     "国产预包装食品"
-  ]);
+  ], true);
   assertHealthFoodSubModuleCompleted("产地与包装", originPackaging);
   await waitForHealthFoodFieldLabelOnPage(page, "保质期");
   const shelfLife = await fillHealthFoodTextFieldOnPage(page, "保质期", String(metadata.shelfLife));
@@ -620,10 +681,44 @@ export async function fillHealthFoodCategoryAttributesOnPage(
 
 export async function uploadHealthFoodOuterPackagingOnPage(
   page: Page,
-  files: string | string[]
+  files: string | string[],
+  runtimeDir: string
 ): Promise<HealthFoodFileUploadReadbackResult> {
+  const sourceFiles = Array.isArray(files) ? files : [files];
+  if (!sourceFiles.length) {
+    throw new Error("Health-food outer packaging images are required.");
+  }
+  const squareFiles: string[] = [];
+  const squareDir = path.join(runtimeDir, "health-food-outer-packaging-square");
+  for (let index = 0; index < sourceFiles.length; index += 1) {
+    const sourceFile = sourceFiles[index]!;
+    const sourceDimensions = inspectDecodedImageFile(sourceFile);
+    if (sourceDimensions.width === sourceDimensions.height) {
+      squareFiles.push(sourceFile);
+      continue;
+    }
+    fs.mkdirSync(squareDir, { recursive: true });
+    const extension = path.extname(sourceFile);
+    const squareFile = path.join(
+      squareDir,
+      `${String(index + 1).padStart(2, "0")}-${path.basename(sourceFile, extension)}-1x1${extension}`
+    );
+    fs.copyFileSync(sourceFile, squareFile);
+    await ensureSquareMainImageFile({
+      sourceFile: squareFile,
+      evidenceDir: path.join(squareDir, "source-evidence")
+    });
+    const outputDimensions = inspectDecodedImageFile(squareFile);
+    if (outputDimensions.width !== outputDimensions.height) {
+      throw new Error(
+        `Health-food outer packaging 1:1 conversion failed: file=${path.basename(sourceFile)}; ` +
+        `actual=${outputDimensions.width}x${outputDimensions.height}`
+      );
+    }
+    squareFiles.push(squareFile);
+  }
   try {
-    const result = await uploadHealthFoodFileInFieldOnPage(page, "上传外包装图", files);
+    const result = await uploadHealthFoodFileInFieldOnPage(page, "上传外包装图", squareFiles);
     if (result.ok) {
       return result;
     }
@@ -637,7 +732,7 @@ export async function uploadHealthFoodOuterPackagingOnPage(
     }
     return result;
   } catch {
-    const result = await uploadHealthFoodFileInFieldOnPage(page, "商品外包装图", files);
+    const result = await uploadHealthFoodFileInFieldOnPage(page, "商品外包装图", squareFiles);
     if (result.ok) {
       return result;
     }
@@ -677,10 +772,9 @@ async function openHealthFoodSpecificationEditor(page: Page, locator: Locator): 
   if ((await locator.count()) !== 1) {
     throw new Error("Health-food specification editor target is not unique.");
   }
-  await locator.scrollIntoViewIfNeeded();
   const editorPopover = page.locator(".ecom-g-popover-content").filter({ hasText: "选择规则" }).first();
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await locator.click({ timeout: 3000 }).catch(() => {});
+    await clickLocatorWithTransientUiRecovery(locator, 3000).catch(() => {});
     if (await editorPopover.waitFor({ state: "visible", timeout: 1500 }).then(() => true, () => false)) {
       return;
     }
@@ -875,41 +969,33 @@ async function applyHealthFoodSpecificationEditorOnPage(
       return;
     }
 
-    await page.locator(`[${selectMarker}="true"] .ecom-g-select-selector`).first().click({ timeout: 1000 });
+    const unitCombobox = page.locator(`[${selectMarker}="true"] input[role="combobox"]`).first();
+    await unitCombobox.evaluate((element) => (element as HTMLInputElement).focus());
+    await unitCombobox.press("ArrowDown", { timeout: 1500 });
     await page.waitForTimeout(200);
-    const optionInfo = await page.evaluate(({ markerName, expectedUnit }) => {
+    const optionInfo = await page.evaluate(({ markerName, selectMarkerName, expectedUnit }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, "").trim();
       const visible = (element: HTMLElement): boolean => {
         const style = window.getComputedStyle(element);
-        return Boolean(element.offsetParent) && style.display !== "none" && style.visibility !== "hidden";
-      };
-      const notHiddenByEcomContainer = (element: HTMLElement): boolean => {
-        let current: HTMLElement | null = element;
-        while (current && current !== document.body) {
-          const style = window.getComputedStyle(current);
-          const className = String(current.className || "");
-          if (
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            className.includes("ecom-g-popover-hidden") ||
-            className.includes("ecom-g-select-dropdown-hidden")
-          ) {
-            return false;
-          }
-          current = current.parentElement;
-        }
-        return true;
+        return element.checkVisibility() && style.display !== "none" && style.visibility !== "hidden";
       };
       document.querySelectorAll(`[${markerName}]`).forEach((node) => node.removeAttribute(markerName));
-      const optionSelector = [
-        ".ecom-g-select-dropdown .ecom-g-select-item-option",
-        ".ecom-g-select-item-option",
-        "[role='listbox'] [role='option']",
-        "[role='option']"
-      ].join(", ");
-      const options = Array.from(document.querySelectorAll(optionSelector))
+      const markedSelect = document.querySelector(`[${selectMarkerName}="true"]`) as HTMLElement | null;
+      const controlsId = markedSelect?.querySelector("input[role='combobox']")?.getAttribute("aria-controls") || "";
+      const dropdown = controlsId
+        ? document.getElementById(controlsId)?.closest(".ecom-g-select-dropdown") as HTMLElement | null
+        : null;
+      const dropdownStyle = dropdown ? window.getComputedStyle(dropdown) : null;
+      const dropdownClass = String(dropdown?.className || "");
+      const dropdownActive = Boolean(
+        dropdown && dropdownStyle && visible(dropdown) &&
+        dropdownStyle.pointerEvents !== "none" &&
+        !dropdownClass.includes("dropdown-hidden") &&
+        !dropdownClass.includes("slide-up-leave")
+      );
+      const options = Array.from(dropdownActive ? dropdown!.querySelectorAll(".ecom-g-select-item-option") : [])
         .map((node) => node as HTMLElement)
-        .filter((item) => visible(item) && notHiddenByEcomContainer(item));
+        .filter(visible);
       const option = options.find((item) => normalize(item.innerText || item.textContent || "") === normalize(expectedUnit));
       if (!option) {
         return {
@@ -919,13 +1005,11 @@ async function applyHealthFoodSpecificationEditorOnPage(
       }
       option.setAttribute(markerName, "true");
       return { found: true, visibleOptions: "" };
-    }, { markerName: optionMarker, expectedUnit: unitText });
+    }, { markerName: optionMarker, selectMarkerName: selectMarker, expectedUnit: unitText });
     if (!optionInfo.found) {
       throw new Error(`Health-food specification unit option not found: ${unitText}; visible=${optionInfo.visibleOptions || "<none>"}`);
     }
-    await page.locator(`[${optionMarker}="true"]`).first().click({ timeout: 3000 }).catch(async () => {
-      await page.locator(`[${optionMarker}="true"]`).first().click({ timeout: 3000, force: true });
-    });
+    await clickLocatorWithTransientUiRecovery(page.locator(`[${optionMarker}="true"]`).first(), 3000);
     await page.waitForTimeout(200);
     const selectedText = await page.evaluate(({ markerName, unitIndex }) => {
       const normalize = (value: string): string => value.replace(/\s+/g, "").trim();

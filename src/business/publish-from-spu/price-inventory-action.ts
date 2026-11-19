@@ -94,21 +94,28 @@ async function findPriceInventoryTableDomRows(page: Page): Promise<PriceInventor
       );
     };
 
+    const readHeader = (row: HTMLTableRowElement): { priceCellIndex: number; stockCellIndex: number } | null => {
+      const cells = Array.from(row.querySelectorAll("th, td")).map((cell) => cell as HTMLTableCellElement);
+      const priceCell = cells.find((cell) => {
+        const text = normalize(cell.innerText || cell.textContent || "");
+        return /价格|售价/.test(text) && !/参考价|划线价|批发价/.test(text);
+      });
+      const stockCell = cells.find((cell) => /现货库存|库存/.test(normalize(cell.innerText || cell.textContent || "")));
+      return priceCell && stockCell
+        ? { priceCellIndex: priceCell.cellIndex, stockCellIndex: stockCell.cellIndex }
+        : null;
+    };
+    const globalHeader = allRows
+      .map((row) => readHeader(row))
+      .find((header): header is { priceCellIndex: number; stockCellIndex: number } => Boolean(header));
+
     const tables = Array.from(document.querySelectorAll("table"));
     for (const table of tables) {
       const tableRows = Array.from(table.querySelectorAll("tr")).map((row) => row as HTMLTableRowElement);
       const header = tableRows
         .map((row, rowOrder) => {
-          const cells = Array.from(row.querySelectorAll("th, td")).map((cell) => cell as HTMLTableCellElement);
-          const priceCell = cells.find((cell) => /价格|售价/.test(normalize(cell.innerText || cell.textContent || "")));
-          const stockCell = cells.find((cell) => /现货库存|库存/.test(normalize(cell.innerText || cell.textContent || "")));
-          return priceCell && stockCell
-            ? {
-                rowOrder,
-                priceCellIndex: priceCell.cellIndex,
-                stockCellIndex: stockCell.cellIndex
-              }
-            : null;
+          const header = readHeader(row);
+          return header ? { rowOrder, ...header } : null;
         })
         .filter(Boolean)[0] as { rowOrder: number; priceCellIndex: number; stockCellIndex: number } | undefined;
       if (!header) {
@@ -146,33 +153,25 @@ async function findPriceInventoryTableDomRows(page: Page): Promise<PriceInventor
         return rows;
       }
     }
+    if (!globalHeader) {
+      return [];
+    }
     const detachedRows = allRows
       .map((row, index) => {
         if (!visible(row)) {
           return null;
         }
-        const rowInputs = Array.from(row.querySelectorAll("input")).map((input) => input as HTMLInputElement);
-        const rowText = normalize(row.innerText || row.textContent || "");
-        const stockInput = rowInputs.find((input) => {
-          const placeholder = input.getAttribute("placeholder") || "";
-          return usableInput(input) && placeholder.includes("请输入库存");
-        });
-        const codeInput = rowInputs.find((input) => {
-          const placeholder = input.getAttribute("placeholder") || "";
-          return placeholder.includes("请输入erp编码") || placeholder.includes("商家编码");
-        });
-        const priceInput = rowInputs.find((input) => {
-          const placeholder = input.getAttribute("placeholder") || "";
-          return (
-            usableInput(input) &&
-            input !== stockInput &&
-            input !== codeInput &&
-            (placeholder.includes("请输入") || placeholder.includes("价格") || rowText.includes("￥"))
-          );
-        });
-        if (!priceInput || !stockInput || !codeInput) {
+        const cells = Array.from(row.querySelectorAll("th, td")).map((cell) => cell as HTMLTableCellElement);
+        const priceCell = cells.find((cell) => cell.cellIndex === globalHeader.priceCellIndex);
+        const stockCell = cells.find((cell) => cell.cellIndex === globalHeader.stockCellIndex);
+        const priceInput = Array.from(priceCell?.querySelectorAll("input") || [])
+          .find((input) => usableInput(input as HTMLInputElement)) as HTMLInputElement | undefined;
+        const stockInput = Array.from(stockCell?.querySelectorAll("input") || [])
+          .find((input) => usableInput(input as HTMLInputElement)) as HTMLInputElement | undefined;
+        if (!priceInput || !stockInput) {
           return null;
         }
+        const rowInputs = Array.from(row.querySelectorAll("input")).map((input) => input as HTMLInputElement);
         return {
           trIndex: allRows.indexOf(row),
           priceInputIndex: rowInputs.indexOf(priceInput),

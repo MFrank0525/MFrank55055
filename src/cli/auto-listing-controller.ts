@@ -33,6 +33,8 @@ import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../a
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
 import { removeInvalidRuntimeArtifactDirs } from "../autolist/runtime-artifact-lifecycle.js";
 import { clearProcessedImagesForBatch, readProcessedImages } from "../autolist/file-batch.js";
+import { archiveFreshRerunEvidence } from "../autolist/fresh-rerun-archive.js";
+import { readExternalProductConflict } from "../autolist/external-product-resolution.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
 import { assertAutoListingControllerImageGenerationContract } from "../autolist/image-generation-config.js";
 import { getProductCategoryPlan } from "../autolist/product-category.js";
@@ -66,6 +68,11 @@ import {
   findLatestUnsafePublishManifestForResume as selectLatestUnsafePublishManifestForResume
 } from "../autolist/unsafe-publish-resume.js";
 import { sanitizePythonRuntimeEnv } from "../utils/platform.js";
+import {
+  applyVerifiedFeishuSourceCorrection,
+  validateFeishuSourceCorrectionEvidence,
+  type FeishuSourceCorrection
+} from "../autolist/feishu-source-correction-rules.js";
 
 import type { RunnerJob, DirectAutoListingProcess, ExternalServiceWait, PauseSignalFile, AutoListingJobFile, AutoListingTaskFile, AutoListingResultFile, AutoListingStateFile, PublishManifestFile, PublishPlanFile, DeferredMainImageRoundFile, LocalFeishuConfig } from "./auto-listing-controller-contract.js";
 import { rootDir, controlDir, jobFile, childControlFile, externalServiceWaitFile, pauseFile, resumeJobFile, fullRealJobFile, deferredMainImageRoot, feishuConfigFile } from "./auto-listing-controller-contract.js";
@@ -629,6 +636,37 @@ function writeCanonicalResumeJob(options: {
   );
   const manifest = readJsonFile<PublishManifestFile>(path.join(options.runtimeDir, "publish-manifest.json"));
   const publishPlan = readJsonFile<PublishPlanFile>(path.join(options.runtimeDir, "publish-plan.json"));
+  const correctionEvidence = readJsonFile<FeishuSourceCorrection>(path.join(options.runtimeDir, "feishu-source-correction.json"));
+  let sourceCorrection: FeishuSourceCorrection | undefined;
+  if (correctionEvidence) {
+    const plannedTarget = (publishPlan?.plan || []).find((entry) =>
+      entry.targetKey === correctionEvidence.canonicalTargetKey &&
+      entry.targetIdentity?.recordId === options.task.feishuProductRecord?.recordId &&
+      entry.targetIdentity?.taskId === taskId
+    );
+    if (!plannedTarget) {
+      throw new Error("Feishu source correction target is absent from the canonical publish plan.");
+    }
+    const submitAttempt = readJsonFile<{ state?: string }>(path.join(
+      options.runtimeDir,
+      "publish",
+      correctionEvidence.canonicalTargetKey,
+      "publish-submit-attempt.json"
+    ));
+    sourceCorrection = validateFeishuSourceCorrectionEvidence({
+      correction: correctionEvidence,
+      batchFingerprint: options.batchFingerprint || "",
+      recordId: options.task.feishuProductRecord?.recordId || "",
+      canonicalTargetKey: plannedTarget.targetKey || "",
+      publishSubmitAttemptState: submitAttempt?.state || "missing"
+    });
+    const lockedRecord = loadFeishuProductRecords(options.sourceJob.input?.feishuProductDataFile || "")
+      .find((record) => record.recordId === sourceCorrection?.recordId);
+    if (!lockedRecord) {
+      throw new Error("Feishu source correction record is absent from the locked cache.");
+    }
+    applyVerifiedFeishuSourceCorrection(lockedRecord, sourceCorrection, options.batchFingerprint || "");
+  }
   const decision = resolveCanonicalResumeDecision({
     batchFingerprint: options.batchFingerprint || "",
     recordId: options.task.feishuProductRecord?.recordId,
@@ -672,6 +710,7 @@ function writeCanonicalResumeJob(options: {
       resumeProductFolderNames: decision.resumeProductFolderNames,
       feishuBatchFingerprint: options.batchFingerprint,
       businessRuleFingerprint: options.businessRuleFingerprint,
+      sourceCorrection,
       maxImagesPerRun: 1,
       clearTestOutputsBeforeRun: false
     }
@@ -820,7 +859,10 @@ async function assertRealFlowNetworkPreflight(imageGenerationConfigFile: string 
   await probeImageGenerationEndpoint(apiUrl);
 }
 
-function selectCommand(forceFullFlow = false): {
+function selectCommand(
+  forceFullFlow = false,
+  intent: AutoListingControllerLaunchIntent = "start_new_batch"
+): {
   command: string;
   args: string[];
   mode: RunnerJob["mode"];
@@ -842,7 +884,12 @@ function selectCommand(forceFullFlow = false): {
   const fullJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
   return {
     command: "node",
-    args: ["dist/src/cli/auto-listing-supervisor.js", "--initial", "full"],
+    args: [
+      "dist/src/cli/auto-listing-supervisor.js",
+      "--initial",
+      "full",
+      ...(intent === "continue_current_batch" ? ["--continue-current-batch"] : [])
+    ],
     mode: "full-real-flow",
     imageGenerationConfigFile: resolveImageGenerationConfigFile(fullJob),
     job: fullJob || {}
@@ -859,10 +906,18 @@ async function start(
   const current = readJsonFile<RunnerJob>(jobFile);
   let runnerJobRunning = Boolean(current && isRunnerJobRunning(current));
   const launchPolicy = resolveAutoListingControllerLaunchPolicy(intent);
-  const beforeRefreshProgress = launchPolicy.refreshBeforeSelection ? undefined : summarizeFeishuProgress();
+  const beforeRefreshProgress = summarizeFeishuProgress();
   let currentProgress = beforeRefreshProgress;
   let selectedBatchFingerprint =
     typeof currentProgress?.batchFingerprint === "string" ? String(currentProgress.batchFingerprint) : "";
+  if (
+    shouldClearPauseSignalOnAutoListingControllerStart({
+      pauseSignalExists: fs.existsSync(pauseFile),
+      runnerJobRunning
+    })
+  ) {
+    fs.rmSync(pauseFile);
+  }
   if (current && runnerJobRunning) {
     const ownership = inspectControllerRunnerOwnership({
       job: current,
@@ -922,17 +977,20 @@ async function start(
     console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
     return;
   }
-  if (
-    shouldClearPauseSignalOnAutoListingControllerStart({
-      pauseSignalExists: fs.existsSync(pauseFile),
-      runnerJobRunning
-    })
-  ) {
-    fs.rmSync(pauseFile);
-  }
   if (!dryRun) {
     await cleanupInertControllerSupervisor({ job: current });
     await cleanupRecordedAutoListingControllerChild();
+  }
+  const externalProductConflict = readExternalProductConflict();
+  if (externalProductConflict?.status === "unresolved") {
+    const result = {
+      ok: true,
+      status: "external_product_conflict",
+      conflict: externalProductConflict,
+      message: `检测到同一飞书产品在 ${externalProductConflict.shopName} 已存在商品 ${externalProductConflict.externalProductId}；为避免标题变化造成重复上架，必须先处理并验证该线上商品。`
+    };
+    console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
+    return;
   }
   if (!dryRun && launchPolicy.refreshBeforeSelection) {
     runFeishuAssetsRefreshForStart();
@@ -981,11 +1039,16 @@ async function start(
     return;
   }
   let forceFullFlow = !launchPolicy.allowHistoricalResume || launchPolicy.forceFullFlow || dryRunDecision === "rerun_current_batch";
-  if (!dryRun && launchPolicy.refreshBeforeSelection && currentProgress?.batchComplete === true) {
+  if (!dryRun && launchPolicy.refreshBeforeSelection) {
+    const previousBatchFingerprint = typeof beforeRefreshProgress?.batchFingerprint === "string"
+      ? String(beforeRefreshProgress.batchFingerprint)
+      : "";
     const decision = resolveAutoListingControllerStartAfterFeishuRefresh({
-      currentBatchComplete: true,
-      refreshedBatchChanged: false,
-      refreshedBatchComplete: true,
+      currentBatchComplete: beforeRefreshProgress?.batchComplete === true,
+      refreshedBatchChanged: Boolean(
+        previousBatchFingerprint && selectedBatchFingerprint && previousBatchFingerprint !== selectedBatchFingerprint
+      ),
+      refreshedBatchComplete: currentProgress?.batchComplete === true,
       forceRerunCurrentBatch
     });
     if (decision === "require_rerun_confirmation") {
@@ -999,12 +1062,25 @@ async function start(
       return;
     }
     if (decision === "rerun_current_batch") {
-      clearCurrentBatchPaidImageLedger();
+      const rerunJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
+      archiveFreshRerunEvidence({
+        batchFingerprint: selectedBatchFingerprint,
+        paidImageLedgerRoot: path.resolve(
+          rootDir,
+          rerunJob?.input?.paidImageSubmissionLedgerDir || "data/auto-listing/paid-image-submissions"
+        ),
+        runtimeRoot: path.resolve(rootDir, "data/auto-listing/runs"),
+        processedImageManifest: path.resolve(
+          rootDir,
+          rerunJob?.input?.processedImageManifest || "data/auto-listing/processed-images.json"
+        ),
+        archiveRoot: path.resolve(rootDir, "data/auto-listing/recovery-archives")
+      });
       clearCurrentBatchProcessedImages();
       forceFullFlow = true;
     }
   }
-  const selected = selectCommand(forceFullFlow);
+  const selected = selectCommand(forceFullFlow, intent);
   const logFile = path.join(controlDir, `auto-listing-controller-${timestampForFile()}.log`);
   if (dryRun) {
     const result = {

@@ -30,6 +30,10 @@ import { formatAutoListingPublishProgressLabel, shouldRetainStoppedControllerPub
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { buildFeishuBatchFingerprint, canResumeFeishuBatchArtifacts } from "../autolist/feishu-batch-rules.js";
 import { buildAutoListingBusinessRuleFingerprint } from "../autolist/business-rule-fingerprint.js";
+import {
+  shouldSuppressBatchMismatchPauseDuringControllerTransition,
+  type ControllerBatchTransitionEvidence
+} from "../autolist/controller-job-ownership-rules.js";
 import { removeInvalidRuntimeArtifactDirs } from "../autolist/runtime-artifact-lifecycle.js";
 import { clearProcessedImagesForBatch, readProcessedImages } from "../autolist/file-batch.js";
 import { evaluateImageGenerationEndpointProbe } from "../autolist/image-generation-rules.js";
@@ -59,7 +63,7 @@ import {
 } from "../autolist/unsafe-publish-resume.js";
 
 import type { RunnerJob, DirectAutoListingProcess, ExternalServiceWait, PauseSignalFile, AutoListingJobFile, AutoListingTaskFile, AutoListingResultFile, AutoListingStateFile, PublishManifestFile, PublishPlanFile, DeferredMainImageRoundFile, LocalFeishuConfig } from "./auto-listing-controller-contract.js";
-import { rootDir, controlDir, jobFile, childControlFile, externalServiceWaitFile, pauseFile, resumeJobFile, fullRealJobFile, deferredMainImageRoot, feishuConfigFile } from "./auto-listing-controller-contract.js";
+import { rootDir, controlDir, jobFile, batchTransitionFile, childControlFile, externalServiceWaitFile, pauseFile, resumeJobFile, fullRealJobFile, deferredMainImageRoot, feishuConfigFile } from "./auto-listing-controller-contract.js";
 import { readJsonFile, readPauseSignalFile, writePauseSignalFile, formatPauseSignalSummary, maybeUpgradeLegacyPauseSignalForBatchMismatch, readProcessCommand, extractDirectAutoListingJobFile, findActiveDirectAutoListingProcess, isPidRunning, isRunnerJobRunning, isProcessGroupRunning, cleanupRecordedAutoListingControllerChild, timestampForFile, tailFile, compactStatusLine, latestAutoListingChildFailureFromLog, compactStatusValue, formatFeishuCacheValidationFailureForOperator, publishModuleLabel, summarizePublishLogProgress, compactErrorObject, compactProductFolders, compactTaskForStatus, findActiveRuntimeDirFromLog, fileMtimeMs, findLatestResultFile, listResultFilesNewestFirst, summarizeResult, summarizeState, summarizeImageGenerationProgress, summarizeLatestPublishArtifact, summarizePublishProgress, findLatestRuntimeDirWithPublishManifest, isActiveManualRecoveryPublishProgress, isActivePublishProgress, summarizeFeishuProgress } from "./auto-listing-controller-runtime.js";
 
 export function safeLoadFeishuProductRecords(productDataFile: string): ReturnType<typeof loadFeishuProductRecords> {
@@ -626,6 +630,29 @@ export function existingStatus(
       fs.rmSync(jobFile, { force: true });
       return existingStatus(findInterruptedState);
     }
+    const controlledTransition = shouldSuppressBatchMismatchPauseDuringControllerTransition({
+      running,
+      controllerPid: job.pid,
+      controllerBatchFingerprint: job.batchFingerprint,
+      runtimeBatchFingerprint,
+      currentBatchFingerprint:
+        typeof feishuProgress?.batchFingerprint === "string" ? String(feishuProgress.batchFingerprint) : undefined,
+      transition: readJsonFile<ControllerBatchTransitionEvidence>(batchTransitionFile),
+      nowMs: Date.now()
+    });
+    if (controlledTransition) {
+      return {
+        ok: true,
+        status: "running",
+        pid: job.pid,
+        mode: job.mode,
+        startedAt: job.startedAt,
+        jobFile,
+        historicalRuntimeSuppressed: true,
+        feishuProgress,
+        summary: "上一批次已完成，控制器正在切换并启动当前飞书批次。"
+      };
+    }
     const pauseSignal = writePauseSignalFile({
       reason: "batch_mismatch",
       message: "运行中的控制器批次指纹与当前飞书缓存不一致；已请求在安全边界暂停，并停止展示和复用该运行证据。",
@@ -791,7 +818,9 @@ export function existingStatus(
       ? "running"
       : paidImageResolvedStatus;
   const acceptedTaskQueueSummary =
-    resolvedStatus === "external_service_wait" && !activeWaitState && Number(paidImageProgress?.submitted || 0) > 0
+    resolvedStatus === "running" && !activeWaitState &&
+      String(currentTask?.status || (state?.latestProgress as Record<string, unknown> | undefined)?.step || "") === "main_images_generated" &&
+      Number(paidImageProgress?.submitted || 0) > 0
       ? formatPaidImageAcceptedTaskWaitSummary({ completed: Number(paidImageProgress?.completed || 0), expected: Number(paidImageProgress?.expectedSlotCount || 20), submitted: Number(paidImageProgress?.submitted || 0), latestProgressAt: typeof latestStateProgressAt === "string" ? latestStateProgressAt : undefined })
       : undefined;
   const pauseSignal = readPauseSignalFile();
@@ -922,7 +951,7 @@ export function existingStatus(
         ? failureSummary || stateSummary
         : shouldUsePublishRealtime
           ? publishProgress?.progressText || stateSummary
-          : stateSummary) ||
+          : acceptedTaskQueueSummary || stateSummary) ||
       (running
           ? "任务正在运行，尚未写入发布进度。"
           : "任务进程已退出，查看 result 字段确认最终结果。"),

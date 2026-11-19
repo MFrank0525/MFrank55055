@@ -3,6 +3,7 @@ import path from "node:path";
 import { sanitizeFeishuProductRecord } from "../feishu/product-records.js";
 import { validateFeishuProductPayload } from "../feishu/cache-contract.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
+import { applyVerifiedFeishuSourceCorrection, type FeishuSourceCorrection } from "./feishu-source-correction-rules.js";
 import { buildFeishuSellingPointText } from "./selling-point-rules.js";
 import type { SellingPointArtifact } from "./types.js";
 
@@ -200,13 +201,18 @@ export function loadFeishuProductRuntimeRecord(options: {
   sourceImagePath: string;
   runtimeDir: string;
   taskId: string;
+  sourceCorrection?: FeishuSourceCorrection;
+  lockedBatchFingerprint?: string;
 }): FeishuProductRuntimeRecord {
   const records = readPayload(options.productDataFile);
   if (records.length === 0) {
     throw new Error(`Feishu product data file had no records: ${path.resolve(options.productDataFile)}`);
   }
   assertUniqueWhiteBackgroundLocalFiles(records);
-  const record = matchRecordByImage(records, options.sourceImagePath);
+  const matchedRecord = matchRecordByImage(records, options.sourceImagePath);
+  const record = matchedRecord && options.sourceCorrection
+    ? applyVerifiedFeishuSourceCorrection(matchedRecord, options.sourceCorrection, options.lockedBatchFingerprint || "") as FeishuProductRecord
+    : matchedRecord;
   if (!record) {
     throw new Error(`No Feishu product record matched source image: ${options.sourceImagePath}`);
   }

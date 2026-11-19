@@ -4,6 +4,14 @@ import { buildPublishJobMetadata } from "../dist/src/autolist/publish.js";
 import { resolvePublishFromSpuMetadata } from "../dist/src/business/publish-from-spu.js";
 import { assertResolvedMetadata } from "../dist/src/business/publish-from-spu/metadata-resolution.js";
 import {
+  countShortTitleCharacters,
+  normalizeShortTitleForDoudian
+} from "../dist/src/autolist/title-rules.js";
+import {
+  classifyPublishFailure,
+  evaluatePublishSubmission
+} from "../dist/src/business/publish-from-spu/publish-rules.js";
+import {
   evaluateHealthFoodPublishRules,
   resolveHealthFoodFunctionOptionCandidateGroups,
   resolveHealthFoodFunctionOptionTexts
@@ -58,7 +66,9 @@ const currentRecord = {
   brand: "当前品牌",
   spu: "CURRENT-SPU",
   sellingPointText: "当前卖点",
-  deepseekPromptText: "当前提示词",
+  mainImageHeadlineCandidateText: "当前主标题",
+  mainImageSubtitleCandidateText: "当前副标题",
+  mainImageSellingPointCandidateText: "卖点一\n卖点二\n卖点三",
   mainImageInstructionText: "当前主图指令",
   positivePromptText: "当前正向提示词",
   negativePromptText: "当前反向提示词",
@@ -267,6 +277,53 @@ assert.equal(
   "甘草片蓝帽认证",
   "publish metadata must normalize accidental Feishu whitespace inside 导购短标题 before filling Doudian"
 );
+
+const boundedShortTitleMetadata = resolvePublishFromSpuMetadata({
+  metadataOverride: {
+    brand: "延草纲目",
+    spu: "湘械注准20222141121",
+    title: "医用重组人源Ⅲ型胶原蛋白敷贴延草纲目",
+    shortTitle: "SNM医用重组Ⅲ型胶原蛋白面膜",
+    productPriceText: "189,169,119.9,99.9",
+    productCategory: "医疗器械"
+  },
+  workbook: {
+    brand: "",
+    spu: "",
+    title: "",
+    shortTitle: "",
+    modelSpec: "",
+    productPriceText: ""
+  }
+});
+assert.equal(
+  boundedShortTitleMetadata.shortTitle,
+  "医用重组Ⅲ型胶原蛋白面膜",
+  "publish metadata must remove only the complete leading ASCII source token when that makes 导购短标题 fit the 24-character platform limit"
+);
+assert.equal(countShortTitleCharacters("SNM医用重组Ⅲ型胶原蛋白面膜"), 26);
+assert.deepEqual(normalizeShortTitleForDoudian("SNM医用重组Ⅲ型胶原蛋白面膜"), {
+  title: "医用重组Ⅲ型胶原蛋白面膜",
+  changed: true,
+  originalLength: 26,
+  maxLength: 24,
+  strategy: "drop_ascii_prefix"
+});
+assert.throws(
+  () => normalizeShortTitleForDoudian("医用重组人源三型胶原蛋白敷贴面膜"),
+  /cannot be normalized without truncating source terms/
+);
+const shortTitleLengthPlatformText = "1个错误问题待处理 错误提示 导购短标题 错误 至多输入12个汉字（24字符） 发布商品";
+assert.deepEqual(evaluatePublishSubmission({
+  url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",
+  bodyText: shortTitleLengthPlatformText,
+  visibleErrorAlerts: []
+}), {
+  submitted: false,
+  issue: "平台明确拒绝发布：导购短标题至多输入12个汉字（24字符）",
+  freshCreatePage: false
+});
+assert.equal(classifyPublishFailure(shortTitleLengthPlatformText), "short_title_length_rejected");
 
 assert.deepEqual(
   resolveHealthFoodFunctionOptionTexts("调节血压，调节血脂(降低总胆固醇、降低甘油三酯)"),

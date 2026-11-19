@@ -56,8 +56,13 @@ assert.match(source, /\.fill\(/, "text actions must fill fields through locators
 assert.match(source, /inputValue\(/, "text actions must read back input values after fill");
 assert.match(
   source,
-  /fillHealthFoodTextFieldOnPage[\s\S]*currentReadback[\s\S]*normalizeDomText\(currentReadback\)\s*===\s*normalizeDomText\(value\)[\s\S]*changed:\s*false[\s\S]*\.fill\([\s\S]*press\("Tab"[\s\S]*waitForTimeout\(3000\)[\s\S]*inputValue[\s\S]*changed:\s*true/,
+  /fillHealthFoodTextFieldOnPage[\s\S]*isVisible[\s\S]*isEnabled[\s\S]*isEditable[\s\S]*Health-food text input did not become editable[\s\S]*currentReadback[\s\S]*normalizeDomText\(currentReadback\)\s*===\s*normalizeDomText\(value\)[\s\S]*changed:\s*false[\s\S]*\.fill\([\s\S]*press\("Tab"[\s\S]*waitForTimeout\(3000\)[\s\S]*inputValue[\s\S]*changed:\s*true/,
   "text actions must skip exact existing values; changed values must blur with Tab and verify again after 3 seconds"
+);
+assert.match(
+  source,
+  /selectHealthFoodExactOptionOnPage\([\s\S]*forceSelection = false[\s\S]*if \(!forceSelection && normalizeDomText\(currentReadback\)[\s\S]*selectHealthFoodOptionCandidateOnPage\(page, "产地与包装",[\s\S]*\], true\)/,
+  "产地与包装 must be reselected after a category rebuild so Doudian re-enables its dependent food-safety fields"
 );
 
 assert.doesNotMatch(
@@ -90,29 +95,29 @@ assert.doesNotMatch(
 );
 assert.match(
   source,
-  /selectHealthFoodExactOptionOnPage[\s\S]*readHealthFoodSelectedValue\(fieldRoot\)[\s\S]*normalizeDomText\(currentReadback\)\s*===\s*normalizeDomText\(optionText\)[\s\S]*changed:\s*false[\s\S]*option\.click[\s\S]*waitForTimeout\(3000\)[\s\S]*readHealthFoodSelectedValue\(fieldRoot\)[\s\S]*changed:\s*true/,
+  /selectHealthFoodExactOptionOnPage[\s\S]*readHealthFoodSelectedValue\(fieldRoot\)[\s\S]*normalizeDomText\(currentReadback\)\s*===\s*normalizeDomText\(optionText\)[\s\S]*changed:\s*false[\s\S]*clickLocatorWithTransientUiRecovery\(option[\s\S]*waitForTimeout\(3000\)[\s\S]*readHealthFoodSelectedValue\(fieldRoot\)[\s\S]*changed:\s*true/,
   "select actions must skip exact existing values and verify changed values again after the 3-second stabilization wait"
 );
 
 assert.match(
   source,
-  /checkHealthFunctionOptionOnPage[\s\S]*resolveHealthFoodFunctionOptionCandidateGroups\(optionText\)[\s\S]*"保健功能"[\s\S]*for \(const expectedOptions of optionGroups\)[\s\S]*for \(const expectedOption of expectedOptions\)[\s\S]*ecom-g-select-selector[\s\S]*role=['"]combobox['"][\s\S]*fill\(searchText[\s\S]*ecom-g-select-tree-title[\s\S]*ecom-g-select-tree-treenode[\s\S]*ecom-g-select-tree-checkbox/,
-  "health function action must split compound Feishu 保健功能 values into candidate groups, search the virtualized tree, and click each exact option's structural checkbox"
+  /checkHealthFunctionOptionOnPage[\s\S]*resolveHealthFoodFunctionOptionCandidateGroups\(optionText\)[\s\S]*"保健功能"[\s\S]*for \(const expectedOptions of optionGroups\)[\s\S]*for \(const expectedOption of expectedOptions\)[\s\S]*ecom-g-select-selector[\s\S]*role=['"]combobox['"][\s\S]*isEditable[\s\S]*ecom-g-select-tree-title[\s\S]*ecom-g-select-tree-treenode[\s\S]*ecom-g-select-tree-checkbox/,
+  "health function action must split compound Feishu 保健功能 values into candidate groups, support editable and readonly tree selects, and click each exact option's structural checkbox"
 );
 assert.match(
   source,
-  /checkHealthFunctionOptionOnPage[\s\S]*await search\.fill\(searchText[\s\S]*for \(let searchAttempt = 0; searchAttempt < [^)]+; searchAttempt \+= 1\)[\s\S]*ecom-g-select-tree-title[\s\S]*waitForTimeout/,
-  "health function search must poll for the asynchronously rendered exact tree option after changing the search text"
+  /checkHealthFunctionOptionOnPage[\s\S]*searchIsEditable[\s\S]*if \(searchIsEditable\)[\s\S]*search\.fill\(searchText[\s\S]*for \(let searchAttempt = 0; searchAttempt < [^)]+; searchAttempt \+= 1\)[\s\S]*ecom-g-select-tree-title[\s\S]*waitForTimeout/,
+  "health function search must fill only editable inputs and poll for the asynchronously rendered exact tree option"
 );
 assert.match(
   source,
-  /resolveHealthFoodFunctionSearchTexts[\s\S]*\\p\{Script=Han\}[\s\S]*for \(const searchText of searchTexts\)[\s\S]*search\.fill\(searchText[\s\S]*normalizeDomText\([\s\S]*expectedOption/,
-  "health function search must retry with a Han/ASCII boundary-space query while preserving normalized exact-option matching"
+  /resolveHealthFoodFunctionSearchTexts[\s\S]*\\p\{Script=Han\}[\s\S]*const searches = searchIsEditable \? searchTexts : \[""\][\s\S]*for \(const searchText of searches\)[\s\S]*search\.fill\(searchText[\s\S]*normalizeDomText\([\s\S]*expectedOption/,
+  "health function search must retain the Han/ASCII boundary-space retry for editable inputs and scan the open tree without fill for readonly inputs"
 );
 assert.match(
   source,
-  /checkHealthFunctionOptionOnPage[\s\S]*trigger\.click\(\{\s*timeout:\s*5000\s*\}\)\.catch[\s\S]*trigger\.click\(\{\s*timeout:\s*5000,\s*force:\s*true\s*\}\)/,
-  "health function selector click must fall back to the same locator with force when Doudian helper tips intercept pointer events"
+  /checkHealthFunctionOptionOnPage[\s\S]*clickLocatorWithTransientUiRecovery\(trigger, 5000\)/,
+  "health function selector click must use the shared transient UI recovery action"
 );
 assert.match(
   source,
@@ -127,8 +132,13 @@ assert.match(
 
 assert.match(
   source,
-  /uploadHealthFoodFileInFieldOnPage[\s\S]*fieldRoot[\s\S]*input\[type=['"]file['"][\s\S]*setInputFiles/,
-  "file uploads must target input[type=file] inside the correct field root"
+  /uploadHealthFoodFileInFieldOnPage[\s\S]*freshFieldRoot[\s\S]*input\[type=['"]file['"][\s\S]*setInputFiles/,
+  "file uploads must target input[type=file] inside a freshly resolved field root"
+);
+assert.match(
+  source,
+  /setFreshInputFiles[\s\S]*attempt < 2[\s\S]*Timeout\|detached\|not attached[\s\S]*waitForHealthFoodFieldLabelOnPage/,
+  "health-food uploads must re-resolve a field after React replaces a stale marked root"
 );
 assert.doesNotMatch(
   source,
@@ -183,6 +193,11 @@ assert.match(
 );
 assert.match(
   source,
+  /uploadHealthFoodOuterPackagingOnPage[\s\S]*inspectDecodedImageFile\(sourceFile\)[\s\S]*width === sourceDimensions\.height[\s\S]*ensureSquareMainImageFile[\s\S]*outputDimensions\.width !== outputDimensions\.height[\s\S]*uploadHealthFoodFileInFieldOnPage\(page, "上传外包装图", squareFiles\)/,
+  "health-food outer packaging images must be checked and converted to exact 1:1 files before upload"
+);
+assert.match(
+  source,
   /uploadHealthFoodOuterPackagingOnPage[\s\S]*从商品外包装图识别[\s\S]*ok:\s*true/,
   "outer packaging upload must treat Doudian recognition-difference evidence as upload completion without blocking on the reminder"
 );
@@ -193,8 +208,13 @@ assert.match(
 );
 assert.match(
   source,
-  /uploadHealthFoodFileInFieldOnPage[\s\S]*if \(acceptedCount < selectedFiles\.length && selectedFiles\.length > 1\)[\s\S]*for \(const file of selectedFiles\)[\s\S]*setInputFiles\(file/,
+  /uploadHealthFoodFileInFieldOnPage[\s\S]*if \(acceptedCount < selectedFiles\.length && selectedFiles\.length > 1 && !uploadedIndividually\)[\s\S]*for \(const file of selectedFiles\)[\s\S]*setFreshInputFiles\(file/,
   "outer packaging upload must fall back to per-file uploads when Doudian does not accept one multi-file selection"
+);
+assert.match(
+  source,
+  /Non-multiple file input can only accept single file[\s\S]*uploadedIndividually = true[\s\S]*for \(const file of selectedFiles\)[\s\S]*setFreshInputFiles\(file\)/,
+  "outer packaging upload must immediately retry one file at a time when a rebuilt Doudian form exposes a single-file input"
 );
 const outerPackagingSource = source.slice(
   source.indexOf("export async function uploadHealthFoodOuterPackagingOnPage"),
@@ -207,7 +227,7 @@ assert.doesNotMatch(
 );
 assert.match(
   source,
-  /fieldRoot\.evaluate[\s\S]*root\.querySelectorAll\("img, video,[\s\S]*previewCount[\s\S]*ok: acceptedCount >= selectedFiles\.length/,
+  /readFreshUploadEvidence[\s\S]*freshFieldRoot\.evaluate[\s\S]*root\.querySelectorAll\("img, video,[\s\S]*previewCount[\s\S]*ok: acceptedCount >= selectedFiles\.length/,
   "file upload readback must inspect accepted previews/upload evidence inside the field root"
 );
 const packagingLabelSource = source.slice(source.indexOf("export async function uploadHealthFoodPackagingLabelOnPage"));
@@ -269,7 +289,7 @@ assert.match(
 );
 assert.match(
   source,
-  /openHealthFoodSpecificationEditor[\s\S]*ecom-g-popover-content[\s\S]*hasText: "选择规则"[\s\S]*for \(let attempt = 0; attempt < 3; attempt \+= 1\)[\s\S]*locator\.click[\s\S]*state: "visible"/,
+  /openHealthFoodSpecificationEditor[\s\S]*ecom-g-popover-content[\s\S]*hasText: "选择规则"[\s\S]*for \(let attempt = 0; attempt < 3; attempt \+= 1\)[\s\S]*clickLocatorWithTransientUiRecovery\(locator[\s\S]*state: "visible"/,
   "health-food specification editor opening must retry the unique locator and verify the split-editor popover"
 );
 assert.match(
@@ -284,8 +304,8 @@ assert.match(
 );
 assert.match(
   source,
-  /page\.locator\(`\[\$\{optionMarker\}="true"\]`\)\.first\(\)\.click\(\{\s*timeout:\s*3000\s*\}\)\.catch[\s\S]*page\.locator\(`\[\$\{optionMarker\}="true"\]`\)\.first\(\)\.click\(\{\s*timeout:\s*3000,\s*force:\s*true\s*\}\)/,
-  "health-food specification unit option click must keep exact structural option targeting but force the same locator when Doudian overlays intercept pointer events"
+  /clickLocatorWithTransientUiRecovery\(page\.locator\(`\[\$\{optionMarker\}="true"\]`\)\.first\(\), 3000\)/,
+  "health-food specification unit option click must keep exact structural option targeting with shared transient recovery"
 );
 assert.doesNotMatch(
   source,

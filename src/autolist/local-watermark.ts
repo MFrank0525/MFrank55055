@@ -13,10 +13,11 @@ function outputPathFor(inputFile: string, outputDir: string): string {
   return path.join(outputDir, `${base}-watermarked${ext}`);
 }
 
-async function runWatermark(inputFile: string, outputFile: string, watermarkText: string): Promise<string> {
+async function runWatermark(inputFile: string, outputFile: string, watermarkText: string, frameFile?: string): Promise<string> {
   const { stdout, stderr } = await execFileAsync(
     getPythonCommand(),
-    ["-X", "utf8", WATERMARK_SCRIPT, "--input", inputFile, "--output", outputFile, "--text", watermarkText],
+    ["-X", "utf8", WATERMARK_SCRIPT, "--input", inputFile, "--output", outputFile, "--text", watermarkText,
+      ...(frameFile ? ["--frame", frameFile] : [])],
     {
       windowsHide: true,
       maxBuffer: 1024 * 1024 * 8,
@@ -46,12 +47,13 @@ export async function applyLocalWatermark(options: {
   inputFiles: string[];
   outputDir: string;
   watermarkText: string;
+  protectedFrameFile?: string;
 }): Promise<string[]> {
   fs.mkdirSync(options.outputDir, { recursive: true });
   const outputs: string[] = [];
   for (const inputFile of options.inputFiles) {
     const outputFile = outputPathFor(inputFile, options.outputDir);
-    outputs.push(await runWatermark(inputFile, outputFile, options.watermarkText));
+    outputs.push(await runWatermark(inputFile, outputFile, options.watermarkText, options.protectedFrameFile));
   }
   return outputs;
 }

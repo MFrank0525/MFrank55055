@@ -41,7 +41,7 @@ async function isUsablePublishCreatePage(page: Page): Promise<boolean> {
     return false;
   }
   return page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
+    const bodyText = document.body?.innerText || "";
     const requiredSectionCount = ["基础信息", "图文信息", "价格库存", "服务与履约"].filter((text) => bodyText.includes(text)).length;
     const hasPublishAction = bodyText.includes("发布商品") || bodyText.includes("填写检查");
     const loginRequired =
@@ -64,7 +64,7 @@ async function getPublishCreatePageHealth(page: Page): Promise<{
     return { usable: false, bodyTextLength: 0, sectionCount: 0, loading: false, loginRequired: false, bodyText: "" };
   }
   return page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
+    const bodyText = document.body?.innerText || "";
     const normalized = bodyText.replace(/\s+/g, "");
     const sectionCount = ["基础信息", "图文信息", "价格库存", "服务与履约"].filter((text) => normalized.includes(text)).length;
     const hasPublishAction = normalized.includes("发布商品") || normalized.includes("填写检查");

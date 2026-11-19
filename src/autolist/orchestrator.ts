@@ -58,6 +58,12 @@ import {
 } from "./business-rule-fingerprint.js";
 import { normalizeAutoListingStep } from "./types.js";
 import { completedProductEvidenceRoot, saveCompletedProductEvidence } from "./completion-evidence.js";
+import { applyVerifiedFeishuSourceCorrection, type FeishuSourceCorrection } from "./feishu-source-correction-rules.js";
+import {
+  createMainImagePromptRevision,
+  digestMainImagePromptSource,
+  selectNextFeishuMainImageSellingPointText
+} from "./main-image-prompt-revision-rules.js";
 
 interface ManualReadRecord {
   step: string;
@@ -271,7 +277,8 @@ async function executeTaskChain(
   productListPreflightMode: ProductListPreflightMode,
   protectedCleanupAssetFiles: string[],
   manualReadMap: Map<string, ManualReadRecord>,
-  onProgress?: (task: ImageTaskState) => void
+  onProgress?: (task: ImageTaskState) => void,
+  sourceCorrection?: FeishuSourceCorrection
 ): Promise<ImageTaskState> {
   let current = task;
   const markProgress = (): void => {
@@ -295,7 +302,9 @@ async function executeTaskChain(
       productDataFile: feishuProductDataFile,
       sourceImagePath: current.sourceImagePath,
       runtimeDir,
-      taskId: current.taskId
+      taskId: current.taskId,
+      sourceCorrection,
+      lockedBatchFingerprint: feishuBatchFingerprint
     });
     current = {
       ...current,
@@ -400,7 +409,9 @@ async function executeTaskChain(
         productDataFile: feishuProductDataFile,
         sourceImagePath: current.sourceImagePath,
         runtimeDir,
-        taskId: current.taskId
+        taskId: current.taskId,
+        sourceCorrection,
+        lockedBatchFingerprint: feishuBatchFingerprint
       });
       current = {
         ...current,
@@ -437,7 +448,6 @@ async function executeTaskChain(
         runtimeDir,
         taskId: current.taskId,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
-        feishuPromptText: current.feishuProductRecord?.deepseekPromptText,
         userCognitionName: current.sellingPointArtifact.userCognitionName,
         brandedGenericName: current.sellingPointArtifact.brandedGenericName,
         genericName: current.feishuProductRecord?.genericName,
@@ -489,6 +499,9 @@ async function executeTaskChain(
         genericName: current.feishuProductRecord?.genericName
       });
       try {
+        if (current.deepseekArtifact?.sellingPointDigest !== digestMainImagePromptSource(current.sellingPointArtifact.sellingPointText)) {
+          throw new Error("Saved DeepSeek prompt lineage is missing or does not match the current Feishu selling-point revision.");
+        }
         assertDeepSeekPromptsBelongToCurrentProduct(
           current.deepseekArtifact.prompts.slice(0, productPlan.promptCount),
           promptValidationContext,
@@ -510,7 +523,6 @@ async function executeTaskChain(
           runtimeDir,
           taskId: current.taskId,
           sellingPointText: current.sellingPointArtifact.sellingPointText,
-          feishuPromptText: current.feishuProductRecord?.deepseekPromptText,
           userCognitionName: current.sellingPointArtifact.userCognitionName,
           brandedGenericName: current.sellingPointArtifact.brandedGenericName,
           genericName: current.feishuProductRecord?.genericName,
@@ -537,32 +549,109 @@ async function executeTaskChain(
       }
       appendEvent(eventFile, createEvent("info", step, "Starting main image generation.", current.taskId));
       assertNotPaused(pauseSignalFile, current.taskId, step);
-      const mainImageArtifact = await generateMainImageAssets({
-        runtimeDir,
-        taskId: current.taskId,
-        shopRootDir,
-        sourceImagePath: current.sourceImagePath,
-        sellingPointText: current.sellingPointArtifact!.sellingPointText,
-        brandedGenericName: current.sellingPointArtifact!.brandedGenericName,
-        wordFiles: current.deepseekArtifact!.wordFiles || [],
-        imageGenerationProvider,
-        imageGenerationConfigFile,
-        mainImageExpectedCount,
-        mainImageCountStrategy,
-        promptCount: productPlan.promptCount,
-        shopCodes: productPlan.shopCodes,
-        imagesPerShop: productPlan.imagesPerShop,
-        feishuRecordId: current.feishuProductRecord?.recordId,
-        feishuBatchFingerprint,
-        paidImageSubmissionLedgerDir,
-        archiveMainImageDir,
-        simulateOnly,
-        onProgress: (message) => {
-          appendEvent(eventFile, createEvent("info", step, message, current.taskId));
-          current = recordTaskProgress(current, step, message);
+      let mainImageArtifact;
+      for (let sourceRevisionAttempt = 0; ; sourceRevisionAttempt += 1) {
+        const currentSellingPointText = current.sellingPointArtifact!.sellingPointText;
+        const currentSellingPointDigest = digestMainImagePromptSource(currentSellingPointText);
+        if (current.deepseekArtifact?.sellingPointDigest !== currentSellingPointDigest) {
+          throw new Error("DeepSeek prompt lineage does not match the current Feishu selling-point revision.");
+        }
+        try {
+          mainImageArtifact = await generateMainImageAssets({
+            runtimeDir,
+            taskId: current.taskId,
+            shopRootDir,
+            sourceImagePath: current.sourceImagePath,
+            sellingPointText: currentSellingPointText,
+            brandedGenericName: current.sellingPointArtifact!.brandedGenericName,
+            brand: current.feishuProductRecord?.brand || "",
+            wordFiles: current.deepseekArtifact!.wordFiles || [],
+            deepseekPrompts: current.deepseekArtifact!.prompts || [],
+            feishuPromptRevisionVerified: Boolean(
+              current.mainImagePromptRevisions?.length &&
+              current.mainImagePromptRevisions.at(-1)?.sellingPointDigest === currentSellingPointDigest
+            ),
+            imageGenerationProvider,
+            imageGenerationConfigFile,
+            mainImageExpectedCount,
+            mainImageCountStrategy,
+            promptCount: productPlan.promptCount,
+            shopCodes: productPlan.shopCodes,
+            imagesPerShop: productPlan.imagesPerShop,
+            feishuRecordId: current.feishuProductRecord?.recordId,
+            feishuBatchFingerprint,
+            paidImageSubmissionLedgerDir,
+            archiveMainImageDir,
+            simulateOnly,
+            onProgress: (message) => {
+              appendEvent(eventFile, createEvent("info", step, message, current.taskId));
+              current = recordTaskProgress(current, step, message);
+              markProgress();
+            }
+          });
+          break;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!/feishu_source_reselection_required/.test(message) || sourceRevisionAttempt >= 4 || !current.feishuProductRecord) {
+            throw error;
+          }
+          const nextSellingPointText = selectNextFeishuMainImageSellingPointText({
+            headlineCandidateText: current.feishuProductRecord.mainImageHeadlineCandidateText,
+            subtitleCandidateText: current.feishuProductRecord.mainImageSubtitleCandidateText,
+            sellingPointCandidateText: current.feishuProductRecord.mainImageSellingPointCandidateText,
+            currentSellingPointText,
+            previouslyUsedSellingPointTexts: (current.mainImagePromptRevisions || []).flatMap((revision) => [
+              revision.previousSellingPointText,
+              revision.sellingPointText
+            ])
+          });
+          const revision = createMainImagePromptRevision({
+            previousSellingPointText: currentSellingPointText,
+            sellingPointText: nextSellingPointText
+          });
+          fs.writeFileSync(current.sellingPointArtifact!.rawFile, `${nextSellingPointText}\n`, "utf8");
+          const nextDeepseekArtifact = await generatePosterPromptsWithDeepSeek({
+            runtimeDir,
+            taskId: current.taskId,
+            sellingPointText: nextSellingPointText,
+            userCognitionName: current.sellingPointArtifact!.userCognitionName,
+            brandedGenericName: current.sellingPointArtifact!.brandedGenericName,
+            genericName: current.feishuProductRecord.genericName,
+            promptCount: productPlan.promptCount,
+            simulateOnly
+          });
+          nextDeepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
+            mainImageWorkDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
+            sellingPointText: nextSellingPointText,
+            mainImageInstructionText: current.feishuProductRecord.mainImageInstructionText,
+            prompts: nextDeepseekArtifact.prompts,
+            positivePromptText: current.feishuProductRecord.positivePromptText,
+            negativePromptText: current.feishuProductRecord.negativePromptText,
+            promptCount: productPlan.promptCount
+          });
+          if (nextDeepseekArtifact.sellingPointDigest !== revision.sellingPointDigest) {
+            throw new Error("Regenerated DeepSeek artifact did not bind to the new Feishu source revision.");
+          }
+          current = {
+            ...current,
+            sellingPointArtifact: {
+              ...current.sellingPointArtifact!,
+              sellingPointText: nextSellingPointText,
+              segments: nextSellingPointText.split("，").filter(Boolean),
+              capturedAt: revision.createdAt
+            },
+            feishuProductRecord: { ...current.feishuProductRecord, sellingPointText: nextSellingPointText },
+            deepseekArtifact: nextDeepseekArtifact,
+            mainImagePromptRevisions: [...(current.mainImagePromptRevisions || []), revision],
+            lastUpdatedAt: new Date().toISOString(),
+            notes: [...current.notes, `Provider policy rejection replaced Feishu source selection and regenerated DeepSeek/Word artifacts as ${revision.revisionId}.`]
+          };
+          atomicWriteJson(path.join(runtimeDir, "tasks", current.taskId, "main-image-prompt-revisions.json"), current.mainImagePromptRevisions);
+          appendEvent(eventFile, createEvent("info", "poster_prompts_generated", `Regenerated DeepSeek prompts from Feishu source revision ${revision.revisionId}; stale DeepSeek prompts were not reused.`, current.taskId));
           markProgress();
         }
-      });
+      }
+      if (!mainImageArtifact) throw new Error("Main image generation produced no artifact after prompt revision handling.");
       current = {
         ...current,
         status: step,
@@ -958,9 +1047,14 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   const runId = path.basename(resolved.runtimeDir);
   const startedAt = new Date().toISOString();
   const logFile = path.join(resolved.runtimeDir, "logs", "run.log");
-  const feishuBatchFingerprint = buildFeishuBatchFingerprint(loadFeishuProductRecords(resolved.input.feishuProductDataFile));
+  const lockedFeishuProductRecords = loadFeishuProductRecords(resolved.input.feishuProductDataFile);
+  const feishuBatchFingerprint = buildFeishuBatchFingerprint(lockedFeishuProductRecords);
   const businessRuleFingerprint = buildAutoListingBusinessRuleFingerprint();
-  const feishuProductRecords = loadFeishuProductRecords(resolved.input.feishuProductDataFile);
+  const feishuProductRecords = resolved.input.sourceCorrection
+    ? lockedFeishuProductRecords.map((record) => record.recordId === resolved.input.sourceCorrection?.recordId
+      ? applyVerifiedFeishuSourceCorrection(record, resolved.input.sourceCorrection, feishuBatchFingerprint) as typeof record
+      : record)
+    : lockedFeishuProductRecords;
   if (resolved.input.resumeSourceImagePath && !canResumeAutoListingArtifacts({
     currentBatchFingerprint: feishuBatchFingerprint,
     resumeBatchFingerprint: resolved.input.feishuBatchFingerprint,
@@ -1182,7 +1276,8 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
                 manuals: manualReadSummary(manualReadMap)
               }
             );
-          }
+          },
+          resolved.input.sourceCorrection
         );
         workingState = {
           ...workingState,

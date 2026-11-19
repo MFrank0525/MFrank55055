@@ -73,8 +73,8 @@ export function resolvePaidImageWaitStatus<T extends string>(input: {
   publishProgressActive?: boolean;
   terminalFailureMessage?: string;
 }): T | "external_service_wait" {
-  return input.baseStatus === "running" && !input.terminalFailureMessage && !input.publishProgressActive &&
-    input.activeMainImageGeneration && Number(input.paidImageSubmitted || 0) > 0
-    ? "external_service_wait"
-    : input.baseStatus;
+  // Submitted tasks are accepted work that is actively polled. They are not an
+  // external-service cooldown. A real wait is already represented by baseStatus
+  // through the supervisor wait file or a current retryable terminal failure.
+  return input.baseStatus;
 }

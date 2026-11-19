@@ -28,13 +28,23 @@ const doudianSessionProbeSource = publishSource.slice(
 );
 assert.match(
   doudianSessionProbeSource,
-  /try\s*\{[\s\S]*ensurePlatformSpuQueryPageActive[\s\S]*finally\s*\{[\s\S]*disconnectAutomationBrowserConnections\(\)/,
+  /const runProbe[\s\S]*ensurePlatformSpuQueryPageActive[\s\S]*try\s*\{[\s\S]*runProbe\(\)[\s\S]*finally\s*\{[\s\S]*disconnectAutomationBrowserConnections\(\)/,
   "Every read-only Doudian session probe must disconnect its CDP client and release the cross-process profile lease"
 );
 assert.match(
   doudianSessionProbeSource,
   /Promise\.race\(\[[\s\S]*page\.bringToFront\(\)[\s\S]*setTimeout/,
   "A renderer-stalled bring-to-front request must not freeze the read-only login recovery loop"
+);
+assert.match(
+  doudianSessionProbeSource,
+  /Promise\.race\(\[[\s\S]*runProbe\(\)[\s\S]*Doudian publish session probe timed out[\s\S]*finally\s*\{[\s\S]*disconnectAutomationBrowserConnections\(\)/,
+  "The complete Doudian session probe must have a hard timeout and always release its CDP lease"
+);
+assert.match(
+  doudianSessionProbeSource,
+  /shopFolder\?: string[\s\S]*if \(options\.shopFolder\)[\s\S]*ensureShopContext\(page, options\.runtimeDir, options\.shopFolder\)[\s\S]*ensurePlatformSpuQueryPageActive/,
+  "Login recovery must verify the exact pending shop context before declaring the session recovered"
 );
 
 assert.match(
@@ -58,6 +68,16 @@ assert.match(
   supervisorSource,
   /assertDoudianPublishSessionReady[\s\S]*nextMode = resumePrepared \? "resume" : "full"/,
   "Supervisor must only resume publishing after the fixed headed browser passes a read-only session preflight"
+);
+assert.match(
+  supervisorSource,
+  /resolveDoudianLoginRecoveryShopFolder[\s\S]*assertDoudianPublishSessionReady\(\{[\s\S]*shopFolder/,
+  "Supervisor login recovery must bind its read-only probe to the unresolved manifest target shop"
+);
+assert.match(
+  supervisorSource,
+  /loginProbeHeartbeat[\s\S]*setInterval\([\s\S]*writeWaitState\("doudian_login_wait"[\s\S]*clearInterval\(loginProbeHeartbeat\)/,
+  "A slow Doudian probe must keep the controller wait heartbeat fresh until its hard timeout"
 );
 assert.match(
   supervisorSource,

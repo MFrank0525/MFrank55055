@@ -2,6 +2,7 @@ import type { FeishuBitableAttachment, FeishuBitableConfig, FeishuProductRecord 
 import type { FeishuBitableRecord } from "./client.js";
 import { normalizeProductCategory } from "../autolist/product-category.js";
 import { buildFeishuAttachmentIdentityDigest } from "../autolist/feishu-batch-rules.js";
+import { buildSelectedMainImageSellingPointText } from "../autolist/selling-point-rules.js";
 
 type FeishuFieldKey = keyof FeishuBitableConfig["fieldMap"];
 
@@ -10,8 +11,9 @@ const FEISHU_FIELD_ALIASES: Record<FeishuFieldKey, string[]> = {
   genericName: ["通用名称", "商品通用名", "产品通用名", "通用名"],
   brand: ["品牌", "商品品牌", "产品品牌", "品牌名"],
   spu: ["SPU", "SPU编码", "SPU编号", "SPU信息", "spu"],
-  sellingPointText: ["产品卖点", "卖点", "商品卖点", "核心卖点"],
-  deepseekPromptText: ["DeepSeek提示词", "Deepseek提示词", "生图提示词", "海报提示词", "图片提示词"],
+  mainImageHeadlineCandidateText: ["主图主标题"],
+  mainImageSubtitleCandidateText: ["主图副标题"],
+  mainImageSellingPointCandidateText: ["主图卖点"],
   mainImageInstructionText: ["主图指令", "主图要求", "主图提示", "主图说明"],
   positivePromptText: ["正向提示词", "正向词", "正向提示", "正面提示词"],
   negativePromptText: ["反向提示词", "反向词", "反向提示", "负面提示词"],
@@ -39,8 +41,9 @@ const COMMON_REQUIRED_FIELDS: FeishuFieldKey[] = [
   "genericName",
   "brand",
   "spu",
-  "sellingPointText",
-  "deepseekPromptText",
+  "mainImageHeadlineCandidateText",
+  "mainImageSubtitleCandidateText",
+  "mainImageSellingPointCandidateText",
   "mainImageInstructionText",
   "positivePromptText",
   "negativePromptText",
@@ -234,6 +237,15 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     const fieldName = fieldMap[key];
     return fieldName ? fields[fieldName] : undefined;
   };
+  const productCategoryText = extractText(field("productCategory"));
+  const mainImageHeadlineCandidateText = extractText(field("mainImageHeadlineCandidateText"));
+  const mainImageSubtitleCandidateText = extractText(field("mainImageSubtitleCandidateText"));
+  const mainImageSellingPointCandidateText = extractText(field("mainImageSellingPointCandidateText"));
+  const sellingPointText = buildSelectedMainImageSellingPointText({
+    headlineCandidateText: mainImageHeadlineCandidateText,
+    subtitleCandidateText: mainImageSubtitleCandidateText,
+    sellingPointCandidateText: mainImageSellingPointCandidateText
+  });
 
   return {
     recordId: record.recordId,
@@ -241,8 +253,10 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     genericName: extractText(field("genericName")),
     brand: extractText(field("brand")),
     spu: extractText(field("spu")),
-    sellingPointText: extractText(field("sellingPointText")),
-    deepseekPromptText: extractText(field("deepseekPromptText")),
+    sellingPointText,
+    mainImageHeadlineCandidateText,
+    mainImageSubtitleCandidateText,
+    mainImageSellingPointCandidateText,
     mainImageInstructionText: extractText(field("mainImageInstructionText")),
     positivePromptText: extractText(field("positivePromptText")),
     negativePromptText: extractText(field("negativePromptText")),
@@ -251,7 +265,7 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     productPriceText: extractText(field("productPriceText")),
     specTemplate: extractText(field("specTemplate")),
     shortTitle: extractText(field("shortTitle")),
-    productCategory: normalizeProductCategory(extractText(field("productCategory"))),
+    productCategory: productCategoryText ? normalizeProductCategory(productCategoryText) : undefined,
     qualificationImages: extractAttachments(field("qualificationImages")),
     whiteBackgroundImages: extractAttachments(field("whiteBackgroundImages")),
     manufacturerName: extractText(field("manufacturerName")),
@@ -271,10 +285,14 @@ export function validateFeishuProductRecord(record: FeishuProductRecord): string
   const missing: string[] = [];
   let category: ReturnType<typeof normalizeProductCategory> | undefined;
   let categoryError = "";
-  try {
-    category = normalizeProductCategory(record.productCategory);
-  } catch (error) {
-    categoryError = `productCategory(${error instanceof Error ? error.message : String(error)})`;
+  if (!record.productCategory) {
+    categoryError = "productCategory";
+  } else {
+    try {
+      category = normalizeProductCategory(record.productCategory);
+    } catch (error) {
+      categoryError = `productCategory(${error instanceof Error ? error.message : String(error)})`;
+    }
   }
   if (categoryError) missing.push(categoryError);
   if (!category) {
@@ -306,7 +324,9 @@ function hasEmptyFeishuProductContent(record: FeishuProductRecord, includeCatego
     !record.brand &&
     !record.spu &&
     !record.sellingPointText &&
-    !record.deepseekPromptText &&
+    !record.mainImageHeadlineCandidateText &&
+    !record.mainImageSubtitleCandidateText &&
+    !record.mainImageSellingPointCandidateText &&
     !record.mainImageInstructionText &&
     !record.positivePromptText &&
     !record.negativePromptText &&

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   FIXED_FEISHU_PRICE_STOCK,
+  evaluateControlledSpecTemplatePriceCardinality,
   evaluatePriceInventoryRowCardinality,
   parseFeishuProductPrices,
   resolveFeishuPriceInventoryRows
@@ -31,10 +32,34 @@ assert.deepEqual(evaluatePriceInventoryRowCardinality({ expectedPriceCount: 2, a
   passed: false,
   issue: "Price/inventory row count must exact match Feishu price count: expected=2; actual=4"
 });
+assert.deepEqual(evaluateControlledSpecTemplatePriceCardinality({ specTemplate: "买一送一", priceCount: 4 }), {
+  passed: false,
+  issue: "Feishu controlled spec-template/price cardinality mismatch: template=买一送一; expectedPrices=2; actualPrices=4. Correct 规格模板 or 产品价格 in Feishu before continuing."
+});
+assert.deepEqual(evaluateControlledSpecTemplatePriceCardinality({ specTemplate: "买二送一", priceCount: 4 }), {
+  passed: true,
+  issue: ""
+});
+assert.deepEqual(evaluateControlledSpecTemplatePriceCardinality({ specTemplate: "店铺自定义模板", priceCount: 4 }), {
+  passed: true,
+  issue: ""
+});
 assert.throws(() => parseFeishuProductPrices("99,129,79,59"), /从大到小/);
 assert.throws(() => parseFeishuProductPrices("129,abc,79,59"), /产品价格/);
 assert.throws(() => resolveFeishuPriceInventoryRows(""), /产品价格/);
 assert.equal(classifyPublishFailure("Feishu 产品价格必须按照从大到小的顺序填写。"), "price_inventory_not_ready");
+assert.equal(
+  classifyPublishFailure("Feishu controlled spec-template/price cardinality mismatch: template=买一送一; expectedPrices=2; actualPrices=4."),
+  "spec_template_price_cardinality_mismatch"
+);
+assert.equal(
+  isVerifiedPreSubmitRecoveryFailure({
+    errorClass: "spec_template_price_cardinality_mismatch",
+    finalVerifyStatus: "not_checked",
+    message: "Feishu controlled spec-template/price cardinality mismatch"
+  }),
+  true
+);
 assert.equal(
   isVerifiedPreSubmitRecoveryFailure({
     errorClass: "unknown_publish_failure",

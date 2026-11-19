@@ -141,11 +141,14 @@ import {
   evaluatePublishCreatePageReadiness,
   evaluatePublishPreSubmitReadiness,
   evaluatePublishSubmission,
+  extractRejectedTitlePhrases,
+  selectTitlePolicyFallbackTitles,
   isKnownCategoryModificationPublishPrompt,
   isKnownCategoryValidationPublishRetryState,
   resolvePublishFillCheckDialogAction,
   resolveExactPublishDialogActionLabel,
   evaluateSpecTemplateCompletion,
+  isVerifiedPreSubmitRecoveryFailure,
   isUploadPlaceholderGraphicContext,
   evaluateShopSwitchMenuState,
   evaluateShopTargetSelectionState,
@@ -352,13 +355,18 @@ assert.match(
 );
 assert.match(
   productListVerificationSource,
-  /商品质量分优化预警[\s\S]*getByRole\("button", \{ name: "知道了", exact: true \}\)[\s\S]*qualityScoreDialogs\.count[\s\S]*remained visible/,
-  "product-list verification must acknowledge the quality-score warning through its unique safe button and verify dismissal"
+  /resolveQualityScoreWarningAcknowledgement[\s\S]*getByRole\("button", \{ name: "知道了", exact: true \}\)[\s\S]*hasQualityScoreWarningAncestor[\s\S]*remained visible/,
+  "product-list verification must resolve one distinct quality-score acknowledgement button by warning ancestry and verify dismissal"
+);
+assert.doesNotMatch(
+  productListVerificationSource,
+  /qualityScoreDialogs\s*\.getByRole\("button", \{ name: "知道了", exact: true \}\)/,
+  "product-list verification must not count one acknowledgement button once per nested dialog wrapper"
 );
 assert.match(
   productListVerificationSource,
-  /auxo-modal-mask[\s\S]*unrecognized modal overlay/,
-  "product-list verification must diagnose an unknown blocking overlay instead of timing out on the query button"
+  /auxo-modal-mask[\s\S]*shouldFailClosedForUnknownProductListOverlay[\s\S]*Ignoring orphan product-list modal mask[\s\S]*unrecognized modal overlay/,
+  "product-list verification must tolerate an orphan mask while keeping unknown visible dialogs fail-closed"
 );
 assert.doesNotMatch(
   productListVerificationSource,
@@ -971,8 +979,18 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /decision === "rerun_current_batch"[\s\S]*clearCurrentBatchPaidImageLedger[\s\S]*clearCurrentBatchProcessedImages/,
-  "Confirmed current-batch rerun must delete the completed batch paid-image ledger before starting fresh generation"
+  /decision === "rerun_current_batch"[\s\S]*archiveFreshRerunEvidence[\s\S]*clearCurrentBatchProcessedImages/,
+  "Confirmed current-batch rerun must archive the paid-image ledger and old runtime evidence before starting fresh generation"
+);
+assert.match(
+  hermesRunnerSource,
+  /readExternalProductConflict[\s\S]*status === "unresolved"[\s\S]*status: "external_product_conflict"[\s\S]*return;/,
+  "A known external product conflict must block controller start before a changed title can create a duplicate listing"
+);
+assert.match(
+  publishSource,
+  /matchRetainedExternalProductTarget[\s\S]*retained_external_product[\s\S]*finalVerifyStatus: "list_verified"/,
+  "An operator-retained external product must cover only its exact canonical target without another publish mutation"
 );
 assert.match(
   orchestratorSource,
@@ -1210,7 +1228,7 @@ assert.match(
 );
 assert.match(
   hermesRunnerSource,
-  /launchPolicy\.refreshBeforeSelection[\s\S]*runFeishuAssetsRefreshForStart\(\)[\s\S]*const selected = selectCommand\(forceFullFlow\)/,
+  /launchPolicy\.refreshBeforeSelection[\s\S]*runFeishuAssetsRefreshForStart\(\)[\s\S]*const selected = selectCommand\(forceFullFlow, intent\)/,
   "AutoListingController new-batch start must refresh Feishu before selecting any execution command"
 );
 assert.match(
@@ -1376,21 +1394,15 @@ assert.match(
   /!\(startIndex >= publishStepIndex && current\.shopDistributionArtifact\?\.distributedFolders\?\.length\)/,
   "Publish-stage resume with restored product folders must not require saved Word prompt files"
 );
-
 const state = createRunState("test-run", ["/tmp/product.png"]);
 const task = state.tasks[0];
 const before = task.lastUpdatedAt;
-
 await new Promise((resolve) => setTimeout(resolve, 5));
-
 const updated = recordTaskProgress(task, "main_images_generated", "Prompt 2/5: Image 4: submitting edits request.");
-
 assert.equal(updated.status, "main_images_generated");
 assert.notEqual(updated.lastUpdatedAt, before);
 assert.equal(updated.notes.at(-1), "main_images_generated: Prompt 2/5: Image 4: submitting edits request.");
-
 const saved = recordTaskProgress(updated, "main_images_generated", "Prompt 2/5: Image 4: saved generated-04.png.");
-
 assert.equal(saved.status, "main_images_generated");
 assert.equal(saved.notes.at(-1), "main_images_generated: Prompt 2/5: Image 4: saved generated-04.png.");
 assert.ok(saved.notes.length <= 25);
@@ -1409,11 +1421,9 @@ assert.ok(
     sellingPointText: "120g/盒，官方正品，二类医疗器械认证"
   }).startsWith("医用芦荟凝胶,延草纲目医用聚乙二醇护创敷料")
 );
-
 const resumedState = applyResumeTaskId(createRunState("resume-run", ["/tmp/product-2.png"]), "image-002");
 assert.equal(resumedState.tasks[0].taskId, "image-002");
 assert.equal(resumedState.currentTaskId, "image-002");
-
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "auto-listing-progress-"));
 const eventsFile = path.join(tempDir, "events.ndjson");
 fs.writeFileSync(
@@ -1425,9 +1435,7 @@ fs.writeFileSync(
   ].join("\n") + "\n",
   "utf8"
 );
-
 const latestEvent = readLatestTaskProgressEvent(eventsFile, "image-001");
-
 assert.deepEqual(latestEvent, {
   timestamp: "2026-05-23T10:03:00.000Z",
   step: "main_images_generated",
@@ -1937,12 +1945,36 @@ const guideOverlayClass = classifyPublishFailure(
 );
 assert.equal(guideOverlayClass, "transient_overlay_blocked");
 assert.equal(
-  classifyPublishFailure("Early category advice acknowledged with the original category; fresh SPU page restart required."),
+  classifyPublishFailure("Early category advice acknowledged with the original category; rebuild the current create page fields without a new SPU query."),
   "transient_overlay_blocked"
 );
 assert.equal(
   classifyPublishFailure("Original category option was not unique after opening category choices: count=0"),
   "transient_overlay_blocked"
+);
+const categoryAdviceFormRebuildClass = classifyPublishFailure(
+  "Category advice recovered to the original category; current form fields must be rebuilt: 营养保健/特医食品 > 保健食品 > 其他保健食品"
+);
+assert.equal(categoryAdviceFormRebuildClass, "category_advice_form_rebuild_required");
+assert.equal(shouldRetryPublishFailure(categoryAdviceFormRebuildClass, 0), true);
+assert.equal(shouldRetryPublishFailure(categoryAdviceFormRebuildClass, 2), false);
+const categoryAdviceSamePageExhaustedClass = classifyPublishFailure(
+  "Same-page category form rebuild exhausted after restoring the original category. category=其他保健食品; attempts=2"
+);
+assert.equal(categoryAdviceSamePageExhaustedClass, "category_advice_same_page_rebuild_exhausted");
+assert.equal(
+  shouldRetryPublishFailure(categoryAdviceSamePageExhaustedClass, 0),
+  false,
+  "exhausted same-page recovery must never reopen a fresh SPU create page"
+);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([{ stage: "published", errorClass: categoryAdviceSamePageExhaustedClass }]),
+  true
+);
+assert.equal(
+  shouldStopPublishBatchAfterFailure([{ stage: "published", errorClass: categoryAdviceFormRebuildClass }]),
+  true,
+  "an exhausted late category-advice recovery must stop later targets instead of leaving a partially rebuilt form"
 );
 assert.equal(shouldRetryPublishFailure(guideOverlayClass, 0), true);
 assert.equal(
@@ -2024,8 +2056,8 @@ assert.equal(
   "spec_template_surface_missing",
   "the production missing-template DOM failure must restart from the SPU query instead of falling through to unknown_publish_failure"
 );
-assert.equal(shouldRetryPublishFailure("spec_template_surface_missing", 0), true);
-assert.equal(shouldRetryPublishFailure("spec_template_surface_missing", 2), true);
+assert.equal(shouldRetryPublishFailure("spec_template_surface_missing", 0), false);
+assert.equal(shouldRetryPublishFailure("spec_template_surface_missing", 2), false);
 assert.equal(shouldRetryPublishFailure("spec_template_surface_missing", 3), false);
 assert.equal(shouldRetryPublishFailure(missingShopSpecTemplateClass, 0), false);
 assert.equal(
@@ -2242,6 +2274,80 @@ assert.deepEqual(
   "A visible duplicate-spec rejection after submit must be classified explicitly instead of timing out as an uncertain click."
 );
 assert.equal(classifyPublishFailure(duplicateSpecPlatformIssue), "spec_value_duplicate_rejected");
+const rejectedTitlePlatformText = "1个错误问题待处理 错误提示 商品标题 错误 商品标题描述“[\"关节养护\"]”不符合平台要求，请重新填写 发布商品";
+assert.deepEqual(extractRejectedTitlePhrases(rejectedTitlePlatformText), ["关节养护"]);
+assert.deepEqual(
+  evaluatePublishSubmission({
+    url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",
+    bodyText: rejectedTitlePlatformText,
+    visibleErrorAlerts: []
+  }),
+  {
+    submitted: false,
+    issue: "平台明确拒绝发布：商品标题描述“关节养护”不符合平台要求，请重新填写",
+    freshCreatePage: false
+  },
+  "a visible title-policy rejection must be explicit so the bounded Feishu-derived fallback can run instead of preserving false uncertainty"
+);
+assert.equal(
+  classifyPublishFailure("平台明确拒绝发布：商品标题描述“关节养护”不符合平台要求，请重新填写"),
+  "title_policy_rejected"
+);
+assert.deepEqual(
+  selectTitlePolicyFallbackTitles({
+    currentTitle: "氨糖软骨素钙片关节养护海斯莱福氨糖软骨素钙片",
+    candidateTitles: [
+      "氨糖软骨素钙片关节养护海斯莱福氨糖软骨素钙片",
+      "官方正品增加骨密度海斯莱福氨糖软骨素钙片",
+      "关节养护官方正品海斯莱福氨糖软骨素钙片",
+      "蓝帽保健品增加骨密度海斯莱福氨糖软骨素钙片",
+      "蓝帽保健品增加骨密度海斯莱福氨糖软骨素钙片"
+    ],
+    rejectionIssue: "平台明确拒绝发布：商品标题描述“关节养护”不符合平台要求，请重新填写"
+  }),
+  [
+    "官方正品增加骨密度海斯莱福氨糖软骨素钙片",
+    "蓝帽保健品增加骨密度海斯莱福氨糖软骨素钙片"
+  ],
+  "title-policy recovery must stay bounded, deduplicate candidates, and exclude every platform-rejected phrase"
+);
+const repeatedSegmentTitlePlatformText = "1个错误问题待处理 错误提示 商品标题 错误 标题中不允许出现连续重复片段「械字号械字号」，建议修改后提交，若需使用该标题，可发起申诉，审核通过后生效 发布商品";
+assert.deepEqual(
+  extractRejectedTitlePhrases(repeatedSegmentTitlePlatformText),
+  ["械字号械字号"],
+  "the repeated-segment title rejection must expose the exact platform-rejected phrase"
+);
+assert.deepEqual(
+  evaluatePublishSubmission({
+    url: "https://fxg.jinritemai.com/ffa/g/create?spu_id=1",
+    bodyText: repeatedSegmentTitlePlatformText,
+    visibleErrorAlerts: []
+  }),
+  {
+    submitted: false,
+    issue: "平台明确拒绝发布：商品标题描述“械字号械字号”不符合平台要求，请重新填写",
+    freshCreatePage: false
+  },
+  "a repeated-segment title rejection must enter the bounded title fallback instead of final-submit uncertainty"
+);
+assert.equal(
+  classifyPublishFailure(repeatedSegmentTitlePlatformText),
+  "title_policy_rejected",
+  "the new repeated-segment platform copy must retain the deterministic title-policy class"
+);
+assert.deepEqual(
+  selectTitlePolicyFallbackTitles({
+    currentTitle: "械字号械字号官方正品医用皲裂膏",
+    candidateTitles: [
+      "械字号械字号官方正品医用皲裂膏",
+      "手部皲裂膏凡士林皲裂膏官方正品医用皲裂膏械字号",
+      "械字号械字号皲裂专用软膏"
+    ],
+    rejectionIssue: repeatedSegmentTitlePlatformText
+  }),
+  ["手部皲裂膏凡士林皲裂膏官方正品医用皲裂膏械字号"],
+  "fallback selection must exclude candidates containing the exact repeated segment"
+);
 assert.deepEqual(
   evaluatePublishResult({
     ok: true,
@@ -2356,6 +2462,25 @@ const navigationContextLostClass = classifyPublishFailure(
 assert.equal(navigationContextLostClass, "page_context_lost");
 assert.equal(shouldRetryPublishFailure(navigationContextLostClass, 0), true);
 
+const transientNullBodyClass = classifyPublishFailure(
+  "page.evaluate: TypeError: Cannot read properties of null (reading 'innerText')"
+);
+assert.equal(
+  transientNullBodyClass,
+  "page_context_lost",
+  "a navigation-time null document body must be recovered as a pre-submit page-context loss"
+);
+assert.equal(shouldRetryPublishFailure(transientNullBodyClass, 0), true);
+assert.equal(
+  isVerifiedPreSubmitRecoveryFailure({
+    errorClass: "unknown_publish_failure",
+    finalVerifyStatus: "not_checked",
+    message: "page.evaluate: TypeError: Cannot read properties of null (reading 'innerText')"
+  }),
+  true,
+  "a persisted pre-fix null-body failure must become safely resumable without changing its canonical target"
+);
+
 const uncertainPublishRuntime = fs.mkdtempSync(path.join(os.tmpdir(), "uncertain-publish-"));
 const uncertainShop = path.join(uncertainPublishRuntime, "01延草纲目大药房专营店");
 const uncertainProduct = path.join(uncertainShop, "延草纲目医用重组胶原蛋白护理软膏水印02");
@@ -2395,7 +2520,9 @@ const uncertainPublishResult = await publishDistributedProducts({
     brand: "延草纲目",
     spu: "械注准20240001",
     sellingPointText: "卖点",
-    deepseekPromptText: "提示词",
+    mainImageHeadlineCandidateText: "主标题",
+    mainImageSubtitleCandidateText: "副标题",
+    mainImageSellingPointCandidateText: "卖点一\n卖点二\n卖点三",
     mainImageInstructionText: "主图",
     positivePromptText: "正向",
     negativePromptText: "反向",

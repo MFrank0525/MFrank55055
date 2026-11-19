@@ -51,6 +51,7 @@ import {
 import { getPublishCategoryMutationPolicy } from "../business/publish-from-spu/publish-category-policy.js";
 import { resolveOtcPlatformSpuExpectedSpecification } from "../business/publish-from-spu/platform-spu-query-rules.js";
 import { assertTitlePreservesFeishuFixedSuffix } from "./title-rules.js";
+import { matchRetainedExternalProductTarget, readExternalProductConflict } from "./external-product-resolution.js";
 import {
   buildCategoryValidationFallbackTitles,
   replaceDistributedWorkbookTitle
@@ -441,6 +442,10 @@ export async function publishDistributedProducts(options: {
   });
 
   const manifest = loadPublishManifest(options.runtimeDir);
+  const externalProductConflict = readExternalProductConflict();
+  if (externalProductConflict?.status === "unresolved") {
+    throw new Error(`External product conflict remains unresolved for product ${externalProductConflict.externalProductId}.`);
+  }
   const plan = orderedFolders.map((productFolder) => {
     const { targetIdentity, targetKey, runtimeKey } = targetContextForFolder(productFolder);
     const manifestEntry = findPublishManifestEntry(manifest, targetKey);
@@ -455,6 +460,34 @@ export async function publishDistributedProducts(options: {
         manifestStatus: manifestEntry?.status,
         finalVerifyStatus: manifestEntry?.finalVerifyStatus,
         errorClass: manifestEntry?.errorClass
+      };
+    }
+    const retainedExternalProduct = matchRetainedExternalProductTarget(externalProductConflict, targetIdentity);
+    if (retainedExternalProduct) {
+      const message = `Operator retained existing Doudian product ${retainedExternalProduct.externalProductId}; exact canonical target is covered without another publish mutation.`;
+      upsertPublishManifestEntry(options.runtimeDir, {
+        targetIdentity,
+        targetKey,
+        productFolder,
+        runtimeKey,
+        shopFolder: path.dirname(productFolder),
+        watermarkNo: targetIdentity.watermarkNo,
+        status: "published",
+        finalVerifyStatus: "list_verified",
+        message,
+        errorClass: "",
+        ...productIdentityFields
+      });
+      return {
+        targetIdentity,
+        targetKey,
+        productFolder,
+        runtimeKey,
+        action: "skip" as const,
+        reason: `retained_external_product:${retainedExternalProduct.externalProductId}`,
+        manifestStatus: "published" as const,
+        finalVerifyStatus: "list_verified" as const,
+        errorClass: ""
       };
     }
     const resultFile = path.join(options.runtimeDir, "publish", runtimeKey, "result.json");
@@ -893,7 +926,7 @@ export async function publishDistributedProducts(options: {
     ) {
       options.assertNotPaused?.();
       logInfo(
-        `retrying publish after retryable system failure: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.errorClass}; attempt ${retryAttempt + 1}`
+        `retrying publish after retryable system failure: ${path.basename(productFolder)} (${path.basename(shopFolder)}) - ${decision.errorClass}; attempt ${retryAttempt + 1}; issue=${decision.issue}`
       );
       options.onProgress?.(
         `Retrying publish for ${path.basename(productFolder)} (${path.basename(shopFolder)}): ${decision.errorClass}; attempt ${retryAttempt + 1}`

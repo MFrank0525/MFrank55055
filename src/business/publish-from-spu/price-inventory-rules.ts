@@ -10,6 +10,26 @@ export interface PriceInventoryRowCardinalityDecision {
   issue: string;
 }
 
+const CONTROLLED_SPEC_TEMPLATE_SKU_COUNTS: Readonly<Record<string, number>> = {
+  "买一送一": 2,
+  "买二送一": 4
+};
+
+export function evaluateControlledSpecTemplatePriceCardinality(input: {
+  specTemplate: string;
+  priceCount: number;
+}): PriceInventoryRowCardinalityDecision {
+  const template = input.specTemplate.replace(/\s+/g, "").trim();
+  const expectedPriceCount = CONTROLLED_SPEC_TEMPLATE_SKU_COUNTS[template];
+  if (expectedPriceCount === undefined || expectedPriceCount === input.priceCount) {
+    return { passed: true, issue: "" };
+  }
+  return {
+    passed: false,
+    issue: `Feishu controlled spec-template/price cardinality mismatch: template=${template}; expectedPrices=${expectedPriceCount}; actualPrices=${input.priceCount}. Correct 规格模板 or 产品价格 in Feishu before continuing.`
+  };
+}
+
 export function parseFeishuProductPrices(priceText: string): number[] {
   const tokens = priceText
     .split(/[\n\r,，、;；|｜/]+/)

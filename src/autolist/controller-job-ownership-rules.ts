@@ -18,6 +18,43 @@ export type ControllerJobBatchTransitionResult =
   | { action: "refuse"; reason: "controller_pid_mismatch" }
   | { action: "update"; job: NonNullable<ControllerJobBatchTransitionInput["job"]> };
 
+export type ControllerBatchTransitionEvidence = {
+  supervisorPid: number;
+  fromBatchFingerprint: string;
+  toBatchFingerprint: string;
+  startedAt: string;
+};
+
+export function shouldSuppressBatchMismatchPauseDuringControllerTransition(input: {
+  running: boolean;
+  controllerPid: number;
+  controllerBatchFingerprint?: string;
+  runtimeBatchFingerprint?: string;
+  currentBatchFingerprint?: string;
+  transition?: ControllerBatchTransitionEvidence;
+  nowMs: number;
+  maxTransitionAgeMs?: number;
+}): boolean {
+  if (!input.running || !input.currentBatchFingerprint || !input.runtimeBatchFingerprint) {
+    return false;
+  }
+  if (input.controllerBatchFingerprint === input.currentBatchFingerprint) {
+    return true;
+  }
+  const transition = input.transition;
+  const startedAtMs = transition ? Date.parse(transition.startedAt) : Number.NaN;
+  const ageMs = input.nowMs - startedAtMs;
+  return Boolean(
+    transition &&
+    transition.supervisorPid === input.controllerPid &&
+    transition.fromBatchFingerprint === input.runtimeBatchFingerprint &&
+    transition.toBatchFingerprint === input.currentBatchFingerprint &&
+    Number.isFinite(startedAtMs) &&
+    ageMs >= 0 &&
+    ageMs <= (input.maxTransitionAgeMs ?? 60_000)
+  );
+}
+
 function replaceOptionValue(args: string[], option: string, value: string): string[] {
   const next = [...args];
   const index = next.indexOf(option);

@@ -181,6 +181,7 @@ const publishSource = [
   fs.readFileSync("src/business/publish-from-spu/publish-section-navigation.ts", "utf8"),
   fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8")
 ].join("\n");
+const publishFlowSource = fs.readFileSync("src/business/publish-from-spu/publish-flow.ts", "utf8");
 const publishActionSource = [
   publishSource,
   fs.readFileSync("src/business/publish-from-spu/actions/basic-info-action.ts", "utf8"),
@@ -231,8 +232,18 @@ assert.match(
 );
 assert.match(
   publishSource,
-  /const detachedRows = allRows[\s\S]*placeholder\.includes\("请输入库存"\)[\s\S]*placeholder\.includes\("请输入erp编码"\)[\s\S]*return detachedRows;/,
+  /const detachedRows = allRows[\s\S]*globalHeader\.priceCellIndex[\s\S]*globalHeader\.stockCellIndex[\s\S]*return detachedRows;/,
   "price/inventory row discovery must support Doudian's split table DOM where header and SKU rows are not in the same table"
+);
+assert.match(
+  publishSource,
+  /const globalHeader = allRows[\s\S]*priceCellIndex[\s\S]*stockCellIndex[\s\S]*const detachedRows = allRows[\s\S]*globalHeader\.priceCellIndex[\s\S]*globalHeader\.stockCellIndex/,
+  "split-table SKU rows must use the visible global header column indexes instead of treating the first editable field as price"
+);
+assert.doesNotMatch(
+  publishSource,
+  /const priceInput = rowInputs\.find\([\s\S]*input !== stockInput[\s\S]*placeholder\.includes\("请输入"\)/,
+  "split-table fallback must not write prices into a newly inserted optional column such as 国补商品型号"
 );
 assert.match(
   publishSource,
@@ -243,6 +254,11 @@ assert.equal(
   /rowRect\.top >= window\.innerHeight/.test(publishSource),
   false,
   "price/inventory row discovery must not use viewport visibility as the SKU row count; offscreen rows must still be filled"
+);
+assert.match(
+  publishFlowSource,
+  /evaluateControlledSpecTemplatePriceCardinality[\s\S]*if \(!sourceCardinality\.passed\)[\s\S]*throw new Error\(sourceCardinality\.issue\)[\s\S]*launchPersistentBrowser/,
+  "known Feishu template/price contradictions must fail before the Doudian browser opens"
 );
 
 assert.match(
@@ -452,7 +468,7 @@ const chooseSpecTemplateSource = publishSource.slice(
 );
 assert.match(
   domActionsSource,
-  /async function dismissDoudianGuideOverlays[\s\S]*ecom-guide-single-content-wrapper[\s\S]*guideRoot[\s\S]*click\(\{ timeout: 1500 \}\)[\s\S]*Doudian guide overlay/,
+  /async function dismissDoudianGuideOverlays[\s\S]*ecom-guide-single-content-wrapper[\s\S]*guideRoot[\s\S]*clickLocatorWithTransientUiRecovery\(action, 1500\)[\s\S]*Doudian guide overlay/,
   "transient overlay recovery must close Doudian guide overlays through a scoped Playwright locator and fail clearly when readback stays visible"
 );
 assert.match(
@@ -503,6 +519,11 @@ assert.match(
   "spec template application must choose the dropdown template first, then switch manual mode and expand price/inventory rows"
 );
 const switchManualSpecEntrySource = fs.readFileSync("src/business/publish-from-spu/spec-template-mode.ts", "utf8");
+assert.doesNotMatch(
+  publishSource,
+  /applyStandardizedHealthFoodSpecTemplateFallbackOnPage|allowStandardizedHealthFoodFallback/,
+  "missing template controls must fail closed; manual specification fallbacks are forbidden"
+);
 assert.match(
   switchManualSpecEntrySource,
   /clickSwitchManualSpecEntryMode[\s\S]*page\.locator\(`\[\$\{switchManualSpecEntryMarker\}="true"\]`\)\.first\(\)\.click\(\{ timeout: 1000 \}\);[\s\S]*return true;/,

@@ -124,7 +124,11 @@ export async function runBasicInfoAction(
       stages.push({ step: "fill_health_food_safety", status: "failed" });
       throw new Error(`${failurePrefix}: 食品安全小模块稳定读回未完成。`);
     }
-    const outerPackagingResult = await deps.uploadHealthFoodOuterPackagingOnPage(page, input.assets.detailImages);
+    const outerPackagingResult = await deps.uploadHealthFoodOuterPackagingOnPage(
+      page,
+      input.assets.detailImages,
+      input.runtimeDir
+    );
     if (!outerPackagingResult.ok) {
       stages.push({ step: "fill_health_food_safety", status: "failed" });
       throw new Error(

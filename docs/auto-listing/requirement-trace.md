@@ -1,5 +1,114 @@
 # Auto-listing Requirement Trace
 
+## 2026-11-19 policy-rejected main-image correction
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Never replace the fixed relay prompt with an invented neutral prompt | Content-policy rejection now fails with `feishu_source_reselection_required`; the neutral still-life fallback builder and retry-request writer were removed | Provider rule regression; active source contains no neutral fallback builder | verified |
+| Keep Feishu copy, DeepSeek prompts and Word prompts in one atomic revision | Changing any of `主图主标题`、`主图副标题`、`主图卖点` creates a new source digest, forces a fresh call to the fixed DeepSeek conversation, regenerates all five Word files, and validates Word paragraph 2/3 against the current source and DeepSeek prompt before provider submission | Revision `feishu-source-f8479da5c1902772`; digest `f8479da5c1902772...`; `test-main-image-prompt-revision-rule.mjs` | verified |
+| Replace only the four obsolete fallback images | Slots 07/13/14/16 were evidence-checked, archived, invalidated and resubmitted with new prompt digests; all other completed slots were reused | Provider tasks `task_WQ92...`, `task_C1WA...`, `task_KseL...`, `task_o06G...`; four slot ledgers are `completed`; regenerated product files exist | verified |
+| Cancel review for the already-submitted bad image without touching other products | Exact shop-07 product `3854879546667040921` was uniquely located and withdrawn; its publish runtime and prior manifest were archived, and only its canonical manifest entry was changed to `pending/not_checked` | `shop07-unlisted-confirmed.png`; correction archive `withdrawn-shop07`; remaining six submitted entries unchanged | verified |
+| Keep the listing workflow paused after correction | Correction ran as a standalone image action and never invoked publish; the existing pause request remains present | process check and pause control file | verified |
+
+## 2026-11-19 full-bleed frame restart safety
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Keep the fixed top-left brand frame without shrinking the complete poster | `full-bleed-layout-guide-v2` sends one spatially composed product/frame reference; post-processing preserves the provider poster at 800×800 and only overlays the exact frame | Accepted quality test `ad846d1c103544e1f12e3021`; frame-ready and unframed pixel-equality regression | verified |
+| Preserve numeric specifications such as `200ml` | Candidate ordinal cleanup requires a real ordinal delimiter and no longer strips leading product numbers | `test-feishu-source-fields-rule.mjs`; accepted image renders `200ml大容量` | verified |
+| Prevent legacy shrink-layout artifacts from entering a new run | Legacy `safe-inset-v1` markers fail closed; frame layout version and the complete layout prompt contract participate in the business-rule fingerprint | `test-main-image-frame-rule.mjs`; resume fingerprint gate | verified |
+| Archive incompatible local state before a from-first-product restart | Explicit rerun now works for incomplete unchanged batches, rejects active/uncertain paid slots, and moves the old paid ledger plus matching runtime directories into a timestamped recovery archive before clearing processed state | `test-fresh-rerun-archive.mjs`; archive `fresh-rerun-2026-11-19T04-50-16-848Z-58b15a92cc54`; clean full audit | verified |
+| Prevent a from-first-product restart from duplicating an already published external product | Read-only verification found product `3854855932777463980`; the operator chose to retain it, so a durable resolution binds it to the exact canonical shop-01 target and records `list_verified` coverage without another publish mutation. Every other target continues normally | `test-external-product-resolution-rule.mjs`; forced-rerun preflight; controller `20261119-130237` | verified, running |
+
+
+## 2026-11-04 short-title platform-limit recovery
+
+| Requirement | Implementation | Evidence | Status |
+|---|---|---|---|
+| Explain why the second Feishu product stopped at target 1/20 | The retained publish page showed `导购短标题` value `SNM医用重组Ⅲ型胶原蛋白面膜` at `26/24` with `至多输入12个汉字（24字符）`; the old preflight checked only presence and the old observer did not classify this field rejection | Run `20261103-141419`; canonical target `516994d3d4fb2b27838495dd__reczz28Uee45ApKZ__image-001__01__01`; retained publish screenshot and exact-title `共0条` screenshot | verified |
+| Enforce the limit before browser mutation without inventing source text | Short-title counting matches the platform: Han=2, other characters=1. An over-limit value may remove only one complete leading ASCII/number source token when the untouched semantic remainder fits; otherwise metadata resolution fails closed rather than truncating a Chinese term | `title-rules.ts`; metadata-resolution regressions | verified |
+| Never downgrade the exact field rejection to uncertainty again | Submission rules require all three exact clauses—`导购短标题`, `至多输入12个汉字`, and `24字符`—and post-click polling returns the deterministic `short_title_length_rejected` result immediately | `publish-rules.ts`; progress-state red-before-green regression | verified |
+| Resume the locked target without duplicate publication | Historical recovery requires the attempted durable boundary, canonical identity, prior negative screenshot and a fresh live exact-title `共0条` verification before the one-use retry | Recovery archive `2026-11-04T02-31-59-673Z`; controller `20261104-103227`; normalized short title `医用重组Ⅲ型胶原蛋白面膜` received `publish_signal_confirmed` at target 1 and advanced to target 2 | verified |
+
+## 2026-11-03 repeated-segment title-policy rejection recovery
+
+| Requirement | Implementation | Evidence | Status |
+|---|---|---|---|
+| Explain why the locked batch stopped at target 15/20 | The retained publish page showed `标题中不允许出现连续重复片段「械字号械字号」，建议修改后提交`; the old observer recognized only the earlier `商品标题描述“…”不符合平台要求` copy, waited for a success signal, and persisted a false final-submit uncertainty | Run `20261103-104822`; canonical target `516994d3d4fb2b27838495dd__reczz28Uee22Zzgz__image-001__15__15`; retained publish and exact-title `共0条` screenshots | verified |
+| Recognize the new response without broad false positives | Rejection parsing requires the complete repeated-segment prefix, a quoted exact phrase, and the `建议修改后提交` suffix; it emits the existing deterministic `title_policy_rejected` class and canonical issue | `publish-rules.ts`; progress-state red-before-green regression | verified |
+| Reuse the bounded Feishu-derived fallback | The exact repeated phrase feeds the existing candidate filter, which excludes the current title, duplicates and any candidate containing that phrase, then permits at most three one-shot candidates | Candidate-selection regression; `publish-submit-page-action.ts` | verified |
+| Resume without duplicating a product | Recovery requires the durable attempted boundary, canonical identity, retained prior negative screenshot, a new live exact-title `共0条` verification and a one-use retry ledger before the stopped target can be retried | Recovery archive `2026-11-03T05-48-41-887Z`; continuation controller `20261103-134901`; target 15 received `publish_signal_confirmed` and advanced to target 16 while targets 1-14 remained intact | verified |
+
+## 2026-10-19 GPT Plus tab contamination recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why the locked batch changed from provider backoff to terminal failure | A persisted `https://chatgpt.com/` tab existed in the dedicated Doudian browser profile; guard installation asserted before installing its route or quarantining the tab, so preflight threw and terminated the supervisor | Controller log `auto-listing-controller-20261018-221115.log`; run `20261019-042015` result | verified |
+| Keep ChatGPT web isolated without stopping Doudian work | Guard installation now installs the deny route first, closes only blocked ChatGPT-domain pages in the dedicated automation context, verifies none remain, and closes a page that later requests a blocked URL | `src/utils/gpt-plus-guard.ts`; red-before-green `test-gpt-plus-browser-quarantine.mjs`; live continuation quarantined the stale tab and passed Doudian preflight | verified |
+| Keep provider task-list authentication recoverable | Login-required detection preserves and reuses the provider page, propagates the exact checkpoint, and remains a non-budget-consuming external-service wait even inside the paid submission safety wrapper | Paid reconciliation and progress-state regressions; first continuation exposed the terminal wrapper defect, second continuation remained active and refreshed canonical browser authentication | verified |
+| Preserve paid-image non-replay safety while resuming | Continue the exact locked batch and retain ambiguous slot 1 until provider token/task evidence proves acceptance or non-acceptance; never submit a second paid request from absence of evidence | Authenticated task-list query proved no task in window `1792381361..1792381729`; slot 1 transitioned `ambiguous → failed_before_acceptance → reserved → submitted` only after that proof | verified |
+
+## 2026-10-12 split-table price-column recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why 体温计 stopped at shop 1 | Doudian inserted an optional `国补商品型号` column before `价格`; the split-table fallback treated the first editable non-code input as price, wrote and read prices from the wrong column, then reached final validation with all four real price inputs empty | Run `20261011-223738`; target `...__reczz28M7vylyuOu__image-013__01__01`; spec, price and fill-check screenshots | verified |
+| Bind price and stock mutations to semantic table columns | Both same-table and split-table row discovery derive exact cell indexes from the visible `价格/售价` and `现货库存/库存` headers; optional inserted columns can no longer become price targets | `price-inventory-action.ts`; `test-spec-template-rule.mjs`; live screenshot shows prices `129/119/79.9/69.9`, stock `2000`, and sale range `69.9~129` | verified |
+| Preserve irreversible-submit safety during recovery | The failed target has `publishClickAttempted=false` and `publish-submit-attempt.state=not_attempted`; prior 12 products and their canonical published targets remain untouched | Target result, submit-attempt ledger and manifest | verified |
+| Prove the repair on the locked real batch | Continuation retained batch `b54d663e240ca0fd88a12c47`, published shop 1 with `publish_signal_confirmed`, and advanced to shop 2; the live Feishu dump retained the same fingerprint and exact `买二送一` plus four prices | Controller `auto-listing-controller-20261012-171312.log`; deep audit `ok=true`, `unconfirmed=0`; live Feishu dump | verified |
+
+## 2026-10-09 controlled template / price cardinality recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain the stop at Feishu record 12, shop 1 | Locked record `reczz28KvXcbn7bl` combined template `买一送一` (two generated SKU rows) with four Feishu prices; the generic `price_inventory_not_ready` classifier retried the deterministic mismatch four times | Run `20261009-075501`, controller log, spec-editor and price-inventory screenshots | verified |
+| Reject known source contradictions before browser work | Known controlled templates declare their expected SKU cardinality; a mismatch throws before `launchPersistentBrowser` and receives the non-retryable class `spec_template_price_cardinality_mismatch` | `test-feishu-price-inventory-rule.mjs`; `test-spec-template-rule.mjs` | verified |
+| Apply the user-confirmed correction without replaying prior products | A fresh read-only Feishu candidate proved the only scalar change was record `reczz28KvXcbn7bl.specTemplate`, from `买一送一` to `买二送一`; the failed task was corrected only after durable proof that final submit was `not_attempted`, while the locked canonical target key and first 11 completed records were retained | `feishu-source-correction.json`; live candidate fingerprint `ea5ed9ae607a43495ab2e20c`; locked batch `651a6921504063ad084246c9` | verified |
+
+## 2026-10-07 Direct model-unavailable paid-submit recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why the final product stopped after generating 10/20 images | Slot 11 received HTTP 503 with a root-only structured `error.code=model_not_found` and `No available channel`, but the no-acceptance classifier required the older outer `fail_to_fetch_task` wrapper and persisted the slot as `ambiguous` | Batch `9718294dda18758196743dea`, product `reczz28K3UlcTFC7`, slot 11 ledger and SHA-bound response evidence | verified |
+| Recognize only the exact direct no-acceptance response | The image-generation rule parses the JSON suffix and requires a root object containing only `error`, the exact `model_not_found` code, and the channel-unavailable message; different codes and extra root fields remain fail-closed | Provider-policy and paid-ledger red-before-green regressions | verified |
+| Preserve fixed-slot paid safety | Historical slot 11 is reclassified as `failed_before_acceptance`; completed slots 1-10 remain reusable and no slot with task/data evidence is authorized for replay | Slot 11 audit chain retained the SHA-bound response and transitioned `ambiguous → failed_before_acceptance → reserved → submitted`; slots 1-10 remained completed | verified |
+| Prove the locked batch continues without regenerating completed images | Resume the exact cached batch and observe slot 11 leave ambiguity, image count advance beyond 10/20, then continue into publish | Controller `auto-listing-controller-20261007-104031.log`; live status advanced from main images 10/20 to 18/20, then entered publish target 1/20 after all 20 completed | verified |
+
+## 2026-10-06 Navigation-time null-body publish recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why medical-device target 12 stopped after target 11 succeeded | Doudian navigated between shop contexts before SPU query; the login probe dereferenced `document.body.innerText` while the SPA had temporarily unmounted `<body>`, producing a pre-submit TypeError | Run `20261006-042105`, target 12 event/log timeline; no SPU-query or submit evidence exists for target 12 | verified |
+| Retry the transient DOM gap instead of opening an unknown-failure circuit | Shop navigation reads explicitly treat a temporarily absent body as a bounded navigation-read condition and wait for `domcontentloaded`; other publish-page body reads are null-safe | Shop-access navigation regression and build | verified |
+| Recover the existing persisted failure without replaying completed targets | Failure classification maps the exact pre-fix null-body signature to `page_context_lost`; unknown stored classes are reclassified by the existing verified pre-submit recovery gate | Progress-state classification and historical-failure recovery regression | verified |
+| Preserve irreversible publish safety | Recovery remains limited to `finalVerifyStatus=not_checked`; targets 1-11 retain `publish_signal_confirmed` and target 12 has no submit attempt | Manifest/result audit before continuation | verified |
+| Prove recovery on the locked real batch | `auto-listing:hermes-continue` retained batch `2a0f31e45a01cbdf5f339f66`, resumed target 12 directly, completed it, and advanced to target 13 without replaying targets 1-11 | Controller `auto-listing-controller-20261006-105941.log`; live status advanced from 11/20 at target 12 to 12/20 at target 13 | verified |
+
+## 2026-10-05 Stale Doudian-login waiter recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why `继续上架` stayed at target 6 after the browser session was restored | Supervisor PID `31964` retained a `doudian_login_wait` file whose 30-second heartbeat stopped at attempt 2637 on 2026-10-03 05:38:39; controller liveness treated any owned wait file as permanently healthy, so continuation returned `already_running` | Process inspection, wait-file timestamps, controller log, and retained login screenshot | verified |
+| Recycle only a genuinely stale wait without interrupting valid long backoff | Controller liveness now requires the wait heartbeat to remain within five minutes of the later of file mtime and declared `retryAt`; a future external-service retry remains active, while a missed login retry becomes inert | Pure heartbeat boundary regressions and controller-liveness source contract | verified |
+| Preserve the exact locked batch and publish checkpoint | `auto-listing:hermes-continue` recycled only the verified wait-only supervisor, kept batch `2a0f31e45a01cbdf5f339f66`, rebuilt the manifest-backed resume job at `image-004`, and retained targets 1-5 | New supervisor PID `32248`; live status returned to 5/20 and target 6/20 | verified |
+| Prove real recovery instead of only passing a smoke test | The resumed browser passed authenticated Doudian preflight, target 6 received `publish_signal_confirmed`, and the controller advanced to target 7/20 without replaying targets 1-5 | Controller `auto-listing-controller-20261005-171651.log`; live manifest/status | verified |
+
+## 2026-09-19 Verified platform-brand identity reuse
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why platform-SPU selection appeared stuck despite the established same-name-brand procedure | Every target correctly exhausted the first `圣迪` identity (`standard_brand_id=1011059305`) through four empty queries before the second identity succeeded, but no successful identity was retained across the 20 targets; the status relay therefore repeatedly showed the last `no_rows` screenshot | Live run `20260919-172136`, targets 1-11; controller timeline and per-target screenshots | verified |
+| Reuse the already-proven same-name brand safely | A run-scoped atomic preference store keys the verified identity by exact brand, SPU, specification policy, and normalized specification; the preferred identity is promoted only when rediscovered in the current exact-name dropdown | Platform-SPU rule and persistence regressions; full `rules:check`; representative simulation; live target 12 learned identity `1682826312`, target 13 selected it directly without retrying `1011059305` | verified |
+| Preserve fail-closed fallback | Missing, malformed, stale, or absent preferences leave the complete frozen candidate sequence unchanged; the identity is recorded only after a unique exact row opens a real `/ffa/g/create` page | Platform-SPU rule and action source checks; all doctors; deep audit; real Feishu API and read-only Doudian session/DOM preflight | verified |
+
+## 2026-09-19 Missing specification-template manual checkpoint
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Do not invent specification values when the controlled template surface is absent | Health-food specification editing again requires exactly one populated value supplied by the selected Feishu template; the standardized manual fallback was removed | Specification-template, health-food DOM, publish-sequence, module-boundary, and full rules checks | verified |
+| Stop promptly and ask for manual correction | `spec_template_surface_missing` is not retried in the product loop or supervisor; controller status preserves the exact checkpoint and reports “请人工修改后继续上架” | Progress-state regressions and compact controller status | verified |
+| Resume the manually corrected target without replaying successful targets | Resume continues from the canonical manifest and durable pre-submit state | Live locked batch resumed at watermark 07 with 6/20 retained; watermark 07 then published successfully | verified |
+
 ## 2026-08-09 OTC dosage asterisk preservation
 
 | Requirement | Implementation | Verification | Status |
@@ -438,7 +547,7 @@ Final evidence before delivery: clean build; full rules and contradiction closur
 
 | Requirement | Implementation | Verification | Status |
 | --- | --- | --- | --- |
-| Resume after the user restores provider funds without weakening financial fail-closed rules | Dedicated operator action accepts only `failed_before_acceptance + non_replayable + HTTP 403 insufficient_user_quota/用户额度不足`, with no provider task ID or response summary | Red-before-green paid-ledger regression; production slots 15–20 evidence | verified |
+| Resume after the user restores provider funds or removes an exhausted API Key quota ceiling without weakening financial fail-closed rules | Dedicated operator action accepts only `failed_before_acceptance + non_replayable + HTTP 403 insufficient_user_quota/用户额度不足/pre_consume_token_quota_failed`, with no provider task ID or response summary | Red-before-green paid-ledger regression for both wallet and API Key quota failures; production slot evidence | verified |
 | Preserve paid identity and prevent whole-round replay | Approval keeps request/prompt digests and authorizes only the explicitly listed fixed slots; completed slots remain immutable | Paid-ledger action regression and post-approval ledger audit | verified |
 | Make the financial override auditable | Controller must be stopped; product ledger and every target slot are validated together and archived before approval entries are appended | Recharge recovery CLI archive and approval manifest | verified |
 
@@ -602,3 +711,173 @@ Final pre-delivery evidence: full rule closure, all Doctor modes and representat
 | Match billed ambiguity when another known task failed | Billing exclusion now removes every ledger slot with a public task ID and submitted audit, including `failed_after_acceptance`, before mapping the remaining billed log to the unknown slot | Live set of 13 billed logs: 11 completed, one known content-policy failure and one unknown slot 13; action regression | verified |
 | Recover Chinese content-policy failures by fixed slot | “提示可能违反内容政策” is explicit policy evidence; only slot 2 changes to the compatibility prompt and writes `request-02-policy-retry.json` | Slot 2 moved from failed task `task_ekKxm...` to compatible retry and completed; pure recovery regression | verified |
 | Preserve queued slots that never POSTed | `paid_submit_circuit_open_before_post` is persisted as replayable and overrides legacy contradictory `non_replayable` metadata for the same project-owned before-POST event | Slots 14-20 retained no task IDs and were admitted for controlled fixed-slot submission after the correction | verified |
+
+## 2026-09-19 Nested quality-warning reconciliation recovery
+
+| Requirement | Implementation | Evidence | Status |
+|---|---|---|---|
+| Explain why target 7 stopped after the final click | Doudian nested one visible `商品质量分优化预警` inside multiple matching modal wrappers; the old wrapper-first locator counted the same descendant `知道了` button repeatedly and made exact-title reconciliation inconclusive | Run `20260919-195611`, canonical target `...__image-003__07__07`, retained failure screenshot and controller log | verified |
+| Resolve one physical acknowledgement control without weakening fail-closed behavior | The action enumerates distinct page-level exact `知道了` button elements, keeps only visible buttons whose ancestor chain contains the exact quality-warning text, requires one unique match, clicks it and verifies that the association disappears | Pure selection regressions plus source prohibition against wrapper-descendant counting; full `rules:check` | verified |
+| Cross the irreversible submit boundary without replay | Read-only exact-title verification returned `共0条`; the retained publish result independently proved `规格值不能重复`, so resume classified target 7 as deterministic rejection and advanced to target 8 without another publish click | Controller `20260919-223531`: target 7 not found and deferred, then target 8 SPU query; deep audit `87/100` safe with no side-effect errors | verified |
+
+## 2026-09-20 Health-food title-policy rejection recovery
+
+| Requirement | Implementation | Evidence | Status |
+|---|---|---|---|
+| Explain the repeated stop at health-food target 1/20 | The retained final screenshot showed the explicit platform error `商品标题描述“[\"关节养护\"]”不符合平台要求，请重新填写`, while the health-food packaging gate had reported `checkPassed=true`; post-click polling recognized only system and duplicate-spec rejections and therefore misclassified the explicit rejection as final-submit uncertainty | Run `20260920-100235`, target `fd135f1c40fb74e124af1360__recvvzYz7ynLGH__image-007__01__01`, retained publish screenshot/result | verified |
+| Classify the platform response before uncertainty fallback | Submission rules extract quoted rejected title phrases from visible page/error text and return `title_policy_rejected`; polling returns immediately on that explicit rejection rather than waiting into the generic no-success path | `publish-rules.ts`; `test-progress-state-part-1.mjs`; full `rules:check` | verified |
+| Recover with bounded Feishu-derived titles only | The action filters the existing three Feishu keyword-derived candidates, excluding current, duplicate and rejected-phrase-containing titles, then writes and submits each candidate at most once; no category or other form field is changed | `publish-submit-page-action.ts`; candidate-selection regression | verified |
+| Resume the stopped canonical target without duplicate publication | The old exact title was verified twice as `共0条`; the identity-bound one-use recovery archived the old result before retry. Live continuation replaced the rejected title with `海斯莱福氨糖软骨素钙片官方正品蓝帽保健品氨糖软骨素钙片`, received `publish_signal_confirmed`, and advanced from target 1/20 to 2/20 | Recovery archive `2026-09-20T13-24-00-264Z`; controller `20260920-212620` | verified |
+
+## 2026-09-21 Provider-log availability under paid ambiguity
+
+| Requirement | Implementation | Evidence | Status |
+|---|---|---|---|
+| Explain why 杜仲保健茶 stopped at 18/20 | Fixed slot 09 received a persisted Cloudflare 524 without a task ID and correctly stayed `ambiguous`; strict token-log reconciliation then encountered one `fetch failed` and exited immediately, while the outer paid-safety guard correctly refused a new POST | Batch `fd135f1c40fb74e124af1360`, record `recvvzYz7yFNRO`, run `20260921-004631`, slot 09 ledger and controller `20260920-212620` | verified |
+| Retry the read-only evidence source without weakening paid safety | Token-log lookup treats transport failures, 429 and 5xx as read-only availability failures, retries inside the existing 37-attempt/3-minute window, and never mutates the ledger or sends a paid POST before strict zero-billed or billed acceptance evidence is complete | `paid-image-provider-log-reconciliation-action.ts`; reconciliation source regressions | verified |
+| Keep supervisor self-healing during a longer log outage | If the bounded window gets no successful log response, the child emits `provider_log_lookup_unavailable`; external-service rules allow supervisor recovery despite the retained `paid submission safety block`, wait the canonical three minutes, preserve `ambiguous`, and rerun only preflight reconciliation without consuming the ordinary recovery budget | Progress-state regressions for classification, continuation, budget and delay | verified |
+| Keep gateway evidence stable across runtime selection | The paid ledger is product-scoped across runs, but the raw 524 had remained under the creating runtime; resume selected an older reusable task and therefore read an unrelated slot-09 response. New ambiguous HTTP responses are now content-addressed under the product ledger and bound to the slot. Existing records migrate once from the exact persisted owner identity, never from the selected resume task | Canonical-evidence ledger test; digest/readback validation; owner-bound migration and source-order regressions | verified |
+| Exclude superseded accepted attempts before mapping the lost task | Slots 08/09 each had an earlier accepted task that later failed; fixed-slot retry cleared their current task IDs but retained immutable `submitted` audit entries. Excluding only the 18 current completed IDs left two historical billed logs in the candidate set. Reconciliation now matches every submitted audit attempt independently, including repeated slots, and uses a strict cardinality-equal 10-second known-acceptance window that covers the observed 7.136-second billing/ledger offset | Live read-only token-log audit: 20 historical attempts excluded one-to-one; repeated-slot and skew regressions | verified |
+| Accept whole-second billing immediately before local gateway persistence | Slot 09's exact billed log is timestamped `16:57:11Z`; the canonical 524 was persisted at `16:57:11.738Z`. Billed recovery now permits only the existing five-second clock skew before the local response and the existing five-minute delayed-billing bound after it | Live strict matcher isolated one residual billed record with `responseLagMs=-738`; negative-skew regression | verified |
+| Resume only after real provider evidence | Slot 09 stayed non-replayable until the live token log isolated one billed acceptance; authenticated task recovery restored the original completed task without a paid replay. Only proven no-acceptance slot 08 was resubmitted, completed, and the product advanced to 20/20 images and real Doudian publishing | Controller `20260921-102201`; slot 09 recovered at `02:22:19Z`; slot 08 completed and publishing target 1 started at `02:25:00Z` | verified |
+
+## 2026-09-21 Stale same-batch Feishu prompt-cache recovery
+
+| Requirement | Implementation | Evidence | Status |
+|---|---|---|---|
+| Explain why the new batch stopped although the visible Feishu cell was complete | The cache locked after the previous batch contained a 596-character, four-paragraph intermediate value for record `recvvLMnjceYG3`. The supervisor then prematurely added `--skip-feishu-assets-refresh` without online identity evidence, so continuation repeatedly consumed that stale cache instead of comparing and refreshing mutable fields from the still-identical online batch | Locked batch `6608b189a23cae97b22650ce`; controller `20260921-102201`; stale cache preflight failure | verified |
+| Make future truncation diagnostics actionable | When no parser strategy reaches the required count, `parseFeishuPosterPrompts` now reports the longest actual candidate count instead of replacing it with an empty list | Regression asserts a four-paragraph source reports `got 4`; full `rules:check` | verified |
+| Let the safe layer decide whether same-batch mutable fields may refresh | The supervisor skips fetching only for a newly promoted batch that was already refreshed. Initial and same-batch continuation now reach the child, which first compares online and locked identity and refreshes only when they match; a changed batch remains locked out | Pure continuation-rule regressions plus supervisor source-boundary regression | verified |
+| Avoid confusing API order with visible Feishu row numbers | Prompt preflight identifies failures as `cache item N` together with immutable `recordId` and product name; it no longer labels API array order as `row N` | Batch-preflight regression | verified |
+| Preserve completed work while source provenance is reconciled | The resumed run was safely paused during product 1 after 6/20 confirmed publishes, before product 5 could consume the reconstructed prompt. Existing canonical publish checkpoints remain resumable | Controller `auto-listing-controller-20260921-150514.log`; pause acknowledgement | verified |
+| Resume only with an explicit decision on the current online prompt | After the reconstructed-value limitation was disclosed, the user explicitly instructed the project to continue. A fresh read-only Feishu dump proved the online and locked batch identities match, all 11 records contain at least five prompt paragraphs, and record `recvvLMnjceYG3` exactly matches the current cache | User continuation instruction; fingerprint `6608b189a23cae97b22650ce`; controller `20260921-170142` resumed canonical target 08 after seven confirmed targets | verified |
+
+## 2026-09-23 Reconciled 524 supervisor recovery
+
+| Requirement | Implementation | Evidence | Status |
+|---|---|---|---|
+| Explain why the project stopped with no unresolved paid submission | The image layer recovered both uncertain 524 acceptances through authenticated provider logs, but the supervisor still treated nested historical `did not return a proven task id` text as current ambiguity instead of honoring the final ledger state | Run `20260922-220703`; record `recvvXn6js0Lv0`; ledger summary `completed=2, submitted=1, failedBeforeAcceptance=17, ambiguous=0, reserved=0` | verified |
+| Keep temporary provider outages self-driven after reconciliation | The image layer emits a machine-readable safe-ledger marker only when no ambiguous/reserved slot remains; the external-service classifier then uses the canonical three-minute wait without consuming normal recovery attempts | Supervisor and progress-state regressions | verified |
+| Preserve fail-closed paid-submit safety | A raw HTTP 524 missing-task-id failure without the authoritative ledger marker remains non-retryable; true `ambiguous` or `reserved` ledger states still stop before any new paid POST | Negative regression plus paid-ledger and provider-log reconciliation suites | verified |
+
+## 2026-09-24 Provider-log eventual-consistency recovery
+
+| Requirement | Implementation | Evidence | Status |
+|---|---|---|---|
+| Explain the stop without weakening paid safety | Slot 09 retained a canonical 524 response and correctly remained `ambiguous`; the token-log endpoint was readable but had no unique acceptance/no-acceptance entry during the bounded lookup, which the supervisor previously treated as terminal | Run `20260923-232907`; batch `3ac63a97d8b4194e5542f783`; record `recvvXoO2JcH3Q`; ledger `completed=8, failedBeforeAcceptance=11, ambiguous=1, reserved=0` | verified |
+| Keep inconclusive provider evidence project-owned | Reconciliation emits `provider_log_outcome_pending`; the supervisor preserves the locked batch, waits three minutes, and reruns read-only reconciliation without consuming the normal recovery budget | Progress-state and reconciliation regressions | verified |
+| Prevent duplicate paid generation while waiting | The ambiguous slot remains non-replayable and every continuation starts with strict provider-log reconciliation; only a unique billed task recovery or unique zero-billed gateway log can mutate its state | Paid-ledger safety block and exact one-to-one reconciliation contracts | verified |
+| Keep read-only shop identity verification compatible with current Doudian header metadata | Shop-access audit strips only the known trailing account-type and `正常营业` metadata before exact comparison; misleading prefixes and different shop names still fail closed | Negative/positive rule regressions; live 20/20 shop-access audit `20260924-091006`, publish attempted=false, form mutation attempted=false | verified |
+| Recover an accepted task when the provider omits its token-log row | For one and only one ambiguous slot, the authenticated task-list fallback requires a complete unpaginated window whose known IDs exactly equal the ledger and whose sole extra task passes independent ID/model/time/status verification | Live window `1790180914..1790181170`: `page=1`, `page_size=100`, `total=9`, eight known IDs plus completed task `task_GGu...`; strict positive and fail-closed regressions | verified |
+| Stop evidence waits from refreshing the locked batch | `provider_log_lookup_unavailable` and `provider_log_outcome_pending` recover in exact `resume` mode rather than `full`, so only the current main-image checkpoint and paid ledger are revisited | Supervisor recovery-mode regression | verified |
+
+## 2026-09-27 Provider token-log non-JSON recovery
+
+| Requirement | Implementation | Evidence | Status |
+| --- | --- | --- | --- |
+| Keep a transient HTML gateway page from terminating paid reconciliation | Token-log reads parse bounded response text explicitly; a non-JSON response is classified as temporary provider-log unavailability and remains inside the existing read-only retry/backoff path | Red-before-green parser regression using an HTML fixture; live controller failure `Unexpected token '<'` | verified |
+| Preserve duplicate-charge safety | Non-JSON responses never mutate paid ledgers or authorize a POST; the ambiguous slot remains blocked until unique billing and task evidence reconciles it | Slot 16 retained canonical 524 evidence and no provider task ID | verified |
+| Eliminate the isolated provider-login session | Authenticated task recovery now reuses the canonical project browser workspace, rotates the provider's short-lived access token through its same-origin refresh endpoint, and fails with an explicit login checkpoint only when the long-lived refresh session is genuinely unavailable | Live refresh returned 200; exact bounded task list returned two known tasks plus one unique successful slot-16 task | verified |
+| Recover when the gateway creates no task and emits no zero-billed token log | A complete first task-list page may prove no acceptance only when pagination is consistent, every ledger-owned task in the bounded submission window is present exactly once, and the unknown task set is exactly empty; only then is the ambiguous fixed slot changed to retryable | Red-before-green zero-unknown task-list regression; live slot 19 returned the exact known set and zero unknown tasks across repeated authenticated reads | verified |
+
+## 2026-09-28 Orphan product-list mask recovery
+
+| Requirement | Implementation | Evidence | Status |
+| --- | --- | --- | --- |
+| Explain why target 7 stopped although the list screenshot was normal | Doudian briefly mounted a modal mask after its dialog had already detached; Playwright still counted the orphan full-page node as visible, so the exact-title verifier exhausted its overlay wait with `maskObserved=true; dialogs=none` | Run `20260927-161422`, target `...__image-002__07__07`, retained list-verification failure screenshot and controller log | verified |
+| Remove the false blocker without accepting unknown dialogs | After the bounded wait, a mask with zero visible dialog wrappers proceeds to the existing strict locator actionability checks; any unknown visible dialog still fails closed with count/text diagnostics | Pure overlay-decision regression, source contract regression, targeted recovery suite | verified |
+| Continue without replaying the irreversible submit | Live exact-title verification returned `共0条`; the retained result proved `规格值不能重复`, so target 7 became terminal skipped coverage and target 8 started without another target-7 publish click | Controller `20260928-151134`; manifest status `submit_rejected_exhausted`, error class `spec_value_duplicate_rejected` | verified |
+
+## 2026-09-29 Structured provider-availability reconciliation
+
+| Requirement | Implementation | Evidence | Status |
+| --- | --- | --- | --- |
+| Explain why image generation stopped at 4/20 | Fixed slot 03 received HTTP 503 with nested `fail_to_fetch_task`, whose innermost error was `system_unavailable`, retryable, and carried a unique client request ID. The paid ledger correctly stayed `ambiguous`, but reconciliation rejected the JSON before querying billing/tasks because it accepted only Cloudflare HTML | Batch `86c0348317936cdc45aebde5`, record `recvwqtfQPadLA`, canonical slot-03 evidence digest `565c2b4d...` | verified |
+| Admit only the exact structured availability shape to read-only reconciliation | A pure bounded parser requires supported 5xx status, nested `fail_to_fetch_task`, exact `system_unavailable`/`category=system`, both retryable flags, and a valid `client_request_...` ID; malformed, non-retryable, client-error and unrelated JSON remain blocked | `isProviderAmbiguousAvailabilityResponse`; positive and negative reconciliation regressions | verified |
+| Prove no acceptance before retrying | The authenticated complete task window contained exactly the one ledger-known task and zero unknown tasks, so slot 03 was durably changed to `failed_before_acceptance` before its fixed-slot retry was reserved | Controller `20260929-094408`; slot audit `automatic authenticated provider task-list no-acceptance proof; known_tasks=1` | verified |
+
+## 2026-09-29 Feedback/appeal label and active-image status clarity
+
+| Requirement | Implementation | Evidence | Status |
+| --- | --- | --- | --- |
+| Explain “反馈申诉” without treating it as a publish blocker | Live Doudian DOM contains only the right-side generic `反馈` widget (`浮窗反馈入口`) and no visible dialog; `申诉--葡萄籽维生素E软胶囊` is the exact Feishu `用户认知名` value, not an appeal action issued by automation | Read-only CDP DOM inspection; locked Feishu cache record `reczz28GyewIZxIh`; its publish manifest has 20/20 `published` entries | verified |
+| Never automate a platform appeal | Category-misplacement handling recognizes the full informational warning, then permits only Escape or one unique close control; it never clicks `使用推荐类目`, `反馈` or `发起申诉` | `product-list-verification-action.ts`; category-warning selection regressions | verified |
+| Stop active generation from looking stalled | Accepted paid tasks that are actively polled retain controller status `running`; only a real supervisor wait file or current retryable service failure reports `external_service_wait`. The accepted-task count and latest query heartbeat remain in the progress summary | `paid-image-wait-rules.ts`; supervised/direct status regressions; live product advanced from 0/20 to 20/20 and entered publish target 1 | verified |
+| Keep internal workflow markers out of operator-facing product names | Status formatting strips only exact leading `申诉--` / `反馈--` workflow markers for display; raw Feishu fields, canonical record identity, source files, generated titles and publish metadata remain unchanged | `normalizeAutoListingControllerDisplayProductName`; positive marker and ordinary-name preservation regressions | verified |
+| Prevent future feedback/appeal click regressions | The publish-browser regression suite scans every action source and rejects any direct click locator targeting `反馈`, `发起申诉` or `使用推荐类目` | `test-uncertain-publish-recovery.mjs` | verified |
+
+## 2026-09-30 Terminal failed provider-task gap recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain the permanent image-service wait on 甘草片 slot 20 | The paid POST returned `HTTP 503 / fail_to_fetch_task`, so the ledger correctly retained ambiguity; token logs never emitted a matching billing or zero-billing row, while the authenticated bounded task list consistently contained exactly one unknown terminal failed task | Live ledger, bound gateway evidence and 98 supervisor reconciliation rounds | verified |
+| Close a unique accepted-then-failed task without risking duplicate billing | A complete authenticated task-list window must exactly cover every known task plus one unknown terminal failed task; the task detail endpoint must independently confirm its ID, timestamp and failed status before the ledger records the original task as accepted-then-failed | Terminal task-gap rule and detail-validation regressions | verified |
+| Continue only through fixed-slot recovery | The recovered provider task ID is written first, then the slot transitions to `failed_after_acceptance`; existing bounded fixed-slot recovery decides when the same slot may retry, while zero, multiple, invalid or nonterminal gaps remain fail-closed | Paid reconciliation suite; live 甘草片 continuation completed and advanced the batch from 6/17 to 7/17 | verified |
+
+## 2026-09-30 Structured upstream-request failure reconciliation
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Avoid terminating the next product before safe reconciliation | The exact nested `HTTP 500 → fail_to_fetch_task → do_request_failed → do request failed: upstream error: do request failed` shape is classified as submission ambiguity, not as proof of acceptance or non-acceptance | Live slot-02 gateway evidence for record `reczz28GyewIa1X8`; strict positive regression | verified |
+| Reject lookalike HTTP 500 responses | Admission requires the exact nested codes, exact message, null data fields and HTTP 500; changed codes, messages, data or unsupported statuses stay blocked | Negative parser regressions | verified |
+| Preserve paid safety while resuming | The newly admitted response can only trigger read-only token-log and authenticated complete task-window reconciliation; a paid retry still requires durable proof of no acceptance or an explicit accepted-then-failed task | Full `rules:check`; live slot 02 received authenticated no-acceptance proof, transitioned to replayable, and only then reserved the same fixed slot | verified |
+
+## 2026-09-30 Empty authenticated task-window reconciliation
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain the 44-round slot-05 wait | The authenticated bounded task lookup had no accepted ledger task inside the incident window, so the former common normalizer rejected the evidence before it could recognize a complete zero-task response | Live record `reczz28GyewIa1X8`, slot 05 ledger and controller events | verified |
+| Prove no acceptance without inventing an anchor | No-acceptance reconciliation permits an empty known-task set only when pagination is complete and the returned bounded task window is also empty | Positive empty-window regression; live slot 05 proof persisted `known_tasks=0` before retry | verified |
+| Keep non-empty unanchored windows fail-closed | Acceptance and terminal-task recovery still require a non-empty exact known-task set; no-acceptance recovery rejects any unknown task when the known set is empty | Negative unanchored-task regression | verified |
+
+## 2026-10-20 Target-shop login recovery and bounded browser probe
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why shop 2 repeatedly returned to login after recovery was announced | The recovery probe validated whichever Doudian shop was currently active. Shop 1 remained authenticated, so its generic SPU page produced a false-positive recovery even though the unresolved manifest target was shop 2 | Controller `20261019-224503`: shop-2 login failures at `15:04:29Z` and `15:12:44Z`, with a false recovery announcement between them; target submit state remained `not_attempted` | verified |
+| Bind recovery to the canonical unresolved target | The supervisor resolves the latest unresolved manifest entry inside the locked batch and passes its exact `shopFolder`; the read-only probe must switch to that shop and revalidate the full platform-SPU page before resuming | `test-doudian-publish-session-preflight-rule.mjs`; live continuation entered `02延草纲目药品专营店` and resumed target 2 without replaying target 1 | verified |
+| Prevent a browser Promise from holding the profile lease forever | The complete session probe has a hard timeout, always disconnects CDP in `finally`, and refreshes the login-wait heartbeat every ten seconds while the probe is running | Old PID `40494` retained `doudian-browser-owner.json` after its heartbeat stopped; hard-timeout, heartbeat, CDP-recovery and profile-lease regressions pass | verified |
+| Continue the exact batch without refreshing Feishu or redoing paid work | The standard continue entrypoint recycled the inert supervisor and launched an exact manifest-backed `published`-stage resume for batch `4d84efb5d2430583950b3ffc` | Controller `20261020-133939`; Feishu remains `12/14`; runtime remains `20261019-225603`; shop 2 reached `publish_signal_confirmed` and the live flow advanced through shop 3 to shop 4 | verified, flow running |
+
+## 2026-10-21 Completed-batch handoff race recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why the new 11-product batch stopped before doing work | The prior `092ea62d747f` batch completed 6/6 and the supervisor validly refreshed Feishu to `60a8f93bc268`; a concurrent status read observed the canonical-cache swap before controller ownership moved, misclassified that intentional handoff as external batch drift, and wrote `pause.requested` | Controller `20261020-174250`; pause timestamp `2026-10-20T18:06:51.083Z`; new run `20261021-020655` stopped at login preflight only because it consumed that signal | verified |
+| Close both sides of the handoff race without weakening fail-closed protection | The supervisor writes a bounded same-PID old/new transition marker around cache activation and updates controller ownership before removing it; status also treats the live controller's current-batch ownership as authoritative while suppressing stale prior-run evidence | `controller-job-ownership-rules.ts`, `auto-listing-supervisor.ts`, `auto-listing-controller-status.ts` | verified |
+| Reject forged or stale transitions | Suppression requires a running controller, matching supervisor PID, exact old/new fingerprints, and a marker no older than 60 seconds; missing, foreign, wrong-target, stale, or ordinary external cache changes still write the batch-mismatch pause | Red-before-green `test-controller-terminal-cleanup.mjs`; full `rules:check` | verified |
+
+## 2026-10-24 Proxy/TUN provider reachability recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain the repeated apparent stall without blaming Doudian | Doudian login preflight remained healthy; all 20 paid-image slots were durably `failed_before_acceptance` after the first `fetch failed` opened the pre-submit circuit. The host uses Fake-IP/TUN resolution (`zexapi.com -> 198.18.0.6`) while the macOS system-proxy dictionary is empty; the same Node runtime returned HTTP 404 to a read-only endpoint probe after the network path recovered | Controller `20261023-145136`, runs `20261024-204101` and `20261024-204413`, live DNS/curl/Node probe | verified |
+| Resume promptly after a proven zero-acceptance outage | Only an exact safe ledger summary (`ambiguous=0`, `reserved=0`, `submitted=0`) plus a main-image transport failure enables a bounded read-only HEAD probe every 10 seconds; any HTTP response proves reachability and resumes the locked batch immediately instead of blindly sleeping three minutes | `external-service-recovery-rules.ts`, `auto-listing-supervisor.ts`, progress-state regression | verified |
+| Preserve duplicate-charge protection | Accepted tasks, ambiguous/reserved slots, and provider-log reconciliation waits cannot enter endpoint-probe relaunch; their existing exact-task or reconciliation recovery remains unchanged | Negative regression covering accepted, ambiguous, and reconciliation-only states | verified |
+| Make the next outage diagnosable | Provider transport exceptions retain the nested cause code and message, such as `ENOTFOUND`, rather than collapsing every proxy/DNS/socket failure to bare `fetch failed` | `formatImageGenerationTransportError`; formatter regression | verified |
+
+## 2026-10-25 Feishu empty-placeholder batch handoff recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why listing appeared stuck after the prior batch completed | The prior four-product batch completed all publish targets. The next refresh stopped fail-closed because Feishu record `reczz28RG64vrshr` contained only empty-object cells for `保质期` and `储藏条件`; normalization incorrectly defaulted its missing category to `医疗器械`, so the placeholder was treated as an invalid product | Completed controller log `auto-listing-controller-20261024-210224.log`; preserved refresh candidate; live read-only Feishu query | verified |
+| Skip true placeholders without weakening product validation | Feishu normalization now leaves a missing source category undefined. A row whose source cells have no business content is classified as empty even when Feishu serializes empty cells as `{}`; any partially filled record without `产品类目` remains invalid and fail-closed | Red-before-green source-field regressions covering empty-object cells and a partial category-less product | verified |
+| Unblock the next real batch | The live read-only query now reports `ok=true`, `count=10`, `skippedEmptyCount=1`, `invalidRecords=[]`, with batch fingerprint `b7d3cb5a56d25215c7f5708d` | `feishu-bitable --mode records --limit 0` against the configured table | verified |
+
+## 2026-11-19 Structured selling-point and framed-image flow recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Make a Feishu control command start work even if its acknowledgement cannot be delivered | The Hermes router creates the controller task before sending its acknowledgement, and every operator reply has a ten-second bound; a stalled adapter can no longer gate or cancel the business action | `test-hermes-auto-listing-command-router.py` includes a forever-hanging adapter; installed profile verification and live channel doctor pass | verified |
+| Consume the structurally updated product-information headers exactly as they exist in Feishu | The canonical field map now reads `主图主标题`, `主图副标题`, and `主图卖点`; title/subtitle select one candidate each and selling points select three, then reconstruct the complete fixed-format product-selling-point text before DeepSeek | Full live read-only query reports 11 valid records, no invalid records, schema/field-map version 5, batch fingerprint `58b15a92cc54728f5ee75a9f`; source/config rule regressions pass | verified |
+| Preserve the fixed frame without modifying it or allowing generated content to cover it | Provider transport now handles only the two generation references; the fixed frame is applied only after the generated output exists and has been normalized to 800×800 | Frame rule regression; all 20 generated target images match every one of the reference frame's 67,254 opaque pixels | verified |
+| Continue the same paid batch without refreshing Feishu or replaying completed work | The standard continue entrypoint resumed run `20261119-110859` on the same locked fingerprint; all 20 fixed slots completed, images were distributed, and the first Doudian target published successfully | Controller log `auto-listing-controller-20261119-111111.log`; live status advanced to target 2/20 | verified, flow running |
+
+## 2026-11-19 Image-quality hold and post-generation frame composition
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Stop publishing while image quality is being corrected | The original operator pause prevented further publishing; after quality acceptance, incompatible run and ledger state was moved into a recoverable fresh-rerun archive | Pause evidence plus `fresh-rerun-2026-11-19T04-50-16-848Z-58b15a92cc54` | superseded safely |
+| Give the model the real spatial relationship without allowing it to own the final frame pixels | Provider requests contain exactly one generated layout-guide reference combining the current white-background product and immutable frame; local post-processing overlays the source frame again and verifies its opaque pixels | `test-main-image-frame-rule.mjs` source contract | verified |
+| Reserve composition space through adaptive full-canvas composition | `full-bleed-layout-guide-v2` tells the provider to redesign the complete poster around the occupied top-left region while keeping the canvas visually full; it does not reserve an empty outer margin | Accepted quality test `ad846d1c103544e1f12e3021` | verified |
+| Keep a reviewable provider result without shrinking the poster | The 800×800 provider output is preserved as `.unframed.png`; frame-ready processing keeps every provider pixel unchanged, then overlays and protects the immutable frame | Frame-ready/unframed pixel-equality regression; legacy `safe-inset-v1` is rejected | verified |

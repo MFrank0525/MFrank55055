@@ -1,6 +1,12 @@
 import crypto from "node:crypto";
 import { getProductCategoryPlan, type ProductCategory } from "./product-category.js";
 import { getShopSpecs } from "./shop-rules.js";
+import {
+  MAIN_IMAGE_FRAME_EXCLUDED_BRANDS,
+  MAIN_IMAGE_FRAME_LAYOUT_VERSION,
+  MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT
+} from "./main-image-frame-rules.js";
+import { MAIN_IMAGE_PROMPT_REVISION_POLICY } from "./main-image-prompt-revision-rules.js";
 
 const CATEGORIES: ProductCategory[] = ["医疗器械", "非处方药", "保健食品"];
 
@@ -18,7 +24,13 @@ export function buildAutoListingBusinessRuleFingerprint(): string {
         titleRule: plan.titleRule,
         titleCharacterCount: plan.titleCharacterCount
       };
-    })
+    }),
+    mainImageFrame: {
+      layoutVersion: MAIN_IMAGE_FRAME_LAYOUT_VERSION,
+      excludedBrands: MAIN_IMAGE_FRAME_EXCLUDED_BRANDS,
+      promptContract: MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT
+    },
+    mainImagePromptRevisionPolicy: MAIN_IMAGE_PROMPT_REVISION_POLICY
   };
   return crypto.createHash("sha256").update(JSON.stringify(rules)).digest("hex").slice(0, 24);
 }

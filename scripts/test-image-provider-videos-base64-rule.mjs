@@ -27,7 +27,7 @@ import {
   createPaidImageSubmitCircuit,
   resolveVideosBase64AcceptedTaskPollCeilingMs,
   resolveVideosBase64SubmitTimeoutMs,
-  shouldKeepPaidImagePolicyCompatiblePrompt,
+  isPaidImagePolicyCompatibilityReason,
   isUnsafePaidImageReplayPayload,
   isUnsafePaidImageReplayReason,
   resolvePaidImageProviderTimeoutRetry,
@@ -69,6 +69,15 @@ const imageGenerationRulesSource = fs.readFileSync("src/autolist/image-generatio
 const example = JSON.parse(fs.readFileSync("input/image-generation.config.videos-base64.example.json", "utf8"));
 const ruleDoc = fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8");
 const stabilityChecklist = fs.readFileSync("docs/auto-listing/stability-checklist.md", "utf8");
+
+const exactObservedPolicyFailure = 'provider task failed: {"code":"video_generation_failed","message":"您的提示词或参考媒体可能违反了我们的防护准则，请更改提示词和媒体"}';
+assert.equal(
+  isPaidImagePolicyCompatibilityReason(exactObservedPolicyFailure),
+  true,
+  "The provider's exact Chinese 防护准则 rejection must enter one fixed-slot policy-compatible retry"
+);
+assert.doesNotMatch(source, /buildPolicyCompatibleImageEditPrompt|内容策略兼容降级提示词模板/,
+  "Provider policy rejection must never replace the fixed Feishu/DeepSeek prompt structure with a neutral fallback");
 
 assert.doesNotMatch(
   source,
@@ -439,16 +448,6 @@ assert.equal(
   Date.parse("2026-06-18T01:30:00.000Z"),
   "invalid submitted timestamps must be ignored"
 );
-assert.equal(
-  shouldKeepPaidImagePolicyCompatiblePrompt({
-    failureReason: 'provider task failed: {"message":"失败了超时 请重试","code":"upstream_error"}',
-    recordedPromptDigest: "policy-digest",
-    originalPromptDigest: "original-digest",
-    policyCompatiblePromptDigest: "policy-digest"
-  }),
-  true,
-  "A fixed slot that already switched to the policy-compatible prompt must keep that identity after later provider timeouts"
-);
 const repeatedProviderTimeoutAudit = [
   { state: "failed_after_acceptance", at: "2026-06-18T01:00:00.000Z", reason: "provider task failed: 失败了超时 请重试" },
   { state: "failed_after_acceptance", at: "2026-06-18T01:20:00.000Z", reason: "provider task failed: timed out" },
@@ -467,10 +466,26 @@ assert.deepEqual(
     ],
     recordedPromptDigest: "original-digest",
     policyCompatiblePromptDigest: "policy-digest",
+    feishuPromptRevisionVerified: true,
     nowMs: Date.parse("2026-09-18T11:16:20.000Z")
   }),
-  { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: true, deferMs: 0 },
-  "A provider task rejected by the Chinese content-policy wording must retry only that slot with the compatible prompt"
+  { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: false, deferMs: 0 },
+  "A provider policy rejection may retry only with a verified changed Feishu source and freshly regenerated DeepSeek prompt"
+);
+assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: 'provider task failed: {"message":"提示词未通过内容安全审核，请修改后重试"}',
+    audit: [{
+      state: "failed_after_acceptance",
+      at: "2026-09-18T11:16:19.911Z",
+      reason: 'provider task failed: {"message":"提示词未通过内容安全审核，请修改后重试"}'
+    }],
+    recordedPromptDigest: "policy-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-09-18T11:16:20.000Z")
+  }),
+  { action: "bubble", usePolicyCompatiblePrompt: false, deferMs: 0 },
+  "An unchanged prompt rejected by moderation must require a new Feishu source revision instead of a neutral fallback"
 );
 assert.deepEqual(
   resolvePaidImageFixedSlotRecovery({
@@ -644,6 +659,23 @@ const repeatedProviderInternetErrorAudit = [
       'provider task failed: {"code":"upstream_error","message":"Internet Error，请耐心等待！","error":{"code":"upstream_error","message":"Internet Error，请耐心等待！"}}'
   }
 ];
+const repeatedProviderCapacityShortageAudit = Array.from({ length: 12 }, (_, index) => ({
+  state: "failed_after_acceptance",
+  at: new Date(Date.parse("2026-10-15T21:33:00.000Z") + index * 60_000).toISOString(),
+  reason:
+    'provider task failed: {"code":"video_generation_failed","message":"服务资源暂时不足，请稍后重试","error":{"code":"video_generation_failed","message":"服务资源暂时不足，请稍后重试"}}'
+}));
+assert.deepEqual(
+  resolvePaidImageFixedSlotRecovery({
+    failureReason: repeatedProviderCapacityShortageAudit.at(-1).reason,
+    audit: repeatedProviderCapacityShortageAudit,
+    recordedPromptDigest: "original-digest",
+    policyCompatiblePromptDigest: "policy-digest",
+    nowMs: Date.parse("2026-10-15T21:45:00.000Z")
+  }),
+  { action: "defer_to_supervisor", usePolicyCompatiblePrompt: false, deferMs: 6 * 60 * 60 * 1000 - 60 * 1000 },
+  "Repeated accepted video_generation_failed capacity shortages must open the six-hour fixed-slot circuit"
+);
 assert.deepEqual(
   resolvePaidImageFixedSlotRecovery({
     failureReason: repeatedProviderInternetErrorAudit[1].reason,
@@ -755,11 +787,8 @@ assert.match(
   /videos-base64 accepted task stayed queued\/pending beyond \$\{maxPollMs\}ms; retrying fixed slot \$\{ledgerSlot\}\.[\s\S]*providerResponse: statusPayload/,
   "ceiling failure must preserve final queued/pending provider evidence"
 );
-const retryReservation = source.indexOf("slotAction = reservePaidImageSlot({", source.indexOf("const keepPolicyCompatiblePrompt"));
-assert.ok(
-  source.indexOf("promptText = policyCompatiblePromptText", source.indexOf("const keepPolicyCompatiblePrompt")) < retryReservation,
-  "the authoritative policy-compatible prompt must be selected before retry reservation"
-);
+assert.match(source, /feishu_source_reselection_required/,
+  "An unchanged provider-policy rejection must stop for Feishu source reselection and DeepSeek regeneration");
 assert.match(
   source,
   /defer_to_supervisor[\s\S]*paid image provider circuit open for slot \$\{ledgerSlot\}; retry after \$\{recovery\.deferMs\}ms/s,
@@ -840,8 +869,8 @@ assert.match(source, /requestedImageIndexes/);
 assert.match(source, /resolveMissingFixedImageIndexes/);
 assert.match(source, /requestedImageIndexes: missingLocalIndexes/);
 assert.ok(
-  source.indexOf("const paidReplayPreflightSummary") >= 0 &&
-    source.indexOf("const paidReplayPreflightSummary") < source.indexOf("settleConcurrentWork(\n        promptIndexes.map"),
+  source.indexOf("let paidReplayPreflightSummary") >= 0 &&
+    source.indexOf("let paidReplayPreflightSummary") < source.indexOf("settleConcurrentWork(\n        promptIndexes.map"),
   "an existing ambiguous paid slot must be reconciled before any concurrent prompt round can submit another paid request"
 );
 assert.match(source, /summarizeVideosBase64PaidResumePlan/);
@@ -866,18 +895,18 @@ assert.match(
 assert.match(source, /!persistedReplayable[\s\S]*isUnsafePaidImageReplayReason\(failedRetryReason\)/);
 assert.match(
   imageGenerationRulesSource,
-  /isPaidImagePolicyCompatibilityReason\(reason: string\)[\s\S]*内容政策[\s\S]*resolvePaidImageFixedSlotRecovery[\s\S]*isPaidImagePolicyCompatibilityReason\(failureReason\)[\s\S]*retry_fixed_slot_now/,
-  "Chinese content-policy task failures must authorize only the fixed-slot compatible retry"
+  /isPaidImagePolicyCompatibilityReason\(reason: string\)[\s\S]*内容政策[\s\S]*promptChangedByVerifiedFeishuRevision[\s\S]*retry_fixed_slot_now/,
+  "Chinese content-policy task failures must require a verified changed Feishu source revision"
+);
+assert.doesNotMatch(
+  source,
+  /policyCompatiblePromptText|request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
+  "videos-base64 must not synthesize or persist a neutral policy fallback prompt"
 );
 assert.match(
   source,
-  /policyCompatiblePromptText = buildPolicyCompatibleImageEditPrompt\(promptText, absoluteImageIndex\)[\s\S]*failedAfterAcceptanceReason[\s\S]*shouldKeepPaidImagePolicyCompatiblePrompt[\s\S]*keepPolicyCompatiblePrompt[\s\S]*request-" \+ paddedImageIndex \+ "-policy-retry\.json"/,
-  "videos-base64 failed-after-acceptance fixed-slot retries must switch only that slot to the policy-compatible prompt"
-);
-assert.match(
-  source,
-  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*isPaidImagePolicyCompatibilityReason\(failedAfterAcceptanceReason\)[\s\S]*shouldAllowPaidImagePolicyCompatibilityIdentityTransition/,
-  "Only an explicit content-policy failure may authorize the one-time fixed-slot digest switch"
+  /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*isPaidImagePolicyCompatibilityReason\(failedAfterAcceptanceReason\)[\s\S]*feishuPromptRevisionVerified[\s\S]*promptDigest/,
+  "Only explicit content-policy failure plus verified Feishu/DeepSeek revision may authorize a digest switch"
 );
 assert.doesNotMatch(
   source.match(/const allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*?;\n/)?.[0] || "",
@@ -1006,10 +1035,10 @@ assert.match(
   /权限.*余额.*计费.*不得自动重提/s,
   "Unsafe paid-image failures must never authorize automatic replay"
 );
-assert.match(ruleDoc, /内容策略.*仅对该固定 slot.*内容策略兼容降级提示词/s);
-assert.match(ruleDoc, /内容策略.*failed_after_acceptance.*requestDigest.*promptDigest.*允许.*更新/s);
+assert.match(ruleDoc, /内容策略.*飞书.*主图主标题.*主图副标题.*主图卖点.*DeepSeek/s);
+assert.match(ruleDoc, /内容策略\/安全策略.*failed_after_acceptance.*飞书源修订.*DeepSeek.*requestDigest.*promptDigest/s);
 assert.match(ruleDoc, /普通供应商失败.*不得改变 digest/s);
-assert.match(ruleDoc, /不得降级整份提示词.*整轮重生.*重新提交已完成 slot/s);
+assert.match(ruleDoc, /禁止.*内容策略兼容降级提示词.*新旧.*DeepSeek.*混用/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
@@ -1076,6 +1105,22 @@ assert.equal(
     '{"code":"fail_to_fetch_task","message":"{\\"error\\":{\\"code\\":\\"model_not_found\\",\\"message\\":\\"No available channel for model gpt-image-2 under group default\\"}}","data":null}'
   ),
   true
+);
+assert.equal(
+  providerExplicitlyProvesNoPaidTaskAccepted(
+    503,
+    '{"error":{"code":"model_not_found","message":"No available channel for model gpt-image-2 under group default (distributor) (request id: request-11)","type":"new_api_error"}}'
+  ),
+  true,
+  "a direct structured model_not_found response proves that no paid task was accepted"
+);
+assert.equal(
+  providerExplicitlyProvesNoPaidTaskAccepted(
+    503,
+    '{"error":{"code":"upstream_error","message":"No available channel after task task-123 was accepted"}}'
+  ),
+  false,
+  "channel text without the exact structured model_not_found code must remain fail-closed"
 );
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("fetch failed"), true);
 assert.equal(submitTransportFailureProvesNoPaidTaskAccepted("image generation request exceeded hard deadline 1830000ms"), true);
@@ -1928,17 +1973,25 @@ try {
       paidImageSubmissionLedgerDir: policyRestartLedgerRoot,
       simulateOnly: false
     }),
-    /fetch failed/i
+    /feishu_source_reselection_required/i
   );
 } finally {
   globalThis.fetch = originalFetch;
 }
-assert.equal(policyPreAcceptanceFailureCalls, 1, "policy-compatible retry must attempt exactly one submission");
+assert.equal(policyPreAcceptanceFailureCalls, 0, "an unchanged policy-rejected prompt must not submit a neutral fallback");
 assert.equal(
   JSON.parse(fs.readFileSync(path.join(policyRestartLedger.productDir, "slots", "02.json"), "utf8")).state,
-  "failed_before_acceptance",
-  "a transport failure before task acceptance must preserve the fixed slot for a safe retry"
+  "failed_after_acceptance",
+  "the rejected slot must remain blocked until Feishu source and DeepSeek are regenerated"
 );
+const revisedPolicyPromptFile = path.join(unsafeRestartRoot, "prompt-feishu-revision.docx");
+writeSimpleWordDocument(revisedPolicyPromptFile, [
+  "主图指令",
+  "突出放大的有设计感的艺术字：新主标题，尺寸略小一些的有设计感的艺术字：新副标题，官方正品，新卖点一，新卖点二，新卖点三，图示产品的使用步骤，突出产品使用部位。",
+  "与新产品卖点绑定的新DeepSeek提示词，明亮电商场景，产品主体放大",
+  "正向提示词",
+  "反向提示词"
+]);
 let policyRestartSubmitCalls = 0;
 globalThis.fetch = async (url, init) => {
   if (init?.method === "POST") {
@@ -1968,7 +2021,8 @@ try {
     sourceImagePath: unsafeRestartSourceImage,
     sellingPointText: "test product",
     brandedGenericName: "test product",
-    wordFiles: [unsafeRestartPromptFile],
+    wordFiles: [revisedPolicyPromptFile],
+    feishuPromptRevisionVerified: true,
     imageGenerationProvider: "openai-compatible",
     imageGenerationConfigFile: unsafeRestartConfigFile,
     mainImageExpectedCount: 2,

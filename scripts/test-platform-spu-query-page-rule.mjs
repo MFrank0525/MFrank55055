@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { chromium } from "playwright";
 import {
   evaluatePlatformSpuQueryPageReadiness,
@@ -11,12 +13,22 @@ import {
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
 import {
   extractPlatformSpuRowSpecifications,
+  prioritizeVerifiedPlatformBrandIdentity,
   resolveOtcPlatformSpuExpectedSpecification,
   resolvePlatformBrandCandidateMissTransition,
   resolveExactPlatformBrandCandidateSequence,
   selectPlatformSpuPublishCandidate
 } from "../dist/src/business/publish-from-spu/platform-spu-query-rules.js";
-import { readPlatformSpuQueryCandidates } from "../dist/src/business/publish-from-spu/platform-spu-query-action.js";
+import {
+  clickPlatformSpuQueryButton,
+  readPlatformSpuQueryCandidates,
+  readVerifiedPlatformBrandIdentity,
+  rememberVerifiedPlatformBrandIdentity
+} from "../dist/src/business/publish-from-spu/platform-spu-query-action.js";
+import {
+  clickLocatorWithTransientUiRecovery,
+  isTransientLocatorActionabilityError
+} from "../dist/src/business/publish-from-spu/browser-session.js";
 
 const browser = await chromium.launch({ headless: true });
 try {
@@ -41,9 +53,33 @@ try {
   assert.equal(candidates.length, 1, "Hidden platform table clones must not duplicate one logical SPU row");
   assert.equal(candidates[0].publishControlActionable, true, "One visible exact row must expose one logical publish action");
   assert.equal(await page.locator(candidates[0].publishActionSelector).count(), 1, "The visible exact publish action must keep one stable DOM identity");
+
+  await page.setContent(`
+    <style>@keyframes jitter { from { transform: translateX(0) } to { transform: translateX(2px) } }</style>
+    <button id="moving" style="animation: jitter 20ms alternate infinite" onclick="this.dataset.clicked='yes'">平台标品</button>
+  `);
+  const clickMode = await clickLocatorWithTransientUiRecovery(page.locator("#moving"), 150);
+  assert.equal(await page.locator("#moving").getAttribute("data-clicked"), "yes");
+  assert.ok(["playwright", "dom_recovery"].includes(clickMode));
+
+  await page.setContent(`
+    <div style="display:none"><button>查询</button></div>
+    <button id="visible-query" onclick="this.dataset.clicked='yes'">查询</button>
+  `);
+  await clickPlatformSpuQueryButton(page, "/tmp");
+  assert.equal(
+    await page.locator("#visible-query").getAttribute("data-clicked"),
+    "yes",
+    "the platform query action must ignore hidden responsive clones and click the sole visible button"
+  );
 } finally {
   await browser.close();
 }
+
+assert.equal(
+  isTransientLocatorActionabilityError("locator.click: Timeout 5000ms exceeded - waiting for element to be visible, enabled and stable"),
+  true
+);
 
 assert.deepEqual(
   resolveExactPlatformBrandCandidateSequence("龙仕康", [
@@ -55,6 +91,35 @@ assert.deepEqual(
   ]),
   ["1687557066", "818197274", "889642166"],
   "Exact same-name brand identities must be frozen once in dropdown order and deduplicated by stable option identity"
+);
+assert.deepEqual(
+  prioritizeVerifiedPlatformBrandIdentity(["wrong-first", "verified", "other"], "verified"),
+  ["verified", "wrong-first", "other"],
+  "a previously verified brand identity must be tried first for the same brand/SPU contract"
+);
+assert.deepEqual(
+  prioritizeVerifiedPlatformBrandIdentity(["first", "second"], "stale"),
+  ["first", "second"],
+  "a stale preference must not invent or suppress current exact brand candidates"
+);
+const preferenceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "platform-brand-preference-"));
+const preferenceRuntime = path.join(preferenceRoot, "publish", "target-a");
+fs.mkdirSync(preferenceRuntime, { recursive: true });
+const preferenceRequest = {
+  brand: "圣迪",
+  spu: "国药准字H32022355",
+  specificationMatch: "ignore"
+};
+rememberVerifiedPlatformBrandIdentity(preferenceRuntime, preferenceRequest, "verified-brand-id", "2026-09-19T00:00:00.000Z");
+assert.equal(
+  readVerifiedPlatformBrandIdentity(path.join(preferenceRoot, "publish", "target-b"), preferenceRequest),
+  "verified-brand-id",
+  "verified brand identity must persist across publish targets in the same exact run"
+);
+assert.equal(
+  readVerifiedPlatformBrandIdentity(path.join(preferenceRoot, "another-run", "publish", "target-b"), preferenceRequest),
+  "",
+  "verified brand identity must not leak into another run"
 );
 
 assert.equal(

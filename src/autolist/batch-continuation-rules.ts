@@ -10,12 +10,16 @@ import {
 } from "./external-service-recovery-rules.js";
 import { isDoudianLoginRequiredFailure } from "./doudian-login-recovery-rules.js";
 import { resolveMissingSpecTemplateHermesMessage } from "./spec-template-status-rules.js";
+import { normalizeAutoListingControllerDisplayProductName } from "./controller-display-name-rules.js";
 import { isPreSubmitMainImageUploadFailure } from "../business/publish-from-spu/publish-rules.js";
 export { formatAutoListingControllerExternalServiceWaitSummary } from "./doudian-login-recovery-rules.js";
 export { shouldExposePublishProgressInAutoListingControllerStatus } from "./status-progress-rules.js";
+export { normalizeAutoListingControllerDisplayProductName } from "./controller-display-name-rules.js";
 export {
   isRetryableExternalServiceAvailabilityFailure,
+  resolveExternalServiceProbePollMs,
   resolveSupervisorRecoveryDelayMs,
+  shouldProbeImageGenerationEndpointBeforeSupervisorRetry,
   shouldConsumeSupervisorRecoveryAttempt
 } from "./external-service-recovery-rules.js";
 export type FeishuBatchContinuationInput = {
@@ -26,7 +30,7 @@ export function shouldContinueFeishuBatchAfterChildExit(input: FeishuBatchContin
   return input.exitCode === 0 && !input.batchComplete;
 }
 export type SupervisorChildMode = "resume" | "full";
-
+export { selectLatestUnresolvedPublishAttemptEntry } from "./publish-attempt-selection-rules.js";
 export type SupervisorFullFlowContinuationInput = FeishuBatchContinuationInput & {
   childMode: SupervisorChildMode;
 };
@@ -74,7 +78,7 @@ function isRetryablePublishPageFailure(message: string): boolean {
   }
   return (
     /failed at published|publish failed|publish flow stopped/i.test(message) &&
-    (/基础信息模块未完成|Basic info gate failed|input not found on publish page|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|page context was lost|Execution context was destroyed|Target closed/i.test(
+    (/基础信息模块未完成|Basic info gate failed|input not found on publish page|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Brand candidate selection did not commit|Visible query button was not unique or clickable|Detail image prefill clear was not confirmed by DOM readback|page context was lost|Execution context was destroyed|Target closed/i.test(
       message
     ) || isDeterministicDetailQualificationFailure(message) || isRetryablePreSubmitShippingPreconditionFailure(message) || isRetryableShopContextAvailabilityFailure(message) || isPreSubmitMainImageUploadFailure(message))
   );
@@ -100,23 +104,30 @@ function isSafeResumeTransitionFailure(message: string): boolean {
 function isSafeManifestBackedPublishResumeFailure(message: string): boolean {
   const publishStage = /failed at published|publish failed|publish flow stopped/i.test(message);
   const imageGate = /Main image completion gate failed|Main images must already satisfy 1:1 ratio|main_image_shape_invalid/i.test(message);
-  const knownPublishGate = /基础信息模块未完成|Basic info gate failed|input not found on publish page|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete/i.test(message) || isRetryableShopContextAvailabilityFailure(message);
+  const knownPublishGate = /基础信息模块未完成|Basic info gate failed|input not found on publish page|publish create page did not become ready|publish create page has no publish sections after SPU query|Platform SPU query page was not ready|Platform SPU query controls are incomplete|Brand candidate selection did not commit|Visible query button was not unique or clickable|Detail image prefill clear was not confirmed by DOM readback/i.test(message) || isRetryableShopContextAvailabilityFailure(message);
   return publishStage && (imageGate || (isRetryablePublishPageFailure(message) &&
     (knownPublishGate || isDeterministicDetailQualificationFailure(message) || isRetryablePreSubmitShippingPreconditionFailure(message))));
 }
 
-export function resolveSupervisorRecoveryChildMode(failureMessage: string): SupervisorChildMode {
-  return isSafeResumeTransitionFailure(failureMessage) || isSafeManifestBackedPublishResumeFailure(failureMessage) || isPreSubmitMainImageUploadFailure(failureMessage)
+export function resolveSupervisorRecoveryChildMode(
+  failureMessage: string,
+  publishAttemptState: "not_attempted" | "attempted_or_unknown" = "attempted_or_unknown"
+): SupervisorChildMode {
+  const durablePreSubmitPublishFailure =
+    publishAttemptState === "not_attempted" &&
+    /failed at published|publish failed|publish flow stopped/i.test(failureMessage);
+  const exactMainImageResume = /main_images_generated|image generation|main image|videos-base64/i.test(failureMessage);
+  return exactMainImageResume || /provider_log_(?:lookup_unavailable|outcome_pending)/i.test(failureMessage) || isSafeResumeTransitionFailure(failureMessage) || isSafeManifestBackedPublishResumeFailure(failureMessage) || isPreSubmitMainImageUploadFailure(failureMessage) || durablePreSubmitPublishFailure
     ? "resume"
     : "full";
 }
 
 export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuBatchRetryAfterFailureInput): boolean {
-  const retryableFailureMessage = input.retryableFailureMessage || "";
+  const retryableFailureMessage = input.retryableFailureMessage || ""; const providerReconciliationWait = /provider_log_(?:lookup_unavailable|outcome_pending)|provider_task_login_required/i.test(retryableFailureMessage); const reconciledLedgerExternalWait = /paid_image_ledger_safe_external_wait:\s*ambiguous=0,\s*reserved=0\b/i.test(retryableFailureMessage) && isRetryableExternalServiceAvailabilityFailure(retryableFailureMessage);
   if (
     input.exitCode === 0 || input.batchComplete ||
-    isUnsafePaidImageReplayReason(retryableFailureMessage) ||
-    isPaidImageSubmissionSafetyBlock(retryableFailureMessage) ||
+    isUnsafePaidImageReplayReason(retryableFailureMessage) && !providerReconciliationWait && !reconciledLedgerExternalWait ||
+    isPaidImageSubmissionSafetyBlock(retryableFailureMessage) && !providerReconciliationWait ||
     /please contact administrator/i.test(retryableFailureMessage)
   ) {
     return false;
@@ -147,6 +158,7 @@ export type SupervisorFullFlowRecoveryInput = FeishuBatchRetryAfterFailureInput 
 };
 
 export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlowRecoveryInput): boolean {
+  if (/Spec template field root was not found|No spec template option exactly matched Feishu value/i.test(input.retryableFailureMessage || "")) return false;
   if (!shouldResumeFeishuBatchAfterRetryableChildFailure(input)) {
     return false;
   }
@@ -161,11 +173,15 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
   const safePreSubmitMainImageResume =
     isPreSubmitMainImageUploadFailure(failureMessage) &&
     input.publishAttemptState === "not_attempted";
+  const safeDurablePreSubmitResume =
+    input.publishAttemptState === "not_attempted" &&
+    /failed at published|publish failed|publish flow stopped/i.test(failureMessage);
   if (
     /published|Publishing product folder|Retrying publish|Publish failed/i.test(activeText) &&
     !safeManifestBackedPublishResume &&
     !safePreSubmitWatchdogResume &&
-    !safePreSubmitMainImageResume
+    !safePreSubmitMainImageResume &&
+    !safeDurablePreSubmitResume
   ) {
     return false;
   }
@@ -178,6 +194,7 @@ export function shouldRecoverFullFlowAfterChildFailure(input: SupervisorFullFlow
     safeManifestBackedPublishResume ||
     safePreSubmitWatchdogResume ||
     safePreSubmitMainImageResume ||
+    safeDurablePreSubmitResume ||
     input.childMode === "resume" && retryablePublishFailure ||
     isChildWatchdogFailure(failureMessage)
   );
@@ -510,7 +527,7 @@ export function shouldExposeHistoricalRuntimeForCurrentFeishuBatch(input: {
 export function resolveAutoListingControllerStartAfterFeishuRefresh(
   input: AutoListingControllerStartAfterFeishuRefreshInput
 ): AutoListingControllerStartAfterFeishuRefreshDecision {
-  if (input.forceRerunCurrentBatch && input.currentBatchComplete && !input.refreshedBatchChanged) {
+  if (input.forceRerunCurrentBatch && !input.refreshedBatchChanged) {
     return "rerun_current_batch";
   }
   if (input.refreshedBatchChanged || !input.refreshedBatchComplete) {
@@ -1125,18 +1142,7 @@ function normalizeAutoListingControllerStatusLabel(status?: string): string {
 }
 
 function cleanAutoListingControllerProductName(name?: string): string {
-  const base = (name || "").split(/[\\/]/).pop() || "";
-  const withoutExtension = base.replace(/\.(png|jpe?g|webp)$/i, "");
-  const productFolderMatch = withoutExtension.match(/^(.+?)-rec[a-zA-Z0-9]+-水印\d+$/i);
-  if (productFolderMatch?.[1]) {
-    return productFolderMatch[1].trim();
-  }
-  return withoutExtension
-    .replace(/\.(png|jpe?g|webp)$/i, "")
-    .replace(/^[^-]+-/, "")
-    .replace(/-白底图-\d+$/i, "")
-    .replace(/水印\d+$/i, "")
-    .trim() || "未知商品";
+  return normalizeAutoListingControllerDisplayProductName(name);
 }
 
 function publishGroupNameFromFolder(folder?: string): string {
@@ -1325,7 +1331,7 @@ function compactAutoListingControllerReason(summary?: string): string {
   }
   const mainImageReadbackFailure = /Main image slots did not contain\s+(\d+)\s+images after upload;\s*actual=(\d+)/i.exec(text);
   if (mainImageReadbackFailure) return `主图上传失败：最终读回 ${Number(mainImageReadbackFailure[2])}/${Number(mainImageReadbackFailure[1])} 张，已安全停止。`;
-  if (/Spec template field root was not found in 商品规格\/规格模板 DOM structure/i.test(text)) return "当前商品发布页缺少规格模板栏；续跑会关闭异常发布页，返回标品管理重新输入品牌和 SPU 后重建当前目标。";
+  if (/Spec template field root was not found in 商品规格\/规格模板 DOM structure/i.test(text)) return "当前商品发布页缺少规格模板栏；已保留断点，请人工修改后继续上架。";
   if (/Price\/inventory verification failed|价格库存模块未完成/i.test(text)) {
     return "价格库存读回校验失败，已停止；需重试失败水印，三次仍失败则人工处理。";
   }

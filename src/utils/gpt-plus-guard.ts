@@ -35,15 +35,36 @@ export function assertNoGptPlusWebPages(context: BrowserContext): void {
   }
 }
 
-export async function installGptPlusQuotaGuard(context: BrowserContext): Promise<void> {
+async function quarantineGptPlusWebPages(context: BrowserContext): Promise<void> {
+  const blockedPages = context.pages().filter((page) => !page.isClosed() && isGptPlusWebUrl(page.url()));
+  for (const page of blockedPages) {
+    const url = page.url();
+    logWarn(`GPT Plus quota guard closing disallowed automation-browser page: ${url}`);
+    await page.close({ runBeforeUnload: false }).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`GPT Plus quota guard could not quarantine ${url}: ${message}`);
+    });
+  }
   assertNoGptPlusWebPages(context);
+}
+
+export async function installGptPlusQuotaGuard(context: BrowserContext): Promise<void> {
   await context.route("**/*", async (route) => {
     const url = route.request().url();
     if (isGptPlusWebUrl(url)) {
       logWarn(`GPT Plus quota guard blocked browser request: ${url}`);
       await route.abort("blockedbyclient").catch(() => {});
+      try {
+        const page = route.request().frame().page();
+        if (!page.isClosed()) {
+          await page.close({ runBeforeUnload: false }).catch(() => {});
+        }
+      } catch {
+        // Service-worker and detached-frame requests do not always expose a page.
+      }
       return;
     }
     await route.continue().catch(() => {});
   });
+  await quarantineGptPlusWebPages(context);
 }

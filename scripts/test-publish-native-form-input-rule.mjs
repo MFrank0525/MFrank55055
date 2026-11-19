@@ -19,7 +19,8 @@ for (const file of criticalInputActions) {
 }
 
 const shared = fs.readFileSync("src/business/publish-from-spu/browser-session.ts", "utf8");
-assert.match(shared, /locator\.click\(\)/);
+assert.match(shared, /locator\.click\(\{ timeout: timeoutMs \}\)/);
+assert.match(shared, /clickLocatorWithTransientUiRecovery/);
 assert.match(shared, /locator\.fill\(""\)/);
 assert.match(shared, /locator\.fill\(value\)/);
 assert.match(shared, /locator\.press\(commitKey\)/);
@@ -29,14 +30,14 @@ const { fillAndCommitLocator } = await import("../dist/src/business/publish-from
 const calls = [];
 let currentValue = "";
 const locator = {
-  async scrollIntoViewIfNeeded() { calls.push("scroll"); },
+  async evaluate() { calls.push("dom-scroll"); },
   async click() { calls.push("click"); },
   async fill(value) { currentValue = value; calls.push(`fill:${value}`); },
   async press(key) { calls.push(`press:${key}`); },
   async inputValue() { calls.push("readback"); return currentValue; }
 };
 assert.equal(await fillAndCommitLocator(locator, "盒装", "Tab"), "盒装");
-assert.deepEqual(calls, ["scroll", "click", "fill:", "fill:盒装", "press:Tab", "readback"]);
+assert.deepEqual(calls, ["dom-scroll", "click", "fill:", "fill:盒装", "press:Tab", "readback"]);
 await assert.rejects(
   () => fillAndCommitLocator({ ...locator, inputValue: async () => "" }, "盒装", "Tab"),
   /readback mismatch/

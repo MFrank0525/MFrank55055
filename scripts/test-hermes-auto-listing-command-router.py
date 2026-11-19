@@ -51,6 +51,11 @@ class FakeAdapter:
         self.messages.append({"chat_id": chat_id, "content": content, **kwargs})
 
 
+class HangingAdapter:
+    async def send(self, chat_id: str, content: str, **kwargs: object) -> None:
+        await asyncio.Event().wait()
+
+
 class FakeGateway:
     def __init__(self) -> None:
         self.adapter = FakeAdapter()
@@ -105,6 +110,7 @@ async def verify_start_is_handled_without_gateway_or_llm_dispatch() -> None:
         )
         await asyncio.sleep(0)
         await asyncio.sleep(0)
+        await asyncio.sleep(0.01)
         assert gateway.actions[-1] == expected_action
         assert len(gateway.adapter.messages) > messages_before
         reply = gateway.adapter.messages[messages_before]
@@ -113,6 +119,19 @@ async def verify_start_is_handled_without_gateway_or_llm_dispatch() -> None:
             assert "已接收" in str(reply["content"])
         else:
             assert reply["content"] == f"finished:{expected_action}"
+
+    plugin.module._CONTROL_REPLY_TIMEOUT_SECONDS = 0.05
+    gateway = FakeGateway()
+    gateway.adapter = HangingAdapter()
+    gateway.adapters = {Platform.FEISHU: gateway.adapter}
+    event = Event(text="开始上架", source=Source(), message_id="hanging-reply")
+    await asyncio.wait_for(
+        plugin.module._handle_auto_listing_control(gateway, event, "start"),
+        timeout=0.5,
+    )
+    assert gateway.actions == ["start"], (
+        "A stuck acknowledgement send must never prevent the controller from starting"
+    )
 
 
 asyncio.run(verify_start_is_handled_without_gateway_or_llm_dispatch())

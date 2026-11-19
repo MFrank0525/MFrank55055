@@ -157,8 +157,13 @@ assert.doesNotMatch(
 );
 assert.match(
   radioOptionClickSource,
-  /setAttribute\(markerName, "true"\)[\s\S]*page\.locator\(`\[\$\{radioOptionMarker\}="true"\]`\)\.first\(\)\.click/,
-  "shipping radio option selection must mark the field-scoped option and click it through Playwright"
+  /setAttribute\(markerName, "true"\)[\s\S]*clickLocatorWithTransientUiRecovery\(page\.locator\(`\[\$\{radioOptionMarker\}="true"\]`\)\.first\(\), 3000\)/,
+  "shipping radio option selection must mark the field-scoped option and use transient actionability recovery"
+);
+assert.equal(
+  (radioOptionClickSource.match(/clickLocatorWithTransientUiRecovery\(/g) || []).length,
+  2,
+  "both target and alternative shipping radio transitions must use transient actionability recovery"
 );
 assert.doesNotMatch(
   radioOptionClickSource,

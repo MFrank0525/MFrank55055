@@ -1,17 +1,18 @@
 import type { Locator, Page } from "playwright";
+import { clickLocatorWithTransientUiRecovery } from "./browser-session.js";
 
 export async function clickVisibleText(page: Page, text: string): Promise<boolean> {
   const target = page.getByText(text, { exact: true }).first();
   if (!(await target.count())) {
     return false;
   }
-  return target.click({ timeout: 3000 }).then(() => true).catch(() => false);
+  return clickLocatorWithTransientUiRecovery(target, 3000).then(() => true).catch(() => false);
 }
 
 export async function clickRadioByLabel(page: Page, labelText: string): Promise<boolean> {
   const radio = page.getByRole("radio", { name: labelText }).first();
   if (await radio.count()) {
-    await radio.click({ timeout: 3000 }).catch(() => {});
+    await clickLocatorWithTransientUiRecovery(radio, 3000).catch(() => {});
     return true;
   }
 
@@ -184,7 +185,7 @@ async function dismissDoudianGuideOverlays(page: Page): Promise<void> {
     if (!action) {
       throw new Error(`Doudian guide overlay has no controlled close/advance action: text=${beforeText || "<empty>"}`);
     }
-    await action.click({ timeout: 1500 });
+    await clickLocatorWithTransientUiRecovery(action, 1500);
     await page.waitForTimeout(300);
 
     const stillVisible = await guideRoot.isVisible().catch(() => false);
@@ -218,7 +219,7 @@ export async function dismissTransientOverlays(page: Page): Promise<void> {
   await dismissDoudianGuideOverlays(page);
 
   const cropDialogVisible = await page.evaluate(() => {
-    const text = document.body.innerText || "";
+    const text = document.body?.innerText || "";
     return text.includes("\u667a\u80fd\u88c1\u526a\u4e3a3:4\u4e3b\u56fe") || text.includes("\u5f53\u524d\u8fd8\u67093\u5f20\u56fe\u7247\u4e0d\u662f3:4\u6bd4\u4f8b");
   });
   if (cropDialogVisible && (await clickVisibleText(page, "\u53d6\u6d88"))) {
@@ -293,7 +294,7 @@ export async function dismissTransientOverlays(page: Page): Promise<void> {
   }
 
   const closedAiAssistant = await page.evaluate(() => {
-    const bodyText = document.body.innerText || "";
+    const bodyText = document.body?.innerText || "";
     if (!bodyText.includes("\u0041\u0049\u52a9\u624b")) {
       return false;
     }

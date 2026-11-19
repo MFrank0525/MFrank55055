@@ -90,7 +90,8 @@ export type BasicInfoActionDeps = Pick<
   ) => Promise<{ ok: boolean }>;
   uploadHealthFoodOuterPackagingOnPage: (
     page: Page,
-    detailImages: string[]
+    detailImages: string[],
+    runtimeDir: string
   ) => Promise<{ ok: boolean }>;
   fillHealthFoodCategoryAttributesOnPage: (
     page: Page,
@@ -106,7 +107,8 @@ export type GraphicInfoActionDeps = Pick<
     page: Page,
     runtimeDir: string,
     assets: ProductAssets,
-    fileName: string
+    fileName: string,
+    options?: { preserveExistingMainImages?: boolean }
   ) => Promise<{ screenshotFile: string; uploadedGroups: string[]; uploadIssue: string }>;
   graphicUploadGroupsComplete: (uploadedGroups: string[]) => boolean;
   resetGraphicModuleOnPage: (page: Page, runtimeDir: string, screenshotFileName: string) => Promise<string>;

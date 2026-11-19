@@ -105,6 +105,7 @@ import {
   evaluatePlatformSpuQueryPageReadiness,
   evaluatePublishSubmission,
   evaluatePublishSubmissionAfterAction,
+  selectTitlePolicyFallbackTitles,
   isKnownCategoryModificationPublishPrompt,
   isKnownCategoryValidationPublishRetryState,
   resolvePublishFillCheckDialogAction,
@@ -144,7 +145,7 @@ async function runPublishCheck(
     await page.waitForTimeout(2000);
 
     const summary = await page.evaluate(() => {
-      const bodyText = document.body.innerText || "";
+      const bodyText = document.body?.innerText || "";
       const lines = bodyText
         .split(/\r?\n/)
         .map((line) => line.trim())
@@ -285,7 +286,7 @@ export async function runPublishCheckOnPage(
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       summary = await activePage.evaluate((freightKeyword) => {
-    const bodyText = document.body.innerText || "";
+    const bodyText = document.body?.innerText || "";
     const lines = bodyText
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -536,7 +537,7 @@ async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolea
   for (let attempt = 0; attempt < 8; attempt += 1) {
     await page.waitForTimeout(1500).catch(() => {});
     const beforeDismiss = await readPublishSubmissionState(page).catch(() => null);
-    if (beforeDismiss && (beforeDismiss.submitted || /系统异常|规格值不能重复/.test(beforeDismiss.issue || ""))) {
+    if (beforeDismiss && (beforeDismiss.submitted || /系统异常|规格值不能重复|商品标题描述.*不符合平台要求|导购短标题.*(?:12个汉字|24字符)/.test(beforeDismiss.issue || ""))) {
       return beforeDismiss;
     }
     await clickVisibleDialogAction(page, ["不修改，继续发布", "确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
@@ -548,7 +549,7 @@ async function waitForPublishSubmission(page: Page): Promise<{ submitted: boolea
     if (state.submitted) {
       return state;
     }
-    if (/系统异常|规格值不能重复/.test(state.issue || "")) {
+    if (/系统异常|规格值不能重复|商品标题描述.*不符合平台要求|导购短标题.*(?:12个汉字|24字符)/.test(state.issue || "")) {
       return state;
     }
   }
@@ -624,7 +625,7 @@ async function waitForPublishSubmissionFromContext(
       if (beforeDismiss?.submitted) {
         return { page: candidate, submitted: true, issue: "" };
       }
-      if (beforeDismiss && /系统异常|规格值不能重复/.test(beforeDismiss.issue || "")) {
+      if (beforeDismiss && /系统异常|规格值不能重复|商品标题描述.*不符合平台要求|导购短标题.*(?:12个汉字|24字符)/.test(beforeDismiss.issue || "")) {
         return { page: candidate, submitted: false, issue: beforeDismiss.issue };
       }
       await clickVisibleDialogAction(candidate, ["不修改，继续发布", "确认发布", "继续发布", "确定", "确认", "我知道了"]).catch(() => false);
@@ -640,7 +641,7 @@ async function waitForPublishSubmissionFromContext(
       if (state.submitted) {
         return { page: candidate, submitted: true, issue: "" };
       }
-      if (/系统异常|规格值不能重复/.test(state.issue || "")) {
+      if (/系统异常|规格值不能重复|商品标题描述.*不符合平台要求|导购短标题.*(?:12个汉字|24字符)/.test(state.issue || "")) {
         return { page: candidate, submitted: false, issue: state.issue };
       }
     }
@@ -1112,6 +1113,43 @@ export async function clickPublishProductOnPage(
                 `needs_manual_intervention: 类目提醒在重新生成标题并有界重试 ${CATEGORY_TITLE_FALLBACK_LIMIT} 次后仍未消失，请人工干预。`
               );
             }
+          }
+        }
+        let titlePolicyState = await readPublishSubmissionState(activePage).catch(() => ({ submitted: false, issue: "" }));
+        if (!titlePolicyState.submitted && /商品标题描述.*不符合平台要求/.test(titlePolicyState.issue)) {
+          const fallbackTitles = selectTitlePolicyFallbackTitles({
+            currentTitle: effectiveTitle,
+            candidateTitles: options.categoryFallbackTitles,
+            rejectionIssue: titlePolicyState.issue,
+            limit: CATEGORY_TITLE_FALLBACK_LIMIT
+          });
+          if (!fallbackTitles.length) {
+            throw new Error(`needs_manual_intervention: ${titlePolicyState.issue}; no Feishu-derived fallback title excludes the rejected phrase.`);
+          }
+          for (let titleAttempt = 0; titleAttempt < fallbackTitles.length; titleAttempt += 1) {
+            const fallbackTitle = fallbackTitles[titleAttempt];
+            if (!(await setBasicPublishFieldValue(activePage, "title", fallbackTitle))) {
+              throw new Error("needs_manual_intervention: title-policy fallback could not be written to the unique 商品标题 field.");
+            }
+            effectiveTitle = fallbackTitle;
+            await activePage.waitForTimeout(1200).catch(() => {});
+            const fallbackPublishButton = activePage
+              .getByRole("button", { name: "发布商品", exact: true })
+              .filter({ visible: true });
+            if ((await fallbackPublishButton.count()) !== 1) {
+              throw new Error("needs_manual_intervention: 发布商品 button was not unique after replacing a rejected title.");
+            }
+            await fallbackPublishButton.click({ timeout: 5000, trial: true });
+            await clickPublishAndDismissNativeCategoryPrompt(activePage, fallbackPublishButton);
+            publishClickAttempted = true;
+            logInfo(`title-policy fallback ${titleAttempt + 1}/${CATEGORY_TITLE_FALLBACK_LIMIT} submitted: ${fallbackTitle}`);
+            titlePolicyState = await waitForPublishSubmission(activePage);
+            if (titlePolicyState.submitted || !/商品标题描述.*不符合平台要求/.test(titlePolicyState.issue)) break;
+          }
+          if (!titlePolicyState.submitted && /商品标题描述.*不符合平台要求/.test(titlePolicyState.issue)) {
+            throw new Error(
+              `needs_manual_intervention: title policy rejection remained after ${fallbackTitles.length} Feishu-derived fallback title attempt(s): ${titlePolicyState.issue}`
+            );
           }
         }
         if (activePage.isClosed()) {

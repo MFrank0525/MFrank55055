@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   approvePaidImageRechargeRetry,
+  isPaidImageRechargeQuotaRejection,
   readPaidImageProductLedger,
   readPaidImageSlotRecord
 } from "../autolist/paid-image-submission-ledger.js";
@@ -62,8 +63,7 @@ function main(): void {
       || record.replayDisposition !== "non_replayable"
       || record.providerTaskId
       || record.providerResponseSummary
-      || !/HTTP\s*403/i.test(originalReason)
-      || !/insufficient_user_quota|用户额度不足/i.test(originalReason)
+      || !isPaidImageRechargeQuotaRejection(originalReason)
     ) {
       throw new Error(`paid image slot ${slots[index]} is not recharge-recoverable`);
     }

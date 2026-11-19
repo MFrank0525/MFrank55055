@@ -23,6 +23,44 @@ export function isNavigationContextDestroyedError(error: unknown): boolean {
   return /Execution context was destroyed|Cannot find context|Most likely because of a navigation/i.test(message);
 }
 
+export function isTransientLocatorActionabilityError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /locator\.(?:click|scrollIntoViewIfNeeded): Timeout|waiting for element to be (?:visible, enabled and )?stable|attempting scroll into view action/i.test(
+    message
+  );
+}
+
+/**
+ * Doudian frequently keeps otherwise actionable controls in a small layout
+ * animation. Playwright then waits for geometric stability until its timeout,
+ * even though the exact DOM control is visible and enabled. Keep the normal
+ * trusted click first, but recover that one narrow failure with an identity-
+ * preserving DOM click. Every caller must still verify the resulting UI state.
+ */
+export async function clickLocatorWithTransientUiRecovery(
+  locator: Locator,
+  timeoutMs = 3000
+): Promise<"playwright" | "dom_recovery"> {
+  await locator.evaluate((node) => node.scrollIntoView({ block: "center", inline: "nearest" })).catch(() => {});
+  try {
+    await locator.click({ timeout: timeoutMs });
+    return "playwright";
+  } catch (error) {
+    if (!isTransientLocatorActionabilityError(error)) {
+      throw error;
+    }
+    await locator.evaluate((node) => {
+      const element = node as HTMLElement;
+      if (element.getAttribute("aria-disabled") === "true" || element.hasAttribute("disabled")) {
+        throw new Error("Refusing DOM recovery click on a disabled control.");
+      }
+      element.scrollIntoView({ block: "center", inline: "nearest" });
+      element.click();
+    });
+    return "dom_recovery";
+  }
+}
+
 const safeDialogHandlers = new WeakMap<Page, (dialog: Dialog) => void>();
 
 export function attachSafeDialogHandler(page: Page): void {
@@ -52,8 +90,7 @@ export async function fillAndCommitLocator(
   commitKey: "Tab" | "Enter" = "Tab"
 ): Promise<string> {
   const expected = value.trim();
-  await locator.scrollIntoViewIfNeeded();
-  await locator.click();
+  await clickLocatorWithTransientUiRecovery(locator);
   await locator.fill("");
   await locator.fill(value);
   await locator.press(commitKey);

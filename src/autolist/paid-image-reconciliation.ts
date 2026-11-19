@@ -84,7 +84,68 @@ export interface ProviderBilledTaskMatch {
   status: string;
 }
 
-const PROVIDER_NO_ACCEPTANCE_GATEWAY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+export interface ProviderTaskListAcceptanceGapInput {
+  model: string;
+  ambiguousSlot: number;
+  queryPage: number;
+  queryPageSize: number;
+  queryTotal: number;
+  windowStart: number;
+  windowEnd: number;
+  knownProviderTaskIds: string[];
+  tasks: ProviderTaskListEntry[];
+}
+
+const PROVIDER_NO_ACCEPTANCE_GATEWAY_STATUSES = new Set([500, 502, 503, 504, 520, 521, 522, 523, 524]);
+
+function parseNestedProviderJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+export function isProviderAmbiguousAvailabilityResponse(input: {
+  status: number;
+  responseText: string;
+}): boolean {
+  if (!isProviderNoAcceptanceGatewayStatus(input.status)) return false;
+  let current: unknown;
+  try {
+    current = JSON.parse(input.responseText);
+  } catch {
+    return false;
+  }
+  for (let depth = 0; depth < 6; depth += 1) {
+    const parsed = parseNestedProviderJson(current);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    const record = parsed as Record<string, unknown>;
+    const error = record.error && typeof record.error === "object" && !Array.isArray(record.error)
+      ? record.error as Record<string, unknown>
+      : undefined;
+    if (error) {
+      const details = error.details && typeof error.details === "object" && !Array.isArray(error.details)
+        ? error.details as Record<string, unknown>
+        : undefined;
+      const requestId = String(details?.request_id ?? error.request_id ?? "").trim();
+      return error.code === "system_unavailable"
+        && error.retryable === true
+        && error.category === "system"
+        && details?.retryable === true
+        && /^client_request_[A-Za-z0-9_-]{8,200}$/.test(requestId);
+    }
+    if (record.code === "do_request_failed") {
+      return input.status === 500
+        && record.data === null
+        && record.message === "do request failed: upstream error: do request failed";
+    }
+    if (record.code !== "fail_to_fetch_task" || record.data !== null || record.message === undefined) return false;
+    current = record.message;
+  }
+  return false;
+}
 
 function providerTaskId(task: ProviderTaskListEntry): string {
   return [task.task_id, task.taskId, task.id]
@@ -179,6 +240,88 @@ export function matchBilledProviderTasks(input: {
   return input.billedSlots.map((slot) => assigned.get(slot.slot) as ProviderBilledTaskMatch);
 }
 
+function normalizeProviderTaskListGap(input: ProviderTaskListAcceptanceGapInput, options?: {
+  allowEmptyKnownTaskSet?: boolean;
+}): Array<{
+  taskId: string; taskCreatedAt: number; status: string;
+}> {
+  if (!input.model.trim() || !Number.isInteger(input.ambiguousSlot) || input.ambiguousSlot <= 0) {
+    throw new Error("provider task-list acceptance gap has invalid model or slot identity");
+  }
+  if (
+    input.queryPage !== 1 ||
+    !Number.isInteger(input.queryPageSize) || input.queryPageSize <= 1 ||
+    !Number.isInteger(input.queryTotal) ||
+    input.queryTotal !== input.tasks.length ||
+    input.tasks.length >= input.queryPageSize
+  ) {
+    throw new Error("provider task-list acceptance gap requires one complete first page with consistent pagination metadata");
+  }
+  if (!Number.isFinite(input.windowStart) || !Number.isFinite(input.windowEnd) || input.windowEnd <= input.windowStart) {
+    throw new Error("provider task-list acceptance gap has an invalid bounded submission window");
+  }
+  const known = new Set(input.knownProviderTaskIds.filter(Boolean));
+  if (known.size !== input.knownProviderTaskIds.length || (known.size === 0 && !options?.allowEmptyKnownTaskSet)) {
+    throw new Error("provider task-list acceptance gap requires a non-empty unique known provider task set");
+  }
+  const normalized = input.tasks.map((task) => {
+    const taskId = providerTaskId(task);
+    const timestamps = providerTaskTimestampCandidates(task).filter(
+      (value) => value >= input.windowStart && value <= input.windowEnd
+    );
+    const model = String(task.model ?? task.model_name ?? "").trim();
+    const status = String(task.status ?? task.state ?? "").trim();
+    if (!taskId || timestamps.length === 0 || (model && model !== input.model) || !status) {
+      throw new Error("provider task-list acceptance gap contains an invalid task row");
+    }
+    return { taskId, taskCreatedAt: Math.min(...timestamps), status };
+  });
+  if (new Set(normalized.map((task) => task.taskId)).size !== normalized.length) {
+    throw new Error("provider task-list acceptance gap contains duplicate provider task ids");
+  }
+  const returnedKnown = new Set(normalized.filter((task) => known.has(task.taskId)).map((task) => task.taskId));
+  if (returnedKnown.size !== known.size || [...known].some((taskId) => !returnedKnown.has(taskId))) {
+    throw new Error("provider task-list acceptance gap does not exactly cover the known provider task set");
+  }
+  return normalized.filter((task) => !known.has(task.taskId));
+}
+
+export function matchProviderTaskListAcceptanceGap(
+  input: ProviderTaskListAcceptanceGapInput
+): ProviderBilledTaskMatch {
+  const unknown = normalizeProviderTaskListGap(input);
+  if (unknown.length !== 1) {
+    throw new Error(`provider task-list acceptance gap requires exactly one unknown provider task; found ${unknown.length}`);
+  }
+  if (/^(?:fail|failed|failure|cancelled|canceled|error|rejected)$/i.test(unknown[0].status)) {
+    throw new Error("provider task-list acceptance gap cannot automatically recover a terminal failed task");
+  }
+  return { slot: input.ambiguousSlot, ...unknown[0], clockSkewMs: 0 };
+}
+
+export function matchProviderTaskListTerminalFailureGap(
+  input: ProviderTaskListAcceptanceGapInput
+): ProviderBilledTaskMatch {
+  const unknown = normalizeProviderTaskListGap(input);
+  if (unknown.length !== 1) {
+    throw new Error(`provider task-list terminal failure gap requires exactly one unknown provider task; found ${unknown.length}`);
+  }
+  if (!/^(?:fail|failed|failure|cancelled|canceled|error|rejected)$/i.test(unknown[0].status)) {
+    throw new Error("provider task-list terminal failure gap requires an explicit terminal failed task");
+  }
+  return { slot: input.ambiguousSlot, ...unknown[0], clockSkewMs: 0 };
+}
+
+export function matchProviderTaskListNoAcceptanceGap(
+  input: ProviderTaskListAcceptanceGapInput
+): { slot: number } {
+  const unknown = normalizeProviderTaskListGap(input, { allowEmptyKnownTaskSet: true });
+  if (unknown.length !== 0) {
+    throw new Error(`provider task-list no-acceptance gap requires exactly zero unknown provider tasks; found ${unknown.length}`);
+  }
+  return { slot: input.ambiguousSlot };
+}
+
 function providerLogOther(log: ProviderTokenLogEntry): Record<string, unknown> {
   if (log.other && typeof log.other === "object" && !Array.isArray(log.other)) {
     return log.other as Record<string, unknown>;
@@ -232,7 +375,7 @@ export function excludeKnownAcceptedProviderLogs(input: {
   if (input.acceptedSlots.length === 0) {
     return { logs: [...input.logs], excluded: [] };
   }
-  const candidatesBySlot = input.acceptedSlots.map((slot) => {
+  const candidatesBySlot = input.acceptedSlots.map((slot, attemptIndex) => {
     const submittedAtMs = Date.parse(slot.submittedAt);
     if (!Number.isInteger(slot.slot) || slot.slot <= 0 || !Number.isFinite(submittedAtMs)) {
       throw new Error(`known accepted slot ${slot.slot} has invalid submittedAt evidence`);
@@ -257,7 +400,7 @@ export function excludeKnownAcceptedProviderLogs(input: {
       throw new Error(`known accepted slot ${slot.slot} has no matching billed provider log`);
     }
     candidates.sort((left, right) => left.clockSkewMs - right.clockSkewMs || left.logId.localeCompare(right.logId, undefined, { numeric: true }));
-    return { slot: slot.slot, candidates };
+    return { slot: slot.slot, attemptIndex, candidates };
   });
   const relevantLogIds = new Set(candidatesBySlot.flatMap((entry) => entry.candidates.map((candidate) => candidate.logId)));
   if (relevantLogIds.size !== input.acceptedSlots.length) {
@@ -274,9 +417,9 @@ export function excludeKnownAcceptedProviderLogs(input: {
     for (const candidate of entry.candidates) {
       if (usedLogIds.has(candidate.logId)) continue;
       usedLogIds.add(candidate.logId);
-      assigned.set(entry.slot, candidate);
+      assigned.set(entry.attemptIndex, candidate);
       if (findMatching(index + 1)) return true;
-      assigned.delete(entry.slot);
+      assigned.delete(entry.attemptIndex);
       usedLogIds.delete(candidate.logId);
     }
     return false;
@@ -284,7 +427,7 @@ export function excludeKnownAcceptedProviderLogs(input: {
   if (!findMatching(0)) {
     throw new Error("provider logs do not form a one-to-one set for known accepted slots");
   }
-  const excluded = input.acceptedSlots.map((slot) => assigned.get(slot.slot) as ProviderKnownAcceptedLogMatch);
+  const excluded = input.acceptedSlots.map((_, attemptIndex) => assigned.get(attemptIndex) as ProviderKnownAcceptedLogMatch);
   const excludedLogIds = new Set(excluded.map((match) => match.logId));
   return {
     logs: input.logs.filter((log) => !excludedLogIds.has(String(log.id ?? "").trim())),
@@ -294,6 +437,7 @@ export function excludeKnownAcceptedProviderLogs(input: {
 
 export function matchProviderBilledAcceptanceAfterGateway(input: {
   model: string;
+  maximumPreResponseSkewMs?: number;
   maximumPostResponseLagMs: number;
   slots: ProviderNoAcceptanceSlotEvidence[];
   logs: ProviderTokenLogEntry[];
@@ -303,6 +447,10 @@ export function matchProviderBilledAcceptanceAfterGateway(input: {
   }
   if (!Number.isFinite(input.maximumPostResponseLagMs) || input.maximumPostResponseLagMs < 0) {
     throw new Error("maximumPostResponseLagMs must be a non-negative finite number");
+  }
+  const maximumPreResponseSkewMs = input.maximumPreResponseSkewMs ?? 0;
+  if (!Number.isFinite(maximumPreResponseSkewMs) || maximumPreResponseSkewMs < 0) {
+    throw new Error("maximumPreResponseSkewMs must be a non-negative finite number");
   }
   const candidatesBySlot = input.slots.map((slot) => {
     const responseAtMs = Date.parse(slot.updatedAt);
@@ -319,7 +467,8 @@ export function matchProviderBilledAcceptanceAfterGateway(input: {
       const createdAtSeconds = Number(log.created_at);
       const logId = String(log.id ?? "").trim();
       const postResponseLagMs = createdAtSeconds * 1000 - responseAtMs;
-      return accepted && logId && Number.isFinite(createdAtSeconds) && postResponseLagMs >= 0 && postResponseLagMs <= input.maximumPostResponseLagMs
+      return accepted && logId && Number.isFinite(createdAtSeconds) &&
+        postResponseLagMs >= -maximumPreResponseSkewMs && postResponseLagMs <= input.maximumPostResponseLagMs
         ? [{
             slot: slot.slot,
             logId,
@@ -497,6 +646,26 @@ export async function matchProviderNoAcceptanceLogsWithRefresh(input: {
 export function validatePaidImageProviderTaskForReconciliation(
   input: PaidImageProviderTaskReconciliationInput
 ): PaidImageProviderTaskReconciliation {
+  const verified = validatePaidImageProviderTaskIdentityAndTime(input);
+  if (/fail|error|cancel|reject/.test(verified.status)) {
+    throw new Error(`failed provider task ${verified.taskId} cannot reconcile an ambiguous paid image slot: ${verified.status}`);
+  }
+  return verified;
+}
+
+export function validatePaidImageFailedProviderTaskForReconciliation(
+  input: PaidImageProviderTaskReconciliationInput
+): PaidImageProviderTaskReconciliation {
+  const verified = validatePaidImageProviderTaskIdentityAndTime(input);
+  if (!/fail|error|cancel|reject/.test(verified.status)) {
+    throw new Error(`provider task ${verified.taskId} is not an explicit terminal failure: ${verified.status}`);
+  }
+  return verified;
+}
+
+function validatePaidImageProviderTaskIdentityAndTime(
+  input: PaidImageProviderTaskReconciliationInput
+): PaidImageProviderTaskReconciliation {
   const payload = input.payload as { id?: unknown; status?: unknown; data?: { id?: unknown; status?: unknown } };
   const taskId = String(payload?.id ?? payload?.data?.id ?? "").trim();
   const status = String(payload?.status ?? payload?.data?.status ?? "").trim().toLowerCase();
@@ -505,9 +674,6 @@ export function validatePaidImageProviderTaskForReconciliation(
   }
   if (!status) {
     throw new Error(`provider task ${taskId} did not include a status`);
-  }
-  if (/fail|error|cancel|reject/.test(status)) {
-    throw new Error(`failed provider task ${taskId} cannot reconcile an ambiguous paid image slot: ${status}`);
   }
   if (input.slotCreatedAt) {
     const providerCreatedAtSeconds = Number((payload as { created_at?: unknown; data?: { created_at?: unknown } })?.created_at ??

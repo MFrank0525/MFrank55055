@@ -2,12 +2,12 @@ import type { Page } from "playwright";
 import { dismissTransientOverlays } from "./dom-actions.js";
 import {
   clearDetailImagePreviewsStrict,
-  clearGraphicSectionPreviewsStrict,
+  clearMainImagePreviewsStrict,
   countDetailImagePreviews,
   countMainImagePreviews,
   resolveExactMainImageFieldRoot
 } from "./graphic-section-preview-action.js";
-import { dismissCategoryAdviceOverlayWithoutMutation } from "./category-advice-overlay-action.js";
+import { resolveCategoryAdviceOverlaySafely } from "./category-advice-overlay-action.js";
 
 export async function clearMainImagePrefillAndConfirmEmpty(page: Page): Promise<number> {
   if (!(await resolveExactMainImageFieldRoot(page))) {
@@ -15,7 +15,7 @@ export async function clearMainImagePrefillAndConfirmEmpty(page: Page): Promise<
   }
   const existingCount = await countMainImagePreviews(page);
   if (existingCount > 0) {
-    await clearGraphicSectionPreviewsStrict(page, "主图", Math.max(10, existingCount + 3));
+    await clearMainImagePreviewsStrict(page, Math.max(10, existingCount + 3));
     await page.waitForTimeout(800);
     await dismissTransientOverlays(page);
   }
@@ -27,10 +27,10 @@ export async function clearMainImagePrefillAndConfirmEmpty(page: Page): Promise<
 }
 
 export async function clearDetailPrefillAndConfirmEmpty(page: Page): Promise<number> {
-  await dismissCategoryAdviceOverlayWithoutMutation(page);
+  await resolveCategoryAdviceOverlaySafely(page);
   const existingCount = await countDetailImagePreviews(page);
   if (existingCount > 0) {
-    await dismissCategoryAdviceOverlayWithoutMutation(page);
+    await resolveCategoryAdviceOverlaySafely(page);
     await clearDetailImagePreviewsStrict(page, Math.max(12, existingCount + 3));
     await page.waitForTimeout(800);
     await dismissTransientOverlays(page);

@@ -3,6 +3,7 @@ import type { ProductListPreflightMode } from "../business/publish-from-spu/publ
 import type { PublishTargetIdentity } from "./publish-identity.js";
 import type { PublishFailureCircuitState } from "./failure-circuit-breaker.js";
 import type { ImageGenerationProvider } from "./image-generation-provider.js";
+import type { FeishuSourceCorrection } from "./feishu-source-correction-rules.js";
 export type { ImageGenerationProvider } from "./image-generation-provider.js";
 
 export const AUTO_LISTING_STEPS = [
@@ -59,6 +60,7 @@ export interface AutoListingJobInput {
   productListPreflightMode?: ProductListPreflightMode;
   feishuBatchFingerprint?: string;
   businessRuleFingerprint?: string;
+  sourceCorrection?: FeishuSourceCorrection;
   simulateOnly?: boolean;
   clearTestOutputsBeforeRun?: boolean;
   startStep?: AutoListingStepInput;
@@ -102,6 +104,7 @@ export interface DeepSeekArtifact {
   wordFiles?: string[];
   submittedAt?: string;
   capturedAt?: string;
+  sellingPointDigest?: string;
   simulated: boolean;
 }
 
@@ -216,6 +219,14 @@ export interface ImageTaskState {
   notes: string[];
   sellingPointArtifact?: SellingPointArtifact;
   deepseekArtifact?: DeepSeekArtifact;
+  mainImagePromptRevisions?: Array<{
+    revisionId: string;
+    sellingPointDigest: string;
+    previousSellingPointDigest: string;
+    sellingPointText: string;
+    previousSellingPointText: string;
+    createdAt: string;
+  }>;
   mainImageArtifact?: MainImageArtifact;
   titleSheetArtifact?: TitleSheetArtifact;
   metadataArtifact?: MetadataArtifact;

@@ -345,7 +345,8 @@ export async function uploadProductImagesOnPage(
   page: Page,
   runtimeDir: string,
   assets: ProductAssets,
-  fileName: string
+  fileName: string,
+  options: { preserveExistingMainImages?: boolean } = {}
 ): Promise<{
   pageUrl: string;
   pageTitle: string;
@@ -368,7 +369,15 @@ export async function uploadProductImagesOnPage(
   const inputs = await collectFileInputs(page);
 
   const mainInput = pickBestSectionFileInput(inputs, "\u4e3b\u56fe", scoreMainGraphicInput);
-  if (!uploadIssue && mainInput && assets.mainImages.length) {
+  if (!uploadIssue && options.preserveExistingMainImages) {
+    const existingMainPreviewCount = await countMainImagePreviews(page);
+    if (existingMainPreviewCount === assets.mainImages.length) {
+      uploadedGroups.push("mainImages");
+      logInfo(`category-advice recovery preserved ${existingMainPreviewCount} existing main images after exact DOM readback`);
+    } else {
+      uploadIssue = `Category-advice recovery main-image readback mismatch. expected=${assets.mainImages.length}; actual=${existingMainPreviewCount}.`;
+    }
+  } else if (!uploadIssue && mainInput && assets.mainImages.length) {
     await clearMainImagePrefillAndConfirmEmpty(page);
     const uploadedMainCount = await uploadMainImagesToSection(page, assets.mainImages);
     if (uploadedMainCount >= assets.mainImages.length) {

@@ -14,6 +14,25 @@ const ONE_OFF_SCRIPT_NAME_PATTERN = /(?:^|[-_.])(inspect|debug|tmp|temp|temporar
 
 export type ControllerJobStatus = "running" | "completed" | "failed";
 
+const CONTROLLER_WAIT_HEARTBEAT_GRACE_MS = 5 * 60 * 1000;
+
+export function isControllerWaitStateHeartbeatFresh(input: {
+  nowMs: number;
+  waitStateMtimeMs?: number;
+  retryAt?: string;
+  graceMs?: number;
+}): boolean {
+  if (!Number.isFinite(input.waitStateMtimeMs)) {
+    return false;
+  }
+  const graceMs = Math.max(30_000, input.graceMs ?? CONTROLLER_WAIT_HEARTBEAT_GRACE_MS);
+  const retryAtMs = Date.parse(input.retryAt || "");
+  const expectedHeartbeatMs = Number.isFinite(retryAtMs)
+    ? Math.max(input.waitStateMtimeMs as number, retryAtMs)
+    : (input.waitStateMtimeMs as number);
+  return input.nowMs <= expectedHeartbeatMs + graceMs;
+}
+
 export function resolveControllerJobClosure(input: {
   declaredStatus: ControllerJobStatus;
   processAlive: boolean;
@@ -35,6 +54,7 @@ export function shouldTreatControllerSupervisorAsInert(input: {
   processConfirmed: boolean;
   childProcessRecorded: boolean;
   waitStateRecorded: boolean;
+  staleWaitStateRecorded?: boolean;
   terminalResultFound: boolean;
   terminalResultAgeMs: number;
   controllerLogAdvancedAfterTerminalResult: boolean;
@@ -44,10 +64,11 @@ export function shouldTreatControllerSupervisorAsInert(input: {
   return (
     input.processConfirmed &&
     !input.childProcessRecorded &&
-    !input.waitStateRecorded &&
-    input.terminalResultFound &&
-    input.terminalResultAgeMs >= gracePeriodMs &&
-    !input.controllerLogAdvancedAfterTerminalResult
+    (input.staleWaitStateRecorded === true ||
+      (!input.waitStateRecorded &&
+        input.terminalResultFound &&
+        input.terminalResultAgeMs >= gracePeriodMs &&
+        !input.controllerLogAdvancedAfterTerminalResult))
   );
 }
 

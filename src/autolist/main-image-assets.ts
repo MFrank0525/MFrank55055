@@ -10,7 +10,14 @@ import {
   resolveVideosBase64SubmitConcurrency
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
+import { ensureMainImageFrameApplied, prepareMainImageFrameLayoutReference } from "./main-image-frame-action.js";
+import {
+  DEFAULT_MAIN_IMAGE_FRAME_FILE,
+  MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT,
+  shouldApplyDefaultMainImageFrame
+} from "./main-image-frame-rules.js";
 import { ensureSquareMainImageFile } from "./main-image-square-action.js";
+import { assertPromptWordRevisionMatches } from "./main-image-prompt-revision-rules.js";
 import { evaluateMainImageSquareRule } from "./main-image-shape-rules.js";
 import { isFullyDecodableImageFile } from "../utils/image-integrity.js";
 import {
@@ -18,6 +25,7 @@ import {
   summarizePaidImageProductLedger
 } from "./paid-image-submission-ledger.js";
 import { reconcileStrictProviderLogOutcome } from "./paid-image-provider-log-reconciliation-action.js";
+import { recoverOrphanedPaidImageReservations } from "./paid-image-task-recovery-action.js";
 import { resolveMainImageShopAssignments, shopCodeFromFolder } from "./product-category.js";
 import type { ImageGenerationProvider, MainImageArtifact, MainImageCountStrategy, MainImageGeneratedFile } from "./types.js";
 import { requireOpenAiCompatibleImageProvider } from "./image-generation-provider.js";
@@ -98,6 +106,7 @@ async function recoverExistingRoundOutputs(options: {
   productName: string;
   resolveWatermarkText: (imageIndex: number) => string;
   startImageIndex: number;
+  protectedFrameFile?: string;
 }): Promise<
   Array<{
     stagedFile: string;
@@ -122,6 +131,7 @@ async function recoverExistingRoundOutputs(options: {
     })
   );
   const normalizedRawIndexes = new Set<number>();
+  const framedRawIndexes = new Set<number>();
   for (const [localIndex, rawImageFile] of rawByLocalIndex) {
     const normalization = await ensureSquareMainImageFile({
       sourceFile: rawImageFile,
@@ -129,6 +139,9 @@ async function recoverExistingRoundOutputs(options: {
     });
     if (normalization.changed) {
       normalizedRawIndexes.add(localIndex);
+    }
+    if (await ensureMainImageFrameApplied(rawImageFile, options.protectedFrameFile)) {
+      framedRawIndexes.add(localIndex);
     }
   }
   const existingStagedFiles = listImageFiles(options.stageDir);
@@ -154,6 +167,7 @@ async function recoverExistingRoundOutputs(options: {
       !expectedWatermarkText ||
       !path.basename(stagedFile).includes(expectedWatermarkText) ||
       normalizedRawIndexes.has(localIndex) ||
+      framedRawIndexes.has(localIndex) ||
       !stagedShapeValid
     ) {
       fs.rmSync(stagedFile, { force: true });
@@ -194,7 +208,8 @@ async function recoverExistingRoundOutputs(options: {
     const [watermarkedFile] = await applyLocalWatermark({
       inputFiles: [rawImageFile],
       outputDir: path.join(watermarkDir, String(imageIndex).padStart(2, "0")),
-      watermarkText
+      watermarkText,
+      protectedFrameFile: options.protectedFrameFile
     });
     const stagedFile = stageWatermarkedFile({
       stageDir: options.stageDir,
@@ -368,7 +383,10 @@ export async function generateMainImageAssets(options: {
   sourceImagePath: string;
   sellingPointText: string;
   brandedGenericName: string;
+  brand?: string;
   wordFiles: string[];
+  deepseekPrompts?: string[];
+  feishuPromptRevisionVerified?: boolean;
   imageGenerationProvider: ImageGenerationProvider;
   imageGenerationConfigFile: string;
   mainImageExpectedCount: number;
@@ -403,6 +421,20 @@ export async function generateMainImageAssets(options: {
     throw new Error("Main image generation requires " + shopCodes.length + " shop folder(s), got " + shopFolders.length + ".");
   }
   const productName = inferBrandedGenericName(options.brandedGenericName, options.sellingPointText);
+  const framePolicyBrand = options.brand?.trim() || "";
+  const protectedFrameFile = framePolicyBrand && shouldApplyDefaultMainImageFrame(framePolicyBrand)
+    ? DEFAULT_MAIN_IMAGE_FRAME_FILE
+    : undefined;
+  if (protectedFrameFile && !fs.existsSync(protectedFrameFile)) {
+    throw new Error(`Required main image frame file not found: ${protectedFrameFile}`);
+  }
+  const providerSourceImagePath = protectedFrameFile
+    ? await prepareMainImageFrameLayoutReference({
+        sourceFile: options.sourceImagePath,
+        frameFile: protectedFrameFile,
+        outputFile: path.join(taskDir, "main-image-layout-reference.png")
+      })
+    : options.sourceImagePath;
   const reuseSeed = seedCurrentProductMainImageReuse({
     runtimeDir: options.runtimeDir,
     taskId: options.taskId,
@@ -464,10 +496,20 @@ export async function generateMainImageAssets(options: {
     const roundStartImageIndex = promptIndex * options.mainImageExpectedCount + 1;
     const promptWordFile = options.wordFiles[promptIndex];
     const wordParagraphs = readSimpleWordDocument(promptWordFile);
-    const promptText = buildImageEditPromptFromWord({
+    if (options.deepseekPrompts) {
+      assertPromptWordRevisionMatches({
+        paragraphs: wordParagraphs,
+        sellingPointText: options.sellingPointText,
+        deepseekPrompt: options.deepseekPrompts[promptIndex] || ""
+      });
+    }
+    const basePromptText = buildImageEditPromptFromWord({
       paragraphs: wordParagraphs,
       promptWordFile
     });
+    const promptText = protectedFrameFile
+      ? `${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}\n\n${basePromptText}\n\n${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}`
+      : basePromptText;
 
     const roundDir = path.join(taskDir, "main-image-" + String(promptIndex + 1).padStart(2, "0"));
     const stageDir = path.join(taskDir, "staged", String(promptIndex + 1).padStart(2, "0"));
@@ -487,7 +529,8 @@ export async function generateMainImageAssets(options: {
         }
         return shop.watermarkText;
       },
-      startImageIndex: roundStartImageIndex
+      startImageIndex: roundStartImageIndex,
+      protectedFrameFile
     });
 
     for (const recovered of recoveredFiles) {
@@ -537,7 +580,7 @@ export async function generateMainImageAssets(options: {
     const generationResults = await generateWithOpenAiCompatibleProvider({
       configFile: options.imageGenerationConfigFile,
       promptText,
-      sourceImagePath: options.sourceImagePath,
+      sourceImagePath: providerSourceImagePath,
       downloadDir: path.join(roundDir, "openai-compatible", "raw"),
       expectedImageCount: remainingImageCount,
       requestedImageIndexes: missingLocalIndexes,
@@ -555,6 +598,7 @@ export async function generateMainImageAssets(options: {
           pid: process.pid
         }
       },
+      feishuPromptRevisionVerified: options.feishuPromptRevisionVerified,
       onProgress: (message) => options.onProgress?.(`Prompt ${promptIndex + 1}/${promptCount}: ${message}`)
     });
 
@@ -568,6 +612,7 @@ export async function generateMainImageAssets(options: {
           `Prompt ${promptIndex + 1}/${promptCount}: normalized provider output ${path.basename(result.file)} from ${normalization.sourceDimensions.width}x${normalization.sourceDimensions.height} to ${normalization.outputDimensions.width}x${normalization.outputDimensions.height}.`
         );
       }
+      await ensureMainImageFrameApplied(result.file, protectedFrameFile);
     }
 
     const watermarkedFiles: string[] = [];
@@ -581,7 +626,8 @@ export async function generateMainImageAssets(options: {
       const [watermarkedFile] = await applyLocalWatermark({
         inputFiles: [generationResults[itemIndex].file],
         outputDir: path.join(watermarkOutputDir, assignment.shopCode),
-        watermarkText: shop.watermarkText
+        watermarkText: shop.watermarkText,
+        protectedFrameFile
       });
       watermarkedFiles.push(watermarkedFile);
     }
@@ -628,9 +674,32 @@ export async function generateMainImageAssets(options: {
     options.feishuBatchFingerprint,
     options.feishuRecordId
   );
-  const paidReplayPreflightSummary = fs.existsSync(productDir)
+  let paidReplayPreflightSummary = fs.existsSync(productDir)
     ? summarizePaidImageProductLedger(productDir)
     : undefined;
+  if (paidReplayPreflightSummary && paidReplayPreflightSummary.reserved > 0) {
+    try {
+      const recoveredSlots = await recoverOrphanedPaidImageReservations({
+        configFile: options.imageGenerationConfigFile,
+        productDir,
+        expectedSlotCount: paidReplayPreflightSummary.expectedSlotCount,
+        onProgress: options.onProgress
+      });
+      if (recoveredSlots.length === 0) {
+        throw new Error("existing reserved paid slots produced no reconciliation outcome");
+      }
+      videosBase64SubmitCircuit.reset();
+      options.onProgress?.(
+        `Preflight safely released orphaned fixed slots ${formatSlotList(recoveredSlots)} after authenticated no-acceptance proof.`
+      );
+      paidReplayPreflightSummary = summarizePaidImageProductLedger(productDir);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw normalizeImageGenerationError(
+        `paid submission safety block: existing reserved slots must reconcile before any new paid POST; ${message}`
+      );
+    }
+  }
   if (paidReplayPreflightSummary && paidReplayPreflightSummary.ambiguous > 0) {
     try {
       const reconciliation = await reconcileStrictProviderLogOutcome({
@@ -713,6 +782,12 @@ export async function generateMainImageAssets(options: {
         const original = roundFailure instanceof Error ? roundFailure.message : String(roundFailure);
         throw normalizeImageGenerationError(
           `paid submission safety block: paid image ledger has ambiguous=${summary.ambiguous}, reserved=${summary.reserved}; original: ${original}`
+        );
+      }
+      if (summary.ambiguous === 0 && summary.reserved === 0 && (summary.submitted > 0 || summary.failedBeforeAcceptance > 0)) {
+        const original = roundFailure instanceof Error ? roundFailure.message : String(roundFailure);
+        throw normalizeImageGenerationError(
+          `${original}; paid_image_ledger_safe_external_wait: ambiguous=0, reserved=0, submitted=${summary.submitted}, failed_before_acceptance=${summary.failedBeforeAcceptance}, completed=${summary.completed}`
         );
       }
     }
