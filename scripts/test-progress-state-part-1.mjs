@@ -791,7 +791,7 @@ assert.equal(
 );
 assert.match(
   hermesRunnerSource,
-  /hasIncompleteFixedMainImageRoundFiles[\s\S]*return "main_images_generated"/,
+  /hasIncompleteFixedMainImageRoundFiles[\s\S]*resolveResumeStartStepFromRuntimeEvidence\(\{[\s\S]*hasIncompleteMainImageRound/,
   "AutoListingController must rewind publish-stage resumes when fixed main-image slots are incomplete"
 );
 

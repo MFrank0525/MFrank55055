@@ -50,6 +50,7 @@ import { isManifestEntryAcceptedForBatchCompletion } from "../autolist/publish-m
 import { readLatestTaskProgressEvent } from "../autolist/progress-events.js";
 import {
   inferResumeStartStepForTask,
+  resolveResumeStartStepFromRuntimeEvidence,
   resolveResumeStartStepForMissingDistribution,
   resolveCanonicalRecoveryTask,
   resolveCanonicalResumeDecision
@@ -412,37 +413,26 @@ function inferResumeStartStepFromRuntimeFiles(
   runtimeDir: string,
   fallback: ReturnType<typeof inferResumeStartStepForTask>
 ): ReturnType<typeof inferResumeStartStepForTask> {
-  if (
-    task.taskId &&
-    hasIncompleteFixedMainImageRoundFiles({
+  const hasIncompleteMainImageRound = Boolean(
+    task.taskId && hasIncompleteFixedMainImageRoundFiles({
       runtimeDir,
       taskId: task.taskId,
       expectedImagesPerRound: 4
     })
-  ) {
-    return "main_images_generated";
-  }
-  if (fallback === "published") {
-    return fallback;
-  }
+  );
   if (!task.taskId) {
     return fallback;
   }
   const taskDir = path.join(runtimeDir, "tasks", task.taskId);
   const files = listFilesRecursive(taskDir);
-  if (files.some((file) => file.includes(`${path.sep}staged${path.sep}`) && /\.(png|jpe?g|webp)$/i.test(file))) {
-    return "main_images_generated";
-  }
-  if (files.some((file) => file.includes(`${path.sep}openai-compatible${path.sep}raw${path.sep}`) && /^generated-\d+/i.test(path.basename(file)))) {
-    return "main_images_generated";
-  }
-  if (files.some((file) => file.includes(`${path.sep}poster-word-files${path.sep}`) && file.toLowerCase().endsWith(".docx"))) {
-    return "main_images_generated";
-  }
-  if (files.some((file) => path.basename(file) === "selling-points.txt")) {
-    return "poster_prompts_generated";
-  }
-  return fallback;
+  return resolveResumeStartStepFromRuntimeEvidence({
+    fallback,
+    hasIncompleteMainImageRound,
+    hasStagedImage: files.some((file) => file.includes(`${path.sep}staged${path.sep}`) && /\.(png|jpe?g|webp)$/i.test(file)),
+    hasGeneratedRawImage: files.some((file) => file.includes(`${path.sep}openai-compatible${path.sep}raw${path.sep}`) && /^generated-\d+/i.test(path.basename(file))),
+    hasWordPromptFiles: files.some((file) => file.includes(`${path.sep}poster-word-files${path.sep}`) && file.toLowerCase().endsWith(".docx")),
+    hasSellingPointFile: files.some((file) => path.basename(file) === "selling-points.txt")
+  });
 }
 
 function taskHasExternalMainImageRawReuse(runtimeDir: string, taskId: string | undefined): boolean {

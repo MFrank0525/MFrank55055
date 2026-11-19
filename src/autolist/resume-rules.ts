@@ -43,6 +43,22 @@ export interface CanonicalResumeManifestEntry {
   errorClass?: string;
 }
 
+export function resolveResumeStartStepFromRuntimeEvidence(input: {
+  fallback: AutoListingStep;
+  hasIncompleteMainImageRound: boolean;
+  hasStagedImage: boolean;
+  hasGeneratedRawImage: boolean;
+  hasWordPromptFiles: boolean;
+  hasSellingPointFile: boolean;
+}): AutoListingStep {
+  if (input.hasIncompleteMainImageRound) return "main_images_generated";
+  if (input.fallback === "published") return input.fallback;
+  if (input.hasStagedImage || input.hasGeneratedRawImage || input.hasWordPromptFiles) return "main_images_generated";
+  // A generated resume job does not serialize SellingPointArtifact. Its file proves
+  // disk continuity, but the selling_points_loaded step must still hydrate memory.
+  return input.fallback;
+}
+
 export function resolveCanonicalRecoveryTask<T extends {
   taskId?: string;
   status?: string;

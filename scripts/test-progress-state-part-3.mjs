@@ -114,6 +114,7 @@ import {
 } from "../dist/src/autolist/image-generation-rules.js";
 import {
   inferResumeStartStepForTask,
+  resolveResumeStartStepFromRuntimeEvidence,
   resolveCanonicalResumeDecision,
   resolveCanonicalRecoveryTask,
   selectRemainingResumeProductFolderNames
@@ -2219,6 +2220,30 @@ assert.equal(
   }),
   "selling_points_loaded",
   "Resume jobs must reload Feishu selling points before rerunning DeepSeek because generated resume jobs do not carry task artifacts."
+);
+assert.equal(
+  resolveResumeStartStepFromRuntimeEvidence({
+    fallback: "selling_points_loaded",
+    hasIncompleteMainImageRound: false,
+    hasStagedImage: false,
+    hasGeneratedRawImage: false,
+    hasWordPromptFiles: false,
+    hasSellingPointFile: true
+  }),
+  "selling_points_loaded",
+  "A selling-points file alone must not skip the hydration step because generated resume jobs do not carry the artifact in memory."
+);
+assert.equal(
+  resolveResumeStartStepFromRuntimeEvidence({
+    fallback: "published",
+    hasIncompleteMainImageRound: true,
+    hasStagedImage: false,
+    hasGeneratedRawImage: false,
+    hasWordPromptFiles: false,
+    hasSellingPointFile: true
+  }),
+  "main_images_generated",
+  "Incomplete fixed image slots must still rewind a publish-stage resume to main-image generation."
 );
 
 const generationMissingPromptImage = auditMainImageGeneration({

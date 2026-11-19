@@ -36,7 +36,7 @@ export function parseDeepSeekPosterPrompts(text: string): string[] {
   return Array.from(new Set(lines)).slice(-5);
 }
 
-function validatePosterPrompts(prompts: string[], record: {
+export function validatePosterPrompts(prompts: string[], record: {
   sellingPointText: string;
   userCognitionName?: string;
   brandedGenericName?: string;
@@ -44,12 +44,41 @@ function validatePosterPrompts(prompts: string[], record: {
 }, promptCount: number): string[] {
   if (prompts.length !== promptCount) throw new Error(`DeepSeek must return ${promptCount} keyword paragraphs, got ${prompts.length}.`);
   for (const prompt of prompts) {
-    const length = Array.from(prompt.replace(/\s/g, "")).length;
-    if (length < 100 || length > 150) throw new Error(`DeepSeek paragraph length must be 100-150 characters, got ${length}.`);
     if (prompt.split(",").filter(Boolean).length < 5) throw new Error(`DeepSeek paragraph is not keyword-like enough: ${prompt}`);
   }
   assertDeepSeekPromptsBelongToCurrentProduct(prompts, buildDeepSeekPromptValidationContext(record), promptCount);
   return prompts;
+}
+
+export function recoverValidPosterPromptsFromRaw(options: {
+  taskDir: string;
+  record: {
+    sellingPointText: string;
+    userCognitionName?: string;
+    brandedGenericName?: string;
+    genericName?: string;
+  };
+  promptCount: number;
+}): { prompts: string[]; rawFile: string; screenshotFile: string } | undefined {
+  const candidates = [
+    { rawFile: path.join(options.taskDir, "deepseek-retry-2-raw.txt"), screenshotFile: path.join(options.taskDir, "deepseek-retry-2.png") },
+    { rawFile: path.join(options.taskDir, "deepseek-retry-1-raw.txt"), screenshotFile: path.join(options.taskDir, "deepseek-retry-1.png") },
+    { rawFile: path.join(options.taskDir, "deepseek-raw.txt"), screenshotFile: path.join(options.taskDir, "deepseek.png") }
+  ];
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate.rawFile)) continue;
+    try {
+      const prompts = validatePosterPrompts(
+        parseDeepSeekPosterPrompts(fs.readFileSync(candidate.rawFile, "utf8")),
+        options.record,
+        options.promptCount
+      );
+      return { prompts, ...candidate };
+    } catch {
+      // A partial or obsolete attempt is ignored; only a complete current-product reply may resume.
+    }
+  }
+  return undefined;
 }
 
 function simulatedPrompts(sellingPointText: string): string[] {
@@ -123,12 +152,20 @@ export async function generatePosterPromptsWithDeepSeek(options: {
     fs.writeFileSync(extractedFile, `${prompts.join("\n")}\n`, "utf8");
     return { promptFile, rawFile, extractedFile, screenshotFile, prompts, sellingPointDigest, simulated: true };
   }
-  if (fs.existsSync(extractedFile) && savedPromptMatches) {
-    try {
-      const prompts = validatePosterPrompts(parseDeepSeekPosterPrompts(fs.readFileSync(extractedFile, "utf8")), validationRecord, 5);
-      return { promptFile, rawFile, extractedFile, screenshotFile, prompts, sellingPointDigest, simulated: false };
-    } catch {
-      // The saved reply is incomplete or belongs to an obsolete prompt; generate again below.
+  if (savedPromptMatches) {
+    if (fs.existsSync(extractedFile)) {
+      try {
+        const prompts = validatePosterPrompts(parseDeepSeekPosterPrompts(fs.readFileSync(extractedFile, "utf8")), validationRecord, 5);
+        return { promptFile, rawFile, extractedFile, screenshotFile, prompts, sellingPointDigest, simulated: false };
+      } catch {
+        // The saved extraction is incomplete or belongs to an obsolete reply; inspect exact raw attempts below.
+      }
+    }
+    const recovered = recoverValidPosterPromptsFromRaw({ taskDir, record: validationRecord, promptCount: 5 });
+    if (recovered) {
+      fs.writeFileSync(extractedFile, `${recovered.prompts.join("\n")}\n`, "utf8");
+      return { promptFile, rawFile: recovered.rawFile, extractedFile, screenshotFile: recovered.screenshotFile,
+        prompts: recovered.prompts, sellingPointDigest, simulated: false };
     }
   }
   const errors: string[] = [];

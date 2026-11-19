@@ -1,5 +1,14 @@
 # Auto-listing Requirement Trace
 
+## 2026-11-19 DeepSeek prompt-length false rejection recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why the locked fourth product stopped before image generation | All three DeepSeek replies contained five complete current-product keyword paragraphs; the recently added hard 100–150-character validator rejected only lengths 153–157 | Run `20261119-192607`, task `image-002`; raw reply replay reports five prompts on every attempt | verified |
+| Accept DeepSeek output regardless of character count | Prompt count, keyword structure and current-product identity remain fail-closed, while character-count rejection is removed; accepted text is not truncated or padded | Shorter-than-100 and longer-than-150 red-before-green regression in `test-feishu-poster-prompts-rule.mjs` | verified |
+| Resume without submitting another DeepSeek request | When the exact saved request text still matches, recovery validates newest-to-oldest raw attempts, writes `deepseek-extracted.txt`, and reuses the first complete current-product set | Saved-raw recovery regression; three current runtime raw files replay successfully | verified |
+| Rehydrate selling points before recovering DeepSeek output | A saved `selling-points.txt` proves disk continuity but no longer advances the generated resume job past `selling_points_loaded`; the locked Feishu record is reloaded into memory before prompt recovery | Resume-runtime evidence red-before-green regression in `test-progress-state-part-3.mjs`; first continuation failure remained pre-paid and pre-publish | verified |
+
 ## 2026-11-19 policy-rejected main-image correction
 
 | Requirement | Implementation | Verification | Status |
