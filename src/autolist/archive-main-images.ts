@@ -19,7 +19,7 @@ function isGeneratedRawMainImage(filePath: string): boolean {
   return (
     isImageFile(filePath) &&
     filePath.includes(`${path.sep}openai-compatible${path.sep}raw${path.sep}`) &&
-    /^generated-\d+/i.test(path.basename(filePath))
+    /^generated-\d+\.(?:png|jpe?g|webp)$/i.test(path.basename(filePath))
   );
 }
 

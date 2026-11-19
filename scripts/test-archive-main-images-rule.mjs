@@ -42,13 +42,18 @@ for (let index = 1; index <= 20; index += 1) {
 
 const taskDir = path.join(tmp, "runs", "current", "tasks", "image-001");
 const rawFiles = [];
+function writeCanonicalRawWithFrameDerivatives(file, content) {
+  fs.writeFileSync(file, content);
+  fs.writeFileSync(`${file}.frame-ready.png`, `${content}-frame-ready`);
+  fs.writeFileSync(`${file}.unframed.png`, `${content}-unframed`);
+}
 for (let roundIndex = 1; roundIndex <= 4; roundIndex += 1) {
   const rawDir = path.join(taskDir, `main-image-${String(roundIndex).padStart(2, "0")}`, "openai-compatible", "raw");
   fs.mkdirSync(rawDir, { recursive: true });
   const count = roundIndex === 4 ? 3 : 4;
   for (let imageIndex = 1; imageIndex <= count; imageIndex += 1) {
     const file = path.join(rawDir, `generated-${String(imageIndex).padStart(2, "0")}.png`);
-    fs.writeFileSync(file, `raw-${roundIndex}-${imageIndex}`);
+    writeCanonicalRawWithFrameDerivatives(file, `raw-${roundIndex}-${imageIndex}`);
     rawFiles.push(file);
   }
 }
@@ -91,13 +96,13 @@ assert.equal(fs.readFileSync(archived[14], "utf8"), "raw-4-3");
 
 const fourthRawDir = path.join(taskDir, "main-image-04", "openai-compatible", "raw");
 const missingFourthRaw = path.join(fourthRawDir, "generated-04.png");
-fs.writeFileSync(missingFourthRaw, "raw-4-4");
+writeCanonicalRawWithFrameDerivatives(missingFourthRaw, "raw-4-4");
 rawFiles.push(missingFourthRaw);
 const finalRawDir = path.join(taskDir, "main-image-05", "openai-compatible", "raw");
 fs.mkdirSync(finalRawDir, { recursive: true });
 for (let imageIndex = 1; imageIndex <= 4; imageIndex += 1) {
   const file = path.join(finalRawDir, `generated-${String(imageIndex).padStart(2, "0")}.png`);
-  fs.writeFileSync(file, `raw-5-${imageIndex}`);
+  writeCanonicalRawWithFrameDerivatives(file, `raw-5-${imageIndex}`);
   rawFiles.push(file);
 }
 const archivedFromPartialResumeArtifact = archiveUnwatermarkedMainImages({
@@ -116,6 +121,11 @@ assert.equal(
   new Set(archivedFromPartialResumeArtifact.map((file) => fs.readFileSync(file, "utf8"))).size,
   20,
   "Artifact and disk-discovered raw images must be deduplicated before archiving."
+);
+assert.equal(
+  archivedFromPartialResumeArtifact.some((file) => /frame-ready|unframed/u.test(fs.readFileSync(file, "utf8"))),
+  false,
+  "Frame-ready and unframed derivative files must never be counted or archived as canonical current main images."
 );
 
 const ledgerSnapshotProductDir = path.join(tmp, "paid-ledger", "batch", "record");
