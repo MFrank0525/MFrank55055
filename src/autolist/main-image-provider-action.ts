@@ -51,6 +51,7 @@ import {
   writeImageGenerationTextLog
 } from "./image-provider-error-boundaries.js";
 import { prepareVideosBase64ReferenceImage } from "./videos-base64-reference.js";
+import { MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT } from "./main-image-collage-action.js";
 export {
   redactImageGenerationLogText,
   redactImageGenerationLogValue,
@@ -469,7 +470,7 @@ export function buildImageEditPromptFromWord(options: {
       `Main image prompt contains a non-square aspect directive and cannot be submitted: ${options.promptWordFile}.`
     );
   }
-  return `${cleaned.join("\n")}\n\n${MAIN_IMAGE_SQUARE_PROMPT_CONTRACT}`;
+  return `${MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT}\n\n${cleaned.join("\n")}\n\n${MAIN_IMAGE_SQUARE_PROMPT_CONTRACT}\n\n${MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT}`;
 }
 
 export function readOpenAiCompatibleImageConfig(configFile: string): OpenAiCompatibleImageConfig {

@@ -308,10 +308,13 @@ async function main(): Promise<void> {
   const batchFingerprint = buildFeishuBatchFingerprint(records);
   const businessRuleFingerprint = buildAutoListingBusinessRuleFingerprint();
   const state = latestRunState(resolved.runtimeRootDir, resolved.simulateOnly, batchFingerprint, businessRuleFingerprint);
-  const completedEvidence = loadCompletedProductEvidenceForBatch(
+  const durableCompletedEvidence = loadCompletedProductEvidenceForBatch(
     completedProductEvidenceRoot(resolved.runtimeRootDir),
     batchFingerprint
-  ).filter((item) => item.businessRuleFingerprint === businessRuleFingerprint);
+  );
+  const completedEvidence = durableCompletedEvidence.filter(
+    (item) => item.businessRuleFingerprint === businessRuleFingerprint
+  );
   const stateRecordIds = new Set((state?.tasks || []).map((task) => task.feishuProductRecord?.recordId).filter(Boolean));
   const auditTasks = [
     ...(state?.tasks || []),
@@ -356,7 +359,11 @@ async function main(): Promise<void> {
     ? fs.readdirSync(resolved.runtimeRootDir, { withFileTypes: true }).filter((entry) => {
         if (!entry.isDirectory()) return false;
         const runState = readOptionalJson<AutoListingRunState>(path.join(resolved.runtimeRootDir, entry.name, "state.json"));
-        return Boolean(runState && runState.businessRuleFingerprint !== businessRuleFingerprint);
+        return Boolean(
+          runState &&
+          runState.status !== "completed" &&
+          runState.businessRuleFingerprint !== businessRuleFingerprint
+        );
       })
     : [];
   if (invalidBusinessRuleRunDirs.length > 0) {
@@ -404,7 +411,13 @@ async function main(): Promise<void> {
     records,
     processedImages
   });
-  if (!resolved.simulateOnly && feishuBatch.batchComplete && feishuBatch.processedRecordCount > 0 && auditTasks.length === 0) {
+  if (
+    !resolved.simulateOnly &&
+    feishuBatch.batchComplete &&
+    feishuBatch.processedRecordCount > 0 &&
+    auditTasks.length === 0 &&
+    durableCompletedEvidence.length === 0
+  ) {
     runtimeErrors.push({
       code: "completed_batch_evidence_missing",
       message: "The completed Feishu batch has processed records but no substantive runtime or durable completed-product evidence."

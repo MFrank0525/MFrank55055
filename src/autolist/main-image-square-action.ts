@@ -9,6 +9,7 @@ import { inspectDecodedImageFile } from "../utils/image-integrity.js";
 import { applyLocalWatermark } from "./local-watermark.js";
 import { evaluateMainImageSquareRule } from "./main-image-shape-rules.js";
 import type { MainImageArtifact } from "./types.js";
+import { assertMainImageIsSinglePoster } from "./main-image-collage-action.js";
 
 const execFileAsync = promisify(execFile);
 const NORMALIZER_SCRIPT = path.join(process.cwd(), "src", "autolist", "main-image-square-normalizer.py");
@@ -180,6 +181,13 @@ export async function repairMainImageArtifactShapes(options: {
 }): Promise<{ artifact: MainImageArtifact; normalizedFileCount: number }> {
   let normalizedFileCount = 0;
   for (const [index, item] of options.artifact.generatedFiles.entries()) {
+    const collageInspectionFile =
+      item.rawImageFile && fs.existsSync(`${item.rawImageFile}.unframed.png`)
+        ? `${item.rawImageFile}.unframed.png`
+        : item.rawImageFile && fs.existsSync(item.rawImageFile)
+          ? item.rawImageFile
+          : item.imageFile;
+    await assertMainImageIsSinglePoster({ imageFile: collageInspectionFile });
     const rawResult =
       item.rawImageFile && fs.existsSync(item.rawImageFile)
         ? await ensureSquareMainImageFile({

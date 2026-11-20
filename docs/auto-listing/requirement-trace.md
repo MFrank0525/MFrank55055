@@ -1,5 +1,14 @@
 # Auto-listing Requirement Trace
 
+## 2026-11-20 four-panel main-image prevention
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Never treat four requested images as one four-panel canvas | Every independent provider request now receives a non-overridable single-poster contract at both the beginning and end of the prompt, explicitly separating four independent slots from one composed image | `test-main-image-no-collage-rule.mjs` prompt assertions | verified |
+| Prevent a provider-produced collage from reaching stores | A versioned local structure gate inspects every new or recovered raw image before square normalization, framing, watermarking and distribution; publish-stage recovery repeats the same gate and writes rejection evidence | Synthetic four-panel red/green regression plus the user-provided 800×800 real counterexample, detected as `cross_axis_multi_panel_layout` with four textured quadrants | verified |
+| Prevent old resume state from bypassing the new rule | The detector version and full prompt contract participate in the business-rule fingerprint, invalidating incompatible resume artifacts | Fingerprint source assertion in `test-main-image-no-collage-rule.mjs` | verified |
+| Apply the new rule prospectively without reopening completed products | Completed old-fingerprint runtime/evidence can prove that a historical batch was closed, but cannot enter current-rule artifact audits or resume; unfinished old-fingerprint runtime remains invalid | Audit-boundary assertions and two independent deep-audit runs | verified |
+
 ## 2026-11-19 DeepSeek prompt-length false rejection recovery
 
 | Requirement | Implementation | Verification | Status |

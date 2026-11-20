@@ -7,6 +7,10 @@ import {
   MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT
 } from "./main-image-frame-rules.js";
 import { MAIN_IMAGE_PROMPT_REVISION_POLICY } from "./main-image-prompt-revision-rules.js";
+import {
+  MAIN_IMAGE_COLLAGE_GATE_VERSION,
+  MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT
+} from "./main-image-collage-action.js";
 
 const CATEGORIES: ProductCategory[] = ["医疗器械", "非处方药", "保健食品"];
 
@@ -30,7 +34,11 @@ export function buildAutoListingBusinessRuleFingerprint(): string {
       excludedBrands: MAIN_IMAGE_FRAME_EXCLUDED_BRANDS,
       promptContract: MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT
     },
-    mainImagePromptRevisionPolicy: MAIN_IMAGE_PROMPT_REVISION_POLICY
+    mainImagePromptRevisionPolicy: MAIN_IMAGE_PROMPT_REVISION_POLICY,
+    mainImageSinglePoster: {
+      gateVersion: MAIN_IMAGE_COLLAGE_GATE_VERSION,
+      promptContract: MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT
+    }
   };
   return crypto.createHash("sha256").update(JSON.stringify(rules)).digest("hex").slice(0, 24);
 }

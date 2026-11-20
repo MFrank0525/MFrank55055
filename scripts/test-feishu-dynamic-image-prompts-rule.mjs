@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { writeFeishuPromptWordFiles } from "../dist/src/autolist/deepseek-word-docs.js";
 import { buildImageEditPromptFromWord } from "../dist/src/autolist/main-image-assets.js";
+import { MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT } from "../dist/src/autolist/main-image-collage-action.js";
 import { readSimpleWordDocument } from "../dist/src/autolist/docx-lite.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "feishu-dynamic-image-prompts-"));
@@ -37,7 +38,9 @@ const modelPrompt = buildImageEditPromptFromWord({
   paragraphs,
   promptWordFile: wordFiles[0]
 });
-assert.equal(modelPrompt.startsWith(`${paragraphs.join("\n")}\n`), true);
+assert.equal(modelPrompt.startsWith(`${MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT}\n\n${paragraphs.join("\n")}\n`), true);
+assert.equal(modelPrompt.includes(paragraphs.join("\n")), true);
+assert.match(modelPrompt, /禁止四宫格、九宫格、2×2网格、4合1、拼图/u);
 assert.match(
   modelPrompt,
   /强制画幅约束：最终输出必须为严格的1:1正方形画布（宽度=高度）/,

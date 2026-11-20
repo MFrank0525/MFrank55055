@@ -17,6 +17,10 @@ import {
   shouldApplyDefaultMainImageFrame
 } from "./main-image-frame-rules.js";
 import { ensureSquareMainImageFile } from "./main-image-square-action.js";
+import {
+  assertMainImageIsSinglePoster,
+  MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT
+} from "./main-image-collage-action.js";
 import { assertPromptWordRevisionMatches } from "./main-image-prompt-revision-rules.js";
 import { evaluateMainImageSquareRule } from "./main-image-shape-rules.js";
 import { isFullyDecodableImageFile } from "../utils/image-integrity.js";
@@ -133,6 +137,7 @@ async function recoverExistingRoundOutputs(options: {
   const normalizedRawIndexes = new Set<number>();
   const framedRawIndexes = new Set<number>();
   for (const [localIndex, rawImageFile] of rawByLocalIndex) {
+    await assertMainImageIsSinglePoster({ imageFile: rawImageFile });
     const normalization = await ensureSquareMainImageFile({
       sourceFile: rawImageFile,
       evidenceDir: path.join(options.roundDir, "provider-original")
@@ -508,7 +513,7 @@ export async function generateMainImageAssets(options: {
       promptWordFile
     });
     const promptText = protectedFrameFile
-      ? `${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}\n\n${basePromptText}\n\n${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}`
+      ? `${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}\n\n${basePromptText}\n\n${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}\n\n${MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT}`
       : basePromptText;
 
     const roundDir = path.join(taskDir, "main-image-" + String(promptIndex + 1).padStart(2, "0"));
@@ -603,6 +608,7 @@ export async function generateMainImageAssets(options: {
     });
 
     for (const result of generationResults) {
+      await assertMainImageIsSinglePoster({ imageFile: result.file });
       const normalization = await ensureSquareMainImageFile({
         sourceFile: result.file,
         evidenceDir: path.join(roundDir, "provider-original")
