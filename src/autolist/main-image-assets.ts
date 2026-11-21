@@ -18,14 +18,20 @@ import {
 } from "./main-image-frame-rules.js";
 import { ensureSquareMainImageFile } from "./main-image-square-action.js";
 import {
+  archiveRejectedMainImageCollage,
   assertMainImageIsSinglePoster,
+  isMainImageCollageRejectionReason,
+  MAIN_IMAGE_COLLAGE_REJECTION_CODE,
   MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT
 } from "./main-image-collage-action.js";
 import { assertPromptWordRevisionMatches } from "./main-image-prompt-revision-rules.js";
 import { evaluateMainImageSquareRule } from "./main-image-shape-rules.js";
 import { isFullyDecodableImageFile } from "../utils/image-integrity.js";
 import {
+  invalidateCompletedPaidImageSlot,
   paidImageProductLedgerDir,
+  readPaidImageSlotRecord,
+  sha256File,
   summarizePaidImageProductLedger
 } from "./paid-image-submission-ledger.js";
 import { reconcileStrictProviderLogOutcome } from "./paid-image-provider-log-reconciliation-action.js";
@@ -83,6 +89,50 @@ function buildProductFolder(shopFolder: string, productName: string, recordIdent
   );
 }
 
+export function isCanonicalRawMainImageFileName(name: string): boolean {
+  return /^generated-\d+\.(?:png|jpe?g|webp)$/i.test(name);
+}
+
+export function quarantineRecoveredMainImageCollage(options: {
+  rawImageFile: string;
+  paidImageProductLedgerDir: string;
+  slot: number;
+}): { archiveDir: string; archivedFiles: string[] } {
+  const record = readPaidImageSlotRecord({ productDir: options.paidImageProductLedgerDir, slot: options.slot });
+  if (!record || record.state !== "completed" || !record.resultFile || !record.resultDigest) {
+    throw new Error(`Rejected collage slot ${options.slot} cannot be safely invalidated from ledger state ${record?.state || "missing"}`);
+  }
+  const archive = archiveRejectedMainImageCollage({
+    imageFile: options.rawImageFile,
+    archiveRoot: path.join(options.paidImageProductLedgerDir, "rejected-collage"),
+    slot: options.slot
+  });
+  fs.copyFileSync(
+    path.join(options.paidImageProductLedgerDir, "slots", `${String(options.slot).padStart(2, "0")}.json`),
+    path.join(archive.archiveDir, "slot-record.json"),
+    fs.constants.COPYFILE_EXCL
+  );
+  fs.copyFileSync(record.resultFile, path.join(archive.archiveDir, "paid-result.png"), fs.constants.COPYFILE_EXCL);
+  invalidateCompletedPaidImageSlot({
+    productDir: options.paidImageProductLedgerDir,
+    slot: options.slot,
+    expectedPromptDigest: record.promptDigest,
+    expectedResultDigest: record.resultDigest,
+    reason: `${MAIN_IMAGE_COLLAGE_REJECTION_CODE}: recovered completed output failed the single-poster gate; evidence=${archive.archiveDir}`
+  });
+  if (fs.existsSync(record.resultFile) && sha256File(record.resultFile) === record.resultDigest) {
+    fs.rmSync(record.resultFile, { force: true });
+  }
+  const rawDir = path.dirname(options.rawImageFile);
+  const runtimeArchiveDir = path.join(archive.archiveDir, "runtime-files");
+  fs.mkdirSync(runtimeArchiveDir, { recursive: true });
+  const prefix = path.basename(options.rawImageFile);
+  for (const name of fs.readdirSync(rawDir).filter((entry) => entry === prefix || entry.startsWith(`${prefix}.`))) {
+    moveFile(path.join(rawDir, name), path.join(runtimeArchiveDir, name));
+  }
+  return archive;
+}
+
 function stageWatermarkedFile(options: {
   stageDir: string;
   productName: string;
@@ -111,6 +161,7 @@ async function recoverExistingRoundOutputs(options: {
   resolveWatermarkText: (imageIndex: number) => string;
   startImageIndex: number;
   protectedFrameFile?: string;
+  paidImageProductLedgerDir: string;
 }): Promise<
   Array<{
     stagedFile: string;
@@ -125,9 +176,13 @@ async function recoverExistingRoundOutputs(options: {
   }> = [];
 
   const startImageIndex = options.startImageIndex;
-  const rawCandidates = listImageFilesRecursive(options.roundDir).filter(
-    (file) => file.includes(path.sep + "raw" + path.sep) && isFullyDecodableImageFile(file)
-  );
+  const rawDir = path.join(options.roundDir, "openai-compatible", "raw");
+  const rawCandidates = fs.existsSync(rawDir)
+    ? fs.readdirSync(rawDir)
+        .filter(isCanonicalRawMainImageFileName)
+        .map((name) => path.join(rawDir, name))
+        .filter(isFullyDecodableImageFile)
+    : [];
   const rawByLocalIndex = new Map(
     rawCandidates.flatMap((file) => {
       const match = /^generated-(\d+)/i.exec(path.basename(file));
@@ -136,8 +191,21 @@ async function recoverExistingRoundOutputs(options: {
   );
   const normalizedRawIndexes = new Set<number>();
   const framedRawIndexes = new Set<number>();
-  for (const [localIndex, rawImageFile] of rawByLocalIndex) {
-    await assertMainImageIsSinglePoster({ imageFile: rawImageFile });
+  for (const [localIndex, rawImageFile] of [...rawByLocalIndex]) {
+    try {
+      await assertMainImageIsSinglePoster({ imageFile: rawImageFile });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!isMainImageCollageRejectionReason(message)) throw error;
+      const slot = options.startImageIndex + localIndex - 1;
+      quarantineRecoveredMainImageCollage({
+        rawImageFile,
+        paidImageProductLedgerDir: options.paidImageProductLedgerDir,
+        slot
+      });
+      rawByLocalIndex.delete(localIndex);
+      continue;
+    }
     const normalization = await ensureSquareMainImageFile({
       sourceFile: rawImageFile,
       evidenceDir: path.join(options.roundDir, "provider-original")
@@ -535,7 +603,8 @@ export async function generateMainImageAssets(options: {
         return shop.watermarkText;
       },
       startImageIndex: roundStartImageIndex,
-      protectedFrameFile
+      protectedFrameFile,
+      paidImageProductLedgerDir: videosBase64ProductLedgerDir
     });
 
     for (const recovered of recoveredFiles) {

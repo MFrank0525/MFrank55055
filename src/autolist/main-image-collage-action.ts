@@ -8,6 +8,9 @@ const execFileAsync = promisify(execFile);
 const COLLAGE_DETECTOR_SCRIPT = path.join(process.cwd(), "src", "autolist", "main-image-collage-detector.py");
 
 export const MAIN_IMAGE_COLLAGE_GATE_VERSION = "cross-axis-multi-panel-v1";
+export const MAIN_IMAGE_COLLAGE_REJECTION_CODE = "main_image_collage_rejected";
+export const MAIN_IMAGE_COLLAGE_RETRY_EXHAUSTED_CODE = "main_image_collage_retry_exhausted";
+export const MAX_MAIN_IMAGE_COLLAGE_OUTPUTS_PER_SLOT = 3;
 
 export const MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT =
   "不可覆盖的单图构图约束：本次请求只能输出一张单场景、单画布、完整独立的商品主图，即单张完整海报。禁止四宫格、九宫格、2×2网格、4合1、拼图、分屏、分栏、多面板、联系表、前后对比拼接，禁止把多个独立场景或多张海报排列在同一张图内，禁止用贯穿画布的横线和竖线把画面切成多个区域，禁止在四个象限重复展示商品。即使其他文字出现“四张、4张、多张、不同场景”，也只表示多个独立请求；本次输出仍必须是一张连续完整海报。";
@@ -22,6 +25,45 @@ export interface MainImageCollageInspection {
   horizontal: Record<string, unknown>;
   quadrantStddevs: number[];
   texturedQuadrants: number;
+}
+
+export function isMainImageCollageRejectionReason(reason: string): boolean {
+  return new RegExp(MAIN_IMAGE_COLLAGE_REJECTION_CODE, "i").test(String(reason || "")) ||
+    /Main image collage rejected before watermark\/distribution/i.test(String(reason || ""));
+}
+
+export function resolveMainImageCollageRetry(input: {
+  audit: Array<{ state?: string; reason?: string }>;
+}): { retry: boolean; rejectedOutputCount: number; maxOutputs: number } {
+  const rejectedOutputCount = input.audit.filter(
+    (entry) => entry.state === "failed_after_acceptance" && isMainImageCollageRejectionReason(entry.reason || "")
+  ).length;
+  return {
+    retry: rejectedOutputCount < MAX_MAIN_IMAGE_COLLAGE_OUTPUTS_PER_SLOT,
+    rejectedOutputCount,
+    maxOutputs: MAX_MAIN_IMAGE_COLLAGE_OUTPUTS_PER_SLOT
+  };
+}
+
+export function archiveRejectedMainImageCollage(options: {
+  imageFile: string;
+  archiveRoot: string;
+  slot: number;
+}): { archiveDir: string; archivedFiles: string[] } {
+  const slotDir = path.join(options.archiveRoot, `slot-${String(options.slot).padStart(2, "0")}`);
+  fs.mkdirSync(slotDir, { recursive: true });
+  const attempt = fs.readdirSync(slotDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^attempt-\d+$/.test(entry.name)).length + 1;
+  const archiveDir = path.join(slotDir, `attempt-${String(attempt).padStart(2, "0")}`);
+  fs.mkdirSync(archiveDir, { recursive: false });
+  const candidates = [options.imageFile, `${options.imageFile}.collage-rejected.json`].filter((file) => fs.existsSync(file));
+  if (!candidates.length) throw new Error(`Rejected collage evidence is missing for slot ${options.slot}`);
+  const archivedFiles = candidates.map((file) => {
+    const target = path.join(archiveDir, path.basename(file));
+    fs.copyFileSync(file, target, fs.constants.COPYFILE_EXCL);
+    return target;
+  });
+  return { archiveDir, archivedFiles };
 }
 
 export async function inspectMainImageCollage(imageFile: string): Promise<MainImageCollageInspection> {
@@ -61,6 +103,6 @@ export async function assertMainImageIsSinglePoster(options: {
     "utf8"
   );
   throw new Error(
-    `Main image collage rejected before watermark/distribution: 四宫格/拼图/多面板结构 detected; image=${options.imageFile}; evidence=${evidenceFile}`
+    `${MAIN_IMAGE_COLLAGE_REJECTION_CODE}: Main image collage rejected before watermark/distribution: 四宫格/拼图/多面板结构 detected; image=${options.imageFile}; evidence=${evidenceFile}`
   );
 }

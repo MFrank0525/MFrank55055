@@ -5,14 +5,49 @@ import os from "node:os";
 import path from "node:path";
 import {
   assertMainImageIsSinglePoster,
+  isMainImageCollageRejectionReason,
   MAIN_IMAGE_COLLAGE_GATE_VERSION,
-  MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT
+  MAIN_IMAGE_COLLAGE_REJECTION_CODE,
+  MAIN_IMAGE_COLLAGE_RETRY_EXHAUSTED_CODE,
+  MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT,
+  resolveMainImageCollageRetry
 } from "../dist/src/autolist/main-image-collage-action.js";
 import { buildImageEditPromptFromWord } from "../dist/src/autolist/main-image-provider-action.js";
+import {
+  isCanonicalRawMainImageFileName,
+  quarantineRecoveredMainImageCollage
+} from "../dist/src/autolist/main-image-assets.js";
+import {
+  initializePaidImageProductLedger,
+  readPaidImageSlotRecord,
+  recordPaidImageCompleted,
+  recordPaidImageSubmitted,
+  reservePaidImageSlot
+} from "../dist/src/autolist/paid-image-submission-ledger.js";
+import { shouldResumeFeishuBatchAfterRetryableChildFailure } from "../dist/src/autolist/batch-continuation-rules.js";
 import { getPythonCommand, sanitizePythonRuntimeEnv } from "../dist/src/utils/platform.js";
 
 assert.match(MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT, /单张完整海报/u);
 assert.match(MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT, /禁止.*(?:四宫格|4合1|拼图)/u);
+assert.equal(isMainImageCollageRejectionReason(`${MAIN_IMAGE_COLLAGE_REJECTION_CODE}: rejected`), true);
+assert.deepEqual(resolveMainImageCollageRetry({ audit: [
+  { state: "failed_after_acceptance", reason: `${MAIN_IMAGE_COLLAGE_REJECTION_CODE}: one` },
+  { state: "failed_after_acceptance", reason: `${MAIN_IMAGE_COLLAGE_REJECTION_CODE}: two` }
+] }), { retry: true, rejectedOutputCount: 2, maxOutputs: 3 });
+assert.deepEqual(resolveMainImageCollageRetry({ audit: [1, 2, 3].map((value) => ({
+  state: "failed_after_acceptance",
+  reason: `${MAIN_IMAGE_COLLAGE_REJECTION_CODE}: ${value}`
+})) }), { retry: false, rejectedOutputCount: 3, maxOutputs: 3 });
+assert.equal(isCanonicalRawMainImageFileName("generated-03.png"), true);
+assert.equal(isCanonicalRawMainImageFileName("generated-03.png.unframed.png"), false);
+assert.equal(isCanonicalRawMainImageFileName("generated-03.png.frame-ready.png"), false);
+assert.equal(shouldResumeFeishuBatchAfterRetryableChildFailure({
+  exitCode: 1,
+  batchComplete: false,
+  retryableFailureMessage: `${MAIN_IMAGE_COLLAGE_RETRY_EXHAUSTED_CODE}: slot 15`,
+  recoveryAttempts: 0,
+  maxRecoveryAttempts: 12
+}), false);
 const prompt = buildImageEditPromptFromWord({
   paragraphs: ["主图指令", "产品卖点", "海报提示词", "正向提示词", "反向提示词"],
   promptWordFile: "prompt.docx"
@@ -58,6 +93,39 @@ await assert.rejects(
   /collage|四宫格|拼图/iu
 );
 assert.ok(fs.existsSync(`${collageFile}.collage-rejected.json`));
+
+const ledger = initializePaidImageProductLedger({
+  rootDir: path.join(tempDir, "ledger"),
+  batchFingerprint: "batch-collage-recovery",
+  recordId: "record-collage-recovery",
+  expectedSlotCount: 1,
+  providerIdentity: "provider-test",
+  sourceImageDigest: "source-test"
+});
+assert.equal(reservePaidImageSlot({
+  productDir: ledger.productDir,
+  slot: 1,
+  requestDigest: "request-digest",
+  promptDigest: "prompt-digest",
+  owner: { pid: process.pid }
+}).action, "submit");
+recordPaidImageSubmitted({ productDir: ledger.productDir, slot: 1, providerTaskId: "task-collage" });
+recordPaidImageCompleted({
+  productDir: ledger.productDir,
+  slot: 1,
+  providerTaskId: "task-collage",
+  sourceFile: collageFile
+});
+const quarantine = quarantineRecoveredMainImageCollage({
+  rawImageFile: collageFile,
+  paidImageProductLedgerDir: ledger.productDir,
+  slot: 1
+});
+assert.equal(readPaidImageSlotRecord({ productDir: ledger.productDir, slot: 1 }).state, "failed_after_acceptance");
+assert.equal(fs.existsSync(collageFile), false);
+assert.ok(fs.existsSync(path.join(quarantine.archiveDir, "paid-result.png")));
+assert.ok(fs.existsSync(path.join(quarantine.archiveDir, "slot-record.json")));
+assert.ok(fs.existsSync(path.join(quarantine.archiveDir, "runtime-files", "four-panel.png")));
 
 const assetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 assert.match(

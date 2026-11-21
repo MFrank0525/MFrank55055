@@ -126,6 +126,7 @@ export function shouldResumeFeishuBatchAfterRetryableChildFailure(input: FeishuB
   const retryableFailureMessage = input.retryableFailureMessage || ""; const providerReconciliationWait = /provider_log_(?:lookup_unavailable|outcome_pending)|provider_task_login_required/i.test(retryableFailureMessage); const reconciledLedgerExternalWait = /paid_image_ledger_safe_external_wait:\s*ambiguous=0,\s*reserved=0\b/i.test(retryableFailureMessage) && isRetryableExternalServiceAvailabilityFailure(retryableFailureMessage);
   if (
     input.exitCode === 0 || input.batchComplete ||
+    /main_image_collage_retry_exhausted/i.test(retryableFailureMessage) ||
     isUnsafePaidImageReplayReason(retryableFailureMessage) && !providerReconciliationWait && !reconciledLedgerExternalWait ||
     isPaidImageSubmissionSafetyBlock(retryableFailureMessage) && !providerReconciliationWait ||
     /please contact administrator/i.test(retryableFailureMessage)
@@ -1284,6 +1285,10 @@ function compactAutoListingControllerReason(summary?: string): string {
   const translated = translateAutoListingControllerOperatorMessage(text);
   if (translated && translated !== text) {
     return translated;
+  }
+  if (/main_image_collage_retry_exhausted/i.test(text)) return "同一固定主图槽位已连续三次生成四宫格/拼图，拒绝继续付费重试；已保留全部拒绝证据。";
+  if (/main_image_collage_rejected/i.test(text)) {
+    return "检测到四宫格/拼图主图；已保留证据并仅重生对应固定槽位，其余已完成图片全部复用。";
   }
   if (/provider_log_billed_acceptance_without_task_id/i.test(text)) {
     const slot = /\bslot=(\d+)\b/i.exec(text)?.[1];

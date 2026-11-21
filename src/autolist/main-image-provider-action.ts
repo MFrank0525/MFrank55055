@@ -51,7 +51,7 @@ import {
   writeImageGenerationTextLog
 } from "./image-provider-error-boundaries.js";
 import { prepareVideosBase64ReferenceImage } from "./videos-base64-reference.js";
-import { MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT } from "./main-image-collage-action.js";
+import { archiveRejectedMainImageCollage, assertMainImageIsSinglePoster, isMainImageCollageRejectionReason, MAIN_IMAGE_COLLAGE_REJECTION_CODE, MAIN_IMAGE_COLLAGE_RETRY_EXHAUSTED_CODE, MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT, resolveMainImageCollageRetry } from "./main-image-collage-action.js";
 export {
   redactImageGenerationLogText,
   redactImageGenerationLogValue,
@@ -1064,6 +1064,15 @@ export async function generateWithOpenAiCompatibleProvider(options: {
             `feishu_source_reselection_required: fixed slot ${ledgerSlot} was rejected by provider content policy; preserve the fixed prompt structure and regenerate DeepSeek prompts from a new Feishu candidate selection.`
           );
         }
+        if (
+          fixedSlotRecovery.action === "bubble" &&
+          isMainImageCollageRejectionReason(failedAfterAcceptanceReason)
+        ) {
+          const retry = resolveMainImageCollageRetry({ audit: slotAction.record?.audit || [] });
+          throw normalizeImageGenerationError(
+            `${MAIN_IMAGE_COLLAGE_RETRY_EXHAUSTED_CODE}: fixed slot ${ledgerSlot} produced ${retry.rejectedOutputCount}/${retry.maxOutputs} rejected collage outputs; preserving evidence and refusing further paid retries.`
+          );
+        }
         const allowFailedAfterAcceptanceDigestChange =
           slotAction.action === "retry_failed_after_acceptance" &&
           (isPaidImagePolicyCompatibilityReason(failedAfterAcceptanceReason) || policyFallbackCorrectionAuthorized) &&
@@ -1364,6 +1373,29 @@ export async function generateWithOpenAiCompatibleProvider(options: {
       throw error;
     }
     if (videosBase64Ledger) {
+      try {
+        await assertMainImageIsSinglePoster({ imageFile: targetFile });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!isMainImageCollageRejectionReason(message)) throw error;
+        const archive = archiveRejectedMainImageCollage({
+          imageFile: targetFile,
+          archiveRoot: path.join(videosBase64Ledger.productDir, "rejected-collage"),
+          slot: ledgerSlot
+        });
+        recordPaidImageFailedAfterAcceptance({
+          productDir: videosBase64Ledger.productDir,
+          slot: ledgerSlot,
+          providerTaskId: taskId,
+          reason: `${MAIN_IMAGE_COLLAGE_REJECTION_CODE}: provider output failed the single-poster gate; evidence=${archive.archiveDir}`,
+          providerResponse: statusPayload
+        });
+        fs.rmSync(targetFile, { force: true });
+        fs.rmSync(`${targetFile}.collage-rejected.json`, { force: true });
+        throw normalizeImageGenerationError(
+          `${MAIN_IMAGE_COLLAGE_REJECTION_CODE}: fixed slot ${ledgerSlot} provider output was archived and rejected before completion.`
+        );
+      }
       recordPaidImageCompleted({
         productDir: videosBase64Ledger.productDir,
         slot: ledgerSlot,
@@ -1413,6 +1445,12 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           );
         }
         if (recovery.action !== "retry_fixed_slot_now") {
+          if (isMainImageCollageRejectionReason(slotAction.record.reason || "")) {
+            const retry = resolveMainImageCollageRetry({ audit: slotAction.record.audit || [] });
+            throw normalizeImageGenerationError(
+              `${MAIN_IMAGE_COLLAGE_RETRY_EXHAUSTED_CODE}: fixed slot ${ledgerSlot} produced ${retry.rejectedOutputCount}/${retry.maxOutputs} rejected collage outputs; preserving evidence and refusing further paid retries.`
+            );
+          }
           throw error;
         }
         options.onProgress?.(`Image ${absoluteImageIndex}: provider recovered; retrying fixed paid slot ${ledgerSlot}.`);

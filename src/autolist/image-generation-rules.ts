@@ -1,3 +1,8 @@
+import {
+  isMainImageCollageRejectionReason,
+  resolveMainImageCollageRetry
+} from "./main-image-collage-action.js";
+
 export const imageServiceWaitCeilingMs = 3 * 60 * 1000;
 export const videosBase64AcceptedTaskPollCeilingMs = 30 * 60 * 1000;
 
@@ -576,6 +581,14 @@ export function resolvePaidImageFixedSlotRecovery(input: {
 } {
   const failureReason = input.failureReason || "";
   const unsafeReplay = isUnsafePaidImageReplayReason(failureReason);
+  if (isMainImageCollageRejectionReason(failureReason) && !unsafeReplay) {
+    const retry = resolveMainImageCollageRetry({ audit: input.audit });
+    return {
+      action: retry.retry ? "retry_fixed_slot_now" : "bubble",
+      usePolicyCompatiblePrompt: false,
+      deferMs: 0
+    };
+  }
   const irretrievableCompletedResult =
     /accepted provider task returned invalid image bytes from both result URL and authenticated content after completed status/i.test(
       failureReason

@@ -1,5 +1,14 @@
 # Auto-listing Requirement Trace
 
+## 2026-11-21 rejected-collage fixed-slot recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| A rejected collage must not permanently stop an otherwise complete 20-slot product | The exact completed slot is evidence-archived, atomically invalidated to `failed_after_acceptance`, and becomes the only missing/replayable slot; all other completed task IDs and results remain reusable | Completed-ledger collage regression moves only slot 1, preserves paid result and slot snapshot, and leaves the canonical raw absent for exact regeneration | verified |
+| A provider that repeatedly ignores the single-poster contract must not cause unlimited charges | Each slot accepts at most three provider outputs; after the third collage rejection the provider loop emits `main_image_collage_retry_exhausted`, and the supervisor refuses ordinary recovery | Retry-count and supervisor-classification regression in `test-main-image-no-collage-rule.mjs` | verified |
+| Resume must never recursively treat derivatives as raw images | Recovery enumerates only direct `generated-NN.png/jpg/jpeg/webp` files; `.unframed`, `.frame-ready`, provenance and rejection evidence are excluded | Canonical-filename regression rejects both derivative examples | verified |
+| Resume the locked Feishu batch without refreshing or replaying completed products | Continue through the controller with batch `5f7696752d5a0cd8b12c62fb`, current record `reczz28bxIqOJ3Ur`, reusing 19 accepted slots and replacing only global slot 15 | Live continuation preserved run `20261121-103211`; slot 15 archived old task `task_yZeqVS7snfNWiwWX6WIRY3Ojh3OsqhRV` as `attempt-01`, completed replacement task `task_Si97JukrJWvV5NldbzltbwHZ2U00vPPq`, and advanced into publish target 1/20 | verified |
+
 ## 2026-11-20 four-panel main-image prevention
 
 | Requirement | Implementation | Verification | Status |
