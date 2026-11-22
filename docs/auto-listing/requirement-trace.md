@@ -1,5 +1,13 @@
 # Auto-listing Requirement Trace
 
+## 2026-11-22 exact publish-section navigation recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Explain why shop 20 stopped before final submission | The old module navigator searched every body node for matching text and used style/geometry heuristics, so it could click the `价格库存` content heading instead of the unique top tab; the resulting `expected=价格库存; actual=图文信息` error was then misclassified as non-retryable | Locked run `20261121-222439`, target `...__image-003__20__20`; `publish-submit-attempt.json` remains `not_attempted`, while shops 1–19 retain confirmed publication | verified-live |
+| Make module selection deterministic | Navigation now targets one exact ARIA `tab`, requires `aria-selected=true`, reads the only selected tab through the same ARIA contract, and verifies the unique `goodsEditScrollContainer-<模块>` before returning; broad body-text, styling, coordinate and raw DOM-click fallbacks are prohibited | Red-before-green source regression plus a live read-only `价格库存 → 图文信息` round trip on the retained Doudian create page | verified-live |
+| Recover a stale active tab without risking duplicate publication | Every exact `Failed to activate publish section tab` mismatch is a bounded `platform_page_not_ready` retry while the durable final-submit boundary remains `not_attempted` | Classification/retry regression for `expected=价格库存; actual=图文信息`; continuation reuses the locked Feishu batch and canonical target | verified |
+
 ## 2026-11-22 single-poster false-positive recovery
 
 | Requirement | Implementation | Verification | Status |

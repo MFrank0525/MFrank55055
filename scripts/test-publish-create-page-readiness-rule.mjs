@@ -82,6 +82,59 @@ const sectionActivationFailureClass = classifyPublishFailure(
 assert.equal(sectionActivationFailureClass, "platform_page_not_ready");
 assert.equal(shouldRetryPublishFailure(sectionActivationFailureClass, 0), true);
 
+const staleActiveSectionFailureClass = classifyPublishFailure(
+  "Failed to activate publish section tab: expected=价格库存; actual=图文信息"
+);
+assert.equal(
+  staleActiveSectionFailureClass,
+  "platform_page_not_ready",
+  "A stale active section is still a verified pre-submit page readiness failure and must receive bounded safe recovery"
+);
+assert.equal(shouldRetryPublishFailure(staleActiveSectionFailureClass, 0), true);
+
+const sectionNavigationSource = fs.readFileSync(
+  "src/business/publish-from-spu/publish-section-navigation.ts",
+  "utf8"
+);
+const readActiveSectionSource = sectionNavigationSource.slice(
+  sectionNavigationSource.indexOf("export async function readActivePublishSectionTab"),
+  sectionNavigationSource.indexOf("export async function isPublishSectionContentVisible")
+);
+assert.match(
+  readActiveSectionSource,
+  /\[role="tab"\]\[aria-selected="true"\]/,
+  "Active-section readback must use the platform's exact selected-tab ARIA contract"
+);
+assert.doesNotMatch(
+  readActiveSectionSource,
+  /querySelectorAll\("body \*"\)|getComputedStyle|getBoundingClientRect/,
+  "Active-section readback must not infer state from broad text, geometry, color, or font styling"
+);
+const ensureSectionSource = sectionNavigationSource.slice(
+  sectionNavigationSource.indexOf("export async function ensurePublishSectionTab"),
+  sectionNavigationSource.indexOf("export async function ensureServiceSectionReady")
+);
+assert.match(
+  ensureSectionSource,
+  /getByRole\("tab", \{ name: text, exact: true \}\)/,
+  "Section navigation must target the unique exact ARIA tab"
+);
+assert.match(
+  ensureSectionSource,
+  /aria-selected/,
+  "Section navigation must verify the target tab's ARIA selected state after clicking"
+);
+assert.match(
+  ensureSectionSource,
+  /goodsEditScrollContainer-\$\{text\}/,
+  "Section navigation must verify the exact Doudian section container instead of fuzzy field text or coordinates"
+);
+assert.doesNotMatch(
+  ensureSectionSource,
+  /querySelectorAll\("body \*"\)|clickVisibleText|\.el\.click\(\)|target\?\.click\(\)/,
+  "Section navigation must not fall back to broad body-text searches or unverified DOM clicks"
+);
+
 assert.deepEqual(
   evaluatePublishCreatePageReadiness({
     usable: true,

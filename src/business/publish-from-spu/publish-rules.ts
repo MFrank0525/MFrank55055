@@ -800,7 +800,7 @@ export function classifyPublishFailure(message: string): string {
   ) {
     return "platform_page_not_ready";
   }
-  if (text.includes("Failedtoactivatepublishsectiontab") && text.includes("actual=<unknown>")) {
+  if (text.includes("Failedtoactivatepublishsectiontab")) {
     return "platform_page_not_ready";
   }
   if (text.includes("Allexpectedbasic-infofieldsdisappearedfromthepublishpage")) {

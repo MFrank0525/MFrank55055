@@ -1,63 +1,15 @@
 import type { Page } from "playwright";
-import { clickVisibleText, dismissTransientOverlays } from "./dom-actions.js";
+import { clickLocatorWithTransientUiRecovery } from "./browser-session.js";
+import { dismissTransientOverlays } from "./dom-actions.js";
 
 export async function readActivePublishSectionTab(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const labels = ["基础信息", "图文信息", "价格库存", "服务与履约", "其他信息"];
-    const nodes = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = normalize(el.innerText || el.textContent || "");
-        if (!labels.includes(text)) {
-          return null;
-        }
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (rect.width <= 0 || rect.height <= 0 || rect.top > 220 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        const marker = [String(el.className || ""), el.getAttribute("role") || ""].join(" ").toLowerCase();
-        const color = style.color || "";
-        const score =
-          (marker.includes("active") ? 220 : 0) +
-          (marker.includes("selected") ? 220 : 0) +
-          (marker.includes("current") ? 220 : 0) +
-          (el.getAttribute("aria-selected") === "true" ? 260 : 0) +
-          (/rgb\(22,\s*119,\s*255\)/.test(color) ? 200 : 0) +
-          (/rgb\(24,\s*144,\s*255\)/.test(color) ? 200 : 0) +
-          (Number.parseInt(style.fontWeight || "400", 10) >= 500 ? 120 : 0);
-        return { text, score, left: rect.left };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (b?.score || 0) - (a?.score || 0) || (a?.left || 0) - (b?.left || 0));
-
-    return nodes[0]?.text || "";
-  });
-}
-
-export async function findPublishSectionTabCenter(page: Page, text: string): Promise<{ x: number; y: number } | null> {
-  return page.evaluate((targetText) => {
-    const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-    const nodes = Array.from(document.querySelectorAll("body *"))
-      .map((el) => el as HTMLElement)
-      .map((el) => {
-        const text = normalize(el.innerText || el.textContent || "");
-        if (text !== targetText) {
-          return null;
-        }
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        if (rect.width <= 0 || rect.height <= 0 || rect.top > 220 || style.display === "none" || style.visibility === "hidden") {
-          return null;
-        }
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, left: rect.left };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (a?.left || 0) - (b?.left || 0));
-
-    return nodes[0] || null;
-  }, text);
+  const labels = new Set(["基础信息", "图文信息", "价格库存", "服务与履约", "其他信息"]);
+  const selectedTabs = page.locator('[role="tab"][aria-selected="true"]');
+  if ((await selectedTabs.count()) !== 1) {
+    return "";
+  }
+  const text = (await selectedTabs.first().innerText()).replace(/\s+/g, " ").trim();
+  return labels.has(text) ? text : "";
 }
 
 export async function isPublishSectionContentVisible(page: Page, text: string): Promise<boolean> {
@@ -275,109 +227,53 @@ export async function scrollUntilPublishSectionVisible(page: Page, text: string)
 }
 
 export async function ensurePublishSectionTab(page: Page, text: string): Promise<void> {
-  const fastPathActiveTab = await readActivePublishSectionTab(page).catch(() => "");
-  if (fastPathActiveTab === text || (await isPublishSectionContentPresent(page, text).catch(() => false))) {
-    return;
+  const tabs = page.getByRole("tab", { name: text, exact: true });
+  const tabCount = await tabs.count();
+  if (tabCount !== 1) {
+    throw new Error(`Publish section tab target must be unique: expected=${text}; count=${tabCount}`);
   }
+  const tab = tabs.first();
+  const section = page.locator(`[id="goodsEditScrollContainer-${text}"]`);
+  const sectionCount = await section.count();
+  if (sectionCount !== 1) {
+    throw new Error(`Publish section content target must be unique: expected=${text}; count=${sectionCount}`);
+  }
+  let lastClickError = "";
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await dismissTransientOverlays(page);
-    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" })).catch(() => {});
-    await page.waitForTimeout(400);
-    if (await isPublishSectionContentVisible(page, text).catch(() => false)) {
-      return;
-    }
-
-    const tab = page.getByRole("tab", { name: text }).first();
-    if (await tab.count()) {
-      await tab.click({ timeout: 3000 }).catch(() => {});
-    }
-
-    if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
-      const topTabClicked = await page
-        .evaluate((targetText) => {
-          const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-          const candidates = Array.from(document.querySelectorAll("body *"))
-            .map((node) => node as HTMLElement)
-            .map((el) => {
-              const rect = el.getBoundingClientRect();
-              const style = window.getComputedStyle(el);
-              const text = normalize(el.innerText || el.textContent || "");
-              if (
-                text !== targetText ||
-                rect.width <= 0 ||
-                rect.height <= 0 ||
-                rect.top < 60 ||
-                rect.top > 240 ||
-                rect.left < window.innerWidth * 0.18 ||
-                rect.left > window.innerWidth * 0.72 ||
-                style.display === "none" ||
-                style.visibility === "hidden"
-              ) {
-                return null;
-              }
-              return { el, score: (rect.top < 150 ? 40 : 0) - Math.abs(rect.top - 165) - text.length };
-            })
-            .filter(Boolean)
-            .sort((a, b) => (b?.score || 0) - (a?.score || 0))[0];
-          if (!candidates) {
-            return false;
-          }
-          candidates.el.click();
-          return true;
-        }, text)
-        .catch(() => false);
-      if (topTabClicked) {
-        await page.waitForTimeout(700);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const activeBefore = await readActivePublishSectionTab(page).catch(() => "");
+    const selectedBefore = (await tab.getAttribute("aria-selected").catch(() => "")) === "true";
+    if (activeBefore === text && selectedBefore) {
+      await section.evaluate((node) => node.scrollIntoView({ block: "start", behavior: "instant" })).catch(() => {});
+      if (await section.isVisible().catch(() => false)) {
+        return;
       }
     }
 
-    if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
-      await page.evaluate((targetText) => {
-        const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-        const target = Array.from(document.querySelectorAll("[role='tab'], button, [role='button'], body *"))
-          .map((el) => el as HTMLElement)
-          .find((el) => {
-            const rect = el.getBoundingClientRect();
-            const style = window.getComputedStyle(el);
-            return (
-              rect.width > 0 &&
-              rect.height > 0 &&
-              style.display !== "none" &&
-              style.visibility !== "hidden" &&
-              normalize(el.innerText || el.textContent || "") === targetText
-            );
-          });
-        ((target?.closest("[role='tab'], button, [role='button']") as HTMLElement | null) || target)?.click();
-      }, text).catch(() => false);
+    await dismissTransientOverlays(page);
+    try {
+      await clickLocatorWithTransientUiRecovery(tab, 5000);
+      lastClickError = "";
+    } catch (error) {
+      lastClickError = error instanceof Error ? error.message : String(error);
     }
 
-    if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
-      await page.evaluate((targetText) => {
-        const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
-        const target = Array.from(document.querySelectorAll("body *"))
-          .map((el) => el as HTMLElement)
-          .find((el) => normalize(el.innerText || el.textContent || "") === targetText);
-        target?.click();
-      }, text).catch(() => {});
-    }
-
-    if (!(await isPublishSectionContentVisible(page, text).catch(() => false))) {
-      await clickVisibleText(page, text);
-    }
-
-    await scrollPublishSectionContentIntoView(page, text).catch(() => false);
-    await page.waitForTimeout(900);
-    if (await isPublishSectionContentVisible(page, text).catch(() => false)) {
-      return;
+    for (let settle = 0; settle < 30; settle += 1) {
+      const selected = (await tab.getAttribute("aria-selected").catch(() => "")) === "true";
+      const active = await readActivePublishSectionTab(page).catch(() => "");
+      if (selected && active === text) {
+        await section.evaluate((node) => node.scrollIntoView({ block: "start", behavior: "instant" })).catch(() => {});
+        if (await section.isVisible().catch(() => false)) {
+          return;
+        }
+      }
+      await page.waitForTimeout(100);
     }
   }
 
   const activeTab = await readActivePublishSectionTab(page).catch(() => "");
-  if (activeTab === text) {
-    return;
-  }
-  throw new Error(`Failed to activate publish section tab: expected=${text}; actual=${activeTab || "<unknown>"}`);
+  const suffix = lastClickError ? `; clickError=${lastClickError}` : "";
+  throw new Error(`Failed to activate publish section tab: expected=${text}; actual=${activeTab || "<unknown>"}${suffix}`);
 }
 
 export async function ensureServiceSectionReady(page: Page): Promise<void> {

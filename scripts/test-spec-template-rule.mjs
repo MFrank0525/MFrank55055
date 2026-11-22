@@ -263,8 +263,8 @@ assert.match(
 
 assert.match(
   publishSource,
-  /if \(activeTab === text\) \{\s*return;\s*\}/,
-  "publish section activation should not fail when the exact target tab is already active"
+  /if \(activeBefore === text && selectedBefore\)[\s\S]*section\.isVisible\(\)[\s\S]*return;/,
+  "publish section activation should return without another click only when the exact target tab and section container are both verified"
 );
 
 assert.match(
