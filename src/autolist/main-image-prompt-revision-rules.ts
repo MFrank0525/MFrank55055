@@ -16,14 +16,19 @@ export function digestMainImagePromptSource(value: string): string {
   return crypto.createHash("sha256").update(value.trim(), "utf8").digest("hex");
 }
 
-function combinationsOfThree(values: string[]): string[][] {
+function combinationsOfFive(values: string[]): string[][] {
   const combinations: string[][] = [];
-  for (let first = 0; first < values.length - 2; first += 1) {
-    for (let second = first + 1; second < values.length - 1; second += 1) {
-      for (let third = second + 1; third < values.length; third += 1) {
-        combinations.push([values[first], values[second], values[third]]);
-      }
+  const visit = (start: number, selected: string[]): void => {
+    if (selected.length === 5) {
+      combinations.push(selected);
+      return;
     }
+    for (let index = start; index <= values.length - (5 - selected.length); index += 1) {
+      visit(index + 1, [...selected, values[index]]);
+    }
+  };
+  if (values.length >= 5) {
+    visit(0, []);
   }
   return combinations;
 }
@@ -35,19 +40,20 @@ function parseSelectedSellingPointText(value: string): {
 } {
   const parts = value.replace(/。$/, "").split("，").map((part) => part.trim()).filter(Boolean);
   if (
-    parts.length !== 8 ||
+    parts.length !== 10 ||
     !parts[0].startsWith("突出放大的有设计感的艺术字：") ||
     !parts[1].startsWith("尺寸略小一些的有设计感的艺术字：") ||
     parts[2] !== "官方正品" ||
-    parts[6] !== "图示产品的使用步骤" ||
-    parts[7] !== "突出产品使用部位"
+    parts[8] !== "图示产品的使用步骤" ||
+    parts[9] !== "突出产品使用部位" ||
+    new Set(parts.slice(3, 8)).size !== 5
   ) {
-    throw new Error("Current main-image selling points do not match the immutable eight-part structure.");
+    throw new Error("Current main-image selling points do not match the immutable ten-part structure.");
   }
   return {
     headline: parts[0].slice("突出放大的有设计感的艺术字：".length),
     subtitle: parts[1].slice("尺寸略小一些的有设计感的艺术字：".length),
-    sellingPoints: parts.slice(3, 6)
+    sellingPoints: parts.slice(3, 8)
   };
 }
 
@@ -66,7 +72,7 @@ export function selectNextFeishuMainImageSellingPointText(input: {
     input.currentSellingPointText.trim(),
     ...(input.previouslyUsedSellingPointTexts || []).map((value) => value.trim())
   ]);
-  const sellingPointCombinations = combinationsOfThree(sellingPoints);
+  const sellingPointCombinations = combinationsOfFive(sellingPoints);
   const candidates: Array<{ text: string; completelyChanged: boolean }> = [];
   for (const headline of headlines) {
     for (const subtitle of subtitles) {

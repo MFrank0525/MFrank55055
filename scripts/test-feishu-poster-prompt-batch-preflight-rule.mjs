@@ -4,7 +4,7 @@ const base = { recordId: "rec-valid", userCognitionName: "医用冷敷面膜", g
   brand: "延草纲目", spu: "SPU-1", productCategory: "医疗器械", qualificationImages: [], whiteBackgroundImages: [] };
 const result = validateFeishuPosterPromptBatch([
   { ...base, recordId: "rec-invalid", sellingPointText: "旧版产品卖点" },
-  { ...base, sellingPointText: "突出放大的有设计感的艺术字：晒后冷敷护理，尺寸略小一些的有设计感的艺术字：清爽补水舒缓，官方正品，物理冷敷，补水保湿，独立包装，图示产品的使用步骤，突出产品使用部位。" }
+  { ...base, sellingPointText: "突出放大的有设计感的艺术字：晒后冷敷护理，尺寸略小一些的有设计感的艺术字：清爽补水舒缓，官方正品，物理冷敷，补水保湿，独立包装，便携使用，日常护理，图示产品的使用步骤，突出产品使用部位。" }
 ]);
 assert.equal(result.ok, false);
 assert.equal(result.errors.length, 1);

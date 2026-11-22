@@ -57,7 +57,7 @@ export function buildSelectedMainImageSellingPointText(input: {
   const randomInt = input.randomInt || ((max: number) => crypto.randomInt(max));
   const headline = headlines[randomIndex(headlines.length, randomInt)];
   const subtitle = subtitles[randomIndex(subtitles.length, randomInt)];
-  const selectedSellingPoints = takeRandomUnique(sellingPoints, 3, randomInt);
+  const selectedSellingPoints = takeRandomUnique(sellingPoints, 5, randomInt);
   return [
     `突出放大的有设计感的艺术字：${headline}`,
     `尺寸略小一些的有设计感的艺术字：${subtitle}`,

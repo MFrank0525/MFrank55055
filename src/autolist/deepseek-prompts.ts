@@ -108,14 +108,15 @@ export function validateFeishuPosterPromptBatch(records: FeishuProductRecord[]):
 } {
   const errors = records.flatMap((record, index) => {
     const parts = record.sellingPointText.replace(/。$/, "").split("，").filter(Boolean);
-    const valid = parts.length === 8 && /^突出放大的有设计感的艺术字：.+/.test(parts[0]) &&
+    const selectedSellingPoints = parts.slice(3, 8);
+    const valid = parts.length === 10 && /^突出放大的有设计感的艺术字：.+/.test(parts[0]) &&
       /^尺寸略小一些的有设计感的艺术字：.+/.test(parts[1]) && parts[2] === "官方正品" &&
-      parts[3] !== parts[4] && parts[3] !== parts[5] && parts[4] !== parts[5] &&
-      parts[6] === "图示产品的使用步骤" && parts[7] === "突出产品使用部位";
+      new Set(selectedSellingPoints).size === 5 &&
+      parts[8] === "图示产品的使用步骤" && parts[9] === "突出产品使用部位";
     if (valid) return [];
     return [{ recordId: record.recordId, rowNumber: index + 1, userCognitionName: record.userCognitionName, spu: record.spu,
       requiredPromptCount: getProductCategoryPlan(record.productCategory).promptCount,
-      message: "产品卖点必须使用固定整段结构，并填入1个主图主标题、1个主图副标题和3个不同主图卖点。" }];
+      message: "产品卖点必须使用固定整段结构，并填入1个主图主标题、1个主图副标题和5个不同主图卖点。" }];
   });
   return { ok: errors.length === 0, errors, summary: errors.length
     ? `飞书主图候选词预检失败：${errors.map((error) => `cache item ${error.rowNumber} ${error.recordId}: ${error.message}`).join(" | ")}`

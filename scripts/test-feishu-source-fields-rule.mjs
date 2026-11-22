@@ -36,9 +36,9 @@ const normalized = normalizeFeishuProductRecord({ recordId: "rec-1", fields }, c
 assert.match(normalized.sellingPointText, /^突出放大的有设计感的艺术字：(唇部干燥护理|唇部水润防护)，/);
 assert.match(normalized.sellingPointText, /尺寸略小一些的有设计感的艺术字：(日常润护|清爽保湿)，官方正品，/);
 assert.match(normalized.sellingPointText, /，图示产品的使用步骤，突出产品使用部位。$/);
-const selected = normalized.sellingPointText.replace(/。$/, "").split("，").slice(3, 6);
-assert.equal(selected.length, 3);
-assert.equal(new Set(selected).size, 3);
+const selected = normalized.sellingPointText.replace(/。$/, "").split("，").slice(3, 8);
+assert.equal(selected.length, 5);
+assert.equal(new Set(selected).size, 5);
 for (const item of selected) assert.ok(["聚乙二醇成分", "保湿润护", "清透凝胶", "便携管装", "日常可用"].includes(item));
 assert.deepEqual(validateFeishuProductRecord(normalized), []);
-assert.throws(() => normalizeFeishuProductRecord({ recordId: "rec-too-few", fields: { ...fields, 主图卖点: "卖点一\n卖点二" } }, config), /至少需要3个不同候选内容/);
+assert.throws(() => normalizeFeishuProductRecord({ recordId: "rec-too-few", fields: { ...fields, 主图卖点: "卖点一\n卖点二\n卖点三\n卖点四" } }, config), /至少需要5个不同候选内容/);

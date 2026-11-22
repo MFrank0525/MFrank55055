@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildDeepSeekPosterPrompt, DEEPSEEK_POSTER_INSTRUCTION, generatePosterPromptsWithDeepSeek, parseDeepSeekPosterPrompts, recoverValidPosterPromptsFromRaw, validatePosterPrompts } from "../dist/src/autolist/deepseek-prompts.js";
-const sellingPointText = "突出放大的有设计感的艺术字：唇部干燥护理，尺寸略小一些的有设计感的艺术字：日常清爽润护，官方正品，聚乙二醇成分，保湿润护，清透凝胶，图示产品的使用步骤，突出产品使用部位。";
+const sellingPointText = "突出放大的有设计感的艺术字：唇部干燥护理，尺寸略小一些的有设计感的艺术字：日常清爽润护，官方正品，聚乙二醇成分，保湿润护，清透凝胶，便携管装，日常可用，图示产品的使用步骤，突出产品使用部位。";
 const fullPrompt = buildDeepSeekPosterPrompt(sellingPointText);
 assert.equal(fullPrompt, `${sellingPointText}\n\n${DEEPSEEK_POSTER_INSTRUCTION}`);
 for (const marker of ["设计出5款电商海报", "100-150个字之间", "不要修改我的包装", "不能在包装上加任何字"]) assert.match(fullPrompt, new RegExp(marker));

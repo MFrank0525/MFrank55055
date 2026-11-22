@@ -72,14 +72,14 @@
    - `brand`
    - `userCognitionName`
    - `brandedGenericName`
-   - `sellingPointSegments[8]`
+   - `sellingPointSegments[10]`
 2. 后续模块只消费结构化字段。
 3. 拆不出关键字段就立即失败。
 4. 导出到 `data/feishu/products.json` 前脱敏附件临时 URL、下载 URL 和非文件级 token 字段。
 5. 附件下载对瞬时网络错误和 408、429、5xx 自动重试，重试后仍失败才停止。
 6. 真实运行前执行 `npm run audit:auto-listing`，审计飞书记录数、待处理数量、已处理清单和本地素材是否一致。
 7. 连续性判断只放在规则层；下载、清理、项目状态输出只能作为动作层调用规则结果。
-8. DeepSeek 指令和 Word 第二段使用的 `sellingPointText` 必须严格等于当前锁定缓存中的固定结构完整单段文本，其中只允许填入 1 个主标题、1 个副标题和 3 个不同卖点；恢复运行不得重新抽取。
+8. DeepSeek 指令和 Word 第二段使用的 `sellingPointText` 必须严格等于当前锁定缓存中的固定结构完整单段文本，其中只允许填入 1 个主标题、1 个副标题和 5 个不同卖点；恢复运行不得重新抽取。
 
 ### 2. 图片提示词回复提取
 
