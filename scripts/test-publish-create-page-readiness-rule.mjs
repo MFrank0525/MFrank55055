@@ -8,6 +8,7 @@ import {
   evaluatePublishCreatePageReadiness,
   resolveBasicFieldIdAliases
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
+import { readActivePublishSectionTab } from "../dist/src/business/publish-from-spu/publish-section-navigation.js";
 
 assert.deepEqual(
   evaluatePublishCreatePageReadiness({
@@ -102,13 +103,48 @@ const readActiveSectionSource = sectionNavigationSource.slice(
 );
 assert.match(
   readActiveSectionSource,
-  /\[role="tab"\]\[aria-selected="true"\]/,
-  "Active-section readback must use the platform's exact selected-tab ARIA contract"
+  /getByRole\("tab", \{ name: label, exact: true \}\)/,
+  "Active-section readback must inspect only the five exact publish-section tabs"
 );
 assert.doesNotMatch(
   readActiveSectionSource,
-  /querySelectorAll\("body \*"\)|getComputedStyle|getBoundingClientRect/,
-  "Active-section readback must not infer state from broad text, geometry, color, or font styling"
+  /page\.locator|querySelectorAll\("body \*"\)|getComputedStyle|getBoundingClientRect/,
+  "Active-section readback must not count unrelated selected tabs or infer state from broad text, geometry, color, or font styling"
+);
+const publishTabStates = new Map([
+  ["基础信息", "false"],
+  ["图文信息", "true"],
+  ["价格库存", "false"],
+  ["服务与履约", "false"],
+  ["其他信息", "false"]
+]);
+const fakePageWithUnrelatedSelectedErrorTab = {
+  locator() {
+    throw new Error("Global selected-tab queries would include the unrelated selected 错误提示 tab");
+  },
+  getByRole(role, options) {
+    assert.equal(role, "tab");
+    assert.equal(options.exact, true);
+    assert.equal(publishTabStates.has(options.name), true);
+    const locator = {
+      async count() {
+        return 1;
+      },
+      first() {
+        return locator;
+      },
+      async getAttribute(name) {
+        assert.equal(name, "aria-selected");
+        return publishTabStates.get(options.name);
+      }
+    };
+    return locator;
+  }
+};
+assert.equal(
+  await readActivePublishSectionTab(fakePageWithUnrelatedSelectedErrorTab),
+  "图文信息",
+  "An unrelated selected 错误提示 tab must not hide the selected publish-section tab"
 );
 const ensureSectionSource = sectionNavigationSource.slice(
   sectionNavigationSource.indexOf("export async function ensurePublishSectionTab"),

@@ -3,13 +3,18 @@ import { clickLocatorWithTransientUiRecovery } from "./browser-session.js";
 import { dismissTransientOverlays } from "./dom-actions.js";
 
 export async function readActivePublishSectionTab(page: Page): Promise<string> {
-  const labels = new Set(["基础信息", "图文信息", "价格库存", "服务与履约", "其他信息"]);
-  const selectedTabs = page.locator('[role="tab"][aria-selected="true"]');
-  if ((await selectedTabs.count()) !== 1) {
-    return "";
+  const labels = ["基础信息", "图文信息", "价格库存", "服务与履约", "其他信息"];
+  const selectedLabels: string[] = [];
+  for (const label of labels) {
+    const tabs = page.getByRole("tab", { name: label, exact: true });
+    if ((await tabs.count()) !== 1) {
+      return "";
+    }
+    if ((await tabs.first().getAttribute("aria-selected").catch(() => "")) === "true") {
+      selectedLabels.push(label);
+    }
   }
-  const text = (await selectedTabs.first().innerText()).replace(/\s+/g, " ").trim();
-  return labels.has(text) ? text : "";
+  return selectedLabels.length === 1 ? selectedLabels[0] : "";
 }
 
 export async function isPublishSectionContentVisible(page: Page, text: string): Promise<boolean> {
