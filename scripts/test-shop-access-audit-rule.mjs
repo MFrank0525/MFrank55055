@@ -56,6 +56,22 @@ assert.equal(
   "trailing metadata tolerance must not turn substring containment into shop identity"
 );
 
+const dashboardMetadata = structuredClone(passing);
+dashboardMetadata.entries[13].actualShopName = `${shops[13].watermarkText}添加小二商家体验分详情87分较昨日持平商品84分物流96分服务85分店铺资金基础保证金¥500`;
+assert.deepEqual(
+  validateShopAccessAuditReport(dashboardMetadata),
+  { ok: true, errors: [] },
+  "known dashboard metadata appended to the exact shop-name prefix must not become a false shop mismatch"
+);
+
+const unknownTrailingIdentity = structuredClone(passing);
+unknownTrailingIdentity.entries[13].actualShopName = `${shops[13].watermarkText}错误店铺`;
+assert.equal(
+  validateShopAccessAuditReport(unknownTrailingIdentity).ok,
+  false,
+  "arbitrary trailing identity text must remain rejected"
+);
+
 const missing = structuredClone(passing);
 missing.entries.pop();
 assert.equal(validateShopAccessAuditReport(missing).ok, false);

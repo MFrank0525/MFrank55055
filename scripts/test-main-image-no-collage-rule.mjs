@@ -13,6 +13,7 @@ import {
   resolveMainImageCollageRetry
 } from "../dist/src/autolist/main-image-collage-action.js";
 import { buildImageEditPromptFromWord } from "../dist/src/autolist/main-image-provider-action.js";
+import { recoverRejectedCollageFalsePositive } from "../dist/src/autolist/main-image-collage-recovery-action.js";
 import {
   isCanonicalRawMainImageFileName,
   quarantineRecoveredMainImageCollage
@@ -21,6 +22,7 @@ import {
   initializePaidImageProductLedger,
   readPaidImageSlotRecord,
   recordPaidImageCompleted,
+  recordPaidImageFailedAfterAcceptance,
   recordPaidImageSubmitted,
   reservePaidImageSlot
 } from "../dist/src/autolist/paid-image-submission-ledger.js";
@@ -58,6 +60,7 @@ assert.match(prompt, /禁止.*(?:四宫格|4合1|拼图)/u);
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "main-image-collage-"));
 const collageFile = path.join(tempDir, "four-panel.png");
 const singlePosterFile = path.join(tempDir, "single-poster.png");
+const modularPosterFile = path.join(tempDir, "modular-single-poster.png");
 const fixtureScript = [
   "from PIL import Image, ImageDraw",
   "import sys",
@@ -79,15 +82,26 @@ const fixtureScript = [
   "d.ellipse((70,80,730,720),fill=(225,235,245),outline=(150,170,200),width=6)",
   "d.rectangle((190,300,610,620),fill=(252,252,252),outline=(75,45,135),width=10)",
   "d.rectangle((120,110,680,200),fill=(88,48,132))",
-  "single.save(sys.argv[2])"
+  "single.save(sys.argv[2])",
+  "poster=Image.new('RGB',(800,800),(225,205,175))",
+  "d=ImageDraw.Draw(poster)",
+  "d.rectangle((0,0,800,85),fill=(248,238,215))",
+  "d.rectangle((30,100,390,430),fill=(154,55,36))",
+  "d.rectangle((455,80,690,610),fill=(245,245,238),outline=(180,40,30),width=8)",
+  "d.ellipse((35,465,280,710),fill=(198,135,115),outline=(245,205,80),width=10)",
+  "d.rectangle((0,650,800,800),fill=(238,215,170))",
+  "for x in (110,330,550): d.ellipse((x,675,x+130,795),fill=(185,125,105),outline=(245,205,80),width=8)",
+  "poster.save(sys.argv[3])"
 ].join("\n");
-execFileSync(getPythonCommand(), ["-c", fixtureScript, collageFile, singlePosterFile], {
+execFileSync(getPythonCommand(), ["-c", fixtureScript, collageFile, singlePosterFile, modularPosterFile], {
   env: sanitizePythonRuntimeEnv(process.env)
 });
 
 const accepted = await assertMainImageIsSinglePoster({ imageFile: singlePosterFile });
 assert.equal(accepted.collageDetected, false);
 assert.equal(accepted.gateVersion, MAIN_IMAGE_COLLAGE_GATE_VERSION);
+const acceptedModularPoster = await assertMainImageIsSinglePoster({ imageFile: modularPosterFile });
+assert.equal(acceptedModularPoster.collageDetected, false);
 await assert.rejects(
   () => assertMainImageIsSinglePoster({ imageFile: collageFile }),
   /collage|四宫格|拼图/iu
@@ -127,7 +141,54 @@ assert.ok(fs.existsSync(path.join(quarantine.archiveDir, "paid-result.png")));
 assert.ok(fs.existsSync(path.join(quarantine.archiveDir, "slot-record.json")));
 assert.ok(fs.existsSync(path.join(quarantine.archiveDir, "runtime-files", "four-panel.png")));
 
+const falsePositiveLedger = initializePaidImageProductLedger({
+  rootDir: path.join(tempDir, "false-positive-ledger"),
+  batchFingerprint: "batch-false-positive",
+  recordId: "record-false-positive",
+  expectedSlotCount: 1,
+  providerIdentity: "provider-test",
+  sourceImageDigest: "source-test"
+});
+reservePaidImageSlot({
+  productDir: falsePositiveLedger.productDir,
+  slot: 1,
+  requestDigest: "request-digest",
+  promptDigest: "prompt-digest",
+  owner: { pid: process.pid }
+});
+recordPaidImageSubmitted({
+  productDir: falsePositiveLedger.productDir,
+  slot: 1,
+  providerTaskId: "task-false-positive"
+});
+const falsePositiveEvidenceDir = path.join(falsePositiveLedger.productDir, "rejected-collage", "slot-01", "attempt-01");
+fs.mkdirSync(falsePositiveEvidenceDir, { recursive: true });
+fs.copyFileSync(modularPosterFile, path.join(falsePositiveEvidenceDir, "generated-01.png"));
+const falsePositiveReason = `${MAIN_IMAGE_COLLAGE_REJECTION_CODE}: provider output failed the single-poster gate; evidence=${falsePositiveEvidenceDir}`;
+recordPaidImageFailedAfterAcceptance({
+  productDir: falsePositiveLedger.productDir,
+  slot: 1,
+  providerTaskId: "task-false-positive",
+  reason: falsePositiveReason,
+  providerResponse: { id: "task-false-positive", status: "completed" }
+});
+assert.equal(await recoverRejectedCollageFalsePositive({
+  productDir: falsePositiveLedger.productDir,
+  slot: 1,
+  failureReason: falsePositiveReason,
+  providerTaskId: "task-false-positive"
+}), true);
+const falsePositiveRecovered = readPaidImageSlotRecord({ productDir: falsePositiveLedger.productDir, slot: 1 });
+assert.equal(falsePositiveRecovered.state, "completed");
+assert.ok(fs.existsSync(falsePositiveRecovered.resultFile));
+
 const assetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
+const providerSource = fs.readFileSync("src/autolist/main-image-provider-action.ts", "utf8");
+assert.match(
+  providerSource,
+  /retry_failed_after_acceptance[\s\S]*recoverRejectedCollageFalsePositive[\s\S]*resolvePaidImageSlotAction/u,
+  "A corrected false-positive rejection must be restored before any fixed-slot retry is reserved."
+);
 assert.match(
   assetsSource,
   /recoverExistingRoundOutputs[\s\S]*assertMainImageIsSinglePoster[\s\S]*ensureSquareMainImageFile/u,

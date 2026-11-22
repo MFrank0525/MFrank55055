@@ -52,6 +52,7 @@ import {
 } from "./image-provider-error-boundaries.js";
 import { prepareVideosBase64ReferenceImage } from "./videos-base64-reference.js";
 import { archiveRejectedMainImageCollage, assertMainImageIsSinglePoster, isMainImageCollageRejectionReason, MAIN_IMAGE_COLLAGE_REJECTION_CODE, MAIN_IMAGE_COLLAGE_RETRY_EXHAUSTED_CODE, MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT, resolveMainImageCollageRetry } from "./main-image-collage-action.js";
+import { recoverRejectedCollageFalsePositive } from "./main-image-collage-recovery-action.js";
 export {
   redactImageGenerationLogText,
   redactImageGenerationLogValue,
@@ -67,18 +68,14 @@ export interface OpenAiCompatibleImageConfig {
   apiKey?: string;
   model: string;
   mode?: "videos-base64";
-  size?: string;
-  timeoutMs?: number;
-  submitTimeoutMs?: number;
-  submitConcurrency?: number;
-  maxTransientRetries?: number;
+  size?: string; timeoutMs?: number; submitTimeoutMs?: number;
+  submitConcurrency?: number; maxTransientRetries?: number;
   requestExtra?: Record<string, unknown>;
   videoMetadata?: Record<string, unknown>;
   pollIntervalMs?: number;
   maxPollMs?: number;
   acceptedQueueStaleMs?: number;
 }
-
 export const MAIN_IMAGE_ASPECT_RATIO = "1:1";
 export const MAIN_IMAGE_PROVIDER_SIZE = "1024x1024";
 const MAIN_IMAGE_SQUARE_PROMPT_CONTRACT =
@@ -997,6 +994,9 @@ export async function generateWithOpenAiCompatibleProvider(options: {
         slotAction.action === "retry_failed_before_acceptance" ||
         slotAction.action === "retry_failed_after_acceptance"
       ) {
+        if (slotAction.action === "retry_failed_after_acceptance" && slotAction.record?.providerTaskId && await recoverRejectedCollageFalsePositive({ productDir: videosBase64Ledger.productDir, slot: ledgerSlot, failureReason: slotAction.record.reason || "", providerTaskId: slotAction.record.providerTaskId })) {
+          slotAction = resolvePaidImageSlotAction({ productDir: videosBase64Ledger.productDir, slot: ledgerSlot });
+        }
         const failedRetryReason =
           slotAction.action !== "missing" && "record" in slotAction
             ? (slotAction.record?.reason || "")

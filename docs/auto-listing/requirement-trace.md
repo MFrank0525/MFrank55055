@@ -1,5 +1,14 @@
 # Auto-listing Requirement Trace
 
+## 2026-11-22 single-poster false-positive recovery
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| A normal single e-commerce poster with title, product and step modules must not be mistaken for a four-panel collage | The structure gate now requires a divider edge to span at least 70% of both axes (or a continuous bright gutter); partial product, title-card and module edges no longer qualify as panel separators | Red-before-green modular single-poster fixture; all three archived JLK slot-06 outputs changed from rejected to `single_canvas_not_rejected`, while the synthetic four-panel fixture remains rejected | verified |
+| Correct a historical false rejection without another paid provider request | Before retrying a collage-rejected slot, the provider action resolves the exact evidence directory from the current ledger reason, re-runs the corrected gate, and atomically restores only an exact task-bound valid result to the same slot | Recovery regression requires exact product/slot/reason/task identity and proves the slot returns to `completed` from archived evidence | verified |
+| Preserve fail-closed behavior for real collages and mismatched evidence | Recovery refuses evidence outside the canonical product/slot archive, multiple candidate images, true collages, changed reasons, changed task IDs and non-replayable terminal states | Ledger and collage-gate assertions in `test-main-image-no-collage-rule.mjs` | verified |
+| Keep read-only shop verification stable when Doudian appends dashboard text to the shop-name node | Shop identity still requires the exact expected shop name at the beginning; only known Doudian account/dashboard metadata prefixes may follow it, while misleading prefixes and arbitrary suffixes fail closed | Red-before-green shop-14 dashboard-text regression; 20/20 live read-only audit passed with `publishAttempted=false` and `formMutationAttempted=false` | verified-live |
+
 ## 2026-11-21 rejected-collage fixed-slot recovery
 
 | Requirement | Implementation | Verification | Status |

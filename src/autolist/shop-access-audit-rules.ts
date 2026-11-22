@@ -47,7 +47,11 @@ function normalizeShopName(value: string): string {
 }
 
 export function shopAccessNamesMatch(actualShopName: string, expectedShopName: string): boolean {
-  return normalizeShopName(actualShopName) === normalizeShopName(expectedShopName);
+  const actual = normalizeShopName(actualShopName);
+  const expected = normalizeShopName(expectedShopName);
+  if (actual === expected) return true;
+  if (!actual.startsWith(expected)) return false;
+  return /^(?:添加小二|商家体验分|体验分|店铺资金|主账号|子账号|正常营业)/u.test(actual.slice(expected.length));
 }
 
 export function validateShopAccessAuditReport(

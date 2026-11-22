@@ -1,5 +1,4 @@
-import crypto from "node:crypto";
-import { execFileSync } from "node:child_process";
+import crypto from "node:crypto"; import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -140,10 +139,8 @@ export interface ReconcileAmbiguousPaidImageProviderFailureInput {
   reason: string;
 }
 export interface RecordPaidImageCompletedInput {
-  productDir: string;
-  slot: number;
-  sourceFile: string;
-  providerTaskId?: string;
+  productDir: string; slot: number; sourceFile: string;
+  providerTaskId?: string; rejectedResultRecovery?: { expectedFailureReason: string; reason: string };
 }
 export interface RecordPaidImageRecoveredFromExistingResultInput {
   productDir: string;
@@ -1139,7 +1136,9 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
         return record;
       }
     }
-    if (!record || (record.state !== "submitted" && record.state !== "completed")) {
+    const rejectedResultRecovery = record?.state === "failed_after_acceptance" && input.rejectedResultRecovery &&
+      record.reason === input.rejectedResultRecovery.expectedFailureReason && record.replayDisposition !== "non_replayable";
+    if (!record || (record.state !== "submitted" && record.state !== "completed" && !rejectedResultRecovery)) {
       throw new Error(`invalid slot transition for slot ${input.slot}: ${record?.state || "missing"} -> completed`);
     }
     if (input.providerTaskId && record.providerTaskId !== input.providerTaskId) {
@@ -1164,9 +1163,10 @@ export function recordPaidImageCompleted(input: RecordPaidImageCompletedInput): 
         fs.unlinkSync(tempResult);
       }
     }
-    return transitionSlotUnlocked(input.productDir, input.slot, ["submitted", "completed"], "completed", {
+    return transitionSlotUnlocked(input.productDir, input.slot, rejectedResultRecovery ? ["failed_after_acceptance"] : ["submitted", "completed"], "completed", {
       resultFile,
-      resultDigest: sha256File(resultFile)
+      resultDigest: sha256File(resultFile),
+      ...(rejectedResultRecovery ? { reason: cleanText(requireNonEmpty(input.rejectedResultRecovery?.reason || "", "reason")) } : {})
     });
   });
 }

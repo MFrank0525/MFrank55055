@@ -39,7 +39,11 @@ def axis_candidate(image, axis):
         bright_ratio = sum(value > 242 for value in luminance) / max(1, span)
         bright_gain = statistics.mean(luminance) - statistics.mean(neighbours)
         line_stddev = statistics.pstdev(luminance)
-        strong_edge = edge_ratio >= 0.38 and edge_mean >= 28
+        # A real grid divider spans most of the canvas. Product silhouettes,
+        # title cards and step modules often create strong edges across only
+        # part of a legitimate single poster, so partial cross-axis edges must
+        # not be treated as panel separators.
+        continuous_divider = edge_ratio >= 0.70 and edge_mean >= 35
         bright_gutter = bright_ratio >= 0.70 and bright_gain >= 14 and line_stddev <= 35
         score = max(
             (edge_ratio / 0.38) + (edge_mean / 28),
@@ -54,7 +58,7 @@ def axis_candidate(image, axis):
             "brightRatio": round(bright_ratio, 4),
             "brightGain": round(bright_gain, 4),
             "lineStddev": round(line_stddev, 4),
-            "strong": strong_edge or bright_gutter,
+            "strong": continuous_divider or bright_gutter,
             "score": round(score, 4),
         })
     return max(candidates, key=lambda item: (item["strong"], item["score"]))
