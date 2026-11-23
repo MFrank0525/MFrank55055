@@ -879,7 +879,11 @@ export function classifyPublishFailure(message: string): string {
   if (
     text.includes("图文信息模块未完成") &&
     (text.includes("Qualificationdetailuploadwasnotacknowledgedperfile") ||
-      text.includes("Detailimagecountdidnotreachexpectedcount"))
+      text.includes("Qualificationimageswerenotfullyacknowledgedbefore详情页展开图upload") ||
+      text.includes("Detailexpansionuploadwasnotacknowledgedperfile") ||
+      text.includes("NoFeishu详情页展开图imagesareavailable") ||
+      text.includes("Detailimagecountdidnotreachexpectedcount") ||
+      text.includes("Detailimagecountexceededexpectedcount"))
   ) {
     return "detail_qualification_not_ready";
   }
@@ -1177,6 +1181,8 @@ export function evaluateDetailImageCompletion(input: {
   baselineDetailCount: number;
   qualificationImageCount: number;
   acknowledgedQualificationCount: number;
+  detailExpansionImageCount: number;
+  acknowledgedDetailExpansionCount: number;
   finalDetailCount: number;
   expectedDetailCount: number;
 }): PublishRuleCheck {
@@ -1190,6 +1196,15 @@ export function evaluateDetailImageCompletion(input: {
     return {
       passed: false,
       issue: `Qualification detail upload was not acknowledged per file. expected=${input.qualificationImageCount}; acknowledged=${input.acknowledgedQualificationCount}; baseline=${input.baselineDetailCount}; final=${input.finalDetailCount}`
+    };
+  }
+  if (input.detailExpansionImageCount <= 0) {
+    return { passed: false, issue: "No Feishu 详情页展开图 images were available for detail section." };
+  }
+  if (input.acknowledgedDetailExpansionCount !== input.detailExpansionImageCount) {
+    return {
+      passed: false,
+      issue: `Detail expansion upload was not acknowledged per file. expected=${input.detailExpansionImageCount}; acknowledged=${input.acknowledgedDetailExpansionCount}; baseline=${input.baselineDetailCount}; final=${input.finalDetailCount}`
     };
   }
   if (input.finalDetailCount < input.expectedDetailCount) {

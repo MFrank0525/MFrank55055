@@ -136,7 +136,7 @@ import {
   clearMainImagePrefillAndConfirmEmpty
 } from "./graphic-prefill-clear-action.js";
 
-async function ensureDetailImagesFromMainThenQualifications(
+async function ensureDetailImagesFromMainThenQualificationsThenExpansion(
   page: Page,
   runtimeDir: string,
   assets: ProductAssets
@@ -147,6 +147,15 @@ async function ensureDetailImagesFromMainThenQualifications(
       filledFromMain: false,
       group: "",
       issue: "No Feishu qualification images are available for 商品详情 upload."
+    };
+  }
+  const detailExpansionImages = assets.detailExpansionImages || [];
+  if (!detailExpansionImages.length) {
+    return {
+      completed: false,
+      filledFromMain: false,
+      group: "",
+      issue: "No Feishu 详情页展开图 images are available for 商品详情 upload."
     };
   }
 
@@ -165,49 +174,75 @@ async function ensureDetailImagesFromMainThenQualifications(
     };
   }
 
-  const expectedDetailCount = countAfterFillFromMain + assets.detailImages.length;
-  const uploadResult = await uploadDetailImagesByInputCapability(
+  const qualificationExpectedCount = countAfterFillFromMain + assets.detailImages.length;
+  const qualificationUploadResult = await uploadDetailImagesByInputCapability(
     page,
     assets.detailImages,
     countAfterFillFromMain
   ).catch(() => ({ attemptedCount: 0, acknowledgedCount: 0, finalCount: countAfterFillFromMain, failedFileIndex: 1 }));
+  const countAfterQualifications = await waitForPreviewCount(
+    page,
+    () => countDetailImagePreviews(page),
+    qualificationExpectedCount,
+    15000
+  );
+  if (
+    qualificationUploadResult.acknowledgedCount !== assets.detailImages.length ||
+    countAfterQualifications !== qualificationExpectedCount
+  ) {
+    await savePageScreenshot(page, runtimeDir, "publish-page-detail-qualification-upload-failed.png").catch(() => "");
+    return {
+      completed: false,
+      filledFromMain,
+      group: "",
+      issue: `Qualification images were not fully acknowledged before 详情页展开图 upload. expected=${assets.detailImages.length}; acknowledged=${qualificationUploadResult.acknowledgedCount}; baseline=${countAfterFillFromMain}; actual=${countAfterQualifications}; failedFileIndex=${qualificationUploadResult.failedFileIndex ?? "none"}`
+    };
+  }
+
+  const expectedDetailCount = qualificationExpectedCount + detailExpansionImages.length;
+  const expansionUploadResult = await uploadDetailImagesByInputCapability(
+    page,
+    detailExpansionImages,
+    countAfterQualifications
+  ).catch(() => ({ attemptedCount: 0, acknowledgedCount: 0, finalCount: countAfterQualifications, failedFileIndex: 1 }));
   const finalCount = await waitForPreviewCount(page, () => countDetailImagePreviews(page), expectedDetailCount, 15000);
   const detailRule = evaluateDetailImageCompletion({
     filledFromMain,
     baselineDetailCount: countAfterFillFromMain,
     qualificationImageCount: assets.detailImages.length,
-    acknowledgedQualificationCount: uploadResult.acknowledgedCount,
+    acknowledgedQualificationCount: qualificationUploadResult.acknowledgedCount,
+    detailExpansionImageCount: detailExpansionImages.length,
+    acknowledgedDetailExpansionCount: expansionUploadResult.acknowledgedCount,
     finalDetailCount: finalCount,
     expectedDetailCount
   });
   const detailOutcome = evaluateDetailUploadOutcome({
-    uploadActionCompleted: uploadResult.acknowledgedCount === assets.detailImages.length,
+    uploadActionCompleted:
+      qualificationUploadResult.acknowledgedCount === assets.detailImages.length &&
+      expansionUploadResult.acknowledgedCount === detailExpansionImages.length,
     detailRule
   });
   if (detailOutcome.passed) {
     return {
       completed: true,
       filledFromMain,
-      group: filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages:existingWithQualifications",
+      group: "detailImages:fillFromMainThenQualificationsThenExpansion",
       issue: ""
     };
   }
 
-  await savePageScreenshot(page, runtimeDir, "publish-page-detail-qualification-upload-failed.png").catch(() => "");
+  await savePageScreenshot(page, runtimeDir, "publish-page-detail-expansion-upload-failed.png").catch(() => "");
   return {
     completed: false,
     filledFromMain,
     group: "",
-    issue: `${detailOutcome.issue || `Detail images did not reach expected count after fill-from-main plus Feishu qualifications. expected=${expectedDetailCount}; actual=${finalCount}`} acknowledged=${uploadResult.acknowledgedCount}; qualificationImages=${assets.detailImages.length}; failedFileIndex=${uploadResult.failedFileIndex ?? "none"}`
+    issue: `${detailOutcome.issue || `Detail images did not reach expected count after fill-from-main, Feishu qualifications, and 详情页展开图. expected=${expectedDetailCount}; actual=${finalCount}`} qualificationAcknowledged=${qualificationUploadResult.acknowledgedCount}; qualificationImages=${assets.detailImages.length}; expansionAcknowledged=${expansionUploadResult.acknowledgedCount}; expansionImages=${detailExpansionImages.length}; expansionFailedFileIndex=${expansionUploadResult.failedFileIndex ?? "none"}`
   };
 }
 
 export function graphicUploadGroupsComplete(uploadedGroups: string[]): boolean {
   const detailDone = uploadedGroups.some(
-    (item) =>
-      item === "detailImages" ||
-      item === "detailImages:fillFromMainThenUpload" ||
-      item === "detailImages:existingWithQualifications"
+    (item) => item === "detailImages:fillFromMainThenQualificationsThenExpansion"
   );
   return (
     OPTIONAL_GRAPHIC_SECTIONS_ARE_OUTSIDE_PUBLISH_FLOW &&
@@ -295,7 +330,7 @@ async function uploadProductImages(
 
     let filledFromMain = false;
     if (!uploadIssue) {
-      const detailResult = await ensureDetailImagesFromMainThenQualifications(page, runtimeDir, assets);
+      const detailResult = await ensureDetailImagesFromMainThenQualificationsThenExpansion(page, runtimeDir, assets);
       filledFromMain = detailResult.filledFromMain;
       if (detailResult.completed) {
         uploadedGroups.push(detailResult.group);
@@ -319,13 +354,11 @@ async function uploadProductImages(
   if (
     !uploadedGroups.some(
       (item) =>
-        item === "detailImages" ||
-        item === "detailImages:fillFromMainThenUpload" ||
-        item === "detailImages:existingWithQualifications"
+        item === "detailImages:fillFromMainThenQualificationsThenExpansion"
     ) &&
-    finalDetailPreviewCount >= assets.detailImages.length + 1
+    finalDetailPreviewCount === assets.detailImages.length + (assets.detailExpansionImages || []).length + 1
   ) {
-    uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
+    uploadedGroups.push("detailImages:fillFromMainThenQualificationsThenExpansion");
   }
 
   const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-images-uploaded.png");
@@ -405,7 +438,7 @@ export async function uploadProductImagesOnPage(
 
   let filledFromMain = false;
   if (!uploadIssue) {
-    const detailResult = await ensureDetailImagesFromMainThenQualifications(page, runtimeDir, assets);
+    const detailResult = await ensureDetailImagesFromMainThenQualificationsThenExpansion(page, runtimeDir, assets);
     filledFromMain = detailResult.filledFromMain;
     if (detailResult.completed) {
       uploadedGroups.push(detailResult.group);
@@ -431,13 +464,11 @@ export async function uploadProductImagesOnPage(
   if (
     !uploadedGroups.some(
       (item) =>
-        item === "detailImages" ||
-        item === "detailImages:fillFromMainThenUpload" ||
-        item === "detailImages:existingWithQualifications"
+        item === "detailImages:fillFromMainThenQualificationsThenExpansion"
     ) &&
-    finalDetailPreviewCount >= assets.detailImages.length + 1
+    finalDetailPreviewCount === assets.detailImages.length + (assets.detailExpansionImages || []).length + 1
   ) {
-    uploadedGroups.push(filledFromMain ? "detailImages:fillFromMainThenUpload" : "detailImages");
+    uploadedGroups.push("detailImages:fillFromMainThenQualificationsThenExpansion");
   }
 
   const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);

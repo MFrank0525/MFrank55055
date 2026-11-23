@@ -24,6 +24,7 @@ const FEISHU_FIELD_ALIASES: Record<FeishuFieldKey, string[]> = {
   shortTitle: ["导购短标题", "短标题", "商品短标题", "导购标题"],
   productCategory: ["产品类目", "商品类目", "类目", "产品分类", "商品分类"],
   qualificationImages: ["资质图片", "资质附件", "资质图", "资格图片", "证照图片"],
+  detailExpansionImages: ["详情页展开图"],
   whiteBackgroundImages: ["白底图", "白底附件", "白底图片", "白底产品图", "白底源图"],
   manufacturerName: ["生产企业名称", "生产企业", "生产厂家", "生产商", "生产单位"],
   manufacturerAddress: ["生产企业地址", "生产地址", "生产厂家地址", "生产商地址"],
@@ -52,6 +53,7 @@ const COMMON_REQUIRED_FIELDS: FeishuFieldKey[] = [
   "shortTitle",
   "productCategory",
   "qualificationImages",
+  "detailExpansionImages",
   "whiteBackgroundImages"
 ];
 
@@ -225,6 +227,7 @@ export function sanitizeFeishuProductRecord(record: FeishuProductRecord): Feishu
   return {
     ...record,
     qualificationImages: record.qualificationImages.map(sanitizeAttachment),
+    detailExpansionImages: (record.detailExpansionImages || []).map(sanitizeAttachment),
     whiteBackgroundImages: record.whiteBackgroundImages.map(sanitizeAttachment),
     rawFields: sanitizeFeishuFieldValue(record.rawFields) as Record<string, unknown>
   };
@@ -267,6 +270,7 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     shortTitle: extractText(field("shortTitle")),
     productCategory: productCategoryText ? normalizeProductCategory(productCategoryText) : undefined,
     qualificationImages: extractAttachments(field("qualificationImages")),
+    detailExpansionImages: extractAttachments(field("detailExpansionImages")),
     whiteBackgroundImages: extractAttachments(field("whiteBackgroundImages")),
     manufacturerName: extractText(field("manufacturerName")),
     manufacturerAddress: extractText(field("manufacturerAddress")),
@@ -337,6 +341,7 @@ function hasEmptyFeishuProductContent(record: FeishuProductRecord, includeCatego
     !record.shortTitle &&
     (!includeCategory || !record.productCategory) &&
     record.qualificationImages.length === 0 &&
+    record.detailExpansionImages.length === 0 &&
     record.whiteBackgroundImages.length === 0 &&
     !record.manufacturerName &&
     !record.manufacturerAddress &&

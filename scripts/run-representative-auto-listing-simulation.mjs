@@ -43,12 +43,15 @@ export async function runRepresentativeSimulation() {
   const fixtureImage = path.resolve("input/fixed-main-images/辅助图02.png");
   const sourceImage = path.join(feishuImageDir, "representative-white.png");
   const qualificationImage = path.join(qualificationDir, "representative-qualification.png");
+  const detailExpansionImage = path.join(qualificationDir, "representative-详情页展开图-01.png");
   fs.copyFileSync(fixtureImage, sourceImage);
   fs.copyFileSync(fixtureImage, qualificationImage);
+  fs.copyFileSync(fixtureImage, detailExpansionImage);
 
   const record = JSON.parse(fs.readFileSync("scripts/fixtures/representative-feishu-product.json", "utf8"));
   record.whiteBackgroundImages = [{ fileToken: "fixture-white", name: path.basename(sourceImage), localFile: sourceImage, raw: {} }];
   record.qualificationImages = [{ fileToken: "fixture-qualification", name: path.basename(qualificationImage), localFile: qualificationImage, raw: {} }];
+  record.detailExpansionImages = [{ fileToken: "fixture-detail-expansion", name: path.basename(detailExpansionImage), localFile: detailExpansionImage, raw: {} }];
   const feishuProductDataFile = path.join(root, "data", "feishu", "products.json");
   mkdir(path.dirname(feishuProductDataFile));
   fs.writeFileSync(feishuProductDataFile, JSON.stringify({

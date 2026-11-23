@@ -314,6 +314,16 @@ assert.match(
   /detailImages: preparedQualificationImages\.files/,
   "only prepared qualification paths may populate the in-memory detail image upload set"
 );
+assert.match(
+  publishSource,
+  /files: classifiedAssets\.detailExpansionImages \|\| \[\][\s\S]*outputDir: path\.join\(runtimeDir, "detail-expansion-images-normalized"\)/,
+  "publish jobs must normalize 详情页展开图 independently from qualification images"
+);
+assert.match(
+  publishSource,
+  /detailExpansionImages: preparedDetailExpansionImages\.files/,
+  "only independently prepared expansion paths may populate the detail expansion upload set"
+);
 assert.doesNotMatch(
   publishSource,
   /fs\.(?:copyFileSync|renameSync)\([^\n]*detailImages/,

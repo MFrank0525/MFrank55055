@@ -28,6 +28,7 @@ const completeRecord = {
   shortTitle: "短标题",
   productCategory: "医疗器械",
   qualificationImages: [{ fileToken: "q", name: "q.png", raw: {} }],
+  detailExpansionImages: [{ fileToken: "d", name: "d.png", raw: {} }],
   whiteBackgroundImages: [{ fileToken: "w", name: "w.png", raw: {} }],
   rawFields: {}
 };
@@ -44,6 +45,14 @@ assert.notEqual(
     qualificationImages: [{ ...completeRecord.qualificationImages[0], fileToken: "q-changed" }]
   }]),
   "Changing an attachment token must change the batch fingerprint even when name and size stay unchanged"
+);
+assert.notEqual(
+  buildFeishuBatchFingerprint([completeRecord]),
+  buildFeishuBatchFingerprint([{
+    ...completeRecord,
+    detailExpansionImages: [{ ...completeRecord.detailExpansionImages[0], fileToken: "d-changed" }]
+  }]),
+  "Changing a 详情页展开图 attachment must invalidate resumable batch identity"
 );
 assert.notEqual(
   buildFeishuBatchFingerprint([{ ...completeRecord, productCategory: "保健食品", shelfLife: 24, storageCondition: "常温" }]),

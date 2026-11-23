@@ -811,7 +811,10 @@ async function executeTaskChain(
         productFolders: current.generatedProductFolders,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
         productName: current.feishuProductRecord?.userCognitionName || current.sellingPointArtifact.brandedGenericName,
-        sourceFiles: (current.feishuProductRecord?.qualificationImages || [])
+        sourceFiles: [
+          ...(current.feishuProductRecord?.qualificationImages || []),
+          ...(current.feishuProductRecord?.detailExpansionImages || [])
+        ]
           .map((item) => item.localFile || "")
           .filter(Boolean),
         simulateOnly
@@ -982,7 +985,8 @@ async function executeTaskChain(
       }
       const sourceAssetFiles = [
         ...(current.feishuProductRecord?.whiteBackgroundImages || []).map((item) => item.localFile || ""),
-        ...(current.feishuProductRecord?.qualificationImages || []).map((item) => item.localFile || "")
+        ...(current.feishuProductRecord?.qualificationImages || []).map((item) => item.localFile || ""),
+        ...(current.feishuProductRecord?.detailExpansionImages || []).map((item) => item.localFile || "")
       ].filter(Boolean);
       const currentAssetSet = new Set(sourceAssetFiles.map((file) => path.resolve(file)));
       const cleanupArtifact = cleanupAfterPublish({

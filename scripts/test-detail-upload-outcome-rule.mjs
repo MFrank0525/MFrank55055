@@ -3,18 +3,45 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { classifyAssets } from "../dist/src/business/publish-from-spu/assets.js";
+import { auditAutoListingContinuity } from "../dist/src/autolist/audit-rules.js";
 import {
+  classifyPublishFailure,
   evaluateDetailImageCompletion,
   evaluateDetailUploadOutcome
 } from "../dist/src/business/publish-from-spu/publish-rules.js";
+
+assert.equal(
+  classifyPublishFailure(
+    "Sequential publish flow stopped: 图文信息模块未完成。Detail expansion upload was not acknowledged per file. expected=2; acknowledged=1; baseline=6; final=9"
+  ),
+  "detail_qualification_not_ready",
+  "详情页展开图 acknowledgement failures must use the deterministic detail-image circuit"
+);
+
+const missingExpansionAssetAudit = auditAutoListingContinuity({
+  records: [{
+    recordId: "rec-detail-expansion",
+    whiteBackgroundImages: [{ localFile: "/work/white.png" }],
+    qualificationImages: [{ localFile: "/work/qualification.png" }],
+    detailExpansionImages: [{ localFile: "/work/detail-expansion.png" }]
+  }],
+  processedImages: [],
+  existingFiles: ["/work/white.png", "/work/qualification.png"]
+});
+assert.ok(
+  missingExpansionAssetAudit.errors.some((issue) => issue.code === "pending_detail_expansion_image_missing"),
+  "deep continuity audit must fail when a pending Feishu 详情页展开图 local file is missing"
+);
 
 const satisfiedFinalCount = evaluateDetailImageCompletion({
   filledFromMain: true,
   baselineDetailCount: 5,
   qualificationImageCount: 4,
   acknowledgedQualificationCount: 4,
-  finalDetailCount: 9,
-  expectedDetailCount: 9
+  detailExpansionImageCount: 2,
+  acknowledgedDetailExpansionCount: 2,
+  finalDetailCount: 11,
+  expectedDetailCount: 11
 });
 
 assert.deepEqual(
@@ -30,8 +57,10 @@ const shortFinalCount = evaluateDetailImageCompletion({
   baselineDetailCount: 5,
   qualificationImageCount: 4,
   acknowledgedQualificationCount: 4,
-  finalDetailCount: 8,
-  expectedDetailCount: 9
+  detailExpansionImageCount: 2,
+  acknowledgedDetailExpansionCount: 2,
+  finalDetailCount: 10,
+  expectedDetailCount: 11
 });
 
 assert.deepEqual(
@@ -41,7 +70,7 @@ assert.deepEqual(
   }),
   {
     passed: false,
-    issue: "Detail image count did not reach expected count. expected=9; actual=8"
+    issue: "Detail image count did not reach expected count. expected=11; actual=10"
   }
 );
 
@@ -50,12 +79,14 @@ const missingAcknowledgement = evaluateDetailImageCompletion({
   baselineDetailCount: 6,
   qualificationImageCount: 2,
   acknowledgedQualificationCount: 1,
-  finalDetailCount: 8,
-  expectedDetailCount: 8
+  detailExpansionImageCount: 1,
+  acknowledgedDetailExpansionCount: 1,
+  finalDetailCount: 9,
+  expectedDetailCount: 9
 });
 assert.deepEqual(missingAcknowledgement, {
   passed: false,
-  issue: "Qualification detail upload was not acknowledged per file. expected=2; acknowledged=1; baseline=6; final=8"
+  issue: "Qualification detail upload was not acknowledged per file. expected=2; acknowledged=1; baseline=6; final=9"
 });
 
 const fullyAcknowledged = evaluateDetailImageCompletion({
@@ -63,8 +94,10 @@ const fullyAcknowledged = evaluateDetailImageCompletion({
   baselineDetailCount: 6,
   qualificationImageCount: 2,
   acknowledgedQualificationCount: 2,
-  finalDetailCount: 8,
-  expectedDetailCount: 8
+  detailExpansionImageCount: 1,
+  acknowledgedDetailExpansionCount: 1,
+  finalDetailCount: 9,
+  expectedDetailCount: 9
 });
 assert.deepEqual(fullyAcknowledged, { passed: true, issue: "" });
 
@@ -86,6 +119,8 @@ write("测试白底图-01-aaaaaaaaaa.png", "white-image");
 write("测试资质图片-03-0000000001.png", "qualification-03");
 write("测试资质图片-01-9999999999.png", "qualification-01");
 write("测试资质图片-02-1111111111.png", "qualification-02");
+write("测试详情页展开图-02-bbbbbbbbbb.png", "expansion-02");
+write("测试详情页展开图-01-cccccccccc.png", "expansion-01");
 
 const classified = classifyAssets(productFolder);
 assert.deepEqual(
@@ -96,6 +131,18 @@ assert.deepEqual(
     "测试资质图片-03-0000000001.png"
   ],
   "detail qualification images must upload in Feishu qualification order, ignoring hash suffix digits"
+);
+assert.deepEqual(
+  classified.detailExpansionImages.map((file) => path.basename(file)),
+  ["测试详情页展开图-01-cccccccccc.png", "测试详情页展开图-02-bbbbbbbbbb.png"],
+  "detail expansion images must remain separate from qualifications and preserve Feishu order"
+);
+
+const uploadActionSource = fs.readFileSync("src/business/publish-from-spu/graphic-upload-page-action.ts", "utf8");
+assert.match(
+  uploadActionSource,
+  /assets\.detailImages,[\s\S]*qualificationExpectedCount[\s\S]*detailExpansionImages,[\s\S]*countAfterQualifications/,
+  "详情页展开图 must upload only after the qualification batch reaches its exact expected count"
 );
 
 console.log("detail upload outcome rule passed");

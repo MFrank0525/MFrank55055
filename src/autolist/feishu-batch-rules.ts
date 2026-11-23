@@ -40,7 +40,8 @@ export function buildFeishuBatchIdentityFingerprint(records: FeishuProductRecord
     shelfLife: record.shelfLife ?? null,
     storageCondition: record.storageCondition || "",
     whiteBackgroundImages: (record.whiteBackgroundImages || []).map(attachmentIdentity),
-    qualificationImages: (record.qualificationImages || []).map(attachmentIdentity)
+    qualificationImages: (record.qualificationImages || []).map(attachmentIdentity),
+    detailExpansionImages: (record.detailExpansionImages || []).map(attachmentIdentity)
   }));
   return crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24);
 }

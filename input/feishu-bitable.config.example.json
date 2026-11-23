@@ -28,6 +28,7 @@
     "shortTitle": "导购短标题",
     "productCategory": "产品类目",
     "qualificationImages": "资质图片",
+    "detailExpansionImages": "详情页展开图",
     "whiteBackgroundImages": "白底图",
     "manufacturerName": "生产企业名称",
     "manufacturerAddress": "生产企业地址",
@@ -57,6 +58,7 @@
     "shortTitle",
     "productCategory",
     "qualificationImages",
+    "detailExpansionImages",
     "whiteBackgroundImages"
   ]
 }

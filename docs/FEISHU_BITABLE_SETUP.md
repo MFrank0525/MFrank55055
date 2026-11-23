@@ -88,6 +88,7 @@ export FEISHU_BITABLE_URL="https://..."
 - `导购短标题`
 - `产品类目`
 - `资质图片`
+- `详情页展开图`
 - `白底图`
 
 保健食品记录还必须填写以下专用字段；医疗器械和非处方药记录可保持这些单元格为空：
@@ -141,7 +142,7 @@ npm run feishu:assets -- --config ./input/feishu-bitable.config.json --out ./dat
 默认会把附件落到：
 
 - 白底图：`input/auto-listing/feishu-images`
-- 资质图片：`input/auto-listing/qualifications`
+- 资质图片、详情页展开图：`input/auto-listing/qualifications`（文件名标签和记录属性保持独立）
 
 导出的结构会包含：
 
@@ -153,6 +154,7 @@ npm run feishu:assets -- --config ./input/feishu-bitable.config.json --out ./dat
 - `shortTitle`
 - `productCategory`
 - `qualificationImages`
+- `detailExpansionImages`
 - `whiteBackgroundImages`
 
 安全边界：

@@ -102,6 +102,7 @@ export interface ProductAssets {
   mainImages: string[];
   whiteBackgroundImages: string[];
   detailImages: string[];
+  detailExpansionImages: string[];
   otherFiles: string[];
 }
 

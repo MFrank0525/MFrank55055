@@ -118,6 +118,7 @@ export interface AutoListingContinuityAuditResult {
     pendingRecordCount: number;
     declaredWhiteImageCount: number;
     declaredQualificationImageCount: number;
+    declaredDetailExpansionImageCount: number;
     existingFileCount: number;
     unmatchedProcessedImageCount: number;
     discoveredRunImageCount?: number;
@@ -276,7 +277,11 @@ function recordDuplicateLocalFileIssues(input: {
     if (previousRecordId && previousRecordId !== input.ownerRecordId) {
       input.errors.push(issue(
         "error",
-        input.label === "white" ? "duplicate_white_image_local_file" : "duplicate_qualification_image_local_file",
+        input.label === "white"
+          ? "duplicate_white_image_local_file"
+          : input.label === "detail expansion"
+            ? "duplicate_detail_expansion_image_local_file"
+            : "duplicate_qualification_image_local_file",
         `Feishu records ${previousRecordId} and ${input.ownerRecordId} share one local ${input.label} image path; refresh assets before continuing.`,
         input.ownerRecordId,
         filePath
@@ -293,7 +298,8 @@ export function collectFeishuProductAssetFiles(records: FeishuProductRecord[]): 
   for (const record of records) {
     for (const filePath of [
       ...localFiles(record.whiteBackgroundImages || []),
-      ...localFiles(record.qualificationImages || [])
+      ...localFiles(record.qualificationImages || []),
+      ...localFiles(record.detailExpansionImages || [])
     ]) {
       if (seen.has(filePath)) {
         continue;
@@ -415,9 +421,11 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
   let processedRecordCount = 0;
   let declaredWhiteImageCount = 0;
   let declaredQualificationImageCount = 0;
+  let declaredDetailExpansionImageCount = 0;
   const matchedProcessedImages = new Set<string>();
   const whiteLocalFileOwners = new Map<string, string>();
   const qualificationLocalFileOwners = new Map<string, string>();
+  const detailExpansionLocalFileOwners = new Map<string, string>();
 
   for (const [index, record] of input.records.entries()) {
     const ownerRecordId = record.recordId || `row-${index + 1}`;
@@ -425,14 +433,23 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
     const processed = isRecordProcessed(record, processedImages);
     const whiteImages = localFiles(record.whiteBackgroundImages || []);
     const qualificationImages = localFiles(record.qualificationImages || []);
+    const detailExpansionImages = localFiles(record.detailExpansionImages || []);
     declaredWhiteImageCount += whiteImages.length;
     declaredQualificationImageCount += qualificationImages.length;
+    declaredDetailExpansionImageCount += detailExpansionImages.length;
 
     recordDuplicateLocalFileIssues({
       files: whiteImages,
       ownerRecordId,
       label: "white",
       seenByFile: whiteLocalFileOwners,
+      errors
+    });
+    recordDuplicateLocalFileIssues({
+      files: detailExpansionImages,
+      ownerRecordId,
+      label: "detail expansion",
+      seenByFile: detailExpansionLocalFileOwners,
       errors
     });
     recordDuplicateLocalFileIssues({
@@ -469,6 +486,11 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
         errors.push(issue("error", "pending_qualification_image_missing", `Pending Feishu ${rowLabel} qualification image is missing.`, record.recordId, filePath));
       }
     }
+    for (const filePath of detailExpansionImages) {
+      if (!existingFiles.has(filePath)) {
+        errors.push(issue("error", "pending_detail_expansion_image_missing", `Pending Feishu ${rowLabel} detail expansion image is missing.`, record.recordId, filePath));
+      }
+    }
   }
 
   const pendingRecordCount = input.records.length - processedRecordCount;
@@ -495,6 +517,7 @@ export function auditAutoListingContinuity(input: AutoListingContinuityAuditInpu
       pendingRecordCount,
       declaredWhiteImageCount,
       declaredQualificationImageCount,
+      declaredDetailExpansionImageCount,
       existingFileCount: existingFiles.size,
       unmatchedProcessedImageCount: processedImages.size - matchedProcessedImages.size,
       discoveredRunImageCount: input.discoveredRunImageCount,

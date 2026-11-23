@@ -148,6 +148,7 @@ export async function runPublishFromSpuJob(
             mainImages: [],
             whiteBackgroundImages: [],
             detailImages: [],
+            detailExpansionImages: [],
             otherFiles: []
           };
       const preparedQualificationImages = requiresLocalProductFiles
@@ -156,9 +157,16 @@ export async function runPublishFromSpuJob(
             outputDir: path.join(runtimeDir, "qualification-images-normalized")
           })
         : { files: [], entries: [] };
+      const preparedDetailExpansionImages = requiresLocalProductFiles
+        ? await prepareQualificationImagesForUpload({
+            files: classifiedAssets.detailExpansionImages || [],
+            outputDir: path.join(runtimeDir, "detail-expansion-images-normalized")
+          })
+        : { files: [], entries: [] };
       const assets: ProductAssets = {
         ...classifiedAssets,
-        detailImages: preparedQualificationImages.files
+        detailImages: preparedQualificationImages.files,
+        detailExpansionImages: preparedDetailExpansionImages.files
       };
       if (requiresLocalProductFiles) {
         assertProductAssetsForShop(assets, shopFolder, productFolder);

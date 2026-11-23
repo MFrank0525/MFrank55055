@@ -2,8 +2,8 @@ import { validateFeishuProductRecord } from "./product-records.js";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
 import type { FeishuProductPayload, FeishuProductRecord } from "./types.js";
 
-export const FEISHU_CACHE_SCHEMA_VERSION = 6;
-export const FEISHU_FIELD_MAP_VERSION = 5;
+export const FEISHU_CACHE_SCHEMA_VERSION = 7;
+export const FEISHU_FIELD_MAP_VERSION = 6;
 
 function assertObject(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

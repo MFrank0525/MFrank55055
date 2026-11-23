@@ -62,7 +62,7 @@ export function resolveDefaultRetryableChildFailureRecoveryAttempts(): number {
 function isDeterministicDetailQualificationFailure(message: string): boolean {
   return (
     /图文信息模块未完成/i.test(message) &&
-    /Qualification detail upload was not acknowledged per file|Detail image count did not reach expected count/i.test(message)
+    /Qualification detail upload was not acknowledged per file|Qualification images were not fully acknowledged before 详情页展开图 upload|Detail expansion upload was not acknowledged per file|No Feishu 详情页展开图 images are available|Detail image count did not reach expected count|Detail image count exceeded expected count/i.test(message)
   );
 }
 

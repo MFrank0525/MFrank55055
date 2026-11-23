@@ -120,4 +120,10 @@ export function assertProductAssetsForShop(
       throw new Error(`Detail image did not look like a qualification/detail asset: ${detailImageName}`);
     }
   }
+  for (const detailExpansionImage of assets.detailExpansionImages || []) {
+    const detailExpansionImageName = path.basename(detailExpansionImage);
+    if (!/详情页展开图/i.test(detailExpansionImageName)) {
+      throw new Error(`Detail expansion image did not match the Feishu 详情页展开图 asset rule: ${detailExpansionImageName}`);
+    }
+  }
 }

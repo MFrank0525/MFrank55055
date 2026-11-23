@@ -7,6 +7,7 @@ export interface FeishuAssetRecordLike {
   shortTitle?: string;
   whiteBackgroundImages?: Array<{ name?: string; localFile?: string }>;
   qualificationImages?: Array<{ name?: string; localFile?: string }>;
+  detailExpansionImages?: Array<{ name?: string; localFile?: string }>;
 }
 
 export interface FeishuAssetRecordMatchDecision {
@@ -34,7 +35,8 @@ function strongKeys(record: FeishuAssetRecordLike): string[] {
     record.userCognitionName || "",
     record.shortTitle || "",
     ...localFileNames(record.whiteBackgroundImages),
-    ...localFileNames(record.qualificationImages)
+    ...localFileNames(record.qualificationImages),
+    ...localFileNames(record.detailExpansionImages)
   ]
     .map(normalizeAssetRuleText)
     .filter(Boolean);

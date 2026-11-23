@@ -19,7 +19,8 @@ const config = { appToken: "app", tableId: "tbl", fieldMap: {
   mainImageSellingPointCandidateText: "主图卖点", mainImageInstructionText: "主图指令",
   positivePromptText: "正向提示词", negativePromptText: "反向提示词", titleKeywordText: "标题关键词",
   titleSuffixText: "标题固定后缀", productPriceText: "产品价格", specTemplate: "规格模板",
-  shortTitle: "导购短标题", productCategory: "产品类目", qualificationImages: "资质图片", whiteBackgroundImages: "白底图",
+  shortTitle: "导购短标题", productCategory: "产品类目", qualificationImages: "资质图片",
+  detailExpansionImages: "详情页展开图", whiteBackgroundImages: "白底图",
   manufacturerName: "", manufacturerAddress: "", netContent: "", productStandardCode: "", ingredients: "",
   healthFunction: "", specification: "", shelfLife: "", storageCondition: ""
 } };
@@ -30,7 +31,9 @@ const fields = {
   主图指令: "锁定白底图主体", 正向提示词: "明亮高级", 反向提示词: "不改包装",
   标题关键词: "唇部护理,保湿凝胶", 标题固定后缀: "医用聚乙二醇润护敷料",
   产品价格: "129,99,79,59", 规格模板: "久光小泽", 导购短标题: "唇部保湿凝胶",
-  白底图: [{ file_token: "white-token", name: "white.png" }], 资质图片: [{ file_token: "cert-token", name: "cert.png" }]
+  白底图: [{ file_token: "white-token", name: "white.png" }],
+  资质图片: [{ file_token: "cert-token", name: "cert.png" }],
+  详情页展开图: [{ file_token: "detail-token", name: "detail.png" }]
 };
 const normalized = normalizeFeishuProductRecord({ recordId: "rec-1", fields }, config);
 assert.match(normalized.sellingPointText, /^突出放大的有设计感的艺术字：(唇部干燥护理|唇部水润防护)，/);
@@ -41,4 +44,5 @@ assert.equal(selected.length, 5);
 assert.equal(new Set(selected).size, 5);
 for (const item of selected) assert.ok(["聚乙二醇成分", "保湿润护", "清透凝胶", "便携管装", "日常可用"].includes(item));
 assert.deepEqual(validateFeishuProductRecord(normalized), []);
+assert.equal(normalized.detailExpansionImages[0].fileToken, "detail-token");
 assert.throws(() => normalizeFeishuProductRecord({ recordId: "rec-too-few", fields: { ...fields, 主图卖点: "卖点一\n卖点二\n卖点三\n卖点四" } }, config), /至少需要5个不同候选内容/);

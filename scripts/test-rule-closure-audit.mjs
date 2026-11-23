@@ -49,11 +49,11 @@ const closures = [
     tests: ["template-generated price rows are the authoritative signal", "blank placeholder spec-value inputs must not be filled or deleted"]
   },
   {
-    name: "detail images use final expected count instead of repeating qualification uploads",
-    docs: ["商品详情图最终数量必须刚好等于", "禁止因为页面计数延迟而整批重复上传"],
+    name: "detail images upload qualifications before Feishu detail expansion images with an exact final count",
+    docs: ["飞书资质图 → 飞书详情页展开图", "商品详情图最终数量必须刚好等于", "禁止因为页面计数延迟而整批重复上传"],
     rules: ["evaluateDetailImageCompletion", "evaluateDetailUploadOutcome"],
-    actions: ["ensureDetailImagesFromMainThenQualifications"],
-    tests: ["evaluateDetailImageCompletion", "evaluateDetailUploadOutcome"]
+    actions: ["ensureDetailImagesFromMainThenQualificationsThenExpansion", "detailExpansionImages"],
+    tests: ["evaluateDetailImageCompletion", "detail expansion images must remain separate from qualifications"]
   },
   {
     name: "medical-device certificate is verified as its own publish rule",

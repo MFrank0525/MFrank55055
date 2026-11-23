@@ -11,10 +11,12 @@ fs.writeFileSync(file, JSON.stringify({ bitableUrl: "https://example.feishu.cn/w
   mainImageSellingPointCandidateText: "主图卖点", mainImageInstructionText: "主图指令",
   positivePromptText: "正向提示词", negativePromptText: "反向提示词", titleKeywordText: "标题关键词",
   titleSuffixText: "标题固定后缀", productPriceText: "产品价格", specTemplate: "规格模板",
-  shortTitle: "导购短标题", productCategory: "产品类目", qualificationImages: "资质图片", whiteBackgroundImages: "白底图"
+  shortTitle: "导购短标题", productCategory: "产品类目", qualificationImages: "资质图片",
+  detailExpansionImages: "详情页展开图", whiteBackgroundImages: "白底图"
 } }), "utf8");
 const config = loadFeishuBitableConfig(file);
 assert.equal(config.fieldMap.mainImageHeadlineCandidateText, "主图主标题");
 assert.equal(config.fieldMap.mainImageSubtitleCandidateText, "主图副标题");
 assert.equal(config.fieldMap.mainImageSellingPointCandidateText, "主图卖点");
 for (const key of ["mainImageHeadlineCandidateText", "mainImageSubtitleCandidateText", "mainImageSellingPointCandidateText"]) assert.ok(config.requiredFields?.includes(key));
+assert.ok(config.requiredFields?.includes("detailExpansionImages"));

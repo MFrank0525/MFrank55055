@@ -18,7 +18,7 @@ function sortZh(items: string[]): string[] {
 
 function extractTrailingOrder(name: string): number {
   const qualificationOrder = name.match(
-    /(?:\u8d44\u8d28\u56fe\u7247|\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1|\u533b\u7597\u5668\u68b0\u5907\u6848|\u767d\u88c5\u5c55\u5f00\u56fe|\u5305\u88c5\u5c55\u5f00\u56fe|\u8be6\u60c5\u9875)-(\d{1,3})(?:-[^.]+)?\.[^.]+$/i
+    /(?:\u8d44\u8d28\u56fe\u7247|\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1|\u533b\u7597\u5668\u68b0\u5907\u6848|\u767d\u88c5\u5c55\u5f00\u56fe|\u5305\u88c5\u5c55\u5f00\u56fe|详情页展开图|\u8be6\u60c5\u9875)-(\d{1,3})(?:-[^.]+)?\.[^.]+$/i
   );
   if (qualificationOrder) {
     return Number(qualificationOrder[1]);
@@ -91,11 +91,16 @@ function isNamedMainImageFile(name: string): boolean {
   return /^\u4E3B\u56FE01.*\.(png|jpg|jpeg|webp)$/i.test(name);
 }
 
+function isDetailExpansionImageFile(name: string): boolean {
+  return /详情页展开图.*\.(png|jpg|jpeg|webp)$/i.test(name);
+}
+
+function isQualificationImageFile(name: string): boolean {
+  return /(\u8D44\u8D28|\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1|\u533b\u7597\u5668\u68b0\u5907\u6848|\u767d\u88c5\u5c55\u5f00\u56fe|\u5305\u88c5\u5c55\u5f00\u56fe).*\.(png|jpg|jpeg|webp)$/i.test(name);
+}
+
 function isDetailImageFile(name: string): boolean {
-  return (
-    /\u8BE6\u60C5\u9875.*\.(png|jpg|jpeg|webp)$/i.test(name) ||
-    /(\u8D44\u8D28|\u533b\u7597\u5668\u68b0\u6ce8\u518c\u8bc1|\u533b\u7597\u5668\u68b0\u5907\u6848|\u767d\u88c5\u5c55\u5f00\u56fe|\u5305\u88c5\u5c55\u5f00\u56fe).*\.(png|jpg|jpeg|webp)$/i.test(name)
-  );
+  return isQualificationImageFile(name) || isDetailExpansionImageFile(name);
 }
 
 function isWhiteBackgroundImageFile(name: string): boolean {
@@ -230,6 +235,7 @@ function findPrimaryMainImage(productFolder: string): string[] {
 export function classifyAssets(productFolder: string, options: { feishuRecordId?: string } = {}): ProductAssets {
   const names = fs.readdirSync(productFolder).sort((a, b) => a.localeCompare(b, "zh-CN"));
   const detailImages: string[] = [];
+  const detailExpansionImages: string[] = [];
   const otherFiles: string[] = [];
   let workbookFile: string | undefined;
   const primaryMainImageSet = new Set(findPrimaryMainImage(productFolder).map((item) => path.resolve(item)));
@@ -261,7 +267,11 @@ export function classifyAssets(productFolder: string, options: { feishuRecordId?
       }
       continue;
     }
-    if (isDetailImageFile(name)) {
+    if (isDetailExpansionImageFile(name)) {
+      detailExpansionImages.push(fullPath);
+      continue;
+    }
+    if (isQualificationImageFile(name)) {
       detailImages.push(fullPath);
       continue;
     }
@@ -279,6 +289,9 @@ export function classifyAssets(productFolder: string, options: { feishuRecordId?
   if (detailImages.length === 0) {
     throw new Error(`No qualification detail images were found in product folder: ${productFolder}`);
   }
+  if (detailExpansionImages.length === 0) {
+    throw new Error(`No Feishu detail expansion images were found in product folder: ${productFolder}`);
+  }
   assertMainImageSet(mainImages, productFolder);
 
   return {
@@ -286,6 +299,7 @@ export function classifyAssets(productFolder: string, options: { feishuRecordId?
     mainImages,
     whiteBackgroundImages,
     detailImages: sortByFileRule(detailImages),
+    detailExpansionImages: sortByFileRule(detailExpansionImages),
     otherFiles: sortZh(otherFiles)
   };
 }

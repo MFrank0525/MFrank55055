@@ -72,7 +72,7 @@ function listLocalAssetFiles(dir: string): string[] {
   }
   return fs
     .readdirSync(dir)
-    .filter((name) => /(白底图|资质图片)-\d{2}(?:-[a-f0-9]{10})?\.(png|jpg|jpeg|webp|gif|bin)$/i.test(name))
+    .filter((name) => /(白底图|资质图片|详情页展开图)-\d{2}(?:-[a-f0-9]{10})?\.(png|jpg|jpeg|webp|gif|bin)$/i.test(name))
     .map((name) => path.resolve(dir, name));
 }
 
@@ -127,6 +127,7 @@ export async function downloadFeishuProductAssets(
   const records: FeishuProductRecord[] = [];
   const referencedWhiteBackgroundFiles = new Set<string>();
   const referencedQualificationFiles = new Set<string>();
+  const referencedDetailExpansionFiles = new Set<string>();
 
   for (const record of options.records) {
     const whiteBackground = await downloadAttachmentSet(
@@ -143,24 +144,38 @@ export async function downloadFeishuProductAssets(
       "资质图片",
       options.qualificationDir
     );
-    downloadedFiles.push(...whiteBackground.files, ...qualifications.files);
+    const detailExpansions = await downloadAttachmentSet(
+      options,
+      record,
+      record.detailExpansionImages,
+      "详情页展开图",
+      options.qualificationDir
+    );
+    downloadedFiles.push(...whiteBackground.files, ...qualifications.files, ...detailExpansions.files);
     for (const file of whiteBackground.files) {
       referencedWhiteBackgroundFiles.add(path.resolve(file));
     }
     for (const file of qualifications.files) {
       referencedQualificationFiles.add(path.resolve(file));
     }
+    for (const file of detailExpansions.files) {
+      referencedDetailExpansionFiles.add(path.resolve(file));
+    }
     records.push({
       ...record,
       whiteBackgroundImages: whiteBackground.attachments,
-      qualificationImages: qualifications.attachments
+      qualificationImages: qualifications.attachments,
+      detailExpansionImages: detailExpansions.attachments
     });
   }
 
   const removedStaleFiles = options.cleanupStaleAssets
     ? [
         ...removeUnreferencedAssets(options.whiteBackgroundDir, referencedWhiteBackgroundFiles),
-        ...removeUnreferencedAssets(options.qualificationDir, referencedQualificationFiles)
+        ...removeUnreferencedAssets(
+          options.qualificationDir,
+          new Set([...referencedQualificationFiles, ...referencedDetailExpansionFiles])
+        )
       ]
     : [];
 

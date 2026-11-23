@@ -18,6 +18,7 @@ export interface FeishuBitableFieldMap {
   shortTitle: string;
   productCategory: string;
   qualificationImages: string;
+  detailExpansionImages: string;
   whiteBackgroundImages: string;
   manufacturerName: string;
   manufacturerAddress: string;
@@ -80,6 +81,7 @@ export interface FeishuProductRecord {
   shortTitle: string;
   productCategory?: ProductCategory;
   qualificationImages: FeishuBitableAttachment[];
+  detailExpansionImages: FeishuBitableAttachment[];
   whiteBackgroundImages: FeishuBitableAttachment[];
   manufacturerName: string;
   manufacturerAddress: string;
