@@ -10,6 +10,27 @@ export interface MaintenanceResidueTarget {
   reason: string;
 }
 
+export type MaintenanceCleanupScope = "all" | "control-logs";
+
+export function filterMaintenanceResidueTargetsByScope(
+  targets: MaintenanceResidueTarget[],
+  scope: MaintenanceCleanupScope
+): MaintenanceResidueTarget[] {
+  return scope === "control-logs"
+    ? targets.filter((target) => target.reason === "historical controller log")
+    : [...targets];
+}
+
+export function summarizeMaintenanceResidueTargets(targets: MaintenanceResidueTarget[]): {
+  totalCount: number;
+  historicalControllerLogCount: number;
+} {
+  return {
+    totalCount: targets.length,
+    historicalControllerLogCount: targets.filter((target) => target.reason === "historical controller log").length
+  };
+}
+
 const ONE_OFF_SCRIPT_NAME_PATTERN = /(?:^|[-_.])(inspect|debug|tmp|temp|temporary|patch|fix|relist)(?:[-_.]|$)/i;
 
 export type ControllerJobStatus = "running" | "completed" | "failed";

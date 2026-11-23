@@ -144,5 +144,10 @@ assert.match(
   /assets\.detailImages,[\s\S]*qualificationExpectedCount[\s\S]*detailExpansionImages,[\s\S]*countAfterQualifications/,
   "详情页展开图 must upload only after the qualification batch reaches its exact expected count"
 );
+assert.doesNotMatch(
+  uploadActionSource,
+  /finalDetailPreviewCount[\s\S]*uploadedGroups\.push\("detailImages:fillFromMainThenQualificationsThenExpansion"\)/,
+  "detail completion must come only from the authoritative staged upload result, never a guessed final-count fallback"
+);
 
 console.log("detail upload outcome rule passed");

@@ -305,7 +305,7 @@ async function uploadProductImages(
     if (!uploadIssue && mainInput && assets.mainImages.length) {
       await clearMainImagePrefillAndConfirmEmpty(page);
       const uploadedMainCount = await uploadMainImagesToSection(page, assets.mainImages);
-      if (uploadedMainCount >= assets.mainImages.length) {
+      if (uploadedMainCount === assets.mainImages.length) {
         uploadedGroups.push("mainImages");
       } else {
         uploadIssue = `Main image slots did not contain ${assets.mainImages.length} images after upload; actual=${uploadedMainCount}.`;
@@ -315,7 +315,7 @@ async function uploadProductImages(
       markOptionalGraphicSectionsIgnored(uploadedGroups);
     } else if (!uploadIssue && !mainInput) {
     const existingMainPreviewCount = await countMainImagePreviews(page);
-    if (existingMainPreviewCount >= assets.mainImages.length) {
+    if (existingMainPreviewCount === assets.mainImages.length) {
       uploadedGroups.push("mainImages");
       markOptionalGraphicSectionsIgnored(uploadedGroups);
       } else {
@@ -328,10 +328,8 @@ async function uploadProductImages(
     await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false);
     await page.waitForTimeout(800);
 
-    let filledFromMain = false;
     if (!uploadIssue) {
       const detailResult = await ensureDetailImagesFromMainThenQualificationsThenExpansion(page, runtimeDir, assets);
-      filledFromMain = detailResult.filledFromMain;
       if (detailResult.completed) {
         uploadedGroups.push(detailResult.group);
       } else {
@@ -344,23 +342,12 @@ async function uploadProductImages(
   }
 
   const finalMainPreviewCount = await countMainImagePreviews(page).catch(() => 0);
-  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount >= assets.mainImages.length) {
+  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount === assets.mainImages.length) {
     uploadedGroups.push("mainImages");
   }
   if (!uploadIssue && !uploadedGroups.includes("mainImages")) {
     uploadIssue = "Main image upload input was not found and no existing main/white-background preview was detected.";
   }
-  const finalDetailPreviewCount = await countDetailImagePreviews(page).catch(() => 0);
-  if (
-    !uploadedGroups.some(
-      (item) =>
-        item === "detailImages:fillFromMainThenQualificationsThenExpansion"
-    ) &&
-    finalDetailPreviewCount === assets.detailImages.length + (assets.detailExpansionImages || []).length + 1
-  ) {
-    uploadedGroups.push("detailImages:fillFromMainThenQualificationsThenExpansion");
-  }
-
   const screenshotFile = await savePageScreenshot(page, runtimeDir, "publish-page-images-uploaded.png");
     return {
       pageUrl: page.url(),
@@ -413,7 +400,7 @@ export async function uploadProductImagesOnPage(
   } else if (!uploadIssue && mainInput && assets.mainImages.length) {
     await clearMainImagePrefillAndConfirmEmpty(page);
     const uploadedMainCount = await uploadMainImagesToSection(page, assets.mainImages);
-    if (uploadedMainCount >= assets.mainImages.length) {
+    if (uploadedMainCount === assets.mainImages.length) {
       uploadedGroups.push("mainImages");
     } else {
       uploadIssue = `Main image slots did not contain ${assets.mainImages.length} images after upload; actual=${uploadedMainCount}.`;
@@ -423,7 +410,7 @@ export async function uploadProductImagesOnPage(
     markOptionalGraphicSectionsIgnored(uploadedGroups);
   } else if (!uploadIssue && !mainInput) {
     const existingMainPreviewCount = await countMainImagePreviews(page);
-    if (existingMainPreviewCount >= assets.mainImages.length) {
+    if (existingMainPreviewCount === assets.mainImages.length) {
       uploadedGroups.push("mainImages");
       markOptionalGraphicSectionsIgnored(uploadedGroups);
     } else {
@@ -436,10 +423,8 @@ export async function uploadProductImagesOnPage(
   await scrollGraphicSectionIntoView(page, "\u5546\u54c1\u8be6\u60c5").catch(() => false);
   await page.waitForTimeout(800);
 
-  let filledFromMain = false;
   if (!uploadIssue) {
     const detailResult = await ensureDetailImagesFromMainThenQualificationsThenExpansion(page, runtimeDir, assets);
-    filledFromMain = detailResult.filledFromMain;
     if (detailResult.completed) {
       uploadedGroups.push(detailResult.group);
     } else {
@@ -454,23 +439,12 @@ export async function uploadProductImagesOnPage(
   }
 
   const finalMainPreviewCount = await countMainImagePreviews(page).catch(() => 0);
-  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount >= assets.mainImages.length) {
+  if (!uploadedGroups.includes("mainImages") && finalMainPreviewCount === assets.mainImages.length) {
     uploadedGroups.push("mainImages");
   }
   if (!uploadIssue && !uploadedGroups.includes("mainImages")) {
     uploadIssue = "Main image upload input was not found and no existing main/white-background preview was detected.";
   }
-  const finalDetailPreviewCount = await countDetailImagePreviews(page).catch(() => 0);
-  if (
-    !uploadedGroups.some(
-      (item) =>
-        item === "detailImages:fillFromMainThenQualificationsThenExpansion"
-    ) &&
-    finalDetailPreviewCount === assets.detailImages.length + (assets.detailExpansionImages || []).length + 1
-  ) {
-    uploadedGroups.push("detailImages:fillFromMainThenQualificationsThenExpansion");
-  }
-
   const screenshotFile = await savePageScreenshot(page, runtimeDir, fileName);
   return {
     pageUrl: page.url(),

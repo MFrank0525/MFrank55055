@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { selectMaintenanceResidueTargets } from "../dist/src/autolist/maintenance-rules.js";
+import {
+  filterMaintenanceResidueTargetsByScope,
+  selectMaintenanceResidueTargets,
+  summarizeMaintenanceResidueTargets
+} from "../dist/src/autolist/maintenance-rules.js";
 import { cleanupMaintenanceResidue } from "../dist/src/autolist/cleanup.js";
 import { collectPreviousBatchArtifactTargets, writeIdleFeishuCache } from "../dist/src/autolist/maintenance-inventory.js";
 import { FEISHU_CACHE_SCHEMA_VERSION, FEISHU_FIELD_MAP_VERSION } from "../dist/src/feishu/cache-contract.js";
@@ -61,6 +65,33 @@ assert.deepEqual(targets, [
   { filePath: "/repo/input/legacy", reason: "legacy input directory" },
   { filePath: "/repo/data/auto-listing/.DS_Store", reason: "filesystem metadata" }
 ]);
+
+assert.deepEqual(
+  filterMaintenanceResidueTargetsByScope(targets, "control-logs"),
+  [{ filePath: "/repo/data/auto-listing/control/auto-listing-controller-20260707.log", reason: "historical controller log" }],
+  "safe maintenance apply must be able to remove historical controller logs without touching a pending batch"
+);
+assert.deepEqual(summarizeMaintenanceResidueTargets(targets), {
+  totalCount: 18,
+  historicalControllerLogCount: 1
+});
+const maintenanceCliSource = fs.readFileSync("src/cli/cleanup-maintenance-residue.ts", "utf8");
+assert.match(
+  maintenanceCliSource,
+  /process\.argv\.includes\("--all"\) \? "all" : "control-logs"/,
+  "maintenance audit and apply must both default to the non-batch-destructive control-log scope"
+);
+assert.match(
+  maintenanceCliSource,
+  /scope === "all" \? writeIdleFeishuCache/,
+  "control-log cleanup must not replace the live Feishu cache with an idle cache"
+);
+const auditCliSource = fs.readFileSync("src/cli/audit-auto-listing.ts", "utf8");
+assert.match(
+  auditCliSource,
+  /historical_controller_log_residue/,
+  "the eight-dimension audit must expose historical controller-log residue instead of contradicting maintenance audit"
+);
 
 console.log("maintenance residue rule passed");
 

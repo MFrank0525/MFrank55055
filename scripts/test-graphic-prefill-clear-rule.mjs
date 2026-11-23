@@ -34,6 +34,11 @@ assert.match(
   /clearMainImagePrefillAndConfirmEmpty\(page\)[\s\S]*uploadMainImagesToSection/,
   "main images must be uploaded only after strict prefill clearing"
 );
+assert.doesNotMatch(
+  uploadSource,
+  /(?:uploadedMainCount|existingMainPreviewCount|finalMainPreviewCount) >= assets\.mainImages\.length/,
+  "main-image completion must require the exact expected preview count and reject platform-added extras"
+);
 assert.match(
   previewActionSource,
   /clearMainImagePreviewsStrict[\s\S]*clickLastGraphicSectionPreviewDeleteByDom\(page, "主图"\)[\s\S]*resolveCategoryAdviceOverlaySafely\(page\)[\s\S]*waitForMainImagePreviewCountDecrease/,

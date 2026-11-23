@@ -31,6 +31,12 @@ import { loadFeishuBitableConfig } from "../feishu/config.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
 import { readWorkbookRows } from "../autolist/xlsx-lite.js";
 import { completedProductEvidenceRoot, loadCompletedProductEvidenceForBatch } from "../autolist/completion-evidence.js";
+import { collectPreviousBatchArtifactTargets } from "../autolist/maintenance-inventory.js";
+import {
+  filterMaintenanceResidueTargetsByScope,
+  selectMaintenanceResidueTargets,
+  summarizeMaintenanceResidueTargets
+} from "../autolist/maintenance-rules.js";
 
 interface Args {
   jobFile: string;
@@ -543,6 +549,19 @@ async function main(): Promise<void> {
     tasks: auditTasks,
     existingPaths: existingFiles
   });
+  const maintenanceResidue = summarizeMaintenanceResidueTargets(
+    filterMaintenanceResidueTargetsByScope(
+      selectMaintenanceResidueTargets({ filePaths: collectPreviousBatchArtifactTargets(process.cwd()) }),
+      "control-logs"
+    )
+  );
+  const maintenanceResidueWarnings: DeepAuditIssue[] = maintenanceResidue.historicalControllerLogCount > 0
+    ? [{
+        code: "historical_controller_log_residue",
+        message: `Historical controller logs remain: ${maintenanceResidue.historicalControllerLogCount}. Run maintenance:residue-clean to remove only these safe log residues.`,
+        count: maintenanceResidue.historicalControllerLogCount
+      }]
+    : [];
   let canonicalRecovery: ReturnType<typeof resolveCanonicalResumeDecision> | undefined;
   let recoveryTask: AutoListingRunState["tasks"][number] | undefined;
   try {
@@ -695,11 +714,12 @@ async function main(): Promise<void> {
     },
     residue: {
       errors: [...toDeepIssues(residue.errors), ...toDeepIssues(intermediateResidue.errors)],
-      warnings: [...toDeepIssues(residue.warnings), ...toDeepIssues(intermediateResidue.warnings)],
+      warnings: [...toDeepIssues(residue.warnings), ...toDeepIssues(intermediateResidue.warnings), ...maintenanceResidueWarnings],
       evidence: [
         `runDirs=${runDirCount}`,
         `completedProductRuntimeResidue=${intermediateResidue.summary.residualPublishRuntimeCount}`,
-        `completedProductRuntimeCleanupMissing=${intermediateResidue.summary.missingCleanupEvidenceCount}`
+        `completedProductRuntimeCleanupMissing=${intermediateResidue.summary.missingCleanupEvidenceCount}`,
+        `historicalControllerLogs=${maintenanceResidue.historicalControllerLogCount}`
       ]
     }
   });
@@ -723,6 +743,7 @@ async function main(): Promise<void> {
     publish,
     residue,
     intermediateResidue,
+    maintenanceResidue,
     deepAudit
   };
 
