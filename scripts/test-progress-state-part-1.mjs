@@ -980,7 +980,7 @@ assert.match(
 assert.match(
   hermesRunnerSource,
   /decision === "rerun_current_batch"[\s\S]*archiveFreshRerunEvidence[\s\S]*clearCurrentBatchProcessedImages/,
-  "Confirmed current-batch rerun must archive the paid-image ledger and old runtime evidence before starting fresh generation"
+  "Every unchanged-batch 开始上架 must archive the paid-image ledger and old runtime evidence before starting fresh generation"
 );
 assert.match(
   hermesRunnerSource,
@@ -1216,15 +1216,10 @@ assert.match(
   /resolveAutoListingControllerStartAfterFeishuRefresh/,
   "AutoListingController start must use the rule-layer decision after refreshing a completed Feishu batch"
 );
-assert.match(
+assert.doesNotMatch(
   hermesRunnerSource,
-  /rerun_confirmation_required/,
-  "AutoListingController start must ask for confirmation instead of rerunning a completed unchanged Feishu batch"
-);
-assert.match(
-  hermesRunnerSource,
-  /--rerun-current-batch/,
-  "AutoListingController start must require an explicit rerun flag before clearing completed batch progress"
+  /rerun_confirmation_required|--rerun-current-batch/,
+  "开始上架 must rerun the refreshed batch directly without a second confirmation or hidden rerun flag"
 );
 assert.match(
   hermesRunnerSource,

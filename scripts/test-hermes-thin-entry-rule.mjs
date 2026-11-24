@@ -7,7 +7,6 @@ const cliFiles = fs.readdirSync("src/cli");
 for (const command of [
   "auto-listing:hermes-start",
   "auto-listing:hermes-continue",
-  "auto-listing:hermes-rerun-current-batch",
   "auto-listing:hermes-start:dry",
   "auto-listing:hermes-status",
   "auto-listing:pause"
@@ -34,11 +33,7 @@ assert.match(
   /"auto-listing:hermes-continue":\s*"[^"]*auto-listing-controller\.js continue --text"/,
   "Hermes 继续上架 must use the cached-batch resume controller command with concise text output"
 );
-assert.match(
-  packageSource,
-  /"auto-listing:hermes-rerun-current-batch":\s*"[^"]*auto-listing-controller\.js start-new --rerun-current-batch --text"/,
-  "Hermes 重跑当前批次 must use the project controller with concise text output"
-);
+assert.doesNotMatch(packageSource,/auto-listing:hermes-rerun-current-batch/,"The obsolete separate rerun command must be removed because 开始上架 always reruns the refreshed batch");
 
 assert.equal(
   cliFiles.some((file) => /^hermes-auto-listing-(runner|supervisor)\.ts$/.test(file)),

@@ -439,12 +439,10 @@ export type AutoListingControllerStartAfterFeishuRefreshInput = {
   currentBatchComplete: boolean;
   refreshedBatchChanged: boolean;
   refreshedBatchComplete: boolean;
-  forceRerunCurrentBatch?: boolean;
 };
 
 export type AutoListingControllerStartAfterFeishuRefreshDecision =
   | "start_new_or_pending_batch"
-  | "require_rerun_confirmation"
   | "rerun_current_batch";
 
 export type AutoListingControllerLaunchIntent = "start_new_batch" | "continue_current_batch";
@@ -528,23 +526,14 @@ export function shouldExposeHistoricalRuntimeForCurrentFeishuBatch(input: {
 export function resolveAutoListingControllerStartAfterFeishuRefresh(
   input: AutoListingControllerStartAfterFeishuRefreshInput
 ): AutoListingControllerStartAfterFeishuRefreshDecision {
-  if (input.forceRerunCurrentBatch && !input.refreshedBatchChanged) {
-    return "rerun_current_batch";
-  }
-  if (input.refreshedBatchChanged || !input.refreshedBatchComplete) {
+  if (input.refreshedBatchChanged) {
     return "start_new_or_pending_batch";
   }
-  return "require_rerun_confirmation";
+  return "rerun_current_batch";
 }
 
-export function resolveAutoListingControllerDryRunStartDecision(input: {
-  batchComplete?: boolean;
-  forceRerunCurrentBatch: boolean;
-}): "start_pending_batch" | "require_rerun_confirmation" | "rerun_current_batch" {
-  if (input.batchComplete !== true) {
-    return "start_pending_batch";
-  }
-  return input.forceRerunCurrentBatch ? "rerun_current_batch" : "require_rerun_confirmation";
+export function resolveAutoListingControllerDryRunStartDecision(): "rerun_current_batch" {
+  return "rerun_current_batch";
 }
 
 export type FullFlowContinuationReason = "initial_full" | "same_batch_pending" | "new_batch_after_refresh";

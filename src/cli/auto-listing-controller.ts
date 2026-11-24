@@ -245,12 +245,6 @@ function formatStartText(result: Record<string, unknown>): string {
   if (status === "would_start") {
     return `将启动上架任务：${String(result.command || "")}`;
   }
-  if (status === "rerun_confirmation_required") {
-    return [
-      "当前飞书批次产品已全部上架完成，刷新后没有发现新的产品批次。",
-      "如需重新跑原批次，请确认后使用重跑当前批次入口；否则任务会停止等待你更新飞书表格。"
-    ].join("\n");
-  }
   if (status === "batch_complete") {
     return "当前锁定飞书批次已全部上架完成；继续命令未刷新飞书，也未启动新的上架任务。";
   }
@@ -889,8 +883,7 @@ function selectCommand(
 async function start(
   intent: AutoListingControllerLaunchIntent,
   dryRun: boolean,
-  text: boolean,
-  forceRerunCurrentBatch: boolean
+  text: boolean
 ): Promise<void> {
   fs.mkdirSync(controlDir, { recursive: true });
   const current = readJsonFile<RunnerJob>(jobFile);
@@ -1012,22 +1005,8 @@ async function start(
   }
   const nonCurrentBatchCleanup = !dryRun ? cleanupNonCurrentBatchResidue(selectedBatchFingerprint) : [];
   const dryRunDecision = dryRun
-    ? resolveAutoListingControllerDryRunStartDecision({
-        batchComplete: typeof currentProgress?.batchComplete === "boolean" ? currentProgress.batchComplete : undefined,
-        forceRerunCurrentBatch
-      })
+    ? resolveAutoListingControllerDryRunStartDecision()
     : undefined;
-  if (dryRunDecision === "require_rerun_confirmation") {
-    const result = {
-      ok: true,
-      dryRun: true,
-      status: "rerun_confirmation_required",
-      feishuProgress: beforeRefreshProgress,
-      message: "当前飞书批次产品已全部上架完成；只读检查不会选择历史失败断点。"
-    };
-    console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
-    return;
-  }
   let forceFullFlow = !launchPolicy.allowHistoricalResume || launchPolicy.forceFullFlow || dryRunDecision === "rerun_current_batch";
   if (!dryRun && launchPolicy.refreshBeforeSelection) {
     const previousBatchFingerprint = typeof beforeRefreshProgress?.batchFingerprint === "string"
@@ -1038,19 +1017,8 @@ async function start(
       refreshedBatchChanged: Boolean(
         previousBatchFingerprint && selectedBatchFingerprint && previousBatchFingerprint !== selectedBatchFingerprint
       ),
-      refreshedBatchComplete: currentProgress?.batchComplete === true,
-      forceRerunCurrentBatch
+      refreshedBatchComplete: currentProgress?.batchComplete === true
     });
-    if (decision === "require_rerun_confirmation") {
-      const result = {
-        ok: true,
-        status: "rerun_confirmation_required",
-        feishuProgress: currentProgress,
-        message: "当前飞书批次产品已全部上架完成；刷新后没有发现新的产品批次。确认要重新跑原批次后，再使用重跑当前批次入口。"
-      };
-      console.log(text ? formatStartText(result) : JSON.stringify(result, null, 2));
-      return;
-    }
     if (decision === "rerun_current_batch") {
       const rerunJob = readJsonFile<AutoListingJobFile>(fullRealJobFile);
       archiveFreshRerunEvidence({
@@ -1141,11 +1109,11 @@ async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   const text = rest.includes("--text");
   if (command === "start-new" || command === "start") {
-    await start("start_new_batch", rest.includes("--dry-run"), text, rest.includes("--rerun-current-batch"));
+    await start("start_new_batch", rest.includes("--dry-run"), text);
     return;
   }
   if (command === "continue") {
-    await start("continue_current_batch", rest.includes("--dry-run"), text, false);
+    await start("continue_current_batch", rest.includes("--dry-run"), text);
     return;
   }
   if (command === "status") {
@@ -1182,7 +1150,7 @@ async function main(): Promise<void> {
     );
     return;
   }
-  throw new Error("Usage: auto-listing-controller <start|status|pause|resume-ready|prepare-resume> [--dry-run] [--text] [--rerun-current-batch]");
+  throw new Error("Usage: auto-listing-controller <start|status|pause|resume-ready|prepare-resume> [--dry-run] [--text]");
 }
 
 try {

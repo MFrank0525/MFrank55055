@@ -2325,12 +2325,9 @@ assert.match(
   "Hermes failed status must compact videos-base64 180s poll timeouts into a clear operator-facing reason"
 );
 assert.equal(
-  resolveAutoListingControllerDryRunStartDecision({
-    batchComplete: true,
-    forceRerunCurrentBatch: false
-  }),
-  "require_rerun_confirmation",
-  "Read-only start must not advertise a stale historical resume when the current batch is complete"
+  resolveAutoListingControllerDryRunStartDecision(),
+  "rerun_current_batch",
+  "开始上架 must always advertise a fresh rerun even when the current batch is already complete"
 );
 assert.deepEqual(
   resolveAutoListingControllerLaunchPolicy("start_new_batch"),
@@ -2388,12 +2385,9 @@ assert.equal(
   "A locked batch may display historical runtime evidence only when the batch fingerprint matches exactly"
 );
 assert.equal(
-  resolveAutoListingControllerDryRunStartDecision({
-    batchComplete: true,
-    forceRerunCurrentBatch: true
-  }),
+  resolveAutoListingControllerDryRunStartDecision(),
   "rerun_current_batch",
-  "Confirmed current-batch rerun must explicitly select a clean full-flow rerun"
+  "Read-only 开始上架 must select a clean full-flow rerun"
 );
 const terminalFailureRealtimeProgress = resolveAutoListingControllerRealtimeProgressSignal({
   jobStartedAt: "2026-06-12T13:00:00.000Z",

@@ -1567,14 +1567,14 @@ assert.equal(
     refreshedBatchChanged: false,
     refreshedBatchComplete: true
   }),
-  "require_rerun_confirmation"
+  "rerun_current_batch",
+  "开始上架 must rerun an unchanged completed Feishu batch without a second confirmation"
 );
 assert.equal(
   resolveAutoListingControllerStartAfterFeishuRefresh({
     currentBatchComplete: true,
     refreshedBatchChanged: false,
-    refreshedBatchComplete: true,
-    forceRerunCurrentBatch: true
+    refreshedBatchComplete: true
   }),
   "rerun_current_batch"
 );
@@ -1582,11 +1582,10 @@ assert.equal(
   resolveAutoListingControllerStartAfterFeishuRefresh({
     currentBatchComplete: false,
     refreshedBatchChanged: false,
-    refreshedBatchComplete: false,
-    forceRerunCurrentBatch: true
+    refreshedBatchComplete: false
   }),
   "rerun_current_batch",
-  "explicit fresh rerun must also reset an incomplete unchanged Feishu batch"
+  "开始上架 must also reset an incomplete unchanged Feishu batch"
 );
 assert.equal(
   shouldSuppressHistoricalResultInAutoListingControllerStatus({
