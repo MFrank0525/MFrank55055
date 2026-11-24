@@ -40,13 +40,16 @@ const modelPrompt = buildMainImageProductionPrompt({
   variantIndex: 0,
   hasFixedFrame: false
 });
-assert.match(modelPrompt, /固定生成契约 single-source-product-poster-v2/);
+assert.match(modelPrompt, /固定生成契约 single-source-product-poster-v3/);
 assert.match(modelPrompt, /主标题必须采用清晰可读的定制艺术字/);
 assert.match(modelPrompt, /副标题使用与主标题呼应的丝带、弧形色块/);
 assert.match(modelPrompt, /每条卖点配一个与内容直接相关/);
-assert.match(modelPrompt, /必须包含一组与当前产品真实用途一致的图示使用步骤/);
-assert.match(modelPrompt, /2至3个连续动作小插图/);
-assert.match(modelPrompt, /不得做成横跨底部的三个等大圆圈/);
+assert.match(modelPrompt, /必须包含一组与当前产品真实用途一致的2至3步图示/);
+assert.match(modelPrompt, /以动作小插图、局部特写或人物动作/);
+assert.match(modelPrompt, /总面积不得超过画布20%/);
+assert.match(modelPrompt, /非圆形局部窗/);
+assert.match(modelPrompt, /严禁把步骤做成底部横排的三个等大圆圈/);
+assert.match(modelPrompt, /产品组高度至少约占画布45%/);
 assert.match(modelPrompt, /一处非对称信息区/);
 assert.match(modelPrompt, /避免横跨底部的等宽分栏/);
 assert.match(modelPrompt, /已审核产品文案｜随产品变化/);
