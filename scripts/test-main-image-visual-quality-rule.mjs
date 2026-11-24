@@ -95,7 +95,7 @@ const productionPrompt = buildMainImageProductionPrompt({
   frameContract: "固定图框安全区"
 });
 assert.match(productionPrompt, /两段产品变量/);
-assert.match(productionPrompt, /固定生成契约 single-source-product-poster-v1/);
+assert.match(productionPrompt, /固定生成契约 single-source-product-poster-v2/);
 assert.match(productionPrompt, /强制画幅约束/);
 assert.match(productionPrompt, /单张完整海报/);
 assert.match(productionPrompt, /固定图框安全区/);
