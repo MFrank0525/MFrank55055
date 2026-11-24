@@ -4,14 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import { writeFeishuPromptWordFiles } from "../dist/src/autolist/deepseek-word-docs.js";
 import { buildImageEditPromptFromWord } from "../dist/src/autolist/main-image-assets.js";
+import { buildMainImageProductionPrompt } from "../dist/src/autolist/main-image-visual-direction-rules.js";
 import { MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT } from "../dist/src/autolist/main-image-collage-action.js";
 import { readSimpleWordDocument } from "../dist/src/autolist/docx-lite.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "feishu-dynamic-image-prompts-"));
+const approvedSource = "突出放大的有设计感的艺术字：唇部干燥护理，尺寸略小一些的有设计感的艺术字：日常清爽润护，官方正品，聚乙二醇成分，保湿润护，清透凝胶，便携管装，日常可用，图示产品的使用步骤，突出产品使用部位。";
 const wordFiles = writeFeishuPromptWordFiles({
   mainImageWorkDir: tmp,
-  mainImageInstructionText: "飞书主图指令：白底图产品主体锁定，包装文字不改。",
-  sellingPointText: "飞书产品卖点：唇部干燥护理，保湿润护。",
+  sellingPointText: approvedSource,
   prompts: [
     "唇部护理场景,产品居中,水润光效",
     "保湿润护场景,凝胶特写,蓝白电商",
@@ -19,27 +20,38 @@ const wordFiles = writeFeishuPromptWordFiles({
     "使用步骤场景,局部示意,高转化排版",
     "成分质感场景,透明凝胶,光影层次"
   ],
-  positivePromptText: "飞书正向提示词：C4D，OC渲染，高级电商海报。",
-  negativePromptText: "飞书反向提示词：不要治疗暗示，不要前后对比。",
   promptCount: 5
 });
 
 assert.equal(wordFiles.length, 5);
 const paragraphs = readSimpleWordDocument(wordFiles[0]);
 assert.deepEqual(paragraphs, [
-  "飞书主图指令：白底图产品主体锁定，包装文字不改。",
-  "飞书产品卖点：唇部干燥护理，保湿润护。",
-  "唇部护理场景,产品居中,水润光效",
-  "飞书正向提示词：C4D，OC渲染，高级电商海报。",
-  "飞书反向提示词：不要治疗暗示，不要前后对比。"
+  approvedSource,
+  "唇部护理场景,产品居中,水润光效"
 ]);
 
-const modelPrompt = buildImageEditPromptFromWord({
+const variablePrompt = buildImageEditPromptFromWord({
   paragraphs,
   promptWordFile: wordFiles[0]
 });
-assert.equal(modelPrompt.startsWith(`${MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT}\n\n${paragraphs.join("\n")}\n`), true);
-assert.equal(modelPrompt.includes(paragraphs.join("\n")), true);
+const modelPrompt = buildMainImageProductionPrompt({
+  basePromptText: variablePrompt,
+  roundIndex: 0,
+  variantIndex: 0,
+  hasFixedFrame: false
+});
+assert.match(modelPrompt, /固定生成契约 single-source-product-poster-v1/);
+assert.match(modelPrompt, /一处非对称信息区/);
+assert.match(modelPrompt, /避免横跨底部的等宽分栏/);
+assert.match(modelPrompt, /已审核产品文案｜随产品变化/);
+assert.match(modelPrompt, /当前轮产品场景｜随产品和轮次变化/);
+assert.match(modelPrompt, /主标题：唇部干燥护理/);
+assert.match(modelPrompt, /副标题：日常清爽润护/);
+assert.match(modelPrompt, /核心卖点：聚乙二醇成分；保湿润护；清透凝胶；便携管装；日常可用/);
+assert.equal(modelPrompt.includes("突出放大的有设计感的艺术字"), false);
+assert.equal(modelPrompt.includes("官方正品"), false);
+assert.equal(modelPrompt.includes("图示产品的使用步骤"), false);
+assert.equal(modelPrompt.includes(paragraphs[1]), true);
 assert.match(modelPrompt, /禁止四宫格、九宫格、2×2网格、4合1、拼图/u);
 assert.match(
   modelPrompt,
@@ -47,4 +59,6 @@ assert.match(
   "dynamic Feishu prompts must retain the paid main-image square-canvas contract"
 );
 assert.equal(modelPrompt.includes("主图输出文字护栏"), false);
-assert.equal(modelPrompt.includes("本轮第1张"), false);
+assert.equal(modelPrompt.includes("正向提示词"), false);
+assert.equal(modelPrompt.includes("反向提示词"), false);
+assert.equal(modelPrompt.includes("本轮第1张"), true);

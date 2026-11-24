@@ -1,7 +1,6 @@
 import fs from "node:fs"; import path from "node:path";
 import { sanitizeFileName } from "../utils/path-names.js";
 import { assertNoGptPlusWebUrl } from "../utils/gpt-plus-guard.js";
-import { readSimpleWordDocument } from "./docx-lite.js";
 import {
   resolveImageDownloadTimeoutMs,
   createPaidImageSubmitCircuit,
@@ -53,6 +52,11 @@ import {
 import { prepareVideosBase64ReferenceImage } from "./videos-base64-reference.js";
 import { archiveRejectedMainImageCollage, assertMainImageIsSinglePoster, isMainImageCollageRejectionReason, MAIN_IMAGE_COLLAGE_REJECTION_CODE, MAIN_IMAGE_COLLAGE_RETRY_EXHAUSTED_CODE, MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT, resolveMainImageCollageRetry } from "./main-image-collage-action.js";
 import { recoverRejectedCollageFalsePositive } from "./main-image-collage-recovery-action.js";
+import {
+  buildMainImageVariablePrompt,
+  MAIN_IMAGE_SQUARE_PROMPT_CONTRACT
+} from "./main-image-prompt-contract.js";
+export { MAIN_IMAGE_SQUARE_PROMPT_CONTRACT } from "./main-image-prompt-contract.js";
 export {
   redactImageGenerationLogText,
   redactImageGenerationLogValue,
@@ -78,8 +82,6 @@ export interface OpenAiCompatibleImageConfig {
 }
 export const MAIN_IMAGE_ASPECT_RATIO = "1:1";
 export const MAIN_IMAGE_PROVIDER_SIZE = "1024x1024";
-const MAIN_IMAGE_SQUARE_PROMPT_CONTRACT =
-  "强制画幅约束：最终输出必须为严格的1:1正方形画布（宽度=高度）；不得输出3:4、4:3、2:3、3:2或其他非正方形画幅。完整商品与所有文字、装饰均须在正方形安全区内，不得依赖后续裁剪。";
 const NON_SQUARE_MAIN_IMAGE_PROMPT_DIRECTIVE =
   /(?:3\s*[:：]\s*4|4\s*[:：]\s*3|2\s*[:：]\s*3|3\s*[:：]\s*2|9\s*[:：]\s*16|16\s*[:：]\s*9|竖版|竖屏|横版|横屏|portrait\s+(?:image|canvas|layout|orientation)|landscape\s+(?:image|canvas|layout|orientation))/iu;
 
@@ -106,7 +108,6 @@ export function assertSquareMainImageProviderConfig(config: {
     );
   }
 }
-
 export interface ConcurrencyGate {
   run<T>(work: () => Promise<T>): Promise<T>;
 }
@@ -134,7 +135,6 @@ export function shouldAllowPaidImagePolicyCompatibilityIdentityTransition(input:
       input.recordedPromptDigest === input.originalPromptDigest
   );
 }
-
 export function resolveLatestSubmittedPaidImageAuditTimestampMs(
   audit: Array<{ state?: string; at?: string }>,
   fallbackMs: number = Date.now()
@@ -455,8 +455,8 @@ export function buildImageEditPromptFromWord(options: {
   promptWordFile: string;
 }): string {
   const cleaned = options.paragraphs.map((item) => item.trim()).filter(Boolean);
-  if (cleaned.length !== 5) {
-    throw new Error("Prompt Word file must contain exactly 5 paragraphs (main instruction, selling points, DeepSeek prompt, positive prompt, negative prompt): " + options.promptWordFile);
+  if (cleaned.length !== 2) {
+    throw new Error("Prompt Word file must contain exactly 2 variable paragraphs (approved product copy and current product scene): " + options.promptWordFile);
   }
   if (cleaned.some((item) => !item)) {
     throw new Error("Prompt Word file had empty required paragraph: " + options.promptWordFile);
@@ -467,7 +467,10 @@ export function buildImageEditPromptFromWord(options: {
       `Main image prompt contains a non-square aspect directive and cannot be submitted: ${options.promptWordFile}.`
     );
   }
-  return `${MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT}\n\n${cleaned.join("\n")}\n\n${MAIN_IMAGE_SQUARE_PROMPT_CONTRACT}\n\n${MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT}`;
+  return buildMainImageVariablePrompt({
+    sellingPointText: cleaned[0],
+    scenePromptText: cleaned[1]
+  });
 }
 
 export function readOpenAiCompatibleImageConfig(configFile: string): OpenAiCompatibleImageConfig {
@@ -626,6 +629,7 @@ export function sourceImageToDataUrl(sourceImagePath: string): string {
 export async function generateWithOpenAiCompatibleProvider(options: {
   configFile: string;
   promptText: string;
+  promptTextByImageIndex?: Record<number, string>;
   sourceImagePath: string;
   downloadDir: string;
   expectedImageCount: number;
@@ -958,7 +962,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
     }
   };
 
-  const buildPromptForImageIndex = (_imageIndex: number): string => options.promptText;
+  const buildPromptForImageIndex = (imageIndex: number): string => options.promptTextByImageIndex?.[imageIndex] || options.promptText;
 
   const generateVideosBase64ImageAttempt = async (absoluteImageIndex: number): Promise<{ file: string; submitId: string }> => {
     const paddedImageIndex = String(absoluteImageIndex).padStart(2, "0");
@@ -1466,33 +1470,4 @@ export async function generateWithOpenAiCompatibleProvider(options: {
     videosBase64ImageIndexes.map((absoluteImageIndex) => generateVideosBase64Image(absoluteImageIndex)),
     "videos-base64 paid image slots"
   );
-}
-
-export async function generateOpenAiCompatibleImagePreview(options: {
-  configFile: string;
-  sourceImagePath: string;
-  promptWordFile: string;
-  outputDir: string;
-  sellingPointText: string;
-}): Promise<{ file: string; requestFile: string; promptFile: string }> {
-  const paragraphs = readSimpleWordDocument(options.promptWordFile);
-  const promptText = buildImageEditPromptFromWord({
-    paragraphs,
-    promptWordFile: options.promptWordFile
-  });
-  fs.mkdirSync(options.outputDir, { recursive: true });
-  const promptFile = path.join(options.outputDir, "prompt.txt");
-  fs.writeFileSync(promptFile, promptText + "\n", "utf8");
-  const [generated] = await generateWithOpenAiCompatibleProvider({
-    configFile: options.configFile,
-    promptText,
-    sourceImagePath: options.sourceImagePath,
-    downloadDir: options.outputDir,
-    expectedImageCount: 1
-  });
-  return {
-    file: generated.file,
-    requestFile: path.join(options.outputDir, "request-01.json"),
-    promptFile
-  };
 }

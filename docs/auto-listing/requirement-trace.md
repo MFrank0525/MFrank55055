@@ -1,5 +1,15 @@
 # Auto-listing Requirement Trace
 
+## 2026-11-24 main-image quality and diversity overhaul
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Remove the dirty red/black brand-frame residue without changing the logo or wordmark | A deterministic cleaner preserves original pixels and writes `default-main-image-frame-v2.png`; production references only the cleaned version | `test-main-image-frame-rule.mjs`; rendered alpha-composite inspection | implemented-unverified |
+| Prevent the model from learning and duplicating the fixed brand bar | Provider reference is always the Feishu white-background product image; the clean frame is composed exactly once after generation | Frame source regression and provider-reference source assertion | implemented-unverified |
+| Make five rounds and four variants materially different | A versioned five-direction matrix controls palette, scene type and layout; every slot receives its own composition contract | `test-main-image-visual-quality-rule.mjs`; request-prompt digest assertions | implemented-unverified |
+| Stop gold-heavy or duplicate sets before shop distribution | A versioned 20-image visual gate checks count, shape, near-duplicates, warm-gold overuse and round palette homogeneity before product folders are finalized | Synthetic bad/good set regression plus replay of the 2026-11-24 archived sets | implemented-unverified |
+| Reject mixed-product DeepSeek output paragraph by paragraph | Every one of the five paragraphs must contain a current-product anchor; one valid paragraph can no longer authorize four unrelated paragraphs | `test-deepseek-prompt-relevance-rule.mjs` | implemented-unverified |
+
 ## 2026-11-22 exact publish-section navigation recovery
 
 | Requirement | Implementation | Verification | Status |

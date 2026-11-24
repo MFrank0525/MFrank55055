@@ -8,9 +8,6 @@ export interface FeishuBitableFieldMap {
   mainImageHeadlineCandidateText: string;
   mainImageSubtitleCandidateText: string;
   mainImageSellingPointCandidateText: string;
-  mainImageInstructionText: string;
-  positivePromptText: string;
-  negativePromptText: string;
   titleKeywordText: string;
   titleSuffixText: string;
   productPriceText: string;
@@ -71,9 +68,6 @@ export interface FeishuProductRecord {
   mainImageHeadlineCandidateText: string;
   mainImageSubtitleCandidateText: string;
   mainImageSellingPointCandidateText: string;
-  mainImageInstructionText: string;
-  positivePromptText: string;
-  negativePromptText: string;
   titleKeywordText: string;
   titleSuffixText: string;
   productPriceText: string;

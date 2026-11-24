@@ -14,9 +14,6 @@ const FEISHU_FIELD_ALIASES: Record<FeishuFieldKey, string[]> = {
   mainImageHeadlineCandidateText: ["主图主标题"],
   mainImageSubtitleCandidateText: ["主图副标题"],
   mainImageSellingPointCandidateText: ["主图卖点"],
-  mainImageInstructionText: ["主图指令", "主图要求", "主图提示", "主图说明"],
-  positivePromptText: ["正向提示词", "正向词", "正向提示", "正面提示词"],
-  negativePromptText: ["反向提示词", "反向词", "反向提示", "负面提示词"],
   titleKeywordText: ["标题关键词", "标题词", "标题关键字", "标题关键词组"],
   titleSuffixText: ["标题固定后缀", "固定后缀", "标题后缀", "商品标题后缀"],
   productPriceText: ["产品价格", "产品售价", "商品价格", "价格", "售价"],
@@ -45,9 +42,6 @@ const COMMON_REQUIRED_FIELDS: FeishuFieldKey[] = [
   "mainImageHeadlineCandidateText",
   "mainImageSubtitleCandidateText",
   "mainImageSellingPointCandidateText",
-  "mainImageInstructionText",
-  "positivePromptText",
-  "negativePromptText",
   "titleKeywordText",
   "specTemplate",
   "shortTitle",
@@ -260,9 +254,6 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     mainImageHeadlineCandidateText,
     mainImageSubtitleCandidateText,
     mainImageSellingPointCandidateText,
-    mainImageInstructionText: extractText(field("mainImageInstructionText")),
-    positivePromptText: extractText(field("positivePromptText")),
-    negativePromptText: extractText(field("negativePromptText")),
     titleKeywordText: extractText(field("titleKeywordText")),
     titleSuffixText: extractText(field("titleSuffixText")),
     productPriceText: extractText(field("productPriceText")),
@@ -331,9 +322,6 @@ function hasEmptyFeishuProductContent(record: FeishuProductRecord, includeCatego
     !record.mainImageHeadlineCandidateText &&
     !record.mainImageSubtitleCandidateText &&
     !record.mainImageSellingPointCandidateText &&
-    !record.mainImageInstructionText &&
-    !record.positivePromptText &&
-    !record.negativePromptText &&
     !record.titleKeywordText &&
     !record.titleSuffixText &&
     !record.productPriceText &&

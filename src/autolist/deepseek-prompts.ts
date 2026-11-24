@@ -7,9 +7,10 @@ import { assertDeepSeekPromptsBelongToCurrentProduct, buildDeepSeekPromptValidat
 import { getProductCategoryPlan } from "./product-category.js";
 import { submitDeepSeekPrompt } from "./deepseek-browser-action.js";
 import { digestMainImagePromptSource } from "./main-image-prompt-revision-rules.js";
+import { formatSelectedMainImageCopyForPrompt } from "./selling-point-rules.js";
 
 export const DEEPSEEK_POSTER_INSTRUCTION =
-  "设计出5款电商海报，要产品在对应部位使用的静态场景，海报场景元素要丰富，用文字描述海报的视觉设计。且你回复我的每款的格式要求是：由很多个关键词组成的段落，关键词之间用逗号隔开，不要太繁琐。场景要明亮，100-150个字之间，不要修改我的包装，不能在包装上加任何字，场景要丰富些，突出产品图在图片上的占比。";
+  "只为当前产品输出5行互不重复的产品相关场景素材，每行是一段逗号分隔的关键词，不要编号、标题或解释。每行必须包含当前产品名称、成分、使用部位或当前卖点中的至少一个明确锚点，并描述与该产品直接相关的真实环境、使用关系、成分材质或操作步骤。五行的场景语义和道具组合必须不同，不得混入其他商品、其他包装或无关器械。不要指定主色、字体、版式、镜头、产品位置、艺术风格、渲染软件、奖章或装饰模板；这些由后续生图模块统一决定。保持参考产品包装事实不变。";
 
 function ensureTaskDir(runtimeDir: string, taskId: string): string {
   const taskDir = path.join(runtimeDir, "tasks", sanitizeFileName(taskId));
@@ -24,7 +25,7 @@ function cleanPromptParagraph(value: string): string {
 }
 
 export function buildDeepSeekPosterPrompt(sellingPointText: string): string {
-  const sellingPoints = sellingPointText.trim();
+  const sellingPoints = formatSelectedMainImageCopyForPrompt(sellingPointText);
   if (!sellingPoints) throw new Error("DeepSeek prompt generation requires generated 产品卖点.");
   return `${sellingPoints}\n\n${DEEPSEEK_POSTER_INSTRUCTION}`;
 }
@@ -84,11 +85,11 @@ export function recoverValidPosterPromptsFromRaw(options: {
 function simulatedPrompts(sellingPointText: string): string[] {
   const headline = sellingPointText.match(/突出放大的有设计感的艺术字：([^，]+)/)?.[1] || "产品护理";
   return [
-    `明亮居家晨间护理场景,通透自然窗光,${headline}产品包装完整保持原样,产品主体置于前景占画面约三分之二,对应使用部位局部静态展示,浅色木质台面,柔软毛巾,透明水杯,绿植与收纳托盘丰富层次,细腻高光与柔和阴影,清爽电商海报构图,不在包装添加任何文字`,
-    `明亮现代浴室护理场景,暖白镜前灯与自然光交融,${headline}产品包装完整清晰,产品大特写居中占据主要画面,对应使用部位局部静态呈现,大理石台面,白色棉巾,水珠反光,绿植和护理工具点缀,前中后景层次丰富,干净高级商业摄影,包装无新增文字`,
-    `明亮卧室梳妆台使用场景,晨光穿过纱帘形成柔和光带,${headline}产品完整包装放大展示,主体占画面约三分之二,对应使用部位局部静态展示,圆镜,棉柔巾,玻璃杯,浅色书本与绿植构成丰富环境,材质纹理清晰,轻盈高光,温暖电商视觉,不改变包装内容`,
-    `明亮专业护理空间,均匀冷白光与柔和侧光,${headline}产品包装原貌作为绝对视觉中心,产品图占画面主要比例,对应部位静态使用细节清晰,洁净托盘,棉片,透明器皿,毛巾与小型绿植丰富场景,金属与玻璃反射细腻,空间层次通透,可信赖商业海报质感,包装不加字`,
-    `明亮客厅窗边护理场景,大面积自然光营造清透氛围,${headline}产品原包装近景放大并保持全部细节,产品主体占据画面约三分之二,对应使用部位局部静态呈现,浅木茶几,柔软靠垫,水杯,杂志,护理收纳盒与绿植形成丰富生活元素,光影层次柔和,高转化电商构图,包装禁止新增文字`
+    `${headline}产品使用部位护理场景,参考产品包装事实保持不变,真实使用关系,与当前卖点有关的护理道具,场景元素只服务当前产品`,
+    `${headline}产品日常使用环境,对应使用部位局部展示,与当前产品直接相关的生活物品,包装事实保持不变,不混入其他商品`,
+    `${headline}产品成分或材质解析场景,当前卖点相关微观结构,产品与成分关系清晰,不引入无关器械,参考包装事实保持不变`,
+    `${headline}产品包装与核心卖点展示场景,参考包装数量与信息保持不变,只使用当前产品相关元素,对应使用关系清晰,不引入其他包装`,
+    `${headline}产品连续使用方法场景,对应使用部位与操作步骤明确,包装事实保持不变,不混入其他商品,场景道具与当前用途直接相关`
   ];
 }
 

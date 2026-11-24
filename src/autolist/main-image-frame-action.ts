@@ -39,24 +39,6 @@ async function runFrameScript(args: string[]): Promise<{
   return JSON.parse(match[1]);
 }
 
-export async function prepareMainImageFrameLayoutReference(options: {
-  sourceFile: string;
-  frameFile: string;
-  outputFile: string;
-}): Promise<string> {
-  if (!fs.existsSync(options.sourceFile)) throw new Error(`Main image source file not found: ${options.sourceFile}`);
-  if (!fs.existsSync(options.frameFile)) throw new Error(`Main image frame file not found: ${options.frameFile}`);
-  const payload = await runFrameScript([
-    "--mode", "prepare-reference",
-    "--input", options.sourceFile,
-    "--frame", options.frameFile,
-    "--output", options.outputFile
-  ]);
-  if (!payload.ok || !fs.existsSync(options.outputFile)) throw new Error(payload.error || "Main image layout reference was not created.");
-  if (!isExpectedFrameLayout(payload)) throw new Error(`Main image layout reference contract mismatch: ${JSON.stringify(payload)}`);
-  return options.outputFile;
-}
-
 export async function applyMainImageFrame(options: {
   inputFile: string;
   frameFile: string;

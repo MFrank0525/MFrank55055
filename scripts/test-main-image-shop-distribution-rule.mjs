@@ -74,11 +74,8 @@ async function runRecoveredRawCategory(category) {
   fs.writeFileSync(sourceImagePath, fixturePng);
   const wordFiles = writeFeishuPromptWordFiles({
     mainImageWorkDir: path.join(tmp, "words"),
-    mainImageInstructionText: "飞书主图指令",
     sellingPointText: "产品卖点",
     prompts: ["场景一,产品展示", "场景二,产品展示", "场景三,产品展示", "场景四,产品展示", "场景五,产品展示"],
-    positivePromptText: "飞书正向提示词",
-    negativePromptText: "飞书反向提示词",
     promptCount: 5
   });
   const configFile = path.join(tmp, "image-generation.config.json");

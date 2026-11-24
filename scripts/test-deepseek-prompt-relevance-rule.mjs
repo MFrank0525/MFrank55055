@@ -61,16 +61,33 @@ assert.doesNotThrow(
   () =>
     assertDeepSeekPromptsBelongToCurrentProduct(
       [
-        "膝盖贴膏护理场景,远红外陶瓷粉科技粒子,持续发热渗透光效,缓解疼痛标签,关节部位示意,电商主图构图",
-        "海报场景必须与产品卖点强相关,如持续发热渗透,远红外陶瓷粉,缓解疼痛,不添加科技狠活,正品保证等,不再限定行业",
+        validPrompts[0],
+        validPrompts[1],
         validPrompts[2],
-        "场景元素需丰富,具象,细腻,背景,道具,光线层次,材质纹理,使用步骤拆解特写",
-        "不展示人体,骨骼,穴位,疼痛部位,治疗过程,功效渗透,能量进入身体,疾病对比"
+        validPrompts[3],
+        validPrompts[4]
       ],
       lipGelContext,
       5
     ),
-  "Resume validation should accept a prompt set when any saved paragraph relates to the current product."
+  "Every saved paragraph must relate to the current product."
+);
+
+assert.throws(
+  () =>
+    assertDeepSeekPromptsBelongToCurrentProduct(
+      [
+        "膝盖贴膏护理场景,远红外陶瓷粉科技粒子,持续发热渗透光效,缓解疼痛标签,关节部位示意,电商主图构图",
+        validPrompts[1],
+        validPrompts[2],
+        validPrompts[3],
+        validPrompts[4]
+      ],
+      lipGelContext,
+      5
+    ),
+  /does not match current product/,
+  "A single other-product paragraph must reject the complete prompt set."
 );
 
 assert.throws(

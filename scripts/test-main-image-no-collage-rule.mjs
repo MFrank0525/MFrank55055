@@ -13,6 +13,7 @@ import {
   resolveMainImageCollageRetry
 } from "../dist/src/autolist/main-image-collage-action.js";
 import { buildImageEditPromptFromWord } from "../dist/src/autolist/main-image-provider-action.js";
+import { buildMainImageProductionPrompt } from "../dist/src/autolist/main-image-visual-direction-rules.js";
 import { recoverRejectedCollageFalsePositive } from "../dist/src/autolist/main-image-collage-recovery-action.js";
 import {
   isCanonicalRawMainImageFileName,
@@ -50,9 +51,15 @@ assert.equal(shouldResumeFeishuBatchAfterRetryableChildFailure({
   recoveryAttempts: 0,
   maxRecoveryAttempts: 12
 }), false);
-const prompt = buildImageEditPromptFromWord({
-  paragraphs: ["主图指令", "产品卖点", "海报提示词", "正向提示词", "反向提示词"],
+const variablePrompt = buildImageEditPromptFromWord({
+  paragraphs: ["产品卖点", "海报提示词"],
   promptWordFile: "prompt.docx"
+});
+const prompt = buildMainImageProductionPrompt({
+  basePromptText: variablePrompt,
+  roundIndex: 0,
+  variantIndex: 0,
+  hasFixedFrame: false
 });
 assert.match(prompt, /单张完整海报/u);
 assert.match(prompt, /禁止.*(?:四宫格|4合1|拼图)/u);

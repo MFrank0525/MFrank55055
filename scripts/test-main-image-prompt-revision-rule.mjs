@@ -25,17 +25,17 @@ assert.equal(revision.sellingPointDigest, digestMainImagePromptSource(next));
 assert.notEqual(revision.sellingPointDigest, revision.previousSellingPointDigest);
 
 assert.doesNotThrow(() => assertPromptWordRevisionMatches({
-  paragraphs: ["主图指令", next, "新的DeepSeek提示词", "正向提示词", "反向提示词"],
+  paragraphs: [next, "新的DeepSeek提示词"],
   sellingPointText: next,
   deepseekPrompt: "新的DeepSeek提示词"
 }));
 assert.throws(() => assertPromptWordRevisionMatches({
-  paragraphs: ["主图指令", next, "老的DeepSeek提示词", "正向提示词", "反向提示词"],
+  paragraphs: [next, "老的DeepSeek提示词"],
   sellingPointText: next,
   deepseekPrompt: "新的DeepSeek提示词"
 }), /stale DeepSeek prompt revision/);
 assert.throws(() => assertPromptWordRevisionMatches({
-  paragraphs: ["主图指令", current, "新的DeepSeek提示词", "正向提示词", "反向提示词"],
+  paragraphs: [current, "新的DeepSeek提示词"],
   sellingPointText: next,
   deepseekPrompt: "新的DeepSeek提示词"
 }), /stale selling-point revision/);

@@ -218,8 +218,8 @@ export function assertDeepSeekPromptsBelongToCurrentProduct(
     prompt,
     classification: classifyDeepSeekPromptParagraph(prompt, context)
   }));
-  const matched = classifications.find((item) => item.classification.ok);
-  if (!matched) {
+  const rejected = classifications.filter((item) => !item.classification.ok);
+  if (rejected.length > 0) {
     const reasons = classifications
       .map((item, index) => `paragraph ${index + 1}: ${item.classification.reason}`)
       .join(" | ");

@@ -16,8 +16,7 @@ assert.deepEqual(
 const config = { appToken: "app", tableId: "tbl", fieldMap: {
   userCognitionName: "用户认知名", genericName: "通用名称", brand: "品牌", spu: "SPU",
   mainImageHeadlineCandidateText: "主图主标题", mainImageSubtitleCandidateText: "主图副标题",
-  mainImageSellingPointCandidateText: "主图卖点", mainImageInstructionText: "主图指令",
-  positivePromptText: "正向提示词", negativePromptText: "反向提示词", titleKeywordText: "标题关键词",
+  mainImageSellingPointCandidateText: "主图卖点", titleKeywordText: "标题关键词",
   titleSuffixText: "标题固定后缀", productPriceText: "产品价格", specTemplate: "规格模板",
   shortTitle: "导购短标题", productCategory: "产品类目", qualificationImages: "资质图片",
   detailExpansionImages: "详情页展开图", whiteBackgroundImages: "白底图",
@@ -28,7 +27,6 @@ const fields = {
   用户认知名: "医用唇部保湿凝胶", 通用名称: "医用聚乙二醇润护敷料", 品牌: "延草纲目",
   SPU: "湘械注准20212141816", 产品类目: "医疗器械", 主图主标题: "唇部干燥护理\n唇部水润防护",
   主图副标题: "日常润护\n清爽保湿", 主图卖点: "聚乙二醇成分\n保湿润护\n清透凝胶\n便携管装\n日常可用",
-  主图指令: "锁定白底图主体", 正向提示词: "明亮高级", 反向提示词: "不改包装",
   标题关键词: "唇部护理,保湿凝胶", 标题固定后缀: "医用聚乙二醇润护敷料",
   产品价格: "129,99,79,59", 规格模板: "久光小泽", 导购短标题: "唇部保湿凝胶",
   白底图: [{ file_token: "white-token", name: "white.png" }],

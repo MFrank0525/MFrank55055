@@ -11,10 +11,10 @@ const publishConstantsSource = read("src/business/publish-from-spu/constants.ts"
 
 for (const marker of [
   "### 飞书主图提示词来源规则",
-  "飞书 `主图指令`",
-  "飞书 `正向提示词`",
-  "飞书 `反向提示词`",
-  "五段"
+  "固定生成契约",
+  "两段变量",
+  "不再需要 `主图指令`",
+  "不维护“违禁词清单”"
 ]) {
   assert.match(imageManual, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `image manual missing block: ${marker}`);
 }

@@ -13,7 +13,7 @@ export const MAIN_IMAGE_COLLAGE_RETRY_EXHAUSTED_CODE = "main_image_collage_retry
 export const MAX_MAIN_IMAGE_COLLAGE_OUTPUTS_PER_SLOT = 3;
 
 export const MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT =
-  "不可覆盖的单图构图约束：本次请求只能输出一张单场景、单画布、完整独立的商品主图，即单张完整海报。禁止四宫格、九宫格、2×2网格、4合1、拼图、分屏、分栏、多面板、联系表、前后对比拼接，禁止把多个独立场景或多张海报排列在同一张图内，禁止用贯穿画布的横线和竖线把画面切成多个区域，禁止在四个象限重复展示商品。即使其他文字出现“四张、4张、多张、不同场景”，也只表示多个独立请求；本次输出仍必须是一张连续完整海报。";
+  "不可覆盖的单图约束：只输出一张连续、完整、单场景的商品海报，即单张完整海报。禁止四宫格、九宫格、2×2网格、4合1、拼图、分屏、分栏、多面板、联系表、前后对比拼接、象限重复商品或在一张图内排列多张海报。";
 
 export interface MainImageCollageInspection {
   ok: boolean;

@@ -7,6 +7,28 @@ export interface SelectedMainImageSellingPoints {
   sellingPointText: string;
 }
 
+export function formatSelectedMainImageCopyForPrompt(value: string): string {
+  const trimmed = value.trim();
+  const parts = trimmed.replace(/。$/, "").split("，").map((part) => part.trim()).filter(Boolean);
+  const headlinePrefix = "突出放大的有设计感的艺术字：";
+  const subtitlePrefix = "尺寸略小一些的有设计感的艺术字：";
+  if (
+    parts.length === 10 &&
+    parts[0].startsWith(headlinePrefix) &&
+    parts[1].startsWith(subtitlePrefix) &&
+    parts[2] === "官方正品" &&
+    parts[8] === "图示产品的使用步骤" &&
+    parts[9] === "突出产品使用部位"
+  ) {
+    return [
+      `主标题：${parts[0].slice(headlinePrefix.length)}`,
+      `副标题：${parts[1].slice(subtitlePrefix.length)}`,
+      `核心卖点：${parts.slice(3, 8).join("；")}`
+    ].join("\n");
+  }
+  return trimmed;
+}
+
 export function parseMainImageCandidateText(value: string): string[] {
   const normalized = value.replace(/\r/g, "\n").trim();
   if (!normalized) return [];

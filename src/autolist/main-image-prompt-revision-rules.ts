@@ -126,13 +126,13 @@ export function assertPromptWordRevisionMatches(input: {
   sellingPointText: string;
   deepseekPrompt: string;
 }): void {
-  if (input.paragraphs.length !== 5) {
-    throw new Error(`Main-image Word prompt must contain exactly five paragraphs, got ${input.paragraphs.length}.`);
+  if (input.paragraphs.length !== 2) {
+    throw new Error(`Main-image Word prompt must contain exactly two variable paragraphs, got ${input.paragraphs.length}.`);
   }
-  if (input.paragraphs[1].trim() !== input.sellingPointText.trim()) {
+  if (input.paragraphs[0].trim() !== input.sellingPointText.trim()) {
     throw new Error("Main-image Word prompt mixes a stale selling-point revision.");
   }
-  if (input.paragraphs[2].trim() !== input.deepseekPrompt.trim()) {
+  if (input.paragraphs[1].trim() !== input.deepseekPrompt.trim()) {
     throw new Error("Main-image Word prompt mixes a stale DeepSeek prompt revision.");
   }
 }

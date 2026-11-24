@@ -457,10 +457,7 @@ async function executeTaskChain(
       deepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
         mainImageWorkDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
         sellingPointText: current.sellingPointArtifact.sellingPointText,
-        mainImageInstructionText: current.feishuProductRecord?.mainImageInstructionText || "",
         prompts: deepseekArtifact.prompts,
-        positivePromptText: current.feishuProductRecord?.positivePromptText || "",
-        negativePromptText: current.feishuProductRecord?.negativePromptText || "",
         promptCount
       });
       current = {
@@ -532,10 +529,7 @@ async function executeTaskChain(
         regeneratedDeepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
           mainImageWorkDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
           sellingPointText: current.sellingPointArtifact.sellingPointText,
-          mainImageInstructionText: current.feishuProductRecord?.mainImageInstructionText || "",
           prompts: regeneratedDeepseekArtifact.prompts,
-          positivePromptText: current.feishuProductRecord?.positivePromptText || "",
-          negativePromptText: current.feishuProductRecord?.negativePromptText || "",
           promptCount: productPlan.promptCount
         });
         current = {
@@ -582,6 +576,7 @@ async function executeTaskChain(
             feishuBatchFingerprint,
             paidImageSubmissionLedgerDir,
             archiveMainImageDir,
+            enforceVisualQuality: true,
             simulateOnly,
             onProgress: (message) => {
               appendEvent(eventFile, createEvent("info", step, message, current.taskId));
@@ -623,10 +618,7 @@ async function executeTaskChain(
           nextDeepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
             mainImageWorkDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
             sellingPointText: nextSellingPointText,
-            mainImageInstructionText: current.feishuProductRecord.mainImageInstructionText,
             prompts: nextDeepseekArtifact.prompts,
-            positivePromptText: current.feishuProductRecord.positivePromptText,
-            negativePromptText: current.feishuProductRecord.negativePromptText,
             promptCount: productPlan.promptCount
           });
           if (nextDeepseekArtifact.sellingPointDigest !== revision.sellingPointDigest) {

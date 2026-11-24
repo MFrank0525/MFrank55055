@@ -10,12 +10,14 @@ import {
   resolveVideosBase64SubmitConcurrency
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
-import { ensureMainImageFrameApplied, prepareMainImageFrameLayoutReference } from "./main-image-frame-action.js";
+import { ensureMainImageFrameApplied } from "./main-image-frame-action.js";
 import {
   DEFAULT_MAIN_IMAGE_FRAME_FILE,
   MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT,
   shouldApplyDefaultMainImageFrame
 } from "./main-image-frame-rules.js";
+import { buildMainImageProductionPrompt } from "./main-image-visual-direction-rules.js";
+import { assertMainImageSetVisualQuality } from "./main-image-visual-quality-action.js";
 import { ensureSquareMainImageFile } from "./main-image-square-action.js";
 import {
   archiveRejectedMainImageCollage,
@@ -471,6 +473,7 @@ export async function generateMainImageAssets(options: {
   feishuBatchFingerprint?: string;
   paidImageSubmissionLedgerDir?: string;
   archiveMainImageDir?: string;
+  enforceVisualQuality?: boolean;
   simulateOnly: boolean;
   onProgress?: (message: string) => void;
 }): Promise<MainImageArtifact> {
@@ -501,13 +504,7 @@ export async function generateMainImageAssets(options: {
   if (protectedFrameFile && !fs.existsSync(protectedFrameFile)) {
     throw new Error(`Required main image frame file not found: ${protectedFrameFile}`);
   }
-  const providerSourceImagePath = protectedFrameFile
-    ? await prepareMainImageFrameLayoutReference({
-        sourceFile: options.sourceImagePath,
-        frameFile: protectedFrameFile,
-        outputFile: path.join(taskDir, "main-image-layout-reference.png")
-      })
-    : options.sourceImagePath;
+  const providerSourceImagePath = options.sourceImagePath;
   const reuseSeed = seedCurrentProductMainImageReuse({
     runtimeDir: options.runtimeDir,
     taskId: options.taskId,
@@ -580,9 +577,22 @@ export async function generateMainImageAssets(options: {
       paragraphs: wordParagraphs,
       promptWordFile
     });
-    const promptText = protectedFrameFile
-      ? `${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}\n\n${basePromptText}\n\n${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}\n\n${MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT}`
-      : basePromptText;
+    const promptVariants = Object.fromEntries(
+      Array.from({ length: options.mainImageExpectedCount }, (_, variantIndex) => {
+        const localIndex = variantIndex + 1;
+        return [
+          localIndex,
+          buildMainImageProductionPrompt({
+            basePromptText,
+            roundIndex: promptIndex,
+            variantIndex,
+            hasFixedFrame: Boolean(protectedFrameFile),
+            frameContract: MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT
+          })
+        ];
+      })
+    );
+    const promptText = promptVariants[1] || basePromptText;
 
     const roundDir = path.join(taskDir, "main-image-" + String(promptIndex + 1).padStart(2, "0"));
     const stageDir = path.join(taskDir, "staged", String(promptIndex + 1).padStart(2, "0"));
@@ -654,6 +664,7 @@ export async function generateMainImageAssets(options: {
     const generationResults = await generateWithOpenAiCompatibleProvider({
       configFile: options.imageGenerationConfigFile,
       promptText,
+      promptTextByImageIndex: promptVariants,
       sourceImagePath: providerSourceImagePath,
       downloadDir: path.join(roundDir, "openai-compatible", "raw"),
       expectedImageCount: remainingImageCount,
@@ -869,6 +880,24 @@ export async function generateMainImageAssets(options: {
     throw roundFailure;
   }
   stagedFiles.sort((left, right) => left.imageIndex - right.imageIndex);
+  if (options.enforceVisualQuality) {
+    const qualityImageFiles = stagedFiles.map((item) => {
+      if (!item.rawImageFile || !fs.existsSync(item.rawImageFile)) {
+        throw new Error(`Main-image visual quality gate is missing raw image ${item.imageIndex}.`);
+      }
+      const unframedFile = `${item.rawImageFile}.unframed.png`;
+      return fs.existsSync(unframedFile) ? unframedFile : item.rawImageFile;
+    });
+    const qualityReport = await assertMainImageSetVisualQuality({
+      imageFiles: qualityImageFiles,
+      reportFile: path.join(taskDir, "main-image-visual-quality-report.json"),
+      expectedImageCount: totalExpectedImageCount,
+      imagesPerRound: options.mainImageExpectedCount
+    });
+    options.onProgress?.(
+      `Main-image visual quality gate passed: ${qualityReport.actualImageCount} images; warm-gold dominant ${qualityReport.goldDominantCount}/${qualityReport.maxGoldDominantCount}.`
+    );
+  }
 
   return {
     promptFile,

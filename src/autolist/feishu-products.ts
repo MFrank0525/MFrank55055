@@ -45,9 +45,6 @@ function assertRecordReady(record: FeishuProductRecord): void {
   if (!record.brand) missing.push("brand");
   if (!record.spu) missing.push("spu");
   if (!record.sellingPointText) missing.push("sellingPointText");
-  if (!record.mainImageInstructionText) missing.push("mainImageInstructionText");
-  if (!record.positivePromptText) missing.push("positivePromptText");
-  if (!record.negativePromptText) missing.push("negativePromptText");
   if (!record.titleKeywordText) missing.push("titleKeywordText");
   if (record.productCategory !== "保健食品" && !record.titleSuffixText) missing.push("titleSuffixText");
   if (!record.productPriceText) missing.push("productPriceText");

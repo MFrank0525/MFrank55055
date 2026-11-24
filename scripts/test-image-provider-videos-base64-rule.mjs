@@ -15,6 +15,7 @@ import {
   shouldAllowPaidImagePolicyCompatibilityIdentityTransition,
   summarizeVideosBase64PaidResumePlan
 } from "../dist/src/autolist/main-image-assets.js";
+import { buildMainImageProductionPrompt } from "../dist/src/autolist/main-image-visual-direction-rules.js";
 import {
   providerExplicitlyProvesNoPaidTaskAccepted,
   submitTransportFailureProvesNoPaidTaskAccepted,
@@ -850,7 +851,7 @@ assert.match(source, /VIDEOS_BASE64_REFERENCE_MAX_BYTES/);
 assert.doesNotMatch(source, /mode === "videos-base64"/, "current-only provider code must not retain obsolete mode branching");
 assert.match(typesSource, /paidImageSubmissionLedgerDir\?: string/);
 assert.match(configSource, /paidImageSubmissionLedgerDir: path\.resolve/);
-assert.match(orchestratorSource, /paidImageSubmissionLedgerDir,\s*archiveMainImageDir,\s*simulateOnly/s);
+assert.match(orchestratorSource, /paidImageSubmissionLedgerDir,\s*archiveMainImageDir,\s*enforceVisualQuality: true,\s*simulateOnly/s);
 assert.doesNotMatch(orchestratorSource, /archiveProductNames/);
 assert.match(orchestratorSource, /resolved\.input\.paidImageSubmissionLedgerDir,\s*resolved\.input\.simulateOnly/s);
 assert.match(source, /rootDir: options\.paidImageSubmissionLedgerDir/);
@@ -1313,11 +1314,8 @@ const unsafeRestartConfig = {
   pollIntervalMs: 1
 };
 const unsafeRestartPromptParagraphs = [
-  "main instruction",
   "selling points",
-  "DeepSeek prompt",
-  "positive prompt",
-  "negative prompt"
+  "DeepSeek prompt"
 ];
 fs.writeFileSync(unsafeRestartSourceImage, "source-image-bytes");
 fs.writeFileSync(
@@ -1345,10 +1343,17 @@ const unsafeRestartLedger = initializePaidImageProductLedger({
   })),
   sourceImageDigest: sha256File(unsafeRestartSourceImage)
 });
-const unsafeRestartPromptText = buildImageEditPromptFromWord({
+const unsafeRestartVariablePrompt = buildImageEditPromptFromWord({
   paragraphs: unsafeRestartPromptParagraphs,
   promptWordFile: unsafeRestartPromptFile
 });
+const unsafeRestartPromptText = buildMainImageProductionPrompt({
+  basePromptText: unsafeRestartVariablePrompt,
+  roundIndex: 0,
+  variantIndex: 0,
+  hasFixedFrame: false
+});
+assert.match(unsafeRestartPromptText, /已审核产品文案/);
 assert.match(
   unsafeRestartPromptText,
   /强制画幅约束：最终输出必须为严格的1:1正方形画布（宽度=高度）/,
@@ -1361,7 +1366,7 @@ assert.match(
 );
 assert.throws(
   () => buildImageEditPromptFromWord({
-    paragraphs: ["请生成3:4竖版主图", "selling points", "DeepSeek prompt", "positive prompt", "negative prompt"],
+    paragraphs: ["请生成3:4竖版主图", "DeepSeek prompt"],
     promptWordFile: "copied-from-content-posting.docx"
   }),
   /non-square aspect directive/,
@@ -1986,11 +1991,8 @@ assert.equal(
 );
 const revisedPolicyPromptFile = path.join(unsafeRestartRoot, "prompt-feishu-revision.docx");
 writeSimpleWordDocument(revisedPolicyPromptFile, [
-  "主图指令",
   "突出放大的有设计感的艺术字：新主标题，尺寸略小一些的有设计感的艺术字：新副标题，官方正品，新卖点一，新卖点二，新卖点三，图示产品的使用步骤，突出产品使用部位。",
-  "与新产品卖点绑定的新DeepSeek提示词，明亮电商场景，产品主体放大",
-  "正向提示词",
-  "反向提示词"
+  "与新产品卖点绑定的新DeepSeek提示词，明亮电商场景，产品主体放大"
 ]);
 let policyRestartSubmitCalls = 0;
 globalThis.fetch = async (url, init) => {

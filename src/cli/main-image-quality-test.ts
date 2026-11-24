@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readSimpleWordDocument } from "../autolist/docx-lite.js";
-import { ensureMainImageFrameApplied, MAIN_IMAGE_FRAME_LAYOUT_VERSION, prepareMainImageFrameLayoutReference } from "../autolist/main-image-frame-action.js";
+import { ensureMainImageFrameApplied, MAIN_IMAGE_FRAME_LAYOUT_VERSION } from "../autolist/main-image-frame-action.js";
 import {
   DEFAULT_MAIN_IMAGE_FRAME_FILE,
   MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT,
@@ -11,6 +11,7 @@ import {
   buildImageEditPromptFromWord,
   generateWithOpenAiCompatibleProvider
 } from "../autolist/main-image-provider-action.js";
+import { buildMainImageProductionPrompt } from "../autolist/main-image-visual-direction-rules.js";
 import { ensureSquareMainImageFile } from "../autolist/main-image-square-action.js";
 import { sha256File, sha256Text } from "../autolist/paid-image-submission-ledger.js";
 
@@ -52,9 +53,13 @@ async function main(): Promise<void> {
   const protectedFrameFile = shouldApplyDefaultMainImageFrame(brand)
     ? DEFAULT_MAIN_IMAGE_FRAME_FILE
     : undefined;
-  const promptText = protectedFrameFile
-    ? `${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}\n\n${basePrompt}\n\n${MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT}`
-    : basePrompt;
+  const promptText = buildMainImageProductionPrompt({
+    basePromptText: basePrompt,
+    roundIndex: 0,
+    variantIndex: 0,
+    hasFixedFrame: Boolean(protectedFrameFile),
+    frameContract: MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT
+  });
   const testId = sha256Text(
     JSON.stringify({
       sourceDigest: sha256File(sourceImagePath),
@@ -68,13 +73,7 @@ async function main(): Promise<void> {
   );
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(path.join(outputDir, "prompt.txt"), `${promptText}\n`, "utf8");
-  const providerReferenceFile = protectedFrameFile
-    ? await prepareMainImageFrameLayoutReference({
-        sourceFile: sourceImagePath,
-        frameFile: protectedFrameFile,
-        outputFile: path.join(outputDir, "layout-reference.png")
-      })
-    : sourceImagePath;
+  const providerReferenceFile = sourceImagePath;
 
   const [result] = await generateWithOpenAiCompatibleProvider({
     configFile,
