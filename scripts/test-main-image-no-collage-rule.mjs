@@ -52,7 +52,7 @@ assert.equal(shouldResumeFeishuBatchAfterRetryableChildFailure({
   maxRecoveryAttempts: 12
 }), false);
 const variablePrompt = buildImageEditPromptFromWord({
-  paragraphs: ["产品卖点", "海报提示词"],
+  paragraphs: ["产品卖点", "地点类别：office。海报提示词"],
   promptWordFile: "prompt.docx"
 });
 const prompt = buildMainImageProductionPrompt({

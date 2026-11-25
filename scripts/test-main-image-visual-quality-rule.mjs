@@ -80,8 +80,9 @@ const diverseReport = await assertMainImageSetVisualQuality({
 });
 assert.equal(diverseReport.ok, true);
 
+const sceneTexts = ["地点类别：beach。", "地点类别：mountain。", "地点类别：city-street。", "地点类别：vehicle。", "地点类别：park-camping。"];
 const directions = Array.from({ length: 5 }, (_, roundIndex) =>
-  buildMainImageVisualDirectionContract({ roundIndex, variantIndex: 0, hasFixedFrame: true })
+  buildMainImageVisualDirectionContract({ roundIndex, variantIndex: 0, hasFixedFrame: true, sceneText: sceneTexts[roundIndex] })
 );
 assert.equal(new Set(directions).size, 5);
 assert.ok(directions.every((text) => text.includes(MAIN_IMAGE_VISUAL_DIRECTION_VERSION)));
@@ -91,9 +92,22 @@ assert.ok(directions.every((text) => /人物、局部、纯商品、步骤、原
 assert.ok(directions.every((text) => /不得为了凑人物、步骤、科技感、纯商品感或指定色彩/.test(text)));
 assert.ok(directions.every((text) => /禁止|不得/.test(text)));
 assert.ok(directions.every((text) => /需求裁决/.test(text)));
+const expectedPaletteDirections = [
+  /海水蓝、青绿与珊瑚红/,
+  /高山蓝、岩灰与冷杉绿/,
+  /城市青蓝、石墨灰与少量霓虹紫/,
+  /车内炭灰、冷调蓝与清洁白/,
+  /公园草木绿、暮色蓝与帐篷红/
+];
+directions.forEach((text, roundIndex) => {
+  assert.match(text, expectedPaletteDirections[roundIndex]);
+  assert.match(text, /背景主导色/);
+  assert.match(text, /包装原有暖金色不计入背景配色/);
+  assert.match(text, /暖金、米黄、橙棕不得成为大面积背景/);
+});
 const typographyDirections = Array.from({ length: 5 }, (_, roundIndex) =>
   Array.from({ length: 4 }, (_, variantIndex) =>
-    buildMainImageVisualDirectionContract({ roundIndex, variantIndex, hasFixedFrame: true })
+    buildMainImageVisualDirectionContract({ roundIndex, variantIndex, hasFixedFrame: true, sceneText: sceneTexts[roundIndex] })
   )
 ).flat();
 assert.equal(new Set(typographyDirections).size, 20);
@@ -106,7 +120,7 @@ typographyDirections.forEach((text, index) => {
 });
 assert.ok(typographyDirections.every((text) => /其余19张/.test(text)));
 const productionPrompt = buildMainImageProductionPrompt({
-  basePromptText: "两段产品变量",
+  basePromptText: "两段产品变量。地点类别：mountain。",
   roundIndex: 1,
   variantIndex: 2,
   hasFixedFrame: true,
@@ -120,7 +134,12 @@ assert.match(productionPrompt, /商品、人物和环境的相对大小按当前
 assert.match(productionPrompt, /强制画幅约束/);
 assert.match(productionPrompt, /单张完整海报/);
 assert.match(productionPrompt, /固定图框安全区/);
+assert.match(productionPrompt, /高山蓝、岩灰与冷杉绿/);
 assert.match(productionPrompt, /第3张采用中央产品英雄构图/);
+assert.throws(
+  () => buildMainImageVisualDirectionContract({ roundIndex: 0, variantIndex: 0, hasFixedFrame: true, sceneText: "没有具体地点" }),
+  /exactly one scene location concept/
+);
 const assetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 assert.match(assetsSource, /promptTextByImageIndex: promptVariants/);
 assert.match(assetsSource, /assertMainImageSetVisualQuality/);

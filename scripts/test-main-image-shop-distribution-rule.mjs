@@ -75,7 +75,13 @@ async function runRecoveredRawCategory(category) {
   const wordFiles = writeScenePromptWordFiles({
     mainImageWorkDir: path.join(tmp, "words"),
     sellingPointText: "产品卖点",
-    prompts: ["场景一,产品展示", "场景二,产品展示", "场景三,产品展示", "场景四,产品展示", "场景五,产品展示"],
+    prompts: [
+      "地点类别：beach。场景一,产品展示",
+      "地点类别：mountain。场景二,产品展示",
+      "地点类别：city-street。场景三,产品展示",
+      "地点类别：vehicle。场景四,产品展示",
+      "地点类别：park-camping。场景五,产品展示"
+    ],
     promptCount: 5
   });
   const configFile = path.join(tmp, "image-generation.config.json");

@@ -1,5 +1,13 @@
 # Auto-listing Requirement Trace
 
+## 2026-11-25 main-image palette and brand-frame spacing correction
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Prevent distinct scenes from converging on the package's warm-gold palette | Resolve the validated `地点类别` into a scene-specific background palette; product-package colors remain untouched, while warm gold, beige and orange-brown are prohibited as large background, footer or title-card fields | `test-main-image-visual-quality-rule.mjs`; five-image replay remains the red acceptance fixture | implemented-unverified |
+| Keep generated content visually clear of the fixed brand frame | Expand the occupied area to include a right/bottom breathing zone, permit only low-detail background/light through it, and move every title stroke below 23% height | `test-main-image-frame-rule.mjs`; next five-image visual inspection | implemented-unverified |
+| Preserve scene truth and paid-slot safety | Palette lookup consumes only the already validated program-owned `地点类别`; gate thresholds remain unchanged and this correction does not submit any provider task | Full `rules:check`, all doctor modes, representative simulation and two independent deep audits | verified |
+
 ## 2026-11-24 main-image quality and diversity overhaul
 
 | Requirement | Implementation | Verification | Status |

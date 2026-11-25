@@ -14,7 +14,7 @@ const wordFiles = writeScenePromptWordFiles({
   mainImageWorkDir: tmp,
   sellingPointText: approvedSource,
   prompts: [
-    "唇部护理场景,产品居中,水润光效",
+    "地点类别：home-care。唇部护理场景,产品居中,水润光效",
     "保湿润护场景,凝胶特写,蓝白电商",
     "日常护理场景,包装放大,功能模块",
     "使用步骤场景,局部示意,高转化排版",
@@ -27,7 +27,7 @@ assert.equal(wordFiles.length, 5);
 const paragraphs = readSimpleWordDocument(wordFiles[0]);
 assert.deepEqual(paragraphs, [
   approvedSource,
-  "唇部护理场景,产品居中,水润光效"
+  "地点类别：home-care。唇部护理场景,产品居中,水润光效"
 ]);
 
 const variablePrompt = buildImageEditPromptFromWord({

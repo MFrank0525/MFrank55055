@@ -1315,7 +1315,7 @@ const unsafeRestartConfig = {
 };
 const unsafeRestartPromptParagraphs = [
   "selling points",
-  "本地千问 prompt"
+  "地点类别：office。本地千问 prompt"
 ];
 fs.writeFileSync(unsafeRestartSourceImage, "source-image-bytes");
 fs.writeFileSync(
@@ -1992,7 +1992,7 @@ assert.equal(
 const revisedPolicyPromptFile = path.join(unsafeRestartRoot, "prompt-feishu-revision.docx");
 writeSimpleWordDocument(revisedPolicyPromptFile, [
   "突出放大的有设计感的艺术字：新主标题，尺寸略小一些的有设计感的艺术字：新副标题，官方正品，新卖点一，新卖点二，新卖点三，图示产品的使用步骤，突出产品使用部位。",
-  "与新产品卖点绑定的新本地千问提示词，明亮电商场景，产品主体放大"
+  "地点类别：office。与新产品卖点绑定的新本地千问提示词，明亮电商场景，产品主体放大"
 ]);
 let policyRestartSubmitCalls = 0;
 globalThis.fetch = async (url, init) => {

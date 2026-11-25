@@ -1,4 +1,9 @@
-export const MAIN_IMAGE_VISUAL_DIRECTION_VERSION = "need-matched-scene-first-v3";
+import {
+  isSceneLocationConcept,
+  type SceneLocationConcept
+} from "./scene-location-rules.js";
+
+export const MAIN_IMAGE_VISUAL_DIRECTION_VERSION = "need-matched-scene-first-palette-v4";
 
 const SCENE_FIRST_DIRECTION =
   "场景优先：完整执行当前轮已经规划的用户需求、消费时刻、环境、氛围和互动关系。人物、局部、纯商品、步骤、原理、配色和光线均由当前需求决定，不因轮次或模板被强制加入、删除或替换。画面首先让目标用户理解‘为什么这个商品适合此刻的我’，同时保持商品完整、清晰、可信。";
@@ -9,6 +14,32 @@ const VARIANT_COMPOSITIONS = [
   "本轮第3张采用中央产品英雄构图，辅助信息沿单侧竖向排列，不得使用底部圆形步骤条。",
   "本轮第4张采用近景或轻俯视构图，产品与场景形成前中后景层次，不得复制本轮前三张的产品位置。"
 ] as const;
+
+const SCENE_PALETTE_DIRECTIONS: Record<SceneLocationConcept, string> = {
+  beach: "背景主导色使用海水蓝、青绿与珊瑚红，保留明亮海滩感；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  mountain: "背景主导色使用高山蓝、岩灰与冷杉绿，保持高海拔的清透冷感；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  "city-street": "背景主导色使用城市青蓝、石墨灰与少量霓虹紫，保持晴日街道的现代感；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  vehicle: "背景主导色使用车内炭灰、冷调蓝与清洁白，阳光只用中性高光表达；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  "park-camping": "背景主导色使用公园草木绿、暮色蓝与帐篷红，保持自然户外层次；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  sports: "背景主导色使用运动场青绿、深海蓝与活力红，保持清爽运动感；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  office: "背景主导色使用办公空间冷灰、雾蓝与少量青绿，保持清洁有序；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  "home-care": "背景主导色使用居家灰粉、鼠尾草绿与柔和蓝，保持自然生活感；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  retail: "背景主导色使用零售空间冷白、深蓝与少量品牌红，保持明亮陈列感；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  "cafe-patio": "背景主导色使用露台青绿、天空蓝与陶土红，避免以咖啡棕统摄画面；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  "kitchen-dining": "背景主导色使用餐厨冷白、香草绿与瓷器蓝，保持洁净日常感；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。",
+  "travel-transit": "背景主导色使用交通空间钢蓝、冷灰与信号红，保持清晰出行感；包装原有暖金色不计入背景配色，暖金、米黄、橙棕不得成为大面积背景、底栏或标题牌。"
+};
+
+function resolveScenePaletteDirection(sceneText: string): string {
+  const matches = [...sceneText.matchAll(/地点类别：([a-z-]+)/gu)].map((match) => match[1]);
+  const uniqueConcepts = [...new Set(matches)];
+  if (uniqueConcepts.length !== 1 || !isSceneLocationConcept(uniqueConcepts[0])) {
+    throw new Error(
+      `Main-image visual direction requires exactly one scene location concept; received ${uniqueConcepts.join(",") || "none"}.`
+    );
+  }
+  return SCENE_PALETTE_DIRECTIONS[uniqueConcepts[0]];
+}
 
 const TYPOGRAPHY_SYSTEMS = [
   [
@@ -47,6 +78,7 @@ export function buildMainImageVisualDirectionContract(input: {
   roundIndex: number;
   variantIndex: number;
   hasFixedFrame: boolean;
+  sceneText: string;
 }): string {
   const validRound = Number.isInteger(input.roundIndex) && input.roundIndex >= 0 && input.roundIndex <= 4;
   const variantComposition = VARIANT_COMPOSITIONS[input.variantIndex];
@@ -59,6 +91,7 @@ export function buildMainImageVisualDirectionContract(input: {
   return [
     `【视觉方向契约 ${MAIN_IMAGE_VISUAL_DIRECTION_VERSION}】`,
     SCENE_FIRST_DIRECTION,
+    resolveScenePaletteDirection(input.sceneText),
     variantComposition,
     typographySystem,
     "本张必须完整执行以上专属文字系统：主标题、副标题承载图形和全部卖点图标都要形成统一设计语言，并与其余19张的字形、载体、图标轮廓和排列方式明显不同；不得退化为默认黑体、纯文字列表、统一盾牌或统一对勾。",
@@ -77,7 +110,12 @@ export function buildMainImageProductionPrompt(input: {
   const contracts = [
     MAIN_IMAGE_FIXED_PROMPT_CONTRACT,
     input.basePromptText.trim(),
-    buildMainImageVisualDirectionContract(input),
+    buildMainImageVisualDirectionContract({
+      roundIndex: input.roundIndex,
+      variantIndex: input.variantIndex,
+      hasFixedFrame: input.hasFixedFrame,
+      sceneText: input.basePromptText
+    }),
     input.hasFixedFrame ? input.frameContract?.trim() : "",
     MAIN_IMAGE_SQUARE_PROMPT_CONTRACT,
     MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT
