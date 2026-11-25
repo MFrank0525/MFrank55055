@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readSimpleWordDocument } from "../autolist/docx-lite.js";
-import { ensureMainImageFrameApplied, MAIN_IMAGE_FRAME_LAYOUT_VERSION } from "../autolist/main-image-frame-action.js";
+import {
+  ensureMainImageFrameApplied,
+  MAIN_IMAGE_FRAME_LAYOUT_VERSION,
+  prepareMainImageFrameLayoutReference
+} from "../autolist/main-image-frame-action.js";
 import {
   DEFAULT_MAIN_IMAGE_FRAME_FILE,
   MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT,
@@ -73,7 +77,13 @@ async function main(): Promise<void> {
   );
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(path.join(outputDir, "prompt.txt"), `${promptText}\n`, "utf8");
-  const providerReferenceFile = sourceImagePath;
+  const providerReferenceFile = protectedFrameFile
+    ? await prepareMainImageFrameLayoutReference({
+        sourceFile: sourceImagePath,
+        frameFile: protectedFrameFile,
+        outputFile: path.join(outputDir, "layout-reference.png")
+      })
+    : sourceImagePath;
 
   const [result] = await generateWithOpenAiCompatibleProvider({
     configFile,

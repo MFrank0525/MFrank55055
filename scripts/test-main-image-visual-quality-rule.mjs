@@ -87,6 +87,19 @@ assert.equal(new Set(directions).size, 5);
 assert.ok(directions.every((text) => text.includes(MAIN_IMAGE_VISUAL_DIRECTION_VERSION)));
 assert.match(directions[0], /医疗蓝/);
 assert.match(directions[4], /使用方法视觉/);
+const typographyDirections = Array.from({ length: 5 }, (_, roundIndex) =>
+  Array.from({ length: 4 }, (_, variantIndex) =>
+    buildMainImageVisualDirectionContract({ roundIndex, variantIndex, hasFixedFrame: true })
+  )
+).flat();
+assert.equal(new Set(typographyDirections).size, 20);
+typographyDirections.forEach((text, index) => {
+  assert.match(text, new RegExp(`文字系统${String(index + 1).padStart(2, "0")}`));
+  assert.match(text, /主标题/);
+  assert.match(text, /副标题/);
+  assert.match(text, /卖点/);
+});
+assert.ok(typographyDirections.every((text) => /其余19张/.test(text)));
 const productionPrompt = buildMainImageProductionPrompt({
   basePromptText: "两段产品变量",
   roundIndex: 1,

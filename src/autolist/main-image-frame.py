@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 
-LAYOUT_VERSION = "post-compose-clean-frame-v3"
+LAYOUT_VERSION = "full-bleed-visible-frame-guide-v4"
 CONTENT_RECT = (0, 0, 800, 800)
 
 
@@ -16,6 +16,16 @@ def resized_source(input_file: Path, frame: Image.Image) -> Image.Image:
     if image.size != frame.size:
         image = image.resize(frame.size, Image.Resampling.LANCZOS)
     return image
+
+
+def prepare_layout_reference(input_file: Path, frame_file: Path, output_file: Path) -> None:
+    frame = Image.open(frame_file).convert("RGBA")
+    image = resized_source(input_file, frame)
+    white_canvas = Image.new("RGBA", frame.size, (255, 255, 255, 255))
+    opaque_product = Image.alpha_composite(white_canvas, image)
+    merged = Image.alpha_composite(opaque_product, frame)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    merged.save(output_file, format="PNG", optimize=True)
 
 
 def apply_frame(input_file: Path, frame_file: Path, output_file: Path, frame_ready_output: Path | None) -> None:
@@ -31,7 +41,7 @@ def apply_frame(input_file: Path, frame_file: Path, output_file: Path, frame_rea
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["apply-frame"], default="apply-frame")
+    parser.add_argument("--mode", choices=["apply-frame", "prepare-reference"], default="apply-frame")
     parser.add_argument("--input", required=True)
     parser.add_argument("--frame", required=True)
     parser.add_argument("--output", required=True)
@@ -44,7 +54,10 @@ def main() -> int:
     if not input_file.exists() or not frame_file.exists():
         print(json.dumps({"ok": False, "error": "Input image or frame file was missing."}, ensure_ascii=False))
         return 1
-    apply_frame(input_file, frame_file, output_file, frame_ready_output)
+    if args.mode == "prepare-reference":
+        prepare_layout_reference(input_file, frame_file, output_file)
+    else:
+        apply_frame(input_file, frame_file, output_file, frame_ready_output)
     print(json.dumps({
         "ok": True,
         "output": str(output_file),

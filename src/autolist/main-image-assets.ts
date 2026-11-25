@@ -10,7 +10,7 @@ import {
   resolveVideosBase64SubmitConcurrency
 } from "./image-generation-rules.js";
 import { applyLocalWatermark } from "./local-watermark.js";
-import { ensureMainImageFrameApplied } from "./main-image-frame-action.js";
+import { ensureMainImageFrameApplied, prepareMainImageFrameLayoutReference } from "./main-image-frame-action.js";
 import {
   DEFAULT_MAIN_IMAGE_FRAME_FILE,
   MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT,
@@ -504,7 +504,13 @@ export async function generateMainImageAssets(options: {
   if (protectedFrameFile && !fs.existsSync(protectedFrameFile)) {
     throw new Error(`Required main image frame file not found: ${protectedFrameFile}`);
   }
-  const providerSourceImagePath = options.sourceImagePath;
+  const providerSourceImagePath = protectedFrameFile
+    ? await prepareMainImageFrameLayoutReference({
+        sourceFile: options.sourceImagePath,
+        frameFile: protectedFrameFile,
+        outputFile: path.join(taskDir, "main-image-layout-reference.png")
+      })
+    : options.sourceImagePath;
   const reuseSeed = seedCurrentProductMainImageReuse({
     runtimeDir: options.runtimeDir,
     taskId: options.taskId,
