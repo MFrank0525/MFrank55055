@@ -460,7 +460,7 @@ export async function generateMainImageAssets(options: {
   brandedGenericName: string;
   brand?: string;
   wordFiles: string[];
-  deepseekPrompts?: string[];
+  scenePrompts?: string[];
   feishuPromptRevisionVerified?: boolean;
   imageGenerationProvider: ImageGenerationProvider;
   imageGenerationConfigFile: string;
@@ -572,11 +572,11 @@ export async function generateMainImageAssets(options: {
     const roundStartImageIndex = promptIndex * options.mainImageExpectedCount + 1;
     const promptWordFile = options.wordFiles[promptIndex];
     const wordParagraphs = readSimpleWordDocument(promptWordFile);
-    if (options.deepseekPrompts) {
+    if (options.scenePrompts) {
       assertPromptWordRevisionMatches({
         paragraphs: wordParagraphs,
         sellingPointText: options.sellingPointText,
-        deepseekPrompt: options.deepseekPrompts[promptIndex] || ""
+        scenePrompt: options.scenePrompts[promptIndex] || ""
       });
     }
     const basePromptText = buildImageEditPromptFromWord({

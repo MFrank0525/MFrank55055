@@ -11,6 +11,7 @@ import {
 import { validateFeishuProductPayload } from "../feishu/cache-contract.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
 import { getPythonCommand, sanitizePythonRuntimeEnv } from "../utils/platform.js";
+import { LOCAL_QWEN_SCENE_MODEL } from "../autolist/qwen-scene-planner.js";
 
 interface CheckResult {
   name: string;
@@ -200,7 +201,6 @@ function baseChecks(): CheckResult[] {
   checkNotGitTracked("secret file guard: image generation config", "input/image-generation.config.json"),
   checkNotGitTracked("secret file guard: browser storage", "data/browser-profile"),
   checkNotGitTracked("secret file guard: fallback browser storage", "data/browser-profile-fallback"),
-  checkNotGitTracked("secret file guard: DeepSeek browser storage", "data/auto-listing/deepseek-browser-profile"),
   checkNotGitTracked("secret file guard: cookie artifacts", "cookies.json"),
   checkNotGitTracked("runtime data guard", "data"),
   checkNotGitTracked("output guard", "output")
@@ -223,6 +223,31 @@ function checkAutoListingProductInfoSource(): CheckResult {
     ok: false,
     detail: `missing canonical Feishu product data: ${feishuData}`
   };
+}
+
+function checkLocalQwenScenePlanner(): CheckResult {
+  const host = (process.env.OLLAMA_HOST || "http://127.0.0.1:11434").replace(/\/$/u, "");
+  try {
+    const raw = execFileSync("curl", ["--silent", "--show-error", "--fail", `${host}/api/tags`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const models = (JSON.parse(raw) as { models?: Array<{ name?: string; model?: string }> }).models || [];
+    const available = models.some((item) => item.name === LOCAL_QWEN_SCENE_MODEL || item.model === LOCAL_QWEN_SCENE_MODEL);
+    return {
+      name: "local Qwen scene planner",
+      ok: available,
+      detail: available
+        ? `${host}; model=${LOCAL_QWEN_SCENE_MODEL}`
+        : `${host}; required model missing: ${LOCAL_QWEN_SCENE_MODEL}`
+    };
+  } catch (error) {
+    return {
+      name: "local Qwen scene planner",
+      ok: false,
+      detail: `${host}; unavailable: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
 }
 
 function checkAutoListingShopFolders(): CheckResult {
@@ -351,6 +376,7 @@ function autoListingChecks(options: DoctorOptions): CheckResult[] {
   checkPath("auto-listing main image work dir", "input/auto-listing/main-images"),
   checkPath("auto-listing titles", "input/auto-listing/titles"),
   checkPath("auto-listing qualifications", "input/auto-listing/qualifications"),
+  checkLocalQwenScenePlanner(),
   checkAutoListingShopFolders(),
   checkAutoListingProductInfoSource(),
   ...checkAutoListingJobFiles()

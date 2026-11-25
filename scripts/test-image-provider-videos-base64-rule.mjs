@@ -78,7 +78,7 @@ assert.equal(
   "The provider's exact Chinese 防护准则 rejection must enter one fixed-slot policy-compatible retry"
 );
 assert.doesNotMatch(source, /buildPolicyCompatibleImageEditPrompt|内容策略兼容降级提示词模板/,
-  "Provider policy rejection must never replace the fixed Feishu/DeepSeek prompt structure with a neutral fallback");
+  "Provider policy rejection must never replace the fixed Feishu/本地千问 prompt structure with a neutral fallback");
 
 assert.doesNotMatch(
   source,
@@ -471,7 +471,7 @@ assert.deepEqual(
     nowMs: Date.parse("2026-09-18T11:16:20.000Z")
   }),
   { action: "retry_fixed_slot_now", usePolicyCompatiblePrompt: false, deferMs: 0 },
-  "A provider policy rejection may retry only with a verified changed Feishu source and freshly regenerated DeepSeek prompt"
+  "A provider policy rejection may retry only with a verified changed Feishu source and freshly regenerated本地千问prompt"
 );
 assert.deepEqual(
   resolvePaidImageFixedSlotRecovery({
@@ -789,7 +789,7 @@ assert.match(
   "ceiling failure must preserve final queued/pending provider evidence"
 );
 assert.match(source, /feishu_source_reselection_required/,
-  "An unchanged provider-policy rejection must stop for Feishu source reselection and DeepSeek regeneration");
+  "An unchanged provider-policy rejection must stop for Feishu source reselection and本地千问regeneration");
 assert.match(
   source,
   /defer_to_supervisor[\s\S]*paid image provider circuit open for slot \$\{ledgerSlot\}; retry after \$\{recovery\.deferMs\}ms/s,
@@ -907,7 +907,7 @@ assert.doesNotMatch(
 assert.match(
   source,
   /allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*isPaidImagePolicyCompatibilityReason\(failedAfterAcceptanceReason\)[\s\S]*feishuPromptRevisionVerified[\s\S]*promptDigest/,
-  "Only explicit content-policy failure plus verified Feishu/DeepSeek revision may authorize a digest switch"
+  "Only explicit content-policy failure plus verified Feishu/本地千问 revision may authorize a digest switch"
 );
 assert.doesNotMatch(
   source.match(/const allowFailedAfterAcceptanceDigestChange\s*=[\s\S]*?;\n/)?.[0] || "",
@@ -1036,10 +1036,10 @@ assert.match(
   /权限.*余额.*计费.*不得自动重提/s,
   "Unsafe paid-image failures must never authorize automatic replay"
 );
-assert.match(ruleDoc, /内容策略.*飞书.*主图主标题.*主图副标题.*主图卖点.*DeepSeek/s);
-assert.match(ruleDoc, /内容策略\/安全策略.*failed_after_acceptance.*飞书源修订.*DeepSeek.*requestDigest.*promptDigest/s);
+assert.match(ruleDoc, /内容策略.*飞书.*主图主标题.*主图副标题.*主图卖点.*本地千问/s);
+assert.match(ruleDoc, /内容策略\/安全策略.*failed_after_acceptance.*飞书源修订.*本地千问.*requestDigest.*promptDigest/s);
 assert.match(ruleDoc, /普通供应商失败.*不得改变 digest/s);
-assert.match(ruleDoc, /禁止.*内容策略兼容降级提示词.*新旧.*DeepSeek.*混用/s);
+assert.match(ruleDoc, /禁止.*内容策略兼容降级提示词.*新旧.*本地千问.*混用/s);
 
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(422, "validation failed"), true);
 assert.equal(providerExplicitlyProvesNoPaidTaskAccepted(401, "unauthorized"), true);
@@ -1315,7 +1315,7 @@ const unsafeRestartConfig = {
 };
 const unsafeRestartPromptParagraphs = [
   "selling points",
-  "DeepSeek prompt"
+  "本地千问 prompt"
 ];
 fs.writeFileSync(unsafeRestartSourceImage, "source-image-bytes");
 fs.writeFileSync(
@@ -1366,7 +1366,7 @@ assert.match(
 );
 assert.throws(
   () => buildImageEditPromptFromWord({
-    paragraphs: ["请生成3:4竖版主图", "DeepSeek prompt"],
+    paragraphs: ["请生成3:4竖版主图", "本地千问 prompt"],
     promptWordFile: "copied-from-content-posting.docx"
   }),
   /non-square aspect directive/,
@@ -1987,12 +1987,12 @@ assert.equal(policyPreAcceptanceFailureCalls, 0, "an unchanged policy-rejected p
 assert.equal(
   JSON.parse(fs.readFileSync(path.join(policyRestartLedger.productDir, "slots", "02.json"), "utf8")).state,
   "failed_after_acceptance",
-  "the rejected slot must remain blocked until Feishu source and DeepSeek are regenerated"
+  "the rejected slot must remain blocked until Feishu source and本地千问are regenerated"
 );
 const revisedPolicyPromptFile = path.join(unsafeRestartRoot, "prompt-feishu-revision.docx");
 writeSimpleWordDocument(revisedPolicyPromptFile, [
   "突出放大的有设计感的艺术字：新主标题，尺寸略小一些的有设计感的艺术字：新副标题，官方正品，新卖点一，新卖点二，新卖点三，图示产品的使用步骤，突出产品使用部位。",
-  "与新产品卖点绑定的新DeepSeek提示词，明亮电商场景，产品主体放大"
+  "与新产品卖点绑定的新本地千问提示词，明亮电商场景，产品主体放大"
 ]);
 let policyRestartSubmitCalls = 0;
 globalThis.fetch = async (url, init) => {

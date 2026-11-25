@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { writeFeishuPromptWordFiles } from "../dist/src/autolist/deepseek-word-docs.js";
+import { writeScenePromptWordFiles } from "../dist/src/autolist/scene-word-docs.js";
 import { buildImageEditPromptFromWord } from "../dist/src/autolist/main-image-assets.js";
 import { buildMainImageProductionPrompt } from "../dist/src/autolist/main-image-visual-direction-rules.js";
 import { MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT } from "../dist/src/autolist/main-image-collage-action.js";
@@ -10,7 +10,7 @@ import { readSimpleWordDocument } from "../dist/src/autolist/docx-lite.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "feishu-dynamic-image-prompts-"));
 const approvedSource = "突出放大的有设计感的艺术字：唇部干燥护理，尺寸略小一些的有设计感的艺术字：日常清爽润护，官方正品，聚乙二醇成分，保湿润护，清透凝胶，便携管装，日常可用，图示产品的使用步骤，突出产品使用部位。";
-const wordFiles = writeFeishuPromptWordFiles({
+const wordFiles = writeScenePromptWordFiles({
   mainImageWorkDir: tmp,
   sellingPointText: approvedSource,
   prompts: [

@@ -661,7 +661,7 @@ async function main(): Promise<void> {
     }),
     titleRuleText: fs.readFileSync("docs/auto-listing/steps/05-title-generation.md", "utf8"),
     shopRuleText: fs.readFileSync("docs/auto-listing/steps/09-shop-distribution.md", "utf8"),
-    promptRuleText: fs.readFileSync("docs/auto-listing/steps/02-deepseek-prompts.md", "utf8"),
+    promptRuleText: fs.readFileSync("docs/auto-listing/steps/02-local-qwen-scenes.md", "utf8"),
     imageRuleText: fs.readFileSync("docs/auto-listing/steps/03-main-image-generation.md", "utf8"),
     stabilityRuleText: fs.readFileSync("docs/auto-listing/stability-checklist.md", "utf8"),
     imageWaitCeilingMs: imageServiceWaitCeilingMs,

@@ -1065,7 +1065,7 @@ export async function generateWithOpenAiCompatibleProvider(options: {
           isPaidImagePolicyCompatibilityReason(failedAfterAcceptanceReason)
         ) {
           throw normalizeImageGenerationError(
-            `feishu_source_reselection_required: fixed slot ${ledgerSlot} was rejected by provider content policy; preserve the fixed prompt structure and regenerate DeepSeek prompts from a new Feishu candidate selection.`
+            `feishu_source_reselection_required: fixed slot ${ledgerSlot} was rejected by provider content policy; preserve the fixed prompt structure and regenerate local-Qwen scenes from a new Feishu candidate selection.`
           );
         }
         if (

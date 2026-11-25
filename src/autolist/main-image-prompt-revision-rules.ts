@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { buildSelectedMainImageSellingPointText, parseMainImageCandidateText } from "./selling-point-rules.js";
 
-export const MAIN_IMAGE_PROMPT_REVISION_POLICY = "feishu-source-deepseek-atomic-v1";
+export const MAIN_IMAGE_PROMPT_REVISION_POLICY = "feishu-source-local-qwen-atomic-v2";
 
 export interface MainImagePromptRevision {
   revisionId: string;
@@ -124,7 +124,7 @@ export function createMainImagePromptRevision(input: {
 export function assertPromptWordRevisionMatches(input: {
   paragraphs: string[];
   sellingPointText: string;
-  deepseekPrompt: string;
+  scenePrompt: string;
 }): void {
   if (input.paragraphs.length !== 2) {
     throw new Error(`Main-image Word prompt must contain exactly two variable paragraphs, got ${input.paragraphs.length}.`);
@@ -132,7 +132,7 @@ export function assertPromptWordRevisionMatches(input: {
   if (input.paragraphs[0].trim() !== input.sellingPointText.trim()) {
     throw new Error("Main-image Word prompt mixes a stale selling-point revision.");
   }
-  if (input.paragraphs[1].trim() !== input.deepseekPrompt.trim()) {
-    throw new Error("Main-image Word prompt mixes a stale DeepSeek prompt revision.");
+  if (input.paragraphs[1].trim() !== input.scenePrompt.trim()) {
+    throw new Error("Main-image Word prompt mixes a stale local-Qwen scene-plan revision.");
   }
 }

@@ -25,19 +25,19 @@ assert.equal(revision.sellingPointDigest, digestMainImagePromptSource(next));
 assert.notEqual(revision.sellingPointDigest, revision.previousSellingPointDigest);
 
 assert.doesNotThrow(() => assertPromptWordRevisionMatches({
-  paragraphs: [next, "新的DeepSeek提示词"],
+  paragraphs: [next, "新的本地千问场景"],
   sellingPointText: next,
-  deepseekPrompt: "新的DeepSeek提示词"
+  scenePrompt: "新的本地千问场景"
 }));
 assert.throws(() => assertPromptWordRevisionMatches({
-  paragraphs: [next, "老的DeepSeek提示词"],
+  paragraphs: [next, "旧的本地千问场景"],
   sellingPointText: next,
-  deepseekPrompt: "新的DeepSeek提示词"
-}), /stale DeepSeek prompt revision/);
+  scenePrompt: "新的本地千问场景"
+}), /stale local-Qwen scene-plan revision/);
 assert.throws(() => assertPromptWordRevisionMatches({
-  paragraphs: [current, "新的DeepSeek提示词"],
+  paragraphs: [current, "新的本地千问场景"],
   sellingPointText: next,
-  deepseekPrompt: "新的DeepSeek提示词"
+  scenePrompt: "新的本地千问场景"
 }), /stale selling-point revision/);
 
 console.log("main-image prompt revision rules passed");

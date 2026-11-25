@@ -11,7 +11,7 @@ export interface ResumeTaskLike {
   sellingPointArtifact?: {
     sellingPointText?: string;
   };
-  deepseekArtifact?: {
+  scenePlanArtifact?: {
     wordFiles?: string[];
     prompts?: string[];
   };
@@ -217,7 +217,7 @@ export function inferResumeStartStepForTask(task: ResumeTaskLike): AutoListingSt
     if (/image generation|generated main image|main image|data items|downloadable image/i.test(task.error?.message || "")) {
       return "main_images_generated";
     }
-    if (task.deepseekArtifact?.wordFiles?.length || task.deepseekArtifact?.prompts?.length) {
+    if (task.scenePlanArtifact?.wordFiles?.length || task.scenePlanArtifact?.prompts?.length) {
       return "main_images_generated";
     }
     if (task.sellingPointArtifact?.sellingPointText) {

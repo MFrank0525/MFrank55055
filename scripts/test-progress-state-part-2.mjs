@@ -2640,7 +2640,7 @@ assert.match(
 assert.equal(
   resolveSupervisorRecoveryChildMode("failed at main_images_generated: fetch failed"),
   "resume",
-  "Main-image recovery must reuse the exact prompt/runtime identity instead of regenerating nondeterministic DeepSeek prompts"
+  "Main-image recovery must reuse the exact prompt/runtime identity instead of regenerating nondeterministic本地千问prompts"
 );
 assert.equal(
   resolveSupervisorRecoveryChildMode(

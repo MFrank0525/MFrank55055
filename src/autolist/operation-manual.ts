@@ -6,7 +6,7 @@ const MANUAL_ROOT = path.resolve(process.cwd(), "docs", "auto-listing", "steps")
 
 const STEP_MANUAL_FILES: Partial<Record<AutoListingStep, string>> = {
   selling_points_loaded: "01-selling-points.md",
-  poster_prompts_generated: "02-deepseek-prompts.md",
+  poster_prompts_generated: "02-local-qwen-scenes.md",
   main_images_generated: "03-main-image-generation.md",
   product_folders_built: "04-product-folders.md",
   titles_generated: "05-title-generation.md",

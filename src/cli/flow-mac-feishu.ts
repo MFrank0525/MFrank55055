@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { summarizeFeishuBatchProgress } from "../autolist/audit-rules.js";
 import { shouldRefreshFeishuAssetsBeforeFullFlow } from "../autolist/batch-continuation-rules.js";
-import { validateFeishuPosterPromptBatch } from "../autolist/deepseek-prompts.js";
+import { validateFeishuPosterPromptBatch } from "../autolist/qwen-scene-planner.js";
 import { buildFeishuBatchFingerprint, buildFeishuBatchIdentityFingerprint } from "../autolist/feishu-batch-rules.js";
 import { readProcessedImages } from "../autolist/file-batch.js";
 import { loadFeishuProductRecords } from "../autolist/feishu-products.js";

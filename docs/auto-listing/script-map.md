@@ -22,8 +22,8 @@ Hermes/飞书兼容命令只转发到 `auto-listing-controller.ts`，不直接�
 
 ### `poster_prompts_generated`
 
-- `src/autolist/deepseek-prompts.ts`
-- `src/autolist/deepseek-word-docs.ts`
+- `src/autolist/qwen-scene-planner.ts`
+- `src/autolist/scene-word-docs.ts`
 - `src/autolist/docx-lite.ts`
 
 ### `main_images_generated`

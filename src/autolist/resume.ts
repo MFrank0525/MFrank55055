@@ -5,7 +5,13 @@ import { readSimpleWordDocument } from "./docx-lite.js";
 import { loadFeishuProductRuntimeRecord } from "./feishu-products.js";
 import { getProductCategoryPlan } from "./product-category.js";
 import type { FeishuProductRecord } from "../feishu/types.js";
-import type { DeepSeekArtifact, SellingPointArtifact, ShopDistributionArtifact } from "./types.js";
+import type { ScenePlanArtifact, SellingPointArtifact, ShopDistributionArtifact } from "./types.js";
+import { digestMainImagePromptSource } from "./main-image-prompt-revision-rules.js";
+import {
+  LOCAL_QWEN_SCENE_MODEL,
+  LOCAL_QWEN_SCENE_PLANNER_VERSION,
+  validateScenePlanArtifact
+} from "./qwen-scene-planner.js";
 
 function existingOrFallback(filePath: string): string {
   return fs.existsSync(filePath) ? filePath : "";
@@ -57,7 +63,7 @@ export function recoverArtifactsFromWordFiles(options: {
   sourceImagePath?: string;
 }): {
   sellingPointArtifact: SellingPointArtifact;
-  deepseekArtifact: DeepSeekArtifact;
+  scenePlanArtifact: ScenePlanArtifact;
   feishuProductRecord?: FeishuProductRecord;
 } {
   const candidateDirs = [path.join(options.runtimeDir, "tasks", options.taskId, "poster-word-files")];
@@ -74,7 +80,7 @@ export function recoverArtifactsFromWordFiles(options: {
     .map((name) => path.join(wordDir, name));
 
   const paragraphs = readSimpleWordDocument(wordFiles[0]);
-  if (paragraphs.length < 3) {
+  if (paragraphs.length !== 2) {
     throw new Error(`Word prompt file did not contain enough paragraphs: ${wordFiles[0]}`);
   }
 
@@ -97,27 +103,55 @@ export function recoverArtifactsFromWordFiles(options: {
 
   const prompts = wordFiles.map((file) => {
     const parts = readSimpleWordDocument(file);
-    if (parts.length < 3 || !parts[2]?.trim()) {
-      throw new Error(`Word prompt file did not contain a DeepSeek prompt paragraph: ${file}`);
+    if (parts.length !== 2 || !parts[1]?.trim()) {
+      throw new Error(`Word prompt file did not contain one bounded local-Qwen scene paragraph: ${file}`);
     }
-    return parts[2].trim();
+    return parts[1].trim();
   });
 
   const sellingPointArtifact: SellingPointArtifact = feishuRuntimeRecord.sellingPointArtifact;
+  const sellingPointDigest = digestMainImagePromptSource(sellingPointArtifact.sellingPointText);
+  const artifactFile = path.join(options.runtimeDir, "tasks", options.taskId, "qwen-scene-plan.json");
+  if (!fs.existsSync(artifactFile)) {
+    throw new Error(`Resume requires a versioned local-Qwen scene-plan artifact: ${artifactFile}`);
+  }
+  const savedScenePlan = JSON.parse(fs.readFileSync(artifactFile, "utf8")) as {
+    plannerModel?: string;
+    plannerVersion?: string;
+    sellingPointDigest?: string;
+    prompts?: string[];
+    generatedAt?: string;
+    simulated?: boolean;
+  };
+  if (JSON.stringify(savedScenePlan.prompts) !== JSON.stringify(prompts)) {
+    throw new Error("Saved local-Qwen scene-plan artifact does not match the five Word scene paragraphs.");
+  }
+  validateScenePlanArtifact({
+    prompts,
+    promptCount: expectedPromptCount,
+    plannerModel: savedScenePlan.plannerModel,
+    plannerVersion: savedScenePlan.plannerVersion,
+    sellingPointDigest: savedScenePlan.sellingPointDigest,
+    expectedSellingPointDigest: sellingPointDigest
+  });
 
-  const deepseekArtifact: DeepSeekArtifact = {
-    promptFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "deepseek-poster-prompt.txt")),
-    rawFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "deepseek-raw.txt")),
-    extractedFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "deepseek-extracted.txt")),
-    screenshotFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "deepseek.png")),
+  const scenePlanArtifact: ScenePlanArtifact = {
+    artifactFile,
+    promptFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "qwen-scene-planner-prompt.txt")),
+    rawFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "qwen-scene-raw.json")),
+    extractedFile: existingOrFallback(path.join(options.runtimeDir, "tasks", options.taskId, "qwen-scene-extracted.txt")),
     prompts,
     wordFiles,
-    simulated: false
+    plannerModel: savedScenePlan.plannerModel || LOCAL_QWEN_SCENE_MODEL,
+    plannerVersion: savedScenePlan.plannerVersion || LOCAL_QWEN_SCENE_PLANNER_VERSION,
+    generatedAt: savedScenePlan.generatedAt,
+    sellingPointDigest,
+    simulated: Boolean(savedScenePlan.simulated)
   };
 
   return {
     sellingPointArtifact,
-    deepseekArtifact,
+    scenePlanArtifact,
     feishuProductRecord: feishuRuntimeRecord.record
   };
 }

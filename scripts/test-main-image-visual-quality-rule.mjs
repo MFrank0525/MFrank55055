@@ -87,12 +87,20 @@ assert.equal(new Set(directions).size, 5);
 assert.ok(directions.every((text) => text.includes(MAIN_IMAGE_VISUAL_DIRECTION_VERSION)));
 assert.match(directions[0], /医疗蓝/);
 assert.match(directions[4], /使用方法视觉/);
+assert.match(directions[0], /不出现完整人物脸部/);
+assert.match(directions[1], /鼠尾草绿/);
+assert.match(directions[2], /不出现完整人物/);
+assert.match(directions[3], /不得出现人物、面部、手部/);
+assert.match(directions[4], /禁止珊瑚橙/);
+assert.ok(directions.every((text) => /禁止|不得/.test(text)));
 const typographyDirections = Array.from({ length: 5 }, (_, roundIndex) =>
   Array.from({ length: 4 }, (_, variantIndex) =>
     buildMainImageVisualDirectionContract({ roundIndex, variantIndex, hasFixedFrame: true })
   )
 ).flat();
 assert.equal(new Set(typographyDirections).size, 20);
+assert.match(typographyDirections[16], /文字系统17：主标题采用青绿色动势刷字/);
+assert.doesNotMatch(typographyDirections[16], /珊瑚色/);
 typographyDirections.forEach((text, index) => {
   assert.match(text, new RegExp(`文字系统${String(index + 1).padStart(2, "0")}`));
   assert.match(text, /主标题/);

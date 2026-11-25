@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { validateFeishuPosterPromptBatch } from "../dist/src/autolist/deepseek-prompts.js";
+import { validateFeishuPosterPromptBatch } from "../dist/src/autolist/qwen-scene-planner.js";
 const base = { recordId: "rec-valid", userCognitionName: "医用冷敷面膜", genericName: "医用面部冷敷贴",
   brand: "延草纲目", spu: "SPU-1", productCategory: "医疗器械", qualificationImages: [], whiteBackgroundImages: [] };
 const result = validateFeishuPosterPromptBatch([

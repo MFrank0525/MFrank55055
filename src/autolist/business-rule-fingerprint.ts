@@ -17,6 +17,7 @@ import {
   MAIN_IMAGE_FIXED_PROMPT_CONTRACT,
   MAIN_IMAGE_PROMPT_CONTRACT_VERSION
 } from "./main-image-prompt-contract.js";
+import { LOCAL_QWEN_SCENE_MODEL, LOCAL_QWEN_SCENE_PLANNER_VERSION } from "./qwen-scene-planner.js";
 
 const CATEGORIES: ProductCategory[] = ["医疗器械", "非处方药", "保健食品"];
 
@@ -41,6 +42,10 @@ export function buildAutoListingBusinessRuleFingerprint(): string {
       promptContract: MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT
     },
     mainImagePromptRevisionPolicy: MAIN_IMAGE_PROMPT_REVISION_POLICY,
+    scenePlanner: {
+      version: LOCAL_QWEN_SCENE_PLANNER_VERSION,
+      model: LOCAL_QWEN_SCENE_MODEL
+    },
     mainImagePromptContract: {
       version: MAIN_IMAGE_PROMPT_CONTRACT_VERSION,
       text: MAIN_IMAGE_FIXED_PROMPT_CONTRACT

@@ -1,12 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { inspectDecodedImageFile } from "../utils/image-integrity.js";
-import { generatePosterPromptsWithDeepSeek } from "./deepseek-prompts.js";
-import {
-  assertDeepSeekPromptsBelongToCurrentProduct,
-  buildDeepSeekPromptValidationContext
-} from "./deepseek-prompt-rules.js";
-import { writeFeishuPromptWordFiles } from "./deepseek-word-docs.js";
+import { generatePosterScenesWithLocalQwen, validateScenePlanArtifact } from "./qwen-scene-planner.js";
+import { writeScenePromptWordFiles } from "./scene-word-docs.js";
 import { generateMainImageAssets } from "./main-image-assets.js";
 import {
   recoverMainImageArtifactForPublish,
@@ -351,7 +347,7 @@ async function executeTaskChain(
 
   if (
     startIndex >= allSteps.indexOf("main_images_generated") &&
-    (!current.sellingPointArtifact?.sellingPointText || !current.deepseekArtifact?.wordFiles?.length) &&
+    (!current.sellingPointArtifact?.sellingPointText || !current.scenePlanArtifact?.wordFiles?.length) &&
     !(startIndex >= publishStepIndex && current.shopDistributionArtifact?.distributedFolders?.length)
   ) {
     const recovered = recoverArtifactsFromWordFiles({
@@ -363,7 +359,7 @@ async function executeTaskChain(
     current = {
       ...current,
       sellingPointArtifact: current.sellingPointArtifact || recovered.sellingPointArtifact,
-      deepseekArtifact: current.deepseekArtifact || recovered.deepseekArtifact,
+      scenePlanArtifact: current.scenePlanArtifact || recovered.scenePlanArtifact,
       feishuProductRecord: current.feishuProductRecord || recovered.feishuProductRecord,
       lastUpdatedAt: new Date().toISOString(),
       notes: [...current.notes, "Recovered selling points and poster prompts from saved Word files."]
@@ -444,7 +440,7 @@ async function executeTaskChain(
       appendEvent(eventFile, createEvent("info", step, "Starting poster prompt generation.", current.taskId));
       assertNotPaused(pauseSignalFile, current.taskId, step);
       const promptCount = getProductCategoryPlan(current.feishuProductRecord?.productCategory).promptCount;
-      const deepseekArtifact = await generatePosterPromptsWithDeepSeek({
+      const scenePlanArtifact = await generatePosterScenesWithLocalQwen({
         runtimeDir,
         taskId: current.taskId,
         sellingPointText: current.sellingPointArtifact.sellingPointText,
@@ -454,21 +450,21 @@ async function executeTaskChain(
         promptCount,
         simulateOnly
       });
-      deepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
+      scenePlanArtifact.wordFiles = writeScenePromptWordFiles({
         mainImageWorkDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
         sellingPointText: current.sellingPointArtifact.sellingPointText,
-        prompts: deepseekArtifact.prompts,
+        prompts: scenePlanArtifact.prompts,
         promptCount
       });
       current = {
         ...current,
         status: step,
-        deepseekArtifact,
+        scenePlanArtifact,
         lastUpdatedAt: new Date().toISOString(),
         notes: [
           ...current.notes,
-          `Poster prompt provider generated ${deepseekArtifact.prompts.length} prompt paragraph(s).`,
-          `Poster prompt Word files generated: ${deepseekArtifact.wordFiles?.length || 0}.`
+          `Local Qwen generated ${scenePlanArtifact.prompts.length} bounded scene paragraph(s).`,
+          `Scene prompt Word files generated: ${scenePlanArtifact.wordFiles?.length || 0}.`
         ]
       };
       appendEvent(
@@ -476,7 +472,7 @@ async function executeTaskChain(
         createEvent(
           "info",
           step,
-          `Poster prompts ready: promptCount=${deepseekArtifact.prompts.length}; wordFiles=${deepseekArtifact.wordFiles?.length || 0}`,
+          `Poster scenes ready: promptCount=${scenePlanArtifact.prompts.length}; wordFiles=${scenePlanArtifact.wordFiles?.length || 0}; model=${scenePlanArtifact.plannerModel || "unknown"}`,
           current.taskId
         )
       );
@@ -485,38 +481,32 @@ async function executeTaskChain(
     }
 
     if (step === "main_images_generated") {
-      if (!current.sellingPointArtifact?.sellingPointText || !current.deepseekArtifact?.prompts?.length) {
+      if (!current.sellingPointArtifact?.sellingPointText || !current.scenePlanArtifact?.prompts?.length) {
         throw new Error("Main image generation requires selling points and poster prompts.");
       }
       const productPlan = getProductCategoryPlan(current.feishuProductRecord?.productCategory);
-      const promptValidationContext = buildDeepSeekPromptValidationContext({
-        sellingPointText: current.sellingPointArtifact.sellingPointText,
-        userCognitionName: current.sellingPointArtifact.userCognitionName,
-        brandedGenericName: current.sellingPointArtifact.brandedGenericName,
-        genericName: current.feishuProductRecord?.genericName
-      });
       try {
-        if (current.deepseekArtifact?.sellingPointDigest !== digestMainImagePromptSource(current.sellingPointArtifact.sellingPointText)) {
-          throw new Error("Saved DeepSeek prompt lineage is missing or does not match the current Feishu selling-point revision.");
-        }
-        assertDeepSeekPromptsBelongToCurrentProduct(
-          current.deepseekArtifact.prompts.slice(0, productPlan.promptCount),
-          promptValidationContext,
-          productPlan.promptCount
-        );
+        validateScenePlanArtifact({
+          prompts: current.scenePlanArtifact.prompts.slice(0, productPlan.promptCount),
+          promptCount: productPlan.promptCount,
+          plannerModel: current.scenePlanArtifact.plannerModel,
+          plannerVersion: current.scenePlanArtifact.plannerVersion,
+          sellingPointDigest: current.scenePlanArtifact.sellingPointDigest,
+          expectedSellingPointDigest: digestMainImagePromptSource(current.sellingPointArtifact.sellingPointText)
+        });
       } catch (error) {
         appendEvent(
           eventFile,
           createEvent(
             "info",
             "poster_prompts_generated",
-            `Saved DeepSeek prompts do not match current product; regenerating before image generation. ${
+            `Saved local-Qwen scenes do not match current product; regenerating before image generation. ${
               error instanceof Error ? error.message : String(error)
             }`,
             current.taskId
           )
         );
-        const regeneratedDeepseekArtifact = await generatePosterPromptsWithDeepSeek({
+        const regeneratedScenePlanArtifact = await generatePosterScenesWithLocalQwen({
           runtimeDir,
           taskId: current.taskId,
           sellingPointText: current.sellingPointArtifact.sellingPointText,
@@ -526,18 +516,18 @@ async function executeTaskChain(
           promptCount: productPlan.promptCount,
           simulateOnly
         });
-        regeneratedDeepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
+        regeneratedScenePlanArtifact.wordFiles = writeScenePromptWordFiles({
           mainImageWorkDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
           sellingPointText: current.sellingPointArtifact.sellingPointText,
-          prompts: regeneratedDeepseekArtifact.prompts,
+          prompts: regeneratedScenePlanArtifact.prompts,
           promptCount: productPlan.promptCount
         });
         current = {
           ...current,
           status: "poster_prompts_generated",
-          deepseekArtifact: regeneratedDeepseekArtifact,
+          scenePlanArtifact: regeneratedScenePlanArtifact,
           lastUpdatedAt: new Date().toISOString(),
-          notes: [...current.notes, "Regenerated DeepSeek prompts after current-product validation rejected saved prompts."]
+          notes: [...current.notes, "Regenerated local-Qwen scenes after current-product validation rejected saved scenes."]
         };
         markProgress();
       }
@@ -547,8 +537,8 @@ async function executeTaskChain(
       for (let sourceRevisionAttempt = 0; ; sourceRevisionAttempt += 1) {
         const currentSellingPointText = current.sellingPointArtifact!.sellingPointText;
         const currentSellingPointDigest = digestMainImagePromptSource(currentSellingPointText);
-        if (current.deepseekArtifact?.sellingPointDigest !== currentSellingPointDigest) {
-          throw new Error("DeepSeek prompt lineage does not match the current Feishu selling-point revision.");
+        if (current.scenePlanArtifact?.sellingPointDigest !== currentSellingPointDigest) {
+          throw new Error("Local-Qwen scene-plan lineage does not match the current Feishu selling-point revision.");
         }
         try {
           mainImageArtifact = await generateMainImageAssets({
@@ -559,8 +549,8 @@ async function executeTaskChain(
             sellingPointText: currentSellingPointText,
             brandedGenericName: current.sellingPointArtifact!.brandedGenericName,
             brand: current.feishuProductRecord?.brand || "",
-            wordFiles: current.deepseekArtifact!.wordFiles || [],
-            deepseekPrompts: current.deepseekArtifact!.prompts || [],
+            wordFiles: current.scenePlanArtifact!.wordFiles || [],
+            scenePrompts: current.scenePlanArtifact!.prompts || [],
             feishuPromptRevisionVerified: Boolean(
               current.mainImagePromptRevisions?.length &&
               current.mainImagePromptRevisions.at(-1)?.sellingPointDigest === currentSellingPointDigest
@@ -605,7 +595,7 @@ async function executeTaskChain(
             sellingPointText: nextSellingPointText
           });
           fs.writeFileSync(current.sellingPointArtifact!.rawFile, `${nextSellingPointText}\n`, "utf8");
-          const nextDeepseekArtifact = await generatePosterPromptsWithDeepSeek({
+          const nextScenePlanArtifact = await generatePosterScenesWithLocalQwen({
             runtimeDir,
             taskId: current.taskId,
             sellingPointText: nextSellingPointText,
@@ -615,14 +605,14 @@ async function executeTaskChain(
             promptCount: productPlan.promptCount,
             simulateOnly
           });
-          nextDeepseekArtifact.wordFiles = writeFeishuPromptWordFiles({
+          nextScenePlanArtifact.wordFiles = writeScenePromptWordFiles({
             mainImageWorkDir: path.join(runtimeDir, "tasks", current.taskId, "poster-word-files"),
             sellingPointText: nextSellingPointText,
-            prompts: nextDeepseekArtifact.prompts,
+            prompts: nextScenePlanArtifact.prompts,
             promptCount: productPlan.promptCount
           });
-          if (nextDeepseekArtifact.sellingPointDigest !== revision.sellingPointDigest) {
-            throw new Error("Regenerated DeepSeek artifact did not bind to the new Feishu source revision.");
+          if (nextScenePlanArtifact.sellingPointDigest !== revision.sellingPointDigest) {
+            throw new Error("Regenerated local-Qwen scene plan did not bind to the new Feishu source revision.");
           }
           current = {
             ...current,
@@ -633,13 +623,13 @@ async function executeTaskChain(
               capturedAt: revision.createdAt
             },
             feishuProductRecord: { ...current.feishuProductRecord, sellingPointText: nextSellingPointText },
-            deepseekArtifact: nextDeepseekArtifact,
+            scenePlanArtifact: nextScenePlanArtifact,
             mainImagePromptRevisions: [...(current.mainImagePromptRevisions || []), revision],
             lastUpdatedAt: new Date().toISOString(),
-            notes: [...current.notes, `Provider policy rejection replaced Feishu source selection and regenerated DeepSeek/Word artifacts as ${revision.revisionId}.`]
+            notes: [...current.notes, `Provider policy rejection replaced Feishu source selection and regenerated local-Qwen/Word artifacts as ${revision.revisionId}.`]
           };
           atomicWriteJson(path.join(runtimeDir, "tasks", current.taskId, "main-image-prompt-revisions.json"), current.mainImagePromptRevisions);
-          appendEvent(eventFile, createEvent("info", "poster_prompts_generated", `Regenerated DeepSeek prompts from Feishu source revision ${revision.revisionId}; stale DeepSeek prompts were not reused.`, current.taskId));
+          appendEvent(eventFile, createEvent("info", "poster_prompts_generated", `Regenerated local-Qwen scenes from Feishu source revision ${revision.revisionId}; stale scenes were not reused.`, current.taskId));
           markProgress();
         }
       }
@@ -984,7 +974,7 @@ async function executeTaskChain(
       const cleanupArtifact = cleanupAfterPublish({
         distributedFolders: current.shopDistributionArtifact?.distributedFolders || [],
         titleWorkbookFiles: current.titleSheetArtifact?.generatedFiles.map((item) => item.workbookFile) || [],
-        wordFiles: current.deepseekArtifact?.wordFiles || [],
+        wordFiles: current.scenePlanArtifact?.wordFiles || [],
         sourceImagePath: current.sourceImagePath,
         sourceAssetFiles,
         taskRuntimeDir,

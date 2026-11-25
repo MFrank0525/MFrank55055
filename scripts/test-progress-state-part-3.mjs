@@ -2205,14 +2205,14 @@ assert.equal(
     status: "failed",
     error: {
       step: "poster_prompts_generated",
-      message: "DeepSeek returned latest content but it is not usable for the current product."
+      message: "本地千问 returned latest content but it is not usable for the current product."
     },
     sellingPointArtifact: {
       sellingPointText: "用户认知名为医用唇部保湿凝胶，产品通用名称为医用聚乙二醇润护敷料。"
     }
   }),
   "selling_points_loaded",
-  "Resume jobs must reload Feishu selling points before rerunning DeepSeek because generated resume jobs do not carry task artifacts."
+  "Resume jobs must reload Feishu selling points before rerunning本地千问because generated resume jobs do not carry task artifacts."
 );
 assert.equal(
   resolveResumeStartStepFromRuntimeEvidence({

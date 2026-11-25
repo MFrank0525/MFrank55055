@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { generateMainImageAssets, resolveOpenAiCompatibleGeneratedImageIndex } from "../dist/src/autolist/main-image-assets.js";
-import { writeFeishuPromptWordFiles } from "../dist/src/autolist/deepseek-word-docs.js";
+import { writeScenePromptWordFiles } from "../dist/src/autolist/scene-word-docs.js";
 import { getProductCategoryPlan, getShopSpecs } from "../dist/src/autolist/product-category.js";
 
 const fixturePng = fs.readFileSync("input/fixed-main-images/辅助图02.png");
@@ -72,7 +72,7 @@ async function runRecoveredRawCategory(category) {
   const shopRoot = prepareShopRoot(tmp);
   const sourceImagePath = path.join(tmp, "source.png");
   fs.writeFileSync(sourceImagePath, fixturePng);
-  const wordFiles = writeFeishuPromptWordFiles({
+  const wordFiles = writeScenePromptWordFiles({
     mainImageWorkDir: path.join(tmp, "words"),
     sellingPointText: "产品卖点",
     prompts: ["场景一,产品展示", "场景二,产品展示", "场景三,产品展示", "场景四,产品展示", "场景五,产品展示"],

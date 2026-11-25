@@ -65,7 +65,7 @@
 按业务节点维护：
 
 - 卖点上下文：`src/autolist/feishu-products.ts`
-- 图片提示词：`src/autolist/deepseek-prompts.ts`
+- 图片提示词：`src/autolist/qwen-scene-planner.ts`
 - 主图 provider 请求、付费槽位与结果下载：`src/autolist/main-image-provider-action.ts`
 - 主图水印、店铺分配与产品文件夹：`src/autolist/main-image-assets.ts`
 - 标题表：`src/autolist/title-sheets.ts`

@@ -95,15 +95,16 @@ export interface SellingPointArtifact {
   simulated: boolean;
 }
 
-export interface DeepSeekArtifact {
+export interface ScenePlanArtifact {
+  artifactFile: string;
   promptFile: string;
   rawFile: string;
-  screenshotFile: string;
   prompts: string[];
   extractedFile?: string;
   wordFiles?: string[];
-  submittedAt?: string;
-  capturedAt?: string;
+  plannerModel?: string;
+  plannerVersion?: string;
+  generatedAt?: string;
   sellingPointDigest?: string;
   simulated: boolean;
 }
@@ -218,7 +219,7 @@ export interface ImageTaskState {
   generatedProductFolders: string[];
   notes: string[];
   sellingPointArtifact?: SellingPointArtifact;
-  deepseekArtifact?: DeepSeekArtifact;
+  scenePlanArtifact?: ScenePlanArtifact;
   mainImagePromptRevisions?: Array<{
     revisionId: string;
     sellingPointDigest: string;
