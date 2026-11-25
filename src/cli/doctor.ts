@@ -12,6 +12,8 @@ import { validateFeishuProductPayload } from "../feishu/cache-contract.js";
 import { loadFeishuBitableConfig } from "../feishu/config.js";
 import { getPythonCommand, sanitizePythonRuntimeEnv } from "../utils/platform.js";
 import { LOCAL_QWEN_SCENE_MODEL } from "../autolist/qwen-scene-planner.js";
+import { LOCAL_QWEN_VISION_MODEL } from "../autolist/main-image-scene-adherence-rules.js";
+import { requireLocalOllamaHost } from "../autolist/local-ollama-rules.js";
 
 interface CheckResult {
   name: string;
@@ -225,28 +227,32 @@ function checkAutoListingProductInfoSource(): CheckResult {
   };
 }
 
-function checkLocalQwenScenePlanner(): CheckResult {
-  const host = (process.env.OLLAMA_HOST || "http://127.0.0.1:11434").replace(/\/$/u, "");
+function checkLocalQwenModels(): CheckResult[] {
+  let host: string;
   try {
+    host = requireLocalOllamaHost(process.env.OLLAMA_HOST);
     const raw = execFileSync("curl", ["--silent", "--show-error", "--fail", `${host}/api/tags`], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
     });
     const models = (JSON.parse(raw) as { models?: Array<{ name?: string; model?: string }> }).models || [];
-    const available = models.some((item) => item.name === LOCAL_QWEN_SCENE_MODEL || item.model === LOCAL_QWEN_SCENE_MODEL);
-    return {
-      name: "local Qwen scene planner",
-      ok: available,
-      detail: available
-        ? `${host}; model=${LOCAL_QWEN_SCENE_MODEL}`
-        : `${host}; required model missing: ${LOCAL_QWEN_SCENE_MODEL}`
-    };
+    return [
+      ["local Qwen scene planner", LOCAL_QWEN_SCENE_MODEL],
+      ["local Qwen visual scene gate", LOCAL_QWEN_VISION_MODEL]
+    ].map(([name, model]) => {
+      const available = models.some((item) => item.name === model || item.model === model);
+      return {
+        name,
+        ok: available,
+        detail: available ? `${host}; model=${model}` : `${host}; required model missing: ${model}`
+      };
+    });
   } catch (error) {
-    return {
-      name: "local Qwen scene planner",
+    return ["local Qwen scene planner", "local Qwen visual scene gate"].map((name) => ({
+      name,
       ok: false,
-      detail: `${host}; unavailable: ${error instanceof Error ? error.message : String(error)}`
-    };
+      detail: `local loopback unavailable: ${error instanceof Error ? error.message : String(error)}`
+    }));
   }
 }
 
@@ -376,7 +382,7 @@ function autoListingChecks(options: DoctorOptions): CheckResult[] {
   checkPath("auto-listing main image work dir", "input/auto-listing/main-images"),
   checkPath("auto-listing titles", "input/auto-listing/titles"),
   checkPath("auto-listing qualifications", "input/auto-listing/qualifications"),
-  checkLocalQwenScenePlanner(),
+  ...checkLocalQwenModels(),
   checkAutoListingShopFolders(),
   checkAutoListingProductInfoSource(),
   ...checkAutoListingJobFiles()

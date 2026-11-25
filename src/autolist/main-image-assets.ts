@@ -18,6 +18,7 @@ import {
 } from "./main-image-frame-rules.js";
 import { buildMainImageProductionPrompt } from "./main-image-visual-direction-rules.js";
 import { assertMainImageSetVisualQuality } from "./main-image-visual-quality-action.js";
+import { assertMainImageSceneAdherence } from "./main-image-scene-adherence-action.js";
 import { ensureSquareMainImageFile } from "./main-image-square-action.js";
 import {
   archiveRejectedMainImageCollage,
@@ -902,6 +903,30 @@ export async function generateMainImageAssets(options: {
     });
     options.onProgress?.(
       `Main-image visual quality gate passed: ${qualityReport.actualImageCount} images; warm-gold dominant ${qualityReport.goldDominantCount}/${qualityReport.maxGoldDominantCount}.`
+    );
+    if (!options.scenePrompts || options.scenePrompts.length !== promptCount) {
+      throw new Error(`Main-image scene adherence gate requires exactly ${promptCount} local-Qwen scene prompts.`);
+    }
+    const sceneReport = await assertMainImageSceneAdherence({
+      images: stagedFiles.map((item) => {
+        if (!item.rawImageFile || !fs.existsSync(item.rawImageFile)) {
+          throw new Error(`Main-image scene adherence gate is missing final raw image ${item.imageIndex}.`);
+        }
+        const scenePrompt = options.scenePrompts?.[item.promptIndex - 1];
+        if (!scenePrompt) {
+          throw new Error(`Main-image scene adherence gate is missing scene prompt ${item.promptIndex}.`);
+        }
+        return {
+          imageIndex: item.imageIndex,
+          imageFile: item.rawImageFile,
+          scenePrompt
+        };
+      }),
+      reportFile: path.join(taskDir, "main-image-scene-adherence-report.json"),
+      onProgress: options.onProgress
+    });
+    options.onProgress?.(
+      `Local vision scene adherence gate passed: ${sceneReport.items.length} images; model=${sceneReport.model}.`
     );
   }
 

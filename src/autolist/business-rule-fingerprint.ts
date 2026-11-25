@@ -18,6 +18,10 @@ import {
   MAIN_IMAGE_PROMPT_CONTRACT_VERSION
 } from "./main-image-prompt-contract.js";
 import { LOCAL_QWEN_SCENE_MODEL, LOCAL_QWEN_SCENE_PLANNER_VERSION } from "./qwen-scene-planner.js";
+import {
+  LOCAL_QWEN_VISION_MODEL,
+  MAIN_IMAGE_SCENE_ADHERENCE_GATE_VERSION
+} from "./main-image-scene-adherence-rules.js";
 
 const CATEGORIES: ProductCategory[] = ["医疗器械", "非处方药", "保健食品"];
 
@@ -55,7 +59,11 @@ export function buildAutoListingBusinessRuleFingerprint(): string {
       promptContract: MAIN_IMAGE_SINGLE_POSTER_PROMPT_CONTRACT
     },
     mainImageVisualDirectionVersion: MAIN_IMAGE_VISUAL_DIRECTION_VERSION,
-    mainImageVisualQualityGateVersion: MAIN_IMAGE_VISUAL_QUALITY_GATE_VERSION
+    mainImageVisualQualityGateVersion: MAIN_IMAGE_VISUAL_QUALITY_GATE_VERSION,
+    mainImageSceneAdherence: {
+      gateVersion: MAIN_IMAGE_SCENE_ADHERENCE_GATE_VERSION,
+      model: LOCAL_QWEN_VISION_MODEL
+    }
   };
   return crypto.createHash("sha256").update(JSON.stringify(rules)).digest("hex").slice(0, 24);
 }
