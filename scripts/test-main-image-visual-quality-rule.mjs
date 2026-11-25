@@ -85,22 +85,19 @@ const directions = Array.from({ length: 5 }, (_, roundIndex) =>
 );
 assert.equal(new Set(directions).size, 5);
 assert.ok(directions.every((text) => text.includes(MAIN_IMAGE_VISUAL_DIRECTION_VERSION)));
-assert.match(directions[0], /医疗蓝/);
-assert.match(directions[4], /使用方法视觉/);
-assert.match(directions[0], /不出现完整人物脸部/);
-assert.match(directions[1], /鼠尾草绿/);
-assert.match(directions[2], /不出现完整人物/);
-assert.match(directions[3], /不得出现人物、面部、手部/);
-assert.match(directions[4], /禁止珊瑚橙/);
+assert.ok(directions.every((text) => /场景优先/.test(text)));
+assert.ok(directions.every((text) => /当前轮已经规划的用户需求/.test(text)));
+assert.ok(directions.every((text) => /人物、局部、纯商品、步骤、原理、配色和光线均由当前需求决定/.test(text)));
+assert.ok(directions.every((text) => /不得为了凑人物、步骤、科技感、纯商品感或指定色彩/.test(text)));
 assert.ok(directions.every((text) => /禁止|不得/.test(text)));
+assert.ok(directions.every((text) => /需求裁决/.test(text)));
 const typographyDirections = Array.from({ length: 5 }, (_, roundIndex) =>
   Array.from({ length: 4 }, (_, variantIndex) =>
     buildMainImageVisualDirectionContract({ roundIndex, variantIndex, hasFixedFrame: true })
   )
 ).flat();
 assert.equal(new Set(typographyDirections).size, 20);
-assert.match(typographyDirections[16], /文字系统17：主标题采用青绿色动势刷字/);
-assert.doesNotMatch(typographyDirections[16], /珊瑚色/);
+assert.match(typographyDirections[16], /文字系统17：主标题采用与当前场景协调的动势刷字/);
 typographyDirections.forEach((text, index) => {
   assert.match(text, new RegExp(`文字系统${String(index + 1).padStart(2, "0")}`));
   assert.match(text, /主标题/);
@@ -116,10 +113,10 @@ const productionPrompt = buildMainImageProductionPrompt({
   frameContract: "固定图框安全区"
 });
 assert.match(productionPrompt, /两段产品变量/);
-assert.match(productionPrompt, /固定生成契约 single-source-product-poster-v3/);
-assert.match(productionPrompt, /总面积不得超过画布20%/);
-assert.match(productionPrompt, /产品组高度至少约占画布45%/);
-assert.match(productionPrompt, /不得横跨整条底边/);
+assert.match(productionPrompt, /固定生成契约 single-source-product-poster-v5/);
+assert.match(productionPrompt, /用户需求、消费时刻和自然使用关系是画面决策的最高依据/);
+assert.match(productionPrompt, /人物、手部、使用部位、纯商品展示、步骤图、材质原理、配色、光线和道具都不是必选项/);
+assert.match(productionPrompt, /商品、人物和环境的相对大小按当前需求决定/);
 assert.match(productionPrompt, /强制画幅约束/);
 assert.match(productionPrompt, /单张完整海报/);
 assert.match(productionPrompt, /固定图框安全区/);

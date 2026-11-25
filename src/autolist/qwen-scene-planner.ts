@@ -8,7 +8,7 @@ import type { FeishuProductRecord } from "../feishu/types.js";
 import { getProductCategoryPlan } from "./product-category.js";
 
 export const LOCAL_QWEN_SCENE_MODEL = "qwen3.6:35b-a3b";
-export const LOCAL_QWEN_SCENE_PLANNER_VERSION = "local-qwen-consumer-scenes-v4";
+export const LOCAL_QWEN_SCENE_PLANNER_VERSION = "local-qwen-need-matched-scenes-v5";
 
 export interface FeishuPosterPromptBatchValidationError {
   recordId: string;
@@ -50,53 +50,21 @@ export function validateFeishuPosterPromptBatch(records: FeishuProductRecord[]):
 }
 
 interface QwenSceneRecord {
+  userNeed: string;
   consumerMoment: string;
   environment: string;
   mood: string;
   interaction: string;
 }
 
-const SUBJECT_POLICIES = [
-  "只出现手部或使用部位局部，不出现完整人物脸部",
-  "最多出现一位自然人物，人物只提供生活代入感且不得大于完整商品组",
-  "不出现完整人物，只允许局部手部、使用部位或抽象原理元素",
-  "不出现人物、面部或手部，采用纯商品英雄展示",
-  "只出现手部与使用部位局部步骤，不出现完整人物脸部"
-] as const;
-
-const INTERACTION_POLICIES = [
-  "手部在使用部位做局部演示，具体商品形态只以参考图为准",
-  "一位自然人物与当前商品建立生活化关系，不描述或猜测包装细节",
-  "局部使用部位与抽象原理元素呼应，不出现完整人物",
-  "不呈现人物互动，商品独立成为画面中心",
-  "手部与使用部位局部形成连续步骤，不描述任何包装结构"
-] as const;
-
-const SCENE_ROLE_POLICIES = [
-  "冷静清晰的局部使用信息场景",
-  "真实自然的日常生活场景",
-  "与商品卖点相关的材质或原理场景",
-  "冷白或浅灰的纯商品极简英雄场景",
-  "清楚有序的局部使用步骤场景"
-] as const;
-
-const SCENE_ROLE_MARKERS = [
-  ["冷白", "清洁", "清晰", "理性", "局部"],
-  ["日常", "居家", "通勤", "户外", "自然", "生活"],
-  ["青蓝", "透明", "微观", "材质", "原理", "科技"],
-  ["冷白", "浅灰", "纯色", "极简"],
-  ["步骤", "使用", "有序", "清洁", "台面", "顺序", "流程", "连续", "局部", "操作"]
-] as const;
-
 const FORBIDDEN_SCENE_TERMS = [
-  "医院", "诊室", "医生", "护士", "患者", "治疗", "治愈", "疗效", "前后对比", "使用前", "使用后",
+  "医院", "诊室", "医生", "护士", "患者", "术后", "治疗", "治愈", "疗效", "前后对比", "使用前", "使用后",
   "红肿", "泛红", "破损", "流血", "疼痛", "刺痛", "灼热", "发烫", "痛苦", "不适", "症状", "创口", "伤口",
-  "晒伤", "晒后", "痕迹", "紧绷", "干燥", "修复", "缓解", "疗愈", "焦虑", "烦躁", "疲惫",
+  "痕迹", "疗愈",
   "瓶身", "瓶子", "罐体", "罐装", "软管", "管身", "盒装", "纸盒", "容器", "标签区域", "包装形态",
   "泵头", "按压", "外壁", "商品表面", "商品主体", "持握", "手持", "托住", "取用", "控制部件", "开盖", "旋盖", "倒出", "挤出", "喷出",
-  "暖色", "暖光", "温暖", "暖黄", "橙金", "米黄", "奶油", "木质", "夕阳", "黄昏", "昏暗", "台灯",
   "数据可视化", "数据界面", "操作界面", "仪表盘", "显示屏", "屏幕文字",
-  "证书", "奖状", "促销", "折扣",
+  "抵御细菌", "即时安抚", "医疗级", "医用级", "敏感肌", "特殊医疗护理", "经过验证", "专业护理手段", "协同作用", "持续连接", "标准配置", "证书", "奖状", "促销", "折扣",
   "儿童", "婴儿", "孕妇", "老人", "男性", "女性", "男士", "女士", "宝妈", "网红", "明星",
   "其他产品", "其他商品", "其他护理品", "其他药品", "可读文字", "广告牌", "标签文字"
 ] as const;
@@ -111,12 +79,13 @@ const SCENE_SCHEMA = {
       items: {
         type: "object",
         properties: {
+          userNeed: { type: "string", minLength: 4, maxLength: 80 },
           consumerMoment: { type: "string", minLength: 4, maxLength: 80 },
           environment: { type: "string", minLength: 4, maxLength: 80 },
           mood: { type: "string", minLength: 4, maxLength: 80 },
           interaction: { type: "string", minLength: 4, maxLength: 80 }
         },
-        required: ["consumerMoment", "environment", "mood", "interaction"],
+        required: ["userNeed", "consumerMoment", "environment", "mood", "interaction"],
         additionalProperties: false
       }
     }
@@ -140,6 +109,9 @@ function normalizeSceneField(value: unknown, label: string): string {
   if (forbidden) {
     throw new Error(`Local Qwen scene field ${label} crossed a visual boundary: ${forbidden}.`);
   }
+  if (label.endsWith(".userNeed") && /(官方正品|无菌|器械|成分|技术)/u.test(text)) {
+    throw new Error(`Local Qwen scene field ${label} used a feature or credential as a user need: ${text}.`);
+  }
   return text;
 }
 
@@ -154,17 +126,25 @@ export function buildLocalQwenScenePlannerPrompt(input: {
   if (!approvedCopy || !productName) {
     throw new Error("Local Qwen scene planning requires approved Feishu copy and a current product name.");
   }
+  const primaryNeedAnchor = approvedCopy
+    .split("\n")
+    .filter((line) => line.startsWith("主标题：") || line.startsWith("副标题："))
+    .join("；");
   return [
     `【本地场景规划契约 ${LOCAL_QWEN_SCENE_PLANNER_VERSION}】`,
     `当前商品：${productName}`,
     approvedCopy,
-    "只规划5个互不重复、真实可拍的消费时刻。每个场景只描述consumerMoment、environment、mood、interaction四项。",
-    "不得描述或猜测包装形态、瓶管盒罐、容器、标签、颜色、规格、成分、适用人群、皮肤或身体状态、任何症状、不适、治疗结果、医院医生、前后对比、其他商品或任何新增文字。",
+    `主要用户任务锚点（不可被核心卖点替换）：${primaryNeedAnchor}`,
+    "先从已审核产品文案中识别用户为什么会需要当前商品，再规划5个互不重复、真实可拍、能促成理解与购买的场景。每个场景只描述userNeed、consumerMoment、environment、mood、interaction五项。",
+    "userNeed必须是用户要完成的事情或要解决的真实使用需求，并直接来自商品名称、通用名称和已审核文案；场景必须让目标用户一眼看懂‘这正是我需要它的时刻’。",
+    "五个userNeed都必须直接重述上面的同一个主要用户任务锚点，不得用后面的核心卖点替换、扩展或另起次级用途。核心卖点只能作为画面中的选择理由或信任证据，永远不能决定消费场景。若锚点含防晒，五个需求都必须明确是日晒或紫外线环境下的面部防晒，不得写成创面、晒后修复、敏感肌护理、无菌护理或正品查验；只选阳光暴露明确、需求强烈的白天场景，不选夕阳、夜晚或缺少日晒动机的场景。",
+    "官方正品、无菌型、器械等级、成分、技术和包装特点属于信任证据或产品特征，不得单独当成userNeed。不要把5条卖点机械改写成5个需求；允许多个场景服务同一个核心需求，只要消费时刻真实且不同。",
+    "不得把创面相关卖点外推成术后、医院或患者场景，也不得从无菌、防晒、护理等词外推抵御细菌、治疗、即时安抚、医疗级认证或其他未逐字提供的效果。interaction只描述画面中可见的人物姿态、商品位置和环境关系，不写协同作用、持续连接、标准配置等抽象功效结论。",
+    "不得描述或猜测包装形态、瓶管盒罐、容器、标签、颜色、规格、成分、适用人群、治疗结果、医院医生、前后对比、其他商品或任何新增文字。",
     "consumerMoment只回答何时、何地发生消费需求，不写商品接触动作、包装结构或身体异常；interaction只写人与商品或使用部位的高层关系，不写拿、握、托、按、挤、喷、开盖、取用等具体包装动作。",
-    "五个对象按顺序严格承担不同角色：1冷静清晰的局部使用信息场景；2真实自然的日常生活场景；3与当前卖点相关的材质或原理场景，使用青蓝、透明、微观或科技空间；4冷白、浅灰或纯色极简商品英雄场景；5清楚有序的局部使用步骤场景。",
-    "五个对象按顺序严格执行人物边界：1只写手部或使用部位局部；2最多一位自然人物；3不写完整人物；4纯商品静物展示，四字段都不得出现人物、消费者、面部或手部；5只写手部和使用部位局部步骤。所有环境禁止暖色、暖光、米黄、奶油、木质、夕阳和昏暗灯光。",
-    "所有时刻必须是积极、平静、舒适的正常日常状态；不得用问题、痛点、焦虑或身体异常来解释需求。",
-    "五个场景的时间、地点和互动方式必须明显不同；interaction只描述人与当前商品或使用部位的自然关系，不写广告文案。",
+    "人物、手部、使用部位、纯商品、步骤、材质原理、配色和光线都只是可选表现手段；只在能更准确解释当前userNeed和consumerMoment时使用，禁止为了凑固定模板强加。",
+    "userNeed和consumerMoment使用积极的任务表达，不用红肿、疼痛、焦虑等身体异常或痛苦来制造需求；不得呈现伤口、治疗过程、使用前后对比或夸大结果。",
+    "五个场景的时间、地点或互动方式必须形成有意义的差异；多个场景可以服务同一核心需求，但必须对应不同的真实消费时刻，而不是换背景重复摆拍。",
     "每个场景都必须通过时间、地点或自然使用关系直接体现当前商品用途，让人不看海报文字也能理解为什么此刻需要该商品；禁止输出可被任意护理品、药品或器械套用的通用场景。",
     "严格按JSON schema输出，不要解释。"
   ].join("\n");
@@ -178,6 +158,7 @@ export function validateLocalQwenSceneRecords(value: unknown): QwenSceneRecord[]
   const normalized = scenes.map((scene, index) => {
     const item = scene as Partial<QwenSceneRecord>;
     return {
+      userNeed: normalizeSceneField(item.userNeed, `${index + 1}.userNeed`),
       consumerMoment: normalizeSceneField(item.consumerMoment, `${index + 1}.consumerMoment`),
       environment: normalizeSceneField(item.environment, `${index + 1}.environment`),
       mood: normalizeSceneField(item.mood, `${index + 1}.mood`),
@@ -189,19 +170,6 @@ export function validateLocalQwenSceneRecords(value: unknown): QwenSceneRecord[]
       throw new Error(`Local Qwen scene records must use 5 distinct ${key} values.`);
     }
   }
-  const productHeroText = Object.values(normalized[3]).join("");
-  const productHeroHumanTerm = ["消费者", "人物", "人像", "模特", "面部", "脸", "手部", "手指", "手持", "握", "触碰", "坐", "站"].find((term) =>
-    productHeroText.includes(term)
-  );
-  if (productHeroHumanTerm) {
-    throw new Error(`Local Qwen product-hero scene must contain no person or body interaction: ${productHeroHumanTerm}.`);
-  }
-  normalized.forEach((scene, index) => {
-    const sceneText = Object.values(scene).join("");
-    if (!SCENE_ROLE_MARKERS[index].some((marker) => sceneText.includes(marker))) {
-      throw new Error(`Local Qwen scene ${index + 1} does not satisfy its fixed visual role: ${SCENE_ROLE_POLICIES[index]}.`);
-    }
-  });
   return normalized;
 }
 
@@ -212,13 +180,13 @@ export function buildBoundedSceneClauses(input: {
   if (input.scenes.length !== 5 || !input.productName.trim()) {
     throw new Error("Bounded scene clauses require five validated scenes and the current product name.");
   }
-  return input.scenes.map((scene, index) => [
-    `场景角色：${SCENE_ROLE_POLICIES[index]}。`,
+  return input.scenes.map((scene) => [
+    `用户需求：${scene.userNeed}。`,
     `消费者时刻：${scene.consumerMoment}。`,
     `环境：${scene.environment}。`,
     `氛围：${scene.mood}。`,
-    `互动关系：${INTERACTION_POLICIES[index]}。`,
-    `人物边界：${SUBJECT_POLICIES[index]}。`,
+    `互动关系：${scene.interaction}。`,
+    "需求匹配：人物、局部、纯商品、步骤、配色与道具都只在有助于解释上述用户需求时使用，不为凑模板强加。",
     `当前商品仅指${input.productName.trim()}；完整参考商品组必须原样、成组、最大且最清晰地位于前景，包装数量、文字、比例、颜色和标识只以参考图为准。`,
     "场景不得出现症状、伤口、医院医生、治疗结果、前后对比、其他商品、促销元素或任何额外可读文字。"
   ].join(""));
@@ -226,11 +194,11 @@ export function buildBoundedSceneClauses(input: {
 
 function simulatedSceneRecords(): QwenSceneRecord[] {
   return [
-    { consumerMoment: "晨间出门前的日常准备", environment: "冷调窗边与浅色台面", mood: "清新克制", interaction: "手部在使用部位做局部演示" },
-    { consumerMoment: "午后回到日常居家空间", environment: "灰白客厅与鼠尾草绿植物", mood: "自然松弛", interaction: "一位人物与商品形成生活化关系" },
-    { consumerMoment: "理解商品材质与作用方式", environment: "青蓝透明材质实验感空间", mood: "理性清晰", interaction: "局部使用部位与抽象原理元素呼应" },
-    { consumerMoment: "商品极简静物展示", environment: "冷白极简陈列台", mood: "高级克制", interaction: "商品独立成为画面中心" },
-    { consumerMoment: "按步骤完成日常使用", environment: "青绿色清洁台面", mood: "清楚有序", interaction: "手部与使用部位局部形成连续动作" }
+    { userNeed: "在真实生活中满足当前商品的核心用途", consumerMoment: "晨间出门前的日常准备", environment: "明亮窗边与浅色台面", mood: "清新克制", interaction: "使用部位与商品形成自然关系" },
+    { userNeed: "在真实生活中满足当前商品的核心用途", consumerMoment: "午后回到日常居家空间", environment: "自然光客厅与整洁置物区", mood: "自然松弛", interaction: "人物与商品形成生活化关系" },
+    { userNeed: "在真实生活中满足当前商品的核心用途", consumerMoment: "户外活动开始前的准备时刻", environment: "明亮开阔的真实活动空间", mood: "积极可信", interaction: "商品与当前活动建立直接视觉联系" },
+    { userNeed: "在真实生活中满足当前商品的核心用途", consumerMoment: "工作间隙安排日常使用时", environment: "整洁有序的工作生活空间", mood: "从容明确", interaction: "商品位于当前需求发生的自然位置" },
+    { userNeed: "在真实生活中满足当前商品的核心用途", consumerMoment: "周末休闲活动中的使用时刻", environment: "舒适自然的休闲环境", mood: "轻松有序", interaction: "人物、商品与当前需求形成清楚关系" }
   ];
 }
 
@@ -386,7 +354,7 @@ export function validateScenePlanArtifact(options: {
     throw new Error(`Local Qwen scene plan must contain exactly 5 bounded clauses, got ${options.prompts.length}.`);
   }
   options.prompts.forEach((prompt, index) => {
-    if (!prompt.includes(`人物边界：${SUBJECT_POLICIES[index]}`) || !prompt.includes("完整参考商品组必须原样")) {
+    if (!prompt.includes("用户需求：") || !prompt.includes("需求匹配：") || !prompt.includes("完整参考商品组必须原样")) {
       throw new Error(`Local Qwen bounded scene clause ${index + 1} is incomplete or obsolete.`);
     }
     const semanticScene = prompt.split("当前商品仅指")[0] || prompt;
