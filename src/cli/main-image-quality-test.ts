@@ -50,6 +50,10 @@ async function main(): Promise<void> {
   const brand = (args.get("--brand") || "").trim();
   if (!brand) throw new Error("Missing --brand.");
   const recordId = (args.get("--record-id") || "quality-test").trim();
+  const roundNumber = Number(args.get("--round-index") || "1");
+  if (!Number.isInteger(roundNumber) || roundNumber < 1 || roundNumber > 5) {
+    throw new Error("Quality-test round index must be an integer from 1 to 5.");
+  }
   const basePrompt = buildImageEditPromptFromWord({
     paragraphs: readSimpleWordDocument(promptWordFile),
     promptWordFile
@@ -59,7 +63,7 @@ async function main(): Promise<void> {
     : undefined;
   const promptText = buildMainImageProductionPrompt({
     basePromptText: basePrompt,
-    roundIndex: 0,
+    roundIndex: roundNumber - 1,
     variantIndex: 0,
     hasFixedFrame: Boolean(protectedFrameFile),
     frameContract: MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT
@@ -114,6 +118,7 @@ async function main(): Promise<void> {
     mode: "main-image-quality-test-only",
     publishAllowed: false,
     testId,
+    roundNumber,
     referenceImageCount: 1,
     frameLayoutVersion: protectedFrameFile ? MAIN_IMAGE_FRAME_LAYOUT_VERSION : undefined,
     sourceImagePath,

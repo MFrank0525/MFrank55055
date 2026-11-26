@@ -1,5 +1,14 @@
 # Auto-listing Requirement Trace
 
+## 2026-11-26 five-image paid validation preflight
+
+| Requirement | Implementation | Verification | Status |
+| --- | --- | --- | --- |
+| Exercise the real visual contract for rounds 1–5 instead of repeating round 1 | The quality-test CLI accepts a fail-closed `--round-index 1..5` and records the selected round in its result manifest | Red-before-green visual-quality regression; full `rules:check` | verified |
+| Keep the park-camping palette consistent with its sunny daytime scene | The scene palette now uses grass green, sky blue and tent red; the obsolete dusk-blue direction is removed | Visual-direction regression and exact five-prompt preflight | verified |
+| Prevent paid validation from using obsolete scene documents or existing slots | Rebuilt five two-paragraph Word files from the validated beach, mountain, city-street, vehicle and park-camping plan; all five new prompt-derived test IDs have no prior ledger match | Exact prompt/test-ID preflight, live Feishu check, provider read-only task check, all doctor modes, representative simulation and two independent deep audits | verified |
+| Validate the corrected palette and brand-frame spacing on five real provider images | Submit exactly one isolated non-publishable quality-test slot for each prepared round, then run traditional and local-vision acceptance gates | Paid execution and visual inspection | implemented-unverified |
+
 ## 2026-11-25 main-image palette and brand-frame spacing correction
 
 | Requirement | Implementation | Verification | Status |

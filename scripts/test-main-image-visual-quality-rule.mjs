@@ -97,7 +97,7 @@ const expectedPaletteDirections = [
   /高山蓝、岩灰与冷杉绿/,
   /城市青蓝、石墨灰与少量霓虹紫/,
   /车内炭灰、冷调蓝与清洁白/,
-  /公园草木绿、暮色蓝与帐篷红/
+  /公园草木绿、天空蓝与帐篷红/
 ];
 directions.forEach((text, roundIndex) => {
   assert.match(text, expectedPaletteDirections[roundIndex]);
@@ -149,3 +149,8 @@ assert.ok(
 );
 const orchestratorSource = fs.readFileSync("src/autolist/orchestrator.ts", "utf8");
 assert.match(orchestratorSource, /enforceVisualQuality: true/);
+const qualityTestSource = fs.readFileSync("src/cli/main-image-quality-test.ts", "utf8");
+assert.match(qualityTestSource, /args\.get\("--round-index"\)/);
+assert.match(qualityTestSource, /round index must be an integer from 1 to 5/i);
+assert.match(qualityTestSource, /roundIndex: roundNumber - 1/);
+assert.match(qualityTestSource, /roundNumber/);
