@@ -23,6 +23,7 @@ assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /不得放大、延长�
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /横向0%–68%、纵向0%–20%/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /右侧与下方呼吸区/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /主标题任何笔画的顶边必须低于纵向23%/);
+assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /主标题与副标题整体只能放在纵向24%–42%/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /低细节背景与自然光影/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /不得缩成小图/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /不会缩放、裁切或移动生成结果/);

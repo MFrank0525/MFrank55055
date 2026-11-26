@@ -20,6 +20,7 @@ const acceptedPayload = validateMainImageSceneAdherencePayload({
   interactionMatch: false,
   productVisible: true,
   brandFrameClear: true,
+  brandFrameBreathingRoom: true,
   observedLocationConcept: "sports",
   observedScene: "户外运动防晒场景",
   reasons: ["需求和环境清楚，人物动作可以简化。"]
@@ -39,6 +40,7 @@ assert.doesNotThrow(() => assertMainImageSceneAdherenceReport({
 }));
 assert.equal(isMainImageSceneAdherenceAccepted(acceptedItem), true);
 assert.equal(isMainImageSceneAdherenceAccepted({ ...acceptedItem, observedLocationConcept: "beach" }), false);
+assert.equal(isMainImageSceneAdherenceAccepted({ ...acceptedItem, brandFrameBreathingRoom: false }), false);
 assert.throws(() => assertMainImageSceneAdherenceReport({
   ok: false,
   gateVersion: MAIN_IMAGE_SCENE_ADHERENCE_GATE_VERSION,
@@ -66,10 +68,25 @@ assert.throws(() => validateMainImageSceneAdherencePayload({
   interactionMatch: true,
   productVisible: true,
   brandFrameClear: true,
+  brandFrameBreathingRoom: true,
   observedLocationConcept: "outdoor",
   observedScene: "泛化户外空间",
   reasons: ["地点不具体。"]
 }), /observedLocationConcept/);
+assert.throws(() => validateMainImageSceneAdherencePayload({
+  needMatch: true,
+  environmentMatch: true,
+  interactionMatch: true,
+  productVisible: true,
+  brandFrameClear: true,
+  observedLocationConcept: "sports",
+  observedScene: "网球场",
+  reasons: ["品牌框下方标题过近。"]
+}), /brandFrameBreathingRoom/);
+
+const sceneActionSource = fs.readFileSync("src/autolist/main-image-scene-adherence-action.ts", "utf8");
+assert.match(sceneActionSource, /brandFrameBreathingRoom/);
+assert.match(sceneActionSource, /纵向23%/);
 
 const assetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 assert.match(assetsSource, /await assertMainImageSceneAdherence/);

@@ -3,10 +3,13 @@ import {
   type SceneLocationConcept
 } from "./scene-location-rules.js";
 
-export const MAIN_IMAGE_VISUAL_DIRECTION_VERSION = "need-matched-scene-first-palette-v4";
+export const MAIN_IMAGE_VISUAL_DIRECTION_VERSION = "need-matched-scene-first-palette-layout-v5";
 
 const SCENE_FIRST_DIRECTION =
   "场景优先：完整执行当前轮已经规划的用户需求、消费时刻、环境、氛围和互动关系。人物、局部、纯商品、步骤、原理、配色和光线均由当前需求决定，不因轮次或模板被强制加入、删除或替换。画面首先让目标用户理解‘为什么这个商品适合此刻的我’，同时保持商品完整、清晰、可信。";
+
+const FRAME_AWARE_TITLE_LAYOUT =
+  "固定品牌框版式：主标题与副标题组成同一信息组，整体从画布纵向24%开始并只能放在纵向24%–42%；不得贴顶，不得把任何标题笔画、描边、投影、丝带或标题色块放进顶部0%–23%。商品、卖点和人物继续位于该信息组下方或两侧，禁止用后期品牌框覆盖标题来伪造避让。";
 
 const VARIANT_COMPOSITIONS = [
   "本轮第1张采用左侧产品、右侧场景的非对称构图，信息层级沿对角线展开。",
@@ -92,6 +95,7 @@ export function buildMainImageVisualDirectionContract(input: {
     `【视觉方向契约 ${MAIN_IMAGE_VISUAL_DIRECTION_VERSION}】`,
     SCENE_FIRST_DIRECTION,
     resolveScenePaletteDirection(input.sceneText),
+    input.hasFixedFrame ? FRAME_AWARE_TITLE_LAYOUT : "",
     variantComposition,
     typographySystem,
     "本张必须完整执行以上专属文字系统：主标题、副标题承载图形和全部卖点图标都要形成统一设计语言，并与其余19张的字形、载体、图标轮廓和排列方式明显不同；不得退化为默认黑体、纯文字列表、统一盾牌或统一对勾。",

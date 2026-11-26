@@ -20,11 +20,12 @@ const RESPONSE_SCHEMA = {
     interactionMatch: { type: "boolean" },
     productVisible: { type: "boolean" },
     brandFrameClear: { type: "boolean" },
+    brandFrameBreathingRoom: { type: "boolean" },
     observedLocationConcept: { type: "string", enum: SCENE_LOCATION_CONCEPTS },
     observedScene: { type: "string" },
     reasons: { type: "array", items: { type: "string" }, minItems: 1 }
   },
-  required: ["needMatch", "environmentMatch", "interactionMatch", "productVisible", "brandFrameClear", "observedLocationConcept", "observedScene", "reasons"],
+  required: ["needMatch", "environmentMatch", "interactionMatch", "productVisible", "brandFrameClear", "brandFrameBreathingRoom", "observedLocationConcept", "observedScene", "reasons"],
   additionalProperties: false
 } as const;
 
@@ -41,7 +42,7 @@ async function inspectOne(options: {
     const prompt = [
       "你是电商主图验收员。只根据画面中真实可见的环境、人物、动作、商品和固定品牌框判断，不要因为海报文字提到了某个卖点就判定场景匹配。",
       `目标场景：${options.scenePrompt}`,
-      "needMatch：画面是否让用户直观看懂目标用户需求；environmentMatch：主要环境是否符合目标消费时刻；interactionMatch：人物/商品关系是否符合，若目标允许可选人物而画面用清楚的纯商品场景表达同一需求，可判 true；productVisible：参考商品组是否完整清晰；brandFrameClear：左上固定品牌框是否完整且未被标题或装饰遮挡。",
+      "needMatch：画面是否让用户直观看懂目标用户需求；environmentMatch：主要环境是否符合目标消费时刻；interactionMatch：人物/商品关系是否符合，若目标允许可选人物而画面用清楚的纯商品场景表达同一需求，可判 true；productVisible：参考商品组是否完整清晰；brandFrameClear：左上固定品牌框是否完整且未被标题或装饰遮挡；brandFrameBreathingRoom：左上横向0%–68%、纵向0%–20%是否只有低细节背景与自然光影，并且主标题任何笔画都从纵向23%以下开始。只要标题、副标题、商品、人物、图标、色块边缘或高对比装饰进入该区域就必须判 false。",
       `observedLocationConcept：只按画面占主导的真实地点从 ${SCENE_LOCATION_CONCEPTS.join(", ")} 中选择一个；沙滩、海边和海滩统一选 beach，不得根据目标文字猜测。`,
       "严格输出 JSON。"
     ].join("\n");

@@ -6,7 +6,7 @@ import {
 } from "./scene-location-rules.js";
 
 export const LOCAL_QWEN_VISION_MODEL = "qwen3-vl:8b";
-export const MAIN_IMAGE_SCENE_ADHERENCE_GATE_VERSION = "local-qwen-vl-scene-adherence-v2";
+export const MAIN_IMAGE_SCENE_ADHERENCE_GATE_VERSION = "local-qwen-vl-scene-adherence-v3";
 
 export interface MainImageSceneAdherenceItem {
   imageIndex: number;
@@ -18,6 +18,7 @@ export interface MainImageSceneAdherenceItem {
   interactionMatch: boolean;
   productVisible: boolean;
   brandFrameClear: boolean;
+  brandFrameBreathingRoom: boolean;
   observedLocationConcept: SceneLocationConcept;
   observedScene: string;
   reasons: string[];
@@ -33,7 +34,7 @@ export interface MainImageSceneAdherenceReport {
 export function validateMainImageSceneAdherencePayload(value: unknown): Omit<MainImageSceneAdherenceItem, "imageIndex" | "imageFile" | "scenePrompt" | "model"> {
   const item = value as Record<string, unknown> | null;
   if (!item) throw new Error("Local vision scene audit returned no JSON object.");
-  for (const field of ["needMatch", "environmentMatch", "interactionMatch", "productVisible", "brandFrameClear"] as const) {
+  for (const field of ["needMatch", "environmentMatch", "interactionMatch", "productVisible", "brandFrameClear", "brandFrameBreathingRoom"] as const) {
     if (typeof item[field] !== "boolean") {
       throw new Error(`Local vision scene audit field ${field} must be boolean.`);
     }
@@ -54,6 +55,7 @@ export function validateMainImageSceneAdherencePayload(value: unknown): Omit<Mai
     interactionMatch: item.interactionMatch as boolean,
     productVisible: item.productVisible as boolean,
     brandFrameClear: item.brandFrameClear as boolean,
+    brandFrameBreathingRoom: item.brandFrameBreathingRoom as boolean,
     observedLocationConcept: item.observedLocationConcept,
     observedScene,
     reasons
@@ -69,6 +71,7 @@ export function isMainImageSceneAdherenceAccepted(item: MainImageSceneAdherenceI
     && item.environmentMatch
     && item.productVisible
     && item.brandFrameClear
+    && item.brandFrameBreathingRoom
     && item.observedLocationConcept === targetConcept;
 }
 
