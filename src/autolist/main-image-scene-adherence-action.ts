@@ -47,9 +47,9 @@ async function inspectBreathingRoom(options: {
   signal: AbortSignal;
 }): Promise<{ brandFrameBreathingRoom: boolean; reasons: string[] }> {
   const prompt = [
-    "只检查这张顶部呼吸区裁片，不判断商品场景。裁片对应原图左上横向0%–68%、纵向0%–23%，合法固定品牌框已替换成纯灰色。",
-    "纯灰区域完全忽略。只有当其余所有区域都只是低细节自然背景或自然光影时，brandFrameBreathingRoom才可为true。",
-    "只要其余区域出现任何完整或残缺的汉字、字母、数字、标题笔画、描边、阴影、丝带、色块边缘、商品、人物、图标或其他高对比装饰，必须判false。即使只看到标题的一部分或一个字，也必须判false。",
+    "只检查灰色区域以外的内容；灰色是合法品牌框，完全忽略。",
+    "若灰色外没有文字、字母、数字、标题描边、丝带、标题色块、商品、人物、卖点图标或其他营销前景，brandFrameBreathingRoom=true；出现任一项则为false。",
+    "天空、云、树叶、山体和自然光线属于允许的场景背景，不得因此判false。",
     "严格输出JSON。"
   ].join("\n");
   const response = await fetch(`${options.host}/api/chat`, {
@@ -65,7 +65,7 @@ async function inspectBreathingRoom(options: {
         content: prompt,
         images: [fs.readFileSync(options.breathingAuditFile).toString("base64")]
       }],
-      options: { temperature: 0 }
+      options: { temperature: 0, num_ctx: 8192, num_predict: 2048 }
     }),
     signal: options.signal
   });
@@ -109,7 +109,7 @@ async function inspectOne(options: {
     const prompt = [
       "你是电商主图验收员。只根据画面中真实可见的环境、人物、动作、商品和固定品牌框判断，不要因为海报文字提到了某个卖点就判定场景匹配。",
       `目标场景：${options.scenePrompt}`,
-      "needMatch：画面是否让用户直观看懂目标用户需求；environmentMatch：主要环境是否符合目标消费时刻；interactionMatch：人物/商品关系是否符合，若目标允许可选人物而画面用清楚的纯商品场景表达同一需求，可判 true；productVisible：参考商品组是否完整清晰；brandFrameClear：左上固定品牌框是否完整且未被标题或装饰遮挡；brandFrameBreathingRoom：左上横向0%–68%、纵向0%–20%是否只有低细节背景与自然光影，并且主标题任何笔画都从纵向23%以下开始。只要标题、副标题、商品、人物、图标、色块边缘或高对比装饰进入该区域就必须判 false。",
+      "needMatch：画面是否让用户直观看懂目标用户需求；environmentMatch：主要环境是否符合目标消费时刻；interactionMatch：人物/商品关系是否符合，若目标允许可选人物而画面用清楚的纯商品场景表达同一需求，可判 true；productVisible：参考商品组是否完整清晰；brandFrameClear：左上固定品牌框是否完整且未被标题或装饰遮挡；brandFrameBreathingRoom：左上横向0%–68%、纵向0%–13%是否只有固定品牌框、低细节背景与自然光影，并且主标题任何笔画都从纵向14%以下开始。只要标题、副标题、商品、人物、图标、色块边缘或高对比装饰进入该区域就必须判 false。",
       breathingAuditAvailable
         ? "brandFrameBreathingRoom由独立的顶部裁片验收覆盖；本轮仍按完整JSON结构先返回一个布尔值。"
         : "当前图片不使用固定品牌框，brandFrameBreathingRoom判true。",
@@ -129,7 +129,7 @@ async function inspectOne(options: {
           content: prompt,
           images: [fs.readFileSync(options.imageFile).toString("base64")]
         }],
-        options: { temperature: 0 }
+        options: { temperature: 0, num_ctx: 8192, num_predict: 6000 }
       }),
       signal: controller.signal
     });

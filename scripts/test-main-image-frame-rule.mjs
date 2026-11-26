@@ -17,16 +17,16 @@ assert.equal(shouldApplyDefaultMainImageFrame("久光小泽"), false);
 assert.throws(() => shouldApplyDefaultMainImageFrame(""), /requires Feishu brand/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /左上角/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /横向0%–68%/);
-assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /纵向0%–20%/);
+assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /纵向0%–13%/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /唯一参考图已经把当前白底商品、最终固定品牌框与临时浅蓝呼吸区占位合成/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /不可移动、不可覆盖的已占用前景层/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /不得放大、延长、复制、仿制/);
-assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /横向0%–68%、纵向0%–20%/);
-assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /右侧与下方呼吸区/);
+assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /横向0%–68%、纵向0%–13%/);
+assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /真实品牌框及其最小安全间距/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /临时浅蓝呼吸区占位/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /不得复制占位的颜色、形状或边界/);
-assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /主标题任何笔画的顶边必须低于纵向23%/);
-assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /主标题与副标题整体只能放在纵向24%–42%/);
+assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /主标题任何笔画的顶边必须低于纵向14%/);
+assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /主标题与副标题整体只能放在纵向14%–42%/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /低细节背景与自然光影/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /不得缩成小图/);
 assert.match(MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, /不会缩放、裁切或移动生成结果/);
@@ -65,9 +65,9 @@ await prepareMainImageFrameBreathingAudit({
 const breathingCheckScript = [
   "from PIL import Image", "import sys",
   "im=Image.open(sys.argv[1]).convert('RGB')",
-  "assert im.size == (544,184)",
+  "assert im.size == (544,104)",
   "assert im.getpixel((20,20)) == (127,127,127)",
-  "assert im.getpixel((530,170)) == (220,30,30)",
+  "assert im.getpixel((530,100)) == (220,30,30)",
   "print('breathing-audit')"
 ].join("\n");
 assert.equal(execFileSync(getPythonCommand(), ["-c", breathingCheckScript, breathingAuditFile], {
@@ -84,8 +84,8 @@ const layoutReferenceScript = [
   "source=Image.open(sys.argv[1]).convert('RGBA').resize((800,800), Image.Resampling.LANCZOS)",
   "frame=Image.open(sys.argv[2]).convert('RGBA')", "guide=Image.open(sys.argv[3]).convert('RGBA')",
   "assert guide.getchannel('A').getextrema() == (255,255)",
-  "assert guide.getpixel((530,170))[:3] != source.getpixel((530,170))[:3]",
-  "assert guide.getpixel((600,200))[:3] == source.getpixel((600,200))[:3]",
+  "assert guide.getpixel((530,100))[:3] != source.getpixel((530,100))[:3]",
+  "assert guide.getpixel((600,120))[:3] == source.getpixel((600,120))[:3]",
   "assert guide.getpixel((20,20))[:3] == frame.getpixel((20,20))[:3]",
   "print('breathing-zone-layout-guide')"
 ].join("\n");
@@ -119,7 +119,7 @@ await (await import("../dist/src/autolist/main-image-frame-action.js")).ensureMa
 assert.ok(fs.existsSync(`${preservedInput}.unframed.png`), "Framing must preserve the provider output for visual QA");
 assert.ok(fs.existsSync(`${preservedInput}.frame-ready.png`), "Framing must preserve the deterministic safe-layout preview");
 const frameMarker = JSON.parse(fs.readFileSync(`${preservedInput}.frame.json`, "utf8"));
-assert.equal(frameMarker.layoutVersion, "full-bleed-visible-frame-guide-v5");
+assert.equal(frameMarker.layoutVersion, "full-bleed-visible-frame-guide-v6");
 assert.deepEqual(frameMarker.contentRect, { x: 0, y: 0, width: 800, height: 800 });
 const postComposeScript = [
   "from PIL import Image, ImageChops", "import sys",

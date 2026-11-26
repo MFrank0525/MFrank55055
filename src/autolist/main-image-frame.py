@@ -7,12 +7,12 @@ from pathlib import Path
 from PIL import Image
 
 
-LAYOUT_VERSION = "full-bleed-visible-frame-guide-v5"
+LAYOUT_VERSION = "full-bleed-visible-frame-guide-v6"
 CONTENT_RECT = (0, 0, 800, 800)
-BREATHING_ZONE = (0, 0, 544, 184)
+BREATHING_ZONE = (0, 0, 544, 104)
 BREATHING_GUIDE_COLOR = (170, 225, 250)
 BREATHING_GUIDE_ALPHA = 168
-BREATHING_GUIDE_FEATHER = 24
+BREATHING_GUIDE_FEATHER = 8
 
 
 def resized_source(input_file: Path, frame: Image.Image) -> Image.Image:

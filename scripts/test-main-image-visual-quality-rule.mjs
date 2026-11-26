@@ -93,7 +93,7 @@ assert.ok(directions.every((text) => /不得为了凑人物、步骤、科技感
 assert.ok(directions.every((text) => /禁止|不得/.test(text)));
 assert.ok(directions.every((text) => /需求裁决/.test(text)));
 assert.ok(directions.every((text) => /主标题与副标题组成同一信息组/ .test(text)));
-assert.ok(directions.every((text) => /纵向24%–42%/.test(text)));
+assert.ok(directions.every((text) => /纵向14%–42%/.test(text)));
 const expectedPaletteDirections = [
   /海水蓝、青绿与珊瑚红/,
   /高山蓝、岩灰与冷杉绿/,

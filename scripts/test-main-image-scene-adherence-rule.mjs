@@ -86,12 +86,16 @@ assert.throws(() => validateMainImageSceneAdherencePayload({
 
 const sceneActionSource = fs.readFileSync("src/autolist/main-image-scene-adherence-action.ts", "utf8");
 assert.match(sceneActionSource, /brandFrameBreathingRoom/);
-assert.match(sceneActionSource, /纵向23%/);
+assert.match(sceneActionSource, /纵向0%–13%/);
+assert.match(sceneActionSource, /纵向14%以下开始/);
 assert.match(sceneActionSource, /prepareMainImageFrameBreathingAudit/);
 assert.match(sceneActionSource, /inspectBreathingRoom/);
-assert.match(sceneActionSource, /只检查这张顶部呼吸区裁片/);
+assert.match(sceneActionSource, /只检查灰色区域以外的内容/);
 assert.match(sceneActionSource, /images:\s*\[fs\.readFileSync\(options\.breathingAuditFile\)/);
 assert.match(sceneActionSource, /brandFrameBreathingRoom: breathingResult\.brandFrameBreathingRoom/);
+assert.equal((sceneActionSource.match(/num_ctx:\s*8192/g) || []).length, 2);
+assert.equal((sceneActionSource.match(/num_predict:\s*6000/g) || []).length, 1);
+assert.equal((sceneActionSource.match(/num_predict:\s*2048/g) || []).length, 1);
 
 const assetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 assert.match(assetsSource, /await assertMainImageSceneAdherence/);

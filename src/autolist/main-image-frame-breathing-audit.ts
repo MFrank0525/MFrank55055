@@ -34,7 +34,7 @@ export async function prepareMainImageFrameBreathingAudit(options: {
     throw new Error(`Main image breathing-audit crop failed: ${text.slice(-500)}`);
   }
   const payload = JSON.parse(match[1]) as { ok?: boolean; width?: number; height?: number; maskedFrame?: boolean };
-  if (!payload.ok || payload.width !== 544 || payload.height !== 184 || payload.maskedFrame !== true) {
+  if (!payload.ok || payload.width !== 544 || payload.height !== 104 || payload.maskedFrame !== true) {
     throw new Error(`Main image breathing-audit crop contract mismatch: ${JSON.stringify(payload)}`);
   }
   return options.outputFile;

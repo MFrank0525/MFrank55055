@@ -22,7 +22,7 @@ def main() -> None:
 
     width, height = image.size
     crop_width = round(width * 0.68)
-    crop_height = round(height * 0.23)
+    crop_height = round(height * 0.13)
     audit = image.crop((0, 0, crop_width, crop_height))
     legal_frame_mask = frame.getchannel("A").crop((0, 0, crop_width, crop_height))
     legal_frame_mask = legal_frame_mask.filter(ImageFilter.MaxFilter(9))
