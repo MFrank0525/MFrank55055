@@ -7,8 +7,12 @@ from pathlib import Path
 from PIL import Image
 
 
-LAYOUT_VERSION = "full-bleed-visible-frame-guide-v4"
+LAYOUT_VERSION = "full-bleed-visible-frame-guide-v5"
 CONTENT_RECT = (0, 0, 800, 800)
+BREATHING_ZONE = (0, 0, 544, 184)
+BREATHING_GUIDE_COLOR = (170, 225, 250)
+BREATHING_GUIDE_ALPHA = 168
+BREATHING_GUIDE_FEATHER = 24
 
 
 def resized_source(input_file: Path, frame: Image.Image) -> Image.Image:
@@ -23,7 +27,20 @@ def prepare_layout_reference(input_file: Path, frame_file: Path, output_file: Pa
     image = resized_source(input_file, frame)
     white_canvas = Image.new("RGBA", frame.size, (255, 255, 255, 255))
     opaque_product = Image.alpha_composite(white_canvas, image)
-    merged = Image.alpha_composite(opaque_product, frame)
+    guide = Image.new("RGBA", frame.size, (*BREATHING_GUIDE_COLOR, 0))
+    mask = Image.new("L", frame.size, 0)
+    mask_pixels = mask.load()
+    _, _, right, bottom = BREATHING_ZONE
+    feather_start_x = right - BREATHING_GUIDE_FEATHER
+    feather_start_y = bottom - BREATHING_GUIDE_FEATHER
+    for y in range(bottom):
+        y_factor = 1.0 if y < feather_start_y else (bottom - y) / BREATHING_GUIDE_FEATHER
+        for x in range(right):
+            x_factor = 1.0 if x < feather_start_x else (right - x) / BREATHING_GUIDE_FEATHER
+            mask_pixels[x, y] = round(BREATHING_GUIDE_ALPHA * min(x_factor, y_factor))
+    guide.putalpha(mask)
+    guided_product = Image.alpha_composite(opaque_product, guide)
+    merged = Image.alpha_composite(guided_product, frame)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     merged.save(output_file, format="PNG", optimize=True)
 
