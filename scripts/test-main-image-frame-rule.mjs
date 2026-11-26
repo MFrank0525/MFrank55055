@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { applyMainImageFrame, prepareMainImageFrameLayoutReference } from "../dist/src/autolist/main-image-frame-action.js";
+import { prepareMainImageFrameBreathingAudit } from "../dist/src/autolist/main-image-frame-breathing-audit.js";
 import { applyLocalWatermark } from "../dist/src/autolist/local-watermark.js";
 import { DEFAULT_MAIN_IMAGE_FRAME_FILE, MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_CONTRACT, shouldApplyDefaultMainImageFrame } from "../dist/src/autolist/main-image-frame-rules.js";
 import { getPythonCommand, sanitizePythonRuntimeEnv } from "../dist/src/utils/platform.js";
@@ -48,6 +49,28 @@ assert.match(businessRuleFingerprintSource, /MAIN_IMAGE_FRAME_SAFE_ZONE_PROMPT_C
 assert.match(buildAutoListingBusinessRuleFingerprint(), /^[a-f0-9]{24}$/);
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "main-image-frame-"));
+const breathingSourceFile = path.join(tempDir, "breathing-source.png");
+const breathingAuditFile = path.join(tempDir, "breathing-audit.png");
+execFileSync(getPythonCommand(), ["-c", [
+  "from PIL import Image", "import sys",
+  "Image.new('RGB',(800,800),(220,30,30)).save(sys.argv[1])"
+].join("\n"), breathingSourceFile], { env: sanitizePythonRuntimeEnv(process.env) });
+await prepareMainImageFrameBreathingAudit({
+  imageFile: breathingSourceFile,
+  frameFile: DEFAULT_MAIN_IMAGE_FRAME_FILE,
+  outputFile: breathingAuditFile
+});
+const breathingCheckScript = [
+  "from PIL import Image", "import sys",
+  "im=Image.open(sys.argv[1]).convert('RGB')",
+  "assert im.size == (544,184)",
+  "assert im.getpixel((20,20)) == (127,127,127)",
+  "assert im.getpixel((530,170)) == (220,30,30)",
+  "print('breathing-audit')"
+].join("\n");
+assert.equal(execFileSync(getPythonCommand(), ["-c", breathingCheckScript, breathingAuditFile], {
+  encoding: "utf8", env: sanitizePythonRuntimeEnv(process.env)
+}).trim(), "breathing-audit");
 const layoutReferenceFile = path.join(tempDir, "layout-reference.png");
 await prepareMainImageFrameLayoutReference({
   sourceFile: path.resolve("input/fixed-main-images/辅助图02.png"),

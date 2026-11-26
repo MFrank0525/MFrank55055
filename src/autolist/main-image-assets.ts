@@ -919,7 +919,8 @@ export async function generateMainImageAssets(options: {
         return {
           imageIndex: item.imageIndex,
           imageFile: item.rawImageFile,
-          scenePrompt
+          scenePrompt,
+          frameFile: protectedFrameFile
         };
       }),
       reportFile: path.join(taskDir, "main-image-scene-adherence-report.json"),

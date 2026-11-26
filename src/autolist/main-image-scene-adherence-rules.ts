@@ -6,7 +6,7 @@ import {
 } from "./scene-location-rules.js";
 
 export const LOCAL_QWEN_VISION_MODEL = "qwen3-vl:8b";
-export const MAIN_IMAGE_SCENE_ADHERENCE_GATE_VERSION = "local-qwen-vl-scene-adherence-v3";
+export const MAIN_IMAGE_SCENE_ADHERENCE_GATE_VERSION = "local-qwen-vl-focused-frame-audit-v4";
 
 export interface MainImageSceneAdherenceItem {
   imageIndex: number;
