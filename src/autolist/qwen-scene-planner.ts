@@ -15,7 +15,7 @@ import {
 } from "./scene-location-rules.js";
 
 export const LOCAL_QWEN_SCENE_MODEL = "qwen3.6:35b-a3b";
-export const LOCAL_QWEN_SCENE_PLANNER_VERSION = "local-qwen-need-matched-scenes-v6";
+export const LOCAL_QWEN_SCENE_PLANNER_VERSION = "local-qwen-need-matched-scenes-v7";
 
 export interface FeishuPosterPromptBatchValidationError {
   recordId: string;
@@ -70,13 +70,13 @@ interface QwenSceneValidationOptions {
 }
 
 const OUTDOOR_SCENE_PATTERN = /户外|沙滩|海边|海滩|登山|山林|山顶|公园|草坪|露营|野餐|露天|运动场|网球场|跑步道/u;
-const INDOOR_SCENE_PATTERN = /室内|浴室|洗漱台|梳妆台|卧室|床头柜|办公室|工位|书房/u;
+const INDOOR_SCENE_PATTERN = /室内|居家|家中|客厅|沙发|浴室|洗漱台|梳妆台|卧室|床头柜|办公室|工位|书房/u;
 
 function normalizeNeedComparison(value: string): string {
   return value.replace(/[\s，。；：、,.!！?？“”‘’"']/gu, "").toLowerCase();
 }
 
-function extractPrimaryNeedAnchors(approvedCopy: string): string[] {
+function extractPrimaryNeedSourceAnchors(approvedCopy: string): string[] {
   const anchors = approvedCopy
     .split("\n")
     .filter((line) => line.startsWith("主标题：") || line.startsWith("副标题："))
@@ -88,6 +88,35 @@ function extractPrimaryNeedAnchors(approvedCopy: string): string[] {
       .trim())
     .filter(Boolean);
   return anchors.filter((value, index) => anchors.indexOf(value) === index);
+}
+
+const PRODUCT_FORM_SUFFIX_PATTERN = /(远红外)?(?:治疗)?(?:凝胶|膏体敷料|敷料|软膏|乳膏|乳液|喷雾|贴剂|贴|面膜|胶囊|片剂|口服液|粉剂|颗粒|霜|膏|液)$/u;
+const USER_TASK_PATTERN = /(?:防晒|防紫外线|护理|润护|清洁|防护|修护|保湿|补水|舒缓|支撑|固定|监测|测量)$/u;
+
+function extractBodySiteHint(approvedCopy: string): string {
+  const coreSellingPoints = approvedCopy.split("\n")
+    .find((line) => line.startsWith("核心卖点："))
+    ?.replace(/^核心卖点：/u, "")
+    .split("；") || [];
+  return coreSellingPoints.find((part) => /(?:面部|脸部|唇部|口腔|鼻腔|颈部|腰部|腿部|足部|脚部|手部|手指|脚趾|关节|皮肤)$/u.test(part)) || "";
+}
+
+function derivePrimaryNeedAnchors(approvedCopy: string): string[] {
+  const sourceAnchors = extractPrimaryNeedSourceAnchors(approvedCopy);
+  const bodySite = extractBodySiteHint(approvedCopy);
+  const taskAnchors = sourceAnchors.map((sourceAnchor) => {
+    if (USER_TASK_PATTERN.test(sourceAnchor)) return sourceAnchor;
+    const subject = sourceAnchor
+      .replace(PRODUCT_FORM_SUFFIX_PATTERN, "")
+      .replace(/远红外|理疗技术|技术/gu, "")
+      .trim();
+    if (!subject) return bodySite ? `${bodySite}日常护理` : "日常使用护理";
+    if (USER_TASK_PATTERN.test(subject)) return subject;
+    return bodySite
+      ? `围绕${subject}相关的${bodySite}进行日常护理`
+      : `围绕${subject}相关需求进行日常护理`;
+  });
+  return taskAnchors.filter((value, index) => taskAnchors.indexOf(value) === index);
 }
 
 const FORBIDDEN_SCENE_TERMS = [
@@ -163,7 +192,7 @@ export function buildLocalQwenScenePlannerPrompt(input: {
   if (!approvedCopy || !productName) {
     throw new Error("Local Qwen scene planning requires approved Feishu copy and a current product name.");
   }
-  const primaryNeedAnchors = extractPrimaryNeedAnchors(approvedCopy);
+  const primaryNeedAnchors = derivePrimaryNeedAnchors(approvedCopy);
   const primaryNeedAnchor = primaryNeedAnchors.join("；");
   return [
     `【本地场景规划契约 ${LOCAL_QWEN_SCENE_PLANNER_VERSION}】`,
@@ -171,7 +200,7 @@ export function buildLocalQwenScenePlannerPrompt(input: {
     approvedCopy,
     `主要用户任务锚点（不可被核心卖点替换）：${primaryNeedAnchor}`,
     "先从已审核产品文案中识别用户为什么会需要当前商品，再规划5个互不重复、真实可拍、能促成理解与购买的场景。每个场景只描述locationConcept、userNeed、consumerMoment、environment、mood、interaction六项。",
-    "userNeed必须是用户要完成的事情或要解决的真实使用需求，并直接来自商品名称、通用名称和已审核文案；不得原样复制商品名、主标题或副标题充当需求。场景必须让目标用户一眼看懂‘这正是我需要它的时刻’。",
+    "userNeed必须是用户要完成的事情或要解决的真实使用需求，并直接来自商品名称、通用名称和已审核文案；上面的锚点已经由程序改写成可执行的用户任务，优先原样使用该任务措辞，不得原样复制商品名、主标题或副标题充当需求；不得退回商品名、主标题或副标题。场景必须让目标用户一眼看懂‘这正是我需要它的时刻’。",
     "五个userNeed都必须直接重述上面的同一个主要用户任务锚点，不得用后面的核心卖点替换、扩展或另起次级用途。核心卖点只能作为画面中的选择理由或信任证据，永远不能决定消费场景。若锚点含防晒，五个需求都必须明确是日晒或紫外线环境下的面部防晒，不得写成创面、晒后修复、敏感肌护理、无菌护理或正品查验；只选阳光暴露明确、需求强烈的白天场景，不选夕阳、夜晚或缺少日晒动机的场景。",
     "官方正品、无菌型、器械等级、成分、技术和包装特点属于信任证据或产品特征，不得单独当成userNeed。不要把5条卖点机械改写成5个需求；允许多个场景服务同一个核心需求，只要消费时刻真实且不同。",
     "不得把创面相关卖点外推成术后、医院或患者场景，也不得从无菌、防晒、护理等词外推抵御细菌、治疗、即时安抚、医疗级认证或其他未逐字提供的效果。interaction只描述画面中可见的人物姿态、商品位置和环境关系，不写协同作用、持续连接、标准配置等抽象功效结论。",
@@ -336,7 +365,9 @@ export async function generatePosterScenesWithLocalQwen(options: {
   const artifactFile = path.join(taskDir, "qwen-scene-plan.json");
   const productName = options.userCognitionName?.trim() || options.brandedGenericName?.trim() || options.genericName?.trim() || "";
   const approvedCopy = formatSelectedMainImageCopyForPrompt(options.sellingPointText);
-  const disallowedExactUserNeeds = [productName, ...extractPrimaryNeedAnchors(approvedCopy)];
+  const sourceNeedAnchors = extractPrimaryNeedSourceAnchors(approvedCopy);
+  const taskNeedAnchors = derivePrimaryNeedAnchors(approvedCopy);
+  const disallowedExactUserNeeds = [productName, ...sourceNeedAnchors];
   const sellingPointDigest = digestMainImagePromptSource(options.sellingPointText);
   fs.writeFileSync(promptFile, `${promptText}\n`, "utf8");
 
@@ -353,7 +384,7 @@ export async function generatePosterScenesWithLocalQwen(options: {
     let validatedScenes: QwenSceneRecord[] | undefined;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const correction = validationError
-        ? `\n\n上一次输出被程序拒绝：${validationError}\n重新生成全部5个对象，严格消除该问题，不要解释。`
+        ? `\n\n上一次输出被程序拒绝：${validationError}\n五个userNeed请直接使用用户任务“${taskNeedAnchors.join("；")}”，不得使用商品名“${disallowedExactUserNeeds.join("；")}”。重新生成全部5个对象，严格消除该问题，不要解释。`
         : "";
       let attemptRawResponse: string | undefined;
       try {

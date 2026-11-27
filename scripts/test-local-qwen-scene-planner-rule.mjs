@@ -9,6 +9,7 @@ import {
   validateScenePlanArtifact
 } from "../dist/src/autolist/qwen-scene-planner.js";
 import { digestMainImagePromptSource } from "../dist/src/autolist/main-image-prompt-revision-rules.js";
+import { classifySceneLocationConcepts } from "../dist/src/autolist/scene-location-rules.js";
 
 const sellingPointText = "突出放大的有设计感的艺术字：唇部干燥护理，尺寸略小一些的有设计感的艺术字：日常清爽润护，官方正品，聚乙二醇成分，保湿润护，清透凝胶，便携管装，日常可用，图示产品的使用步骤，突出产品使用部位。";
 const plannerPrompt = buildLocalQwenScenePlannerPrompt({
@@ -40,6 +41,16 @@ const credentialHeavyPrompt = buildLocalQwenScenePlannerPrompt({
 });
 assert.match(credentialHeavyPrompt, /主要用户任务锚点（不可被核心卖点替换）：防晒；面部防晒/);
 assert.doesNotMatch(credentialHeavyPrompt, /主要用户任务锚点（不可被核心卖点替换）：[^\n]*(?:医用|无菌|械字号)/);
+const productNameOnlyPrompt = buildLocalQwenScenePlannerPrompt({
+  sellingPointText: "突出放大的有设计感的艺术字：延草纲目医用痛风凝胶，尺寸略小一些的有设计感的艺术字：延草纲目痛风远红外凝胶，官方正品，第二类医疗器械产品，辅助治疗痛风性骨关节炎，远红外理疗技术，20g/支，手指脚趾关节，图示产品的使用步骤，突出产品使用部位。",
+  userCognitionName: "YCGM痛风凝胶",
+  genericName: "延草纲目痛风凝胶"
+});
+assert.match(productNameOnlyPrompt, /主要用户任务锚点（不可被核心卖点替换）：围绕痛风相关的手指脚趾关节进行日常护理/);
+assert.doesNotMatch(productNameOnlyPrompt, /主要用户任务锚点（不可被核心卖点替换）：(?:痛风凝胶|痛风远红外凝胶)/);
+assert.match(productNameOnlyPrompt, /不得退回商品名、主标题或副标题/);
+assert.deepEqual(classifySceneLocationConcepts("温馨明亮的客厅沙发旁"), ["home-care"]);
+assert.deepEqual(classifySceneLocationConcepts("明亮整洁的高铁车厢内部"), ["travel-transit"]);
 const plannerSource = fs.readFileSync("src/autolist/qwen-scene-planner.ts", "utf8");
 assert.doesNotMatch(
   plannerSource.replaceAll("http://127.0.0.1:11434", ""),
@@ -81,8 +92,8 @@ assert.throws(
   /copied a product title/
 );
 assert.throws(() => validateLocalQwenSceneRecords({ scenes: records.map((item, index) => index === 0 ? { ...item, environment: "户外海边", interaction: "商品放在浴室洗漱台" } : item) }), /outdoor environment with an indoor interaction/);
-assert.throws(() => validateLocalQwenSceneRecords({ scenes: records.map((item, index) => index === 0 ? { ...item, locationConcept: "beach", environment: "海边沙滩" } : index === 1 ? { ...item, locationConcept: "beach", environment: "海滩日光下" } : item) }), /repeat the same beach location concept/);
-assert.throws(() => validateLocalQwenSceneRecords({ scenes: records.map((item, index) => index === 0 ? { ...item, environment: "城市商业街区" } : index === 1 ? { ...item, locationConcept: "city-street", environment: "办公楼外人行道" } : item) }), /repeat the same city-street location concept/);
+assert.throws(() => validateLocalQwenSceneRecords({ scenes: records.map((item, index) => index === 0 ? { ...item, locationConcept: "beach", environment: "海边沙滩" } : index === 1 ? { ...item, locationConcept: "beach", consumerMoment: "午后海滩休息", environment: "海滩日光下", interaction: "商品与海边休息需求形成自然关系" } : item) }), /repeat the same beach location concept/);
+assert.throws(() => validateLocalQwenSceneRecords({ scenes: records.map((item, index) => index === 0 ? { ...item, environment: "城市商业街区" } : index === 1 ? { ...item, locationConcept: "city-street", consumerMoment: "午后街边休息", environment: "办公楼外人行道", interaction: "商品与城市出行需求形成自然关系" } : item) }), /repeat the same city-street location concept/);
 assert.throws(() => validateLocalQwenSceneRecords({ scenes: records.map((item, index) => index === 0 ? { ...item, environment: "明亮的户外空间" } : item) }), /exactly one concrete location concept/);
 assert.throws(() => validateLocalQwenSceneRecords({ scenes: records.map((item, index) => index === 0 ? { ...item, environment: "公园草坪或露天广场" } : item) }), /exactly one concrete location concept/);
 assert.doesNotThrow(() => validateLocalQwenSceneRecords({ scenes: records.map((item, index) => index === 0 ? { ...item, interaction: "人物自然站立或轻触面部" } : item) }));

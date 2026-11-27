@@ -14,6 +14,7 @@ import { getPythonCommand, sanitizePythonRuntimeEnv } from "../utils/platform.js
 import { LOCAL_QWEN_SCENE_MODEL } from "../autolist/qwen-scene-planner.js";
 import { LOCAL_QWEN_VISION_MODEL } from "../autolist/main-image-scene-adherence-rules.js";
 import { requireLocalOllamaHost } from "../autolist/local-ollama-rules.js";
+import { assertLocalVisionModelContract } from "../autolist/local-vision-ollama-contract.js";
 
 interface CheckResult {
   name: string;
@@ -236,17 +237,42 @@ function checkLocalQwenModels(): CheckResult[] {
       stdio: ["ignore", "pipe", "pipe"]
     });
     const models = (JSON.parse(raw) as { models?: Array<{ name?: string; model?: string }> }).models || [];
-    return [
-      ["local Qwen scene planner", LOCAL_QWEN_SCENE_MODEL],
-      ["local Qwen visual scene gate", LOCAL_QWEN_VISION_MODEL]
-    ].map(([name, model]) => {
-      const available = models.some((item) => item.name === model || item.model === model);
-      return {
-        name,
-        ok: available,
-        detail: available ? `${host}; model=${model}` : `${host}; required model missing: ${model}`
-      };
-    });
+    const sceneAvailable = models.some((item) => item.name === LOCAL_QWEN_SCENE_MODEL || item.model === LOCAL_QWEN_SCENE_MODEL);
+    const sceneResult: CheckResult = {
+      name: "local Qwen scene planner",
+      ok: sceneAvailable,
+      detail: sceneAvailable
+        ? `${host}; model=${LOCAL_QWEN_SCENE_MODEL}`
+        : `${host}; required model missing: ${LOCAL_QWEN_SCENE_MODEL}`
+    };
+    const visionAvailable = models.some((item) => item.name === LOCAL_QWEN_VISION_MODEL || item.model === LOCAL_QWEN_VISION_MODEL);
+    if (!visionAvailable) {
+      return [sceneResult, {
+        name: "local Qwen visual scene gate",
+        ok: false,
+        detail: `${host}; required model missing: ${LOCAL_QWEN_VISION_MODEL}`
+      }];
+    }
+    try {
+      const showRaw = execFileSync("curl", [
+        "--silent", "--show-error", "--fail",
+        "-H", "content-type: application/json",
+        "-d", JSON.stringify({ model: LOCAL_QWEN_VISION_MODEL }),
+        `${host}/api/show`
+      ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      assertLocalVisionModelContract(JSON.parse(showRaw));
+      return [sceneResult, {
+        name: "local Qwen visual scene gate",
+        ok: true,
+        detail: `${host}; model=${LOCAL_QWEN_VISION_MODEL}; renderer=qwen3-vl-instruct; parser=qwen3-vl-instruct`
+      }];
+    } catch (error) {
+      return [sceneResult, {
+        name: "local Qwen visual scene gate",
+        ok: false,
+        detail: `${host}; model contract invalid: ${error instanceof Error ? error.message : String(error)}`
+      }];
+    }
   } catch (error) {
     return ["local Qwen scene planner", "local Qwen visual scene gate"].map((name) => ({
       name,

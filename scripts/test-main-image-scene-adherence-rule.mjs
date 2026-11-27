@@ -8,6 +8,52 @@ import {
   validateMainImageSceneAdherencePayload
 } from "../dist/src/autolist/main-image-scene-adherence-rules.js";
 import { requireLocalOllamaHost } from "../dist/src/autolist/local-ollama-rules.js";
+import {
+  assertLocalVisionModelContract,
+  parseLocalVisionStructuredResponse
+} from "../dist/src/autolist/local-vision-ollama-contract.js";
+import { assertLocalVisionRuntimeMigrationEligible } from "../dist/src/autolist/local-vision-runtime-migration-rules.js";
+
+assert.equal(LOCAL_QWEN_VISION_MODEL, "qwen3-vl:8b-instruct");
+assert.doesNotThrow(() => assertLocalVisionModelContract({
+  renderer: "qwen3-vl-instruct",
+  parser: "qwen3-vl-instruct",
+  capabilities: ["completion", "vision"]
+}));
+assert.throws(() => assertLocalVisionModelContract({
+  renderer: "qwen3-vl-thinking",
+  parser: "qwen3-vl-thinking",
+  capabilities: ["completion", "vision", "thinking"]
+}), /thinking variant rejected/);
+assert.deepEqual(parseLocalVisionStructuredResponse(JSON.stringify({
+  model: LOCAL_QWEN_VISION_MODEL,
+  done: true,
+  done_reason: "stop",
+  message: { role: "assistant", content: '{"ok":true}' }
+})), { model: LOCAL_QWEN_VISION_MODEL, payload: { ok: true } });
+assert.throws(() => parseLocalVisionStructuredResponse(JSON.stringify({
+  model: LOCAL_QWEN_VISION_MODEL,
+  done: true,
+  done_reason: "length",
+  message: { role: "assistant", content: "", thinking: "reasoning only" }
+})), /thinking-only response rejected.*done_reason=length/);
+const migrationInput = {
+  currentBatchFingerprint: "batch-current",
+  runtimeBatchFingerprint: "batch-current",
+  currentBusinessRuleFingerprint: "rules-v6",
+  runtimeBusinessRuleFingerprint: "rules-v5",
+  taskStatus: "failed",
+  failedStep: "main_images_generated",
+  failureMessage: "Local vision scene audit returned no response content.",
+  generatedImageCount: 20,
+  paidCompletedCount: 20,
+  paidUnsafeCount: 0,
+  publishManifestEntryCount: 0
+};
+assert.doesNotThrow(() => assertLocalVisionRuntimeMigrationEligible(migrationInput));
+assert.throws(() => assertLocalVisionRuntimeMigrationEligible({ ...migrationInput, generatedImageCount: 19 }), /exactly 20 generated images/);
+assert.throws(() => assertLocalVisionRuntimeMigrationEligible({ ...migrationInput, publishManifestEntryCount: 1 }), /must not have publish entries/);
+assert.throws(() => assertLocalVisionRuntimeMigrationEligible({ ...migrationInput, failureMessage: "some other failure" }), /legacy empty-response failure/);
 
 assert.equal(requireLocalOllamaHost(), "http://127.0.0.1:11434");
 assert.equal(requireLocalOllamaHost("http://localhost:11434/"), "http://localhost:11434");
@@ -93,9 +139,10 @@ assert.match(sceneActionSource, /inspectBreathingRoom/);
 assert.match(sceneActionSource, /只检查灰色区域以外的内容/);
 assert.match(sceneActionSource, /images:\s*\[fs\.readFileSync\(options\.breathingAuditFile\)/);
 assert.match(sceneActionSource, /brandFrameBreathingRoom: breathingResult\.brandFrameBreathingRoom/);
-assert.equal((sceneActionSource.match(/num_ctx:\s*8192/g) || []).length, 2);
-assert.equal((sceneActionSource.match(/num_predict:\s*6000/g) || []).length, 1);
-assert.equal((sceneActionSource.match(/num_predict:\s*2048/g) || []).length, 1);
+assert.match(sceneActionSource, /assertLocalVisionModelAvailable/);
+assert.match(sceneActionSource, /requestLocalVisionStructuredJson/);
+assert.doesNotMatch(sceneActionSource, /think:\s*false/);
+assert.doesNotMatch(sceneActionSource, /fetch\(`\$\{options\.host\}\/api\/chat`/);
 
 const assetsSource = fs.readFileSync("src/autolist/main-image-assets.ts", "utf8");
 assert.match(assetsSource, /await assertMainImageSceneAdherence/);
@@ -105,5 +152,12 @@ assert.ok(
 );
 const plannerSource = fs.readFileSync("src/autolist/qwen-scene-planner.ts", "utf8");
 assert.match(plannerSource, /requireLocalOllamaHost/);
+const doctorSource = fs.readFileSync("src/cli/doctor.ts", "utf8");
+assert.match(doctorSource, /assertLocalVisionModelContract/);
+assert.match(doctorSource, /\/api\/show/);
+const visionModelFile = fs.readFileSync("ops/ollama/Modelfile.qwen3-vl-8b-instruct", "utf8");
+assert.match(visionModelFile, /^FROM qwen3-vl:8b$/m);
+assert.match(visionModelFile, /^RENDERER qwen3-vl-instruct$/m);
+assert.match(visionModelFile, /^PARSER qwen3-vl-instruct$/m);
 
 console.log("main image local vision scene adherence rule passed");

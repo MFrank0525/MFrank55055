@@ -46,6 +46,12 @@ export interface FeishuBitableField {
   raw: unknown;
 }
 
+export interface FeishuBitableTable {
+  tableId: string;
+  tableName: string;
+  raw: unknown;
+}
+
 export interface FeishuBitableAttachment {
   fileToken: string;
   identityDigest?: string;

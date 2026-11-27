@@ -66,7 +66,7 @@ export function selectNextFeishuMainImageSellingPointText(input: {
 }): string {
   const headlines = parseMainImageCandidateText(input.headlineCandidateText);
   const subtitles = parseMainImageCandidateText(input.subtitleCandidateText);
-  const sellingPoints = parseMainImageCandidateText(input.sellingPointCandidateText);
+  const sellingPoints = parseMainImageCandidateText(input.sellingPointCandidateText).filter((value) => value !== "官方正品");
   const current = parseSelectedSellingPointText(input.currentSellingPointText);
   const used = new Set([
     input.currentSellingPointText.trim(),

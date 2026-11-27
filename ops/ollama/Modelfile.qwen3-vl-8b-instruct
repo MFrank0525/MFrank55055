@@ -1,0 +1,4 @@
+FROM qwen3-vl:8b
+RENDERER qwen3-vl-instruct
+PARSER qwen3-vl-instruct
+PARAMETER temperature 0

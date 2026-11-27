@@ -3,6 +3,10 @@ import path from "node:path";
 import { prepareMainImageFrameBreathingAudit } from "./main-image-frame-breathing-audit.js";
 import { requireLocalOllamaHost } from "./local-ollama-rules.js";
 import {
+  assertLocalVisionModelAvailable,
+  requestLocalVisionStructuredJson
+} from "./local-vision-ollama-contract.js";
+import {
   assertMainImageSceneAdherenceReport,
   isMainImageSceneAdherenceAccepted,
   LOCAL_QWEN_VISION_MODEL,
@@ -52,30 +56,15 @@ async function inspectBreathingRoom(options: {
     "天空、云、树叶、山体和自然光线属于允许的场景背景，不得因此判false。",
     "严格输出JSON。"
   ].join("\n");
-  const response = await fetch(`${options.host}/api/chat`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      model: options.model,
-      stream: false,
-      think: false,
-      format: BREATHING_RESPONSE_SCHEMA,
-      messages: [{
-        role: "user",
-        content: prompt,
-        images: [fs.readFileSync(options.breathingAuditFile).toString("base64")]
-      }],
-      options: { temperature: 0, num_ctx: 8192, num_predict: 2048 }
-    }),
+  const { payload: rawPayload } = await requestLocalVisionStructuredJson({
+    host: options.host,
+    model: options.model,
+    prompt,
+    images: [fs.readFileSync(options.breathingAuditFile).toString("base64")],
+    format: BREATHING_RESPONSE_SCHEMA,
     signal: options.signal
   });
-  const raw = await response.text();
-  if (!response.ok) {
-    throw new Error(`Local vision breathing-room audit failed with HTTP ${response.status}: ${raw.slice(0, 500)}`);
-  }
-  const envelope = JSON.parse(raw) as { message?: { content?: string } };
-  if (!envelope.message?.content) throw new Error("Local vision breathing-room audit returned no response content.");
-  const payload = JSON.parse(envelope.message.content) as { brandFrameBreathingRoom?: unknown; reasons?: unknown };
+  const payload = rawPayload as { brandFrameBreathingRoom?: unknown; reasons?: unknown };
   if (typeof payload.brandFrameBreathingRoom !== "boolean") {
     throw new Error("Local vision breathing-room audit returned an invalid boolean result.");
   }
@@ -116,30 +105,15 @@ async function inspectOne(options: {
       `observedLocationConcept：只按画面占主导的真实地点从 ${SCENE_LOCATION_CONCEPTS.join(", ")} 中选择一个；沙滩、海边和海滩统一选 beach，不得根据目标文字猜测。`,
       "严格输出 JSON。"
     ].join("\n");
-    const response = await fetch(`${options.host}/api/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: options.model,
-        stream: false,
-        think: false,
-        format: RESPONSE_SCHEMA,
-        messages: [{
-          role: "user",
-          content: prompt,
-          images: [fs.readFileSync(options.imageFile).toString("base64")]
-        }],
-        options: { temperature: 0, num_ctx: 8192, num_predict: 6000 }
-      }),
+    const result = await requestLocalVisionStructuredJson({
+      host: options.host,
+      model: options.model,
+      prompt,
+      images: [fs.readFileSync(options.imageFile).toString("base64")],
+      format: RESPONSE_SCHEMA,
       signal: controller.signal
     });
-    const raw = await response.text();
-    if (!response.ok) {
-      throw new Error(`Local vision scene audit failed with HTTP ${response.status}: ${raw.slice(0, 500)}`);
-    }
-    const envelope = JSON.parse(raw) as { model?: string; message?: { content?: string } };
-    if (!envelope.message?.content) throw new Error("Local vision scene audit returned no response content.");
-    const payload = validateMainImageSceneAdherencePayload(JSON.parse(envelope.message.content));
+    const payload = validateMainImageSceneAdherencePayload(result.payload);
     const breathingResult = breathingAuditAvailable && options.breathingAuditFile
       ? await inspectBreathingRoom({
           breathingAuditFile: options.breathingAuditFile,
@@ -152,7 +126,7 @@ async function inspectOne(options: {
       imageIndex: options.imageIndex,
       imageFile: options.imageFile,
       scenePrompt: options.scenePrompt,
-      model: envelope.model || options.model,
+      model: result.model,
       ...payload,
       brandFrameBreathingRoom: breathingResult.brandFrameBreathingRoom,
       reasons: [...payload.reasons, ...breathingResult.reasons.map((reason) => `呼吸区：${reason}`)]
@@ -175,6 +149,7 @@ export async function inspectMainImageSceneAdherence(options: {
   if (model !== LOCAL_QWEN_VISION_MODEL) {
     throw new Error(`Local vision scene audit model must be ${LOCAL_QWEN_VISION_MODEL}, got ${model}.`);
   }
+  await assertLocalVisionModelAvailable({ host, model });
   const items = new Array<MainImageSceneAdherenceItem>(options.images.length);
   let nextIndex = 0;
   const worker = async () => {

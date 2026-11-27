@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./test-main-image-copy-rotation-rule.mjs";
 import { normalizeFeishuProductRecord, validateFeishuProductRecord } from "../dist/src/feishu/product-records.js";
 import { parseMainImageCandidateText } from "../dist/src/autolist/selling-point-rules.js";
 
@@ -41,6 +42,14 @@ const selected = normalized.sellingPointText.replace(/。$/, "").split("，").sl
 assert.equal(selected.length, 5);
 assert.equal(new Set(selected).size, 5);
 for (const item of selected) assert.ok(["聚乙二醇成分", "保湿润护", "清透凝胶", "便携管装", "日常可用"].includes(item));
+const lockedRefresh = normalizeFeishuProductRecord({
+  recordId: "rec-1",
+  fields: { ...fields, 主图主标题: "不应覆盖的新标题", 主图副标题: "不应覆盖的新副标题", 主图卖点: "新一\n新二\n新三\n新四\n新五" }
+}, config, { lockedMainImageCopyRecord: normalized });
+assert.equal(lockedRefresh.sellingPointText, normalized.sellingPointText, "A pending locked batch must preserve selected copy");
+assert.equal(lockedRefresh.mainImageHeadlineCandidateText, normalized.mainImageHeadlineCandidateText);
+assert.equal(lockedRefresh.mainImageSubtitleCandidateText, normalized.mainImageSubtitleCandidateText);
+assert.equal(lockedRefresh.mainImageSellingPointCandidateText, normalized.mainImageSellingPointCandidateText);
 assert.deepEqual(validateFeishuProductRecord(normalized), []);
 assert.equal(normalized.detailExpansionImages[0].fileToken, "detail-token");
 assert.throws(() => normalizeFeishuProductRecord({ recordId: "rec-too-few", fields: { ...fields, 主图卖点: "卖点一\n卖点二\n卖点三\n卖点四" } }, config), /至少需要5个不同候选内容/);

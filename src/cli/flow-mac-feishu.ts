@@ -242,6 +242,7 @@ function main(): void {
       args.configFile,
       "--out",
       "./data/feishu/products.json",
+      ...(currentBatchComplete === false ? ["--preserve-main-image-copy"] : []),
       "--cleanup-stale-assets"
     ], feishuEnv);
   }

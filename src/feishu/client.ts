@@ -1,4 +1,4 @@
-import type { FeishuBitableConfig, FeishuBitableField } from "./types.js";
+import type { FeishuBitableConfig, FeishuBitableField, FeishuBitableTable } from "./types.js";
 
 interface FeishuApiResponse<T> {
   code: number;
@@ -21,6 +21,16 @@ interface SearchRecordsData {
   items?: Array<{
     record_id?: string;
     fields?: Record<string, unknown>;
+    [key: string]: unknown;
+  }>;
+  has_more?: boolean;
+  page_token?: string;
+}
+
+interface ListTablesData {
+  items?: Array<{
+    table_id?: string;
+    name?: string;
     [key: string]: unknown;
   }>;
   has_more?: boolean;
@@ -57,19 +67,35 @@ function redactFeishuPath(path: string): string {
 }
 
 async function requestFeishu<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`https://open.feishu.cn/open-apis${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json; charset=utf-8",
-      ...(init.headers || {})
+  const method = (init.method || "GET").toUpperCase();
+  const maxAttempts = method === "GET" ? 5 : 1;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let shouldRetry = true;
+    try {
+      const response = await fetch(`https://open.feishu.cn/open-apis${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json; charset=utf-8",
+          ...(init.headers || {})
+        }
+      });
+      const payload = (await response.json()) as FeishuApiResponse<T>;
+      if (response.ok && payload.code === 0 && payload.data !== undefined) return payload.data;
+      const error = new Error(
+        `Feishu API failed: ${redactFeishuPath(path)}; code=${payload.code}; msg=${payload.msg || response.statusText}`
+      );
+      shouldRetry = [408, 429, 500, 502, 503, 504].includes(response.status);
+      if (!shouldRetry || attempt === maxAttempts) throw error;
+      lastError = error;
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetry || attempt === maxAttempts) throw error;
     }
-  });
-  const payload = (await response.json()) as FeishuApiResponse<T>;
-  if (!response.ok || payload.code !== 0 || payload.data === undefined) {
-    throw new Error(`Feishu API failed: ${redactFeishuPath(path)}; code=${payload.code}; msg=${payload.msg || response.statusText}`);
+    await sleep(1000 * attempt);
   }
-  return payload.data;
+  throw lastError instanceof Error ? lastError : new Error(`Feishu API failed: ${redactFeishuPath(path)}`);
 }
 
 export async function downloadFeishuMedia(token: string, fileToken: string, downloadUrl = ""): Promise<Buffer> {
@@ -129,6 +155,37 @@ export async function listBitableFields(config: FeishuBitableConfig, token: stri
   } while (pageToken);
 
   return fields;
+}
+
+export async function listBitableTables(appToken: string, token: string): Promise<FeishuBitableTable[]> {
+  const tables: FeishuBitableTable[] = [];
+  let pageToken = "";
+  do {
+    const query = new URLSearchParams({ page_size: "100" });
+    if (pageToken) query.set("page_token", pageToken);
+    const data = await requestFeishu<ListTablesData>(
+      token,
+      `/bitable/v1/apps/${encodePath(appToken)}/tables?${query.toString()}`
+    );
+    for (const item of data.items || []) {
+      tables.push({ tableId: item.table_id || "", tableName: item.name || "", raw: item });
+    }
+    pageToken = data.has_more ? data.page_token || "" : "";
+  } while (pageToken);
+  return tables;
+}
+
+export async function deleteBitableField(
+  appToken: string,
+  tableId: string,
+  fieldId: string,
+  token: string
+): Promise<void> {
+  await requestFeishu<Record<string, never>>(
+    token,
+    `/bitable/v1/apps/${encodePath(appToken)}/tables/${encodePath(tableId)}/fields/${encodePath(fieldId)}`,
+    { method: "DELETE" }
+  );
 }
 
 export async function resolveWikiNode(token: string, tenantAccessToken: string): Promise<FeishuWikiNode> {

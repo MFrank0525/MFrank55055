@@ -2,7 +2,10 @@ import type { FeishuBitableAttachment, FeishuBitableConfig, FeishuProductRecord 
 import type { FeishuBitableRecord } from "./client.js";
 import { normalizeProductCategory } from "../autolist/product-category.js";
 import { buildFeishuAttachmentIdentityDigest } from "../autolist/feishu-batch-rules.js";
-import { buildSelectedMainImageSellingPointText } from "../autolist/selling-point-rules.js";
+import {
+  selectRotatingMainImageCopy,
+  type MainImageCopyRecordHistory
+} from "../autolist/main-image-copy-rotation-rules.js";
 
 type FeishuFieldKey = keyof FeishuBitableConfig["fieldMap"];
 
@@ -227,7 +230,17 @@ export function sanitizeFeishuProductRecord(record: FeishuProductRecord): Feishu
   };
 }
 
-export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config: FeishuBitableConfig): FeishuProductRecord {
+export function normalizeFeishuProductRecord(
+  record: FeishuBitableRecord,
+  config: FeishuBitableConfig,
+  options: {
+    selectionHistory?: MainImageCopyRecordHistory;
+    additionalPreviouslyUsedSellingPointTexts?: string[];
+    lockedMainImageCopyRecord?: Pick<FeishuProductRecord,
+      "sellingPointText" | "mainImageHeadlineCandidateText" |
+      "mainImageSubtitleCandidateText" | "mainImageSellingPointCandidateText">;
+  } = {}
+): FeishuProductRecord {
   const fields = record.fields;
   const fieldMap = resolveFeishuFieldMap(config.fieldMap, Object.keys(fields));
   const field = (key: keyof FeishuBitableConfig["fieldMap"]): unknown => {
@@ -235,14 +248,17 @@ export function normalizeFeishuProductRecord(record: FeishuBitableRecord, config
     return fieldName ? fields[fieldName] : undefined;
   };
   const productCategoryText = extractText(field("productCategory"));
-  const mainImageHeadlineCandidateText = extractText(field("mainImageHeadlineCandidateText"));
-  const mainImageSubtitleCandidateText = extractText(field("mainImageSubtitleCandidateText"));
-  const mainImageSellingPointCandidateText = extractText(field("mainImageSellingPointCandidateText"));
-  const sellingPointText = buildSelectedMainImageSellingPointText({
+  const mainImageHeadlineCandidateText = options.lockedMainImageCopyRecord?.mainImageHeadlineCandidateText || extractText(field("mainImageHeadlineCandidateText"));
+  const mainImageSubtitleCandidateText = options.lockedMainImageCopyRecord?.mainImageSubtitleCandidateText || extractText(field("mainImageSubtitleCandidateText"));
+  const mainImageSellingPointCandidateText = options.lockedMainImageCopyRecord?.mainImageSellingPointCandidateText || extractText(field("mainImageSellingPointCandidateText"));
+  const sellingPointText = options.lockedMainImageCopyRecord?.sellingPointText || selectRotatingMainImageCopy({
+    recordId: record.recordId,
     headlineCandidateText: mainImageHeadlineCandidateText,
     subtitleCandidateText: mainImageSubtitleCandidateText,
-    sellingPointCandidateText: mainImageSellingPointCandidateText
-  });
+    sellingPointCandidateText: mainImageSellingPointCandidateText,
+    history: options.selectionHistory,
+    additionalPreviouslyUsedSellingPointTexts: options.additionalPreviouslyUsedSellingPointTexts
+  }).sellingPointText;
 
   return {
     recordId: record.recordId,

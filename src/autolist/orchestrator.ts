@@ -12,6 +12,7 @@ import { archiveUnwatermarkedMainImages, resolveArchiveProductName } from "./arc
 import { appendProcessedImages, readProcessedImages } from "./file-batch.js";
 import { auditMainImageGeneration, auditPublishMainImageSubset, collectFeishuProductAssetFiles, summarizeFeishuBatchProgress } from "./audit-rules.js";
 import { buildFeishuBatchFingerprint } from "./feishu-batch-rules.js";
+import { commitMainImageCopySelectionsForBatch } from "./main-image-copy-selection-history.js";
 import {
   loadFeishuProductRecords,
   loadFeishuProductRuntimeRecord,
@@ -1049,6 +1050,10 @@ export async function runAutoListingJob(jobFile: AutoListingJobFile): Promise<Au
   })) {
     throw new Error("Resume job batch or business-rule fingerprint is missing or does not match current rules.");
   }
+  commitMainImageCopySelectionsForBatch({
+    batchFingerprint: feishuBatchFingerprint,
+    records: lockedFeishuProductRecords
+  });
   const discoveredImages =
     resolved.input.resumeSourceImagePath
       ? [resolved.input.resumeSourceImagePath]

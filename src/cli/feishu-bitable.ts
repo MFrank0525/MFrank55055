@@ -1,11 +1,28 @@
 import fs from "node:fs";
 import path from "node:path";
 import { buildFeishuBatchFingerprint } from "../autolist/feishu-batch-rules.js";
+import {
+  auditManagedProductTableSchemas,
+  OBSOLETE_MAIN_IMAGE_FIELD_NAMES,
+  resolveManagedProductTables
+} from "../autolist/feishu-table-schema-rules.js";
+import {
+  DEFAULT_MAIN_IMAGE_COPY_SELECTION_HISTORY_FILE,
+  loadMainImageCopySelectionHistory
+} from "../autolist/main-image-copy-selection-history.js";
+import { loadFeishuProductRecords } from "../autolist/feishu-products.js";
 import { assertFeishuAuthConfigReady, getTenantAccessToken } from "../feishu/auth.js";
 import { downloadFeishuProductAssets } from "../feishu/assets.js";
 import { FEISHU_CACHE_SCHEMA_VERSION, FEISHU_FIELD_MAP_VERSION } from "../feishu/cache-contract.js";
-import { listBitableFields, resolveWikiNode, searchBitableRecords } from "../feishu/client.js";
+import {
+  deleteBitableField,
+  listBitableFields,
+  listBitableTables,
+  resolveWikiNode,
+  searchBitableRecords
+} from "../feishu/client.js";
 import { assertFeishuBitableConfigReady, loadFeishuBitableConfig } from "../feishu/config.js";
+import { loadLocalFeishuAuthEnv } from "../feishu/local-auth.js";
 import {
   isEmptyFeishuProductRecord,
   normalizeFeishuProductRecord,
@@ -13,7 +30,7 @@ import {
   validateFeishuProductRecord
 } from "../feishu/product-records.js";
 
-type Mode = "check" | "fields" | "records" | "dump" | "assets";
+type Mode = "check" | "fields" | "records" | "dump" | "assets" | "schema-audit" | "schema-clean";
 
 interface CliArgs {
   mode: Mode;
@@ -23,14 +40,7 @@ interface CliArgs {
   whiteBackgroundDir: string;
   qualificationDir: string;
   cleanupStaleAssets: boolean;
-}
-
-interface LocalFeishuAuthConfig {
-  auth?: {
-    appId?: string;
-    appSecret?: string;
-    tenantAccessToken?: string;
-  };
+  preserveMainImageCopy: boolean;
 }
 
 function getArg(argv: string[], name: string, defaultValue = ""): string {
@@ -39,10 +49,10 @@ function getArg(argv: string[], name: string, defaultValue = ""): string {
 }
 
 function parseMode(value: string): Mode {
-  if (value === "check" || value === "fields" || value === "records" || value === "dump" || value === "assets") {
-    return value;
+  if (["check", "fields", "records", "dump", "assets", "schema-audit", "schema-clean"].includes(value)) {
+    return value as Mode;
   }
-  throw new Error("Usage: --mode <check|fields|records|dump|assets> --config <feishu-bitable.config.json>");
+  throw new Error("Usage: --mode <check|fields|records|dump|assets|schema-audit|schema-clean> --config <feishu-bitable.config.json>");
 }
 
 function defaultConfigFile(): string {
@@ -59,6 +69,7 @@ function parseArgs(argv: string[]): CliArgs {
   const whiteBackgroundDir = getArg(argv, "white-background-dir", "input/auto-listing/feishu-images");
   const qualificationDir = getArg(argv, "qualification-dir", "input/auto-listing/qualifications");
   const cleanupStaleAssets = argv.includes("--cleanup-stale-assets");
+  const preserveMainImageCopy = argv.includes("--preserve-main-image-copy");
   return {
     mode,
     configFile,
@@ -66,7 +77,8 @@ function parseArgs(argv: string[]): CliArgs {
     outFile,
     whiteBackgroundDir,
     qualificationDir,
-    cleanupStaleAssets
+    cleanupStaleAssets,
+    preserveMainImageCopy
   };
 }
 
@@ -81,29 +93,9 @@ function redactIdentifier(value: string | undefined): string {
   return value.length <= 8 ? "[redacted]" : `${value.slice(0, 4)}...[redacted]...${value.slice(-4)}`;
 }
 
-function loadLocalAuthEnv(configFile: string): void {
-  const resolved = path.resolve(configFile);
-  if (!fs.existsSync(resolved)) {
-    return;
-  }
-  const parsed = JSON.parse(fs.readFileSync(resolved, "utf8")) as LocalFeishuAuthConfig;
-  if (!parsed.auth) {
-    return;
-  }
-  if (parsed.auth.appId?.trim()) {
-    process.env.FEISHU_APP_ID = parsed.auth.appId.trim();
-  }
-  if (parsed.auth.appSecret?.trim()) {
-    process.env.FEISHU_APP_SECRET = parsed.auth.appSecret.trim();
-  }
-  if (parsed.auth.tenantAccessToken?.trim()) {
-    process.env.FEISHU_TENANT_ACCESS_TOKEN = parsed.auth.tenantAccessToken.trim();
-  }
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  loadLocalAuthEnv(args.configFile);
+  loadLocalFeishuAuthEnv(args.configFile);
   const config = loadFeishuBitableConfig(args.configFile);
   assertFeishuAuthConfigReady();
 
@@ -116,6 +108,45 @@ async function main(): Promise<void> {
     config.appToken = node.objToken;
   }
   assertFeishuBitableConfigReady(config);
+  if (args.mode === "schema-audit" || args.mode === "schema-clean") {
+    const tables = await listBitableTables(config.appToken, token);
+    const managed = resolveManagedProductTables(tables);
+    let fieldsByTableId = new Map<string, Awaited<ReturnType<typeof listBitableFields>>>();
+    for (const table of managed) {
+      fieldsByTableId.set(table.tableId, await listBitableFields({ ...config, tableId: table.tableId, viewId: undefined }, token));
+    }
+    const deleted: Array<{ tableName: string; fieldName: string }> = [];
+    if (args.mode === "schema-clean") {
+      for (const table of managed) {
+        for (const field of fieldsByTableId.get(table.tableId) || []) {
+          if (!OBSOLETE_MAIN_IMAGE_FIELD_NAMES.includes(field.fieldName as typeof OBSOLETE_MAIN_IMAGE_FIELD_NAMES[number])) continue;
+          await deleteBitableField(config.appToken, table.tableId, field.fieldId, token);
+          deleted.push({ tableName: table.tableName, fieldName: field.fieldName });
+        }
+      }
+      fieldsByTableId = new Map();
+      for (const table of managed) {
+        fieldsByTableId.set(table.tableId, await listBitableFields({ ...config, tableId: table.tableId, viewId: undefined }, token));
+      }
+    }
+    const audit = auditManagedProductTableSchemas({
+      tables,
+      fieldsByTableId,
+      requiredFieldNames: Object.values(config.fieldMap).filter(Boolean)
+    });
+    console.log(JSON.stringify({
+      ...audit,
+      deleted,
+      tables: audit.tables.map((table) => ({
+        tableName: table.tableName,
+        fieldCount: table.fieldCount,
+        obsoleteFields: table.obsoleteFields.map((field) => field.fieldName),
+        missingRequiredFields: table.missingRequiredFields
+      }))
+    }, null, 2));
+    if (!audit.ok) process.exitCode = 1;
+    return;
+  }
   const fields = await listBitableFields(config, token);
   const actualFieldNames = new Set(fields.map((field) => field.fieldName).filter(Boolean));
   const mappedFieldNames = [...new Set(Object.values(config.fieldMap).filter(Boolean))];
@@ -160,7 +191,31 @@ async function main(): Promise<void> {
     }
   };
   const rawRecords = await searchBitableRecords(queryConfig, token, args.limit);
-  const allRecords = rawRecords.map((record) => normalizeFeishuProductRecord(record, config));
+  const selectionHistory = loadMainImageCopySelectionHistory(DEFAULT_MAIN_IMAGE_COPY_SELECTION_HISTORY_FILE);
+  const canonicalCacheFile = path.resolve("data/feishu/products.json");
+  let canonicalRecords: ReturnType<typeof loadFeishuProductRecords> = [];
+  if (fs.existsSync(canonicalCacheFile)) {
+    try {
+      canonicalRecords = loadFeishuProductRecords(canonicalCacheFile);
+    } catch {
+      canonicalRecords = [];
+    }
+  }
+  const canonicalByRecordId = new Map(canonicalRecords.map((record) => [record.recordId, record]));
+  const selectedThisRefresh: string[] = [];
+  const allRecords = rawRecords.map((record) => {
+    const canonical = canonicalByRecordId.get(record.recordId);
+    const normalized = normalizeFeishuProductRecord(record, config, {
+      selectionHistory: selectionHistory.records[record.recordId],
+      additionalPreviouslyUsedSellingPointTexts: [
+        ...selectedThisRefresh,
+        ...(canonical?.sellingPointText ? [canonical.sellingPointText] : [])
+      ],
+      lockedMainImageCopyRecord: args.preserveMainImageCopy ? canonical : undefined
+    });
+    selectedThisRefresh.push(normalized.sellingPointText);
+    return normalized;
+  });
   const records = allRecords.filter((record) => !isEmptyFeishuProductRecord(record));
   const invalidRecords = records
     .map((record) => ({ recordId: record.recordId, missing: validateFeishuProductRecord(record) }))

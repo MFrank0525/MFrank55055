@@ -26,11 +26,11 @@ const SCENE_LOCATION_GROUPS: ReadonlyArray<{
   { name: "park-camping", pattern: /\bpark-camping\b|公园|草坪|露营|野餐/u },
   { name: "sports", pattern: /\bsports\b|运动场|网球场|跑步道|健身场/u },
   { name: "office", pattern: /\boffice\b|办公室|工位|书房/u },
-  { name: "home-care", pattern: /\bhome-care\b|浴室|洗漱台|梳妆台|卧室|床头柜/u },
+  { name: "home-care", pattern: /\bhome-care\b|居家|家中|客厅|沙发|浴室|洗漱台|梳妆台|卧室|床头柜/u },
   { name: "retail", pattern: /\bretail\b|商场|专柜|货架|购物平台/u },
   { name: "cafe-patio", pattern: /\bcafe-patio\b|咖啡座|咖啡馆|露台|阳台|庭院/u },
   { name: "kitchen-dining", pattern: /\bkitchen-dining\b|厨房|餐桌|餐厅/u },
-  { name: "travel-transit", pattern: /\btravel-transit\b|机场|车站|酒店/u }
+  { name: "travel-transit", pattern: /\btravel-transit\b|机场|车站|酒店|高铁|列车|火车|动车|旅途|车厢|长途汽车/u }
 ];
 
 export function isSceneLocationConcept(value: unknown): value is SceneLocationConcept {
